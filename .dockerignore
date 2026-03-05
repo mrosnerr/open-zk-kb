@@ -1,0 +1,7 @@
+node_modules
+dist
+.git
+.sisyphus
+config.yaml
+CONTEXT_INJECTION_*.md
+CONTEXT_MANAGEMENT_*.md
