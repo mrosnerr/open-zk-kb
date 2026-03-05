@@ -1,0 +1,403 @@
+// tool-handlers.ts - Shared handler functions for knowledge tools
+// Used by both the MCP server and OpenCode plugin entry points
+
+import type { NoteKind, NoteStatus, PluginConfig } from './types.js';
+import { KIND_DEFAULT_STATUS } from './types.js';
+
+const VALID_STATUSES = new Set<string>(['fleeting', 'permanent', 'archived']);
+
+function toNoteStatus(status: string | undefined, fallback: NoteStatus): NoteStatus {
+  if (status && VALID_STATUSES.has(status)) return status as NoteStatus;
+  return fallback;
+}
+import type { NoteRepository, NoteMetadata } from './storage/NoteRepository.js';
+import { formatWikiLink } from './utils/wikilink.js';
+import { renderNoteForAgent, renderNoteForSearch } from './prompts.js';
+import { getPendingMigrations, getMigrationById } from './data-migrations.js';
+import { logToFile } from './logger.js';
+import type { EmbeddingConfig } from './embeddings.js';
+import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
+
+// ---- Helper functions ----
+
+function formatDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
+}
+
+function getRecommendation(note: NoteMetadata, daysOld: number): string {
+  const accesses = note.access_count || 0;
+  if (accesses >= 2) return '2caa Promote';
+  if (accesses === 0 && daysOld > 30) return '1f44 Archive';
+  return '1f914 Review';
+}
+
+// ---- Arg types ----
+
+export interface StoreArgs {
+  title: string;
+  content: string;
+  kind: NoteKind;
+  status?: string;
+  tags?: string[];
+  summary: string;
+  guidance: string;
+  project?: string;
+  related?: string[];
+}
+
+export interface SearchArgs {
+  query: string;
+  kind?: NoteKind;
+  status?: string;
+  project?: string;
+  limit?: number;
+}
+
+export interface MaintainArgs {
+  action: string;
+  noteId?: string;
+  filter?: 'fleeting' | 'permanent';
+  days?: number;
+  limit?: number;
+  dryRun?: boolean;
+}
+
+// ---- Handlers ----
+
+export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null): string {
+  const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
+  const tags = [...(args.tags || [])];
+
+  if (args.project) {
+    const projectTag = `project:${args.project}`;
+    if (!tags.includes(projectTag)) {
+      tags.push(projectTag);
+    }
+  }
+
+  let content = args.content;
+  if (args.related && args.related.length > 0) {
+    const links = args.related.map(id => {
+      const existing = repo.getById(id);
+      if (existing) {
+        return formatWikiLink({ id, display: existing.title });
+      }
+      return formatWikiLink({ id });
+    });
+    content += '\n\n## Related\n' + links.map(l => `- ${l}`).join('\n');
+  }
+
+  const result = repo.store(content, {
+    title: args.title,
+    kind: args.kind,
+    status: effectiveStatus,
+    tags,
+    summary: args.summary,
+    guidance: args.guidance,
+    related: args.related,
+  });
+
+  if (embeddingConfig) {
+    const text = buildEmbeddingText(args.title, args.summary, args.content);
+    generateEmbedding(text, embeddingConfig).then(embResult => {
+      if (embResult) {
+        repo.storeEmbedding(result.id, embResult.embedding, embResult.model);
+      }
+    }).catch((error) => {
+      logToFile('WARN', 'Embedding generation failed', {
+        noteId: result.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  }
+
+  let output = `Knowledge stored (${result.action})\n`;
+  output += `ID: ${result.id}\n`;
+  output += `Kind: ${args.kind}\n`;
+  output += `Status: ${effectiveStatus}\n`;
+  output += `Path: ${result.path}`;
+  return output;
+}
+
+export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedding?: number[] | null): string {
+  let results = repo.searchHybrid(args.query, queryEmbedding || null, {
+    kind: args.kind,
+    status: args.status ? toNoteStatus(args.status, 'fleeting') : undefined,
+    limit: args.limit || 10,
+  });
+
+  if (args.project) {
+    const projectPrefix = `project:${args.project}`;
+    results = results.filter(note => {
+      const tags = Array.isArray(note.tags) ? note.tags : [];
+      return tags.some(t => t === projectPrefix || t.startsWith(projectPrefix));
+    });
+  }
+
+  if (results.length === 0) {
+    return 'No matching notes found. Try broader keywords or remove filters.';
+  }
+
+  let output = `Found ${results.length} note(s):\n\n`;
+  for (const note of results) {
+    output += renderNoteForSearch(note) + '\n';
+    try {
+      repo.recordAccess(note.id);
+    } catch (error) {
+      logToFile('WARN', 'Failed to record access', {
+        noteId: note.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  return output;
+}
+
+export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: PluginConfig, embeddingConfig?: EmbeddingConfig | null): Promise<string> {
+  switch (args.action) {
+    case 'stats': {
+      const stats = repo.getStats();
+      const kindStats = repo.getStatsByKind();
+      const upgradeStatus = repo.getUpgradeStatus();
+      const embeddingStats = repo.getEmbeddingStats();
+      let output = '# Knowledge Base Statistics\n\n';
+      output += `## Vault (${stats.total} notes)\n`;
+      output += `- Fleeting: ${stats.fleeting}\n`;
+      output += `- Permanent: ${stats.permanent}\n`;
+      output += `- Archived: ${stats.archived}\n`;
+      if (stats.other > 0) {
+        output += `- Other (unknown status): ${stats.other}\n`;
+      }
+      output += '\n## By Kind\n';
+      for (const [kind, s] of Object.entries(kindStats)) {
+        output += `- **${kind}**: ${s.total} total\n`;
+      }
+      output += '\n## Embeddings\n';
+      output += `- With embedding: ${embeddingStats.withEmbedding}/${embeddingStats.total}\n`;
+      output += `- Without embedding: ${embeddingStats.withoutEmbedding}/${embeddingStats.total}\n`;
+      if (Object.keys(embeddingStats.models).length > 0) {
+        output += '- Models: ' + Object.entries(embeddingStats.models).map(([m, c]) => `${m} (${c})`).join(', ') + '\n';
+      }
+      output += '\n## Upgrade Status\n';
+      output += `- Notes missing summary: ${upgradeStatus.needsSummary}/${upgradeStatus.total}\n`;
+      output += `- Notes missing guidance: ${upgradeStatus.needsGuidance}/${upgradeStatus.total}\n`;
+      return output;
+    }
+    case 'promote': {
+      if (!args.noteId) return 'Error: noteId is required for promote action.';
+      const note = repo.getById(args.noteId);
+      if (!note) return `Note not found: ${args.noteId}`;
+      repo.promoteToPermanent(args.noteId);
+      return `Promoted "${note.title}" (${args.noteId}) to permanent status.`;
+    }
+    case 'archive': {
+      if (!args.noteId) return 'Error: noteId is required for archive action.';
+      const note = repo.getById(args.noteId);
+      if (!note) return `Note not found: ${args.noteId}`;
+      repo.archive(args.noteId);
+      return `Archived "${note.title}" (${args.noteId}).`;
+    }
+    case 'delete': {
+      if (!args.noteId) return 'Error: noteId is required for delete action.';
+      const note = repo.getById(args.noteId);
+      if (!note) return `Note not found: ${args.noteId}`;
+      repo.remove(args.noteId);
+      return `Deleted "${note.title}" (${args.noteId}).`;
+    }
+    case 'rebuild': {
+      const result = repo.rebuildFromFiles();
+      return `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuild complete.`;
+    }
+    case 'upgrade': {
+      const pending = getPendingMigrations(repo);
+      if (pending.length === 0) {
+        const status = repo.getUpgradeStatus();
+        if (status.needsSummary === 0 && status.needsGuidance === 0) {
+          return 'All notes have summary and guidance fields. No upgrade needed.';
+        }
+      }
+      let output = '## Upgrade Status\n\n';
+      const status = repo.getUpgradeStatus();
+      output += `${status.needsSummary} of ${status.total} notes are missing summary fields.\n`;
+      output += `${status.needsGuidance} of ${status.total} notes are missing guidance fields.\n`;
+      if (pending.length > 0) {
+        output += '\n## Pending Migrations\n';
+        for (const m of pending) {
+          output += `- **${m.id}** (v${m.version}): ${m.description} — ${m.pending} pending [${m.status}]\n`;
+        }
+      }
+      return output;
+    }
+    case 'upgrade-read': {
+      const migrationId = args.noteId; // reuse noteId field for migration ID
+      if (!migrationId) return 'Error: noteId (migration ID) is required for upgrade-read action.';
+      const migration = getMigrationById(migrationId);
+      if (!migration) return `Unknown migration: ${migrationId}`;
+      const notes = migration.detect(repo);
+      if (notes.length === 0) return 'No pending notes for this migration.';
+      let output = `## Migration: ${migration.id}\n\n`;
+      output += `${migration.instructions}\n\n`;
+      output += `### Pending Notes (${notes.length})\n\n`;
+      for (const note of notes.slice(0, 10)) {
+        output += `<note id="${note.id}" title="${note.title}" kind="${note.kind}">\n`;
+        for (const field of migration.readFields) {
+          const value = note[field as keyof typeof note];
+          if (value) output += `  <${field}>${value}</${field}>\n`;
+        }
+        output += `</note>\n\n`;
+      }
+      if (notes.length > 10) {
+        output += `... and ${notes.length - 10} more. Use offset/limit to paginate.\n`;
+      }
+      return output;
+    }
+    case 'upgrade-apply': {
+      // This action expects noteId and fields passed through args
+      // In practice the agent calls this per-note
+      if (!args.noteId) return 'Error: noteId is required for upgrade-apply action.';
+      return `Use knowledge-store with existingId to update note ${args.noteId}.`;
+    }
+    case 'review': {
+      const daysThreshold = args.days || 14;
+      const limit = args.limit || 3;
+      const queue = repo.getReviewQueue(args.filter, daysThreshold, limit);
+      
+      let output = '## Review Queue\n\n';
+      
+      const hasFleeting = queue.fleeting.total > 0;
+      const hasPermanent = queue.permanent.total > 0;
+      
+      if (!hasFleeting && !hasPermanent) {
+        return 'No notes pending review. All notes are up to date!';
+      }
+      
+      if (hasFleeting) {
+        output += `### Fleeting Notes for Review (${queue.fleeting.total} total`;
+        if (queue.fleeting.notes.length < queue.fleeting.total) {
+          output += `, showing ${queue.fleeting.notes.length}`;
+        }
+        output += ')\n';
+        
+        for (let i = 0; i < queue.fleeting.notes.length; i++) {
+          const note = queue.fleeting.notes[i];
+          const daysOld = Math.floor((Date.now() - note.created_at) / (1000 * 60 * 60 * 24));
+          const accessInfo = note.access_count === 0 ? 'never accessed' : `${note.access_count} access${note.access_count === 1 ? '' : 'es'}`;
+          const rec = getRecommendation(note, daysOld);
+          output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | ${accessInfo} | ${rec}\n`;
+        }
+        
+        if (queue.fleeting.total > queue.fleeting.notes.length) {
+          output += `\n... ${queue.fleeting.total - queue.fleeting.notes.length} more. Use \`--filter fleeting --limit 10\` to see all.\n`;
+        }
+        output += '\n';
+      }
+      
+      if (hasPermanent) {
+        output += `### Permanent Notes for Review (${queue.permanent.total} total`;
+        if (queue.permanent.notes.length < queue.permanent.total) {
+          output += `, showing ${queue.permanent.notes.length}`;
+        }
+        output += ')\n';
+        
+        for (let i = 0; i < queue.permanent.notes.length; i++) {
+          const note = queue.permanent.notes[i];
+          const daysOld = Math.floor((Date.now() - note.created_at) / (1000 * 60 * 60 * 24));
+          output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | never accessed | 2999 Review relevance\n`;
+        }
+        
+        if (queue.permanent.total > queue.permanent.notes.length) {
+          output += `\n... ${queue.permanent.total - queue.permanent.notes.length} more. Use \`--filter permanent --limit 10\` to see all.\n`;
+        }
+        output += '\n';
+      }
+      
+      output += '## Next Steps:\n';
+      let stepIdx = 65;
+      if (hasFleeting) output += `[${String.fromCharCode(stepIdx++)}] Show all fleeting notes for review\n`;
+      if (hasPermanent) output += `[${String.fromCharCode(stepIdx++)}] Show all permanent notes for review\n`;
+      output += `[${String.fromCharCode(stepIdx++)}] Promote specific note to permanent (requires --noteId)\n`;
+      output += `[${String.fromCharCode(stepIdx++)}] Archive specific note (requires --noteId)\n`;
+      
+      return output;
+    }
+    case 'dedupe': {
+      const duplicates = repo.findDuplicates();
+      
+      if (duplicates.size === 0) {
+        return 'No duplicate notes found.';
+      }
+      
+      let output = '## Duplicate Detection\n\n';
+      output += `Found ${duplicates.size} group${duplicates.size === 1 ? '' : 's'} of potential duplicates.\n\n`;
+      
+      let groupNum = 1;
+      for (const [baseTitle, notes] of duplicates) {
+        output += `### Group ${groupNum}: "${notes[0].title}" (${notes.length} notes)\n`;
+        
+        notes.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
+        
+        for (let i = 0; i < notes.length; i++) {
+          const note = notes[i];
+          const marker = i === 0 ? '(keep)' : '(duplicate)';
+          output += `- ${note.id} | ${note.access_count || 0} accesses | ${marker}\n`;
+        }
+        
+        if (notes.length > 1) {
+          const keepId = notes[0].id;
+          const archiveIds = notes.slice(1).map(n => n.id).join(', ');
+          output += `\n**Recommendation:** Keep ${keepId}, archive ${archiveIds}\n`;
+        }
+        output += '\n';
+        groupNum++;
+        
+        if (groupNum > 10) {
+          output += `... and ${duplicates.size - 10} more groups.\n`;
+          break;
+        }
+      }
+      
+      output += '## Next Steps:\n';
+      output += '[A] Archive specific duplicate (requires --noteId)\n';
+      output += '[B] View specific note details (use knowledge-search)\n';
+      
+      return output;
+    }
+    case 'embed': {
+      if (!embeddingConfig) {
+        return 'Embedding not configured. Add provider + embeddings section to config.yaml to enable vector search.';
+      }
+
+      const notesWithout = repo.getNotesWithoutEmbeddings(args.limit || 50);
+      if (notesWithout.length === 0) {
+        return 'All notes already have embeddings. Nothing to backfill.';
+      }
+
+      if (args.dryRun) {
+        return `Dry run: Would generate embeddings for ${notesWithout.length} notes using ${embeddingConfig.model}.`;
+      }
+
+      const texts = notesWithout.map(n => buildEmbeddingText(n.title, n.summary || '', n.content));
+      const noteIds = notesWithout.map(n => n.id);
+
+      try {
+        const results = await generateEmbeddingBatch(texts, embeddingConfig, 60000);
+        let stored = 0;
+        for (let i = 0; i < results.length; i++) {
+          const result = results[i];
+          if (result) {
+            repo.storeEmbedding(noteIds[i], result.embedding, result.model);
+            stored++;
+          }
+        }
+        logToFile('INFO', 'Embed backfill completed', { requested: noteIds.length, stored });
+        return `Embedded ${stored}/${notesWithout.length} notes using ${embeddingConfig.model}.`;
+      } catch (err) {
+        return `Embedding failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+    }
+    default:
+      return `Unknown action: ${args.action}`;
+  }
+}

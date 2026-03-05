@@ -1,0 +1,71 @@
+{
+  "name": "open-zk-kb",
+  "version": "1.0.0",
+  "description": "MCP server for persistent Zettelkasten-based knowledge management",
+  "type": "module",
+  "main": "dist/mcp-server.js",
+  "types": "dist/mcp-server.d.ts",
+  "exports": {
+    ".": "./dist/mcp-server.js",
+    "./opencode": "./dist/opencode-plugin.js"
+  },
+  "opencode": "./dist/opencode-plugin.js",
+  "bin": {
+    "open-zk-kb": "./dist/mcp-server.js",
+    "open-zk-kb-setup": "./dist/setup.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mrosnerr/open-zk-kb"
+  },
+  "homepage": "https://github.com/mrosnerr/open-zk-kb#readme",
+  "bugs": {
+    "url": "https://github.com/mrosnerr/open-zk-kb/issues"
+  },
+  "files": [
+    "dist/",
+    "config.example.yaml",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "bun run build",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "test:coverage": "bun test --coverage",
+    "eval": "EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000",
+    "setup": "bun run src/setup.ts"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.1.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.3.4"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.26.0",
+    "@typescript-eslint/parser": "^8.26.0",
+    "bun-types": "^1.2.2",
+    "eslint": "^9.21.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "knowledge-management",
+    "zettelkasten",
+    "opencode",
+    "ai",
+    "llm",
+    "sqlite",
+    "fts5"
+  ],
+  "license": "MIT"
+}
