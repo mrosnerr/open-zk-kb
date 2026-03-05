@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Database & vault artifacts
+.index/
+.kb/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Environment files
+.env*
+
+# Configuration (contains API keys)
+config.yaml
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+.logs/
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Agent / AI tool artifacts
+.opencode/
+.claude/
+.sisyphus/
+CONTEXT_*.md
+
+# Runtime artifacts
+NoteRepository
