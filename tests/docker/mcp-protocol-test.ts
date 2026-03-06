@@ -4,10 +4,11 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 async function run() {
   let passed = 0;
   let failed = 0;
+  const totalExpected = 10;
 
-  const check = (name: string, ok: boolean) => {
+  const check = (name: string, ok: boolean, detail?: string) => {
     if (ok) { console.log(`  ✅ ${name}`); passed++; }
-    else { console.log(`  ❌ ${name}`); failed++; }
+    else { console.log(`  ❌ ${name}${detail ? `: ${detail}` : ''}`); failed++; }
   };
 
   const transport = new StdioClientTransport({
@@ -20,10 +21,21 @@ async function run() {
   try {
     await client.connect(transport);
     check('MCP initialize response', true);
-  } catch {
-    check('MCP initialize response', false);
-    console.log(`MCP_RESULT:${passed}:${4}`);
+  } catch (err) {
+    check('MCP initialize response', false, String(err));
+    console.log(`MCP_RESULT:${passed}:${totalExpected}`);
     process.exit(1);
+  }
+
+  try {
+    const tools = await client.listTools();
+    const toolNames = tools.tools.map(t => t.name);
+    check('lists all 3 tools', toolNames.length === 3);
+    check('has knowledge-store', toolNames.includes('knowledge-store'));
+    check('has knowledge-search', toolNames.includes('knowledge-search'));
+    check('has knowledge-maintain', toolNames.includes('knowledge-maintain'));
+  } catch (err) {
+    check('list tools', false, String(err));
   }
 
   try {
@@ -38,9 +50,9 @@ async function run() {
       },
     });
     const storeText = JSON.stringify(storeResult);
-    check('knowledge-store accepted', storeText.includes('stored'));
-  } catch {
-    check('knowledge-store accepted', false);
+    check('knowledge-store creates note', storeText.includes('stored'));
+  } catch (err) {
+    check('knowledge-store creates note', false, String(err));
   }
 
   try {
@@ -49,9 +61,20 @@ async function run() {
       arguments: { query: 'Docker smoke test' },
     });
     const searchText = JSON.stringify(searchResult);
-    check('knowledge-search found note', searchText.includes('Docker smoke test'));
-  } catch {
-    check('knowledge-search found note', false);
+    check('knowledge-search finds note', searchText.includes('Docker smoke test'));
+  } catch (err) {
+    check('knowledge-search finds note', false, String(err));
+  }
+
+  try {
+    const emptySearch = await client.callTool({
+      name: 'knowledge-search',
+      arguments: { query: 'xyznonexistent999' },
+    });
+    const emptyText = JSON.stringify(emptySearch);
+    check('knowledge-search empty result', !emptyText.includes('Docker smoke test'));
+  } catch (err) {
+    check('knowledge-search empty result', false, String(err));
   }
 
   try {
@@ -60,9 +83,20 @@ async function run() {
       arguments: { action: 'stats' },
     });
     const statsText = JSON.stringify(statsResult);
-    check('knowledge-maintain stats', statsText.includes('total'));
-  } catch {
-    check('knowledge-maintain stats', false);
+    check('knowledge-maintain stats returns total', statsText.includes('total'));
+  } catch (err) {
+    check('knowledge-maintain stats returns total', false, String(err));
+  }
+
+  try {
+    const reviewResult = await client.callTool({
+      name: 'knowledge-maintain',
+      arguments: { action: 'review' },
+    });
+    const reviewText = JSON.stringify(reviewResult);
+    check('knowledge-maintain review executes', reviewText.length > 0);
+  } catch (err) {
+    check('knowledge-maintain review executes', false, String(err));
   }
 
   await client.close();
@@ -72,6 +106,6 @@ async function run() {
 
 run().catch((err) => {
   console.error(`Fatal: ${err}`);
-  console.log('MCP_RESULT:0:4');
+  console.log('MCP_RESULT:0:10');
   process.exit(1);
 });
