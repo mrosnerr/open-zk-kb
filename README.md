@@ -20,11 +20,89 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 bunx open-zk-kb
 ```
 
-The interactive installer lets you select which clients to set up (OpenCode, Claude Code, Cursor, Windsurf, Zed). For scripted/CI use:
+The interactive installer lets you select which clients to set up (OpenCode, Claude Code, Cursor, Windsurf, Zed).
 
-```bash
-bunx open-zk-kb install --client opencode
+## Manual Install
+
+If you prefer manual configuration, add open-zk-kb to your client's MCP config file. No cloning required — the npm package includes everything.
+
+### Claude Code
+
+`~/.claude/settings.json`
+
+```json
+{
+  "mcpServers": {
+    "open-zk-kb": {
+      "command": "bunx",
+      "args": ["open-zk-kb-server"]
+    }
+  }
+}
 ```
+
+### Cursor
+
+`~/.cursor/mcp.json`
+
+```json
+{
+  "mcpServers": {
+    "open-zk-kb": {
+      "command": "bunx",
+      "args": ["open-zk-kb-server"]
+    }
+  }
+}
+```
+
+### Windsurf
+
+`~/.codeium/windsurf/mcp_config.json`
+
+```json
+{
+  "mcpServers": {
+    "open-zk-kb": {
+      "command": "bunx",
+      "args": ["open-zk-kb-server"]
+    }
+  }
+}
+```
+
+### Zed
+
+`~/.config/zed/settings.json`
+
+```json
+{
+  "context_servers": {
+    "open-zk-kb": {
+      "command": "bunx",
+      "args": ["open-zk-kb-server"]
+    }
+  }
+}
+```
+
+### OpenCode
+
+`~/.config/opencode/opencode.json`
+
+```json
+{
+  "mcp": {
+    "open-zk-kb": {
+      "type": "local",
+      "command": ["bunx", "open-zk-kb-server"],
+      "enabled": true
+    }
+  }
+}
+```
+
+## Development
 
 ### From source
 
@@ -33,19 +111,6 @@ git clone https://github.com/mrosnerr/open-zk-kb
 cd open-zk-kb
 bun install && bun run build
 bun run setup            # interactive installer
-```
-
-## Manual Install
-
-Add to your client's MCP configuration:
-
-```json
-{
-  "open-zk-kb": {
-    "command": "bun",
-    "args": ["run", "/path/to/open-zk-kb/dist/mcp-server.js"]
-  }
-}
 ```
 
 ## Tools

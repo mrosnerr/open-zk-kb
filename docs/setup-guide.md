@@ -50,16 +50,16 @@ nano ~/.config/open-zk-kb/config.yaml
 ```
 
 ### Manual Installation (for any MCP client):
-Add to your client's MCP configuration:
+Add to your client's MCP configuration (no cloning required):
 ```json
 {
   "open-zk-kb": {
-    "command": "bun",
-    "args": ["run", "/absolute/path/to/open-zk-kb/dist/mcp-server.js"]
+    "command": "bunx",
+    "args": ["open-zk-kb-server"]
   }
 }
 ```
-Replace `/absolute/path/to/open-zk-kb` with the actual path where you cloned the repo.
+For Zed, use `context_servers` instead of `mcpServers`. For OpenCode, use the `mcp` key with `"type": "local"` and `"command": ["bunx", "open-zk-kb-server"]`.
 
 ## Step 3: Verify Installation
 1. Restart your editor/client.
