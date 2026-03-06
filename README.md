@@ -20,7 +20,7 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 bunx open-zk-kb
 ```
 
-The interactive installer lets you select which clients to set up (OpenCode, Claude Code, Cursor, Windsurf, Zed).
+The interactive installer lets you select which clients to set up (OpenCode, Claude Code, Cursor, Windsurf, Zed). For OpenCode plugin features like auto-capture and context injection, you'll need to add an API key — see [Configuration](#configuration).
 
 ## Manual Install
 
@@ -139,12 +139,23 @@ Notes follow a progression to maintain relevance:
 
 ## Configuration
 
-All settings live in a single file: `~/.config/open-zk-kb/config.yaml`
+All settings live in a single file: `~/.config/open-zk-kb/config.yaml` — the installer creates this automatically.
 
-- **Top-level keys** (vault, logLevel, grooming) apply to both modes.
-- **`opencode:` section** enables advanced plugin features (auto-capture, embeddings, injection).
+No configuration is required for basic MCP server usage. For OpenCode plugin features (auto-capture, quality gate, context injection), add your API key:
 
-No configuration is required for basic MCP server usage. For a full reference, see [docs/configuration.md](docs/configuration.md).
+```yaml
+opencode:
+  provider:
+    base_url: https://openrouter.ai/api/v1
+    api_key: "your-api-key-here"
+
+  capture:
+    auto: true
+    model: anthropic/claude-haiku-4-5
+    max_calls_per_session: 20
+```
+
+Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). For the full reference, see [docs/configuration.md](docs/configuration.md).
 
 ## Storage
 
