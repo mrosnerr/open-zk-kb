@@ -72,7 +72,7 @@ For Zed, use `context_servers` instead of `mcpServers`. For OpenCode, use the `m
 If the tool isn't recognized, check that your client config file was updated (see paths above) and that `dist/mcp-server.js` exists.
 
 ## Step 4: Optional Configuration
-- **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, grooming thresholds, and OpenCode plugin features in a single file. See [configuration.md](configuration.md).
+- **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and OpenCode plugin features in a single file. See [configuration.md](configuration.md).
 
 ## Uninstalling
 

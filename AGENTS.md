@@ -18,6 +18,7 @@ MCP server + OpenCode plugin for persistent Zettelkasten knowledge management. T
 ├── docs/                  # User-facing documentation
 │   ├── architecture.md    # System design, dual storage, design decisions
 │   ├── configuration.md   # Full config reference (single YAML file)
+│   ├── note-lifecycle.md  # Note statuses, kinds, review system
 │   ├── development.md     # Local dev workflow, testing, debugging
 │   └── setup-guide.md     # Step-by-step install for all clients
 ├── scripts/               # rebuild-db.ts
@@ -56,7 +57,7 @@ MCP server + OpenCode plugin for persistent Zettelkasten knowledge management. T
 | `NoteKind` | type | `types.ts` | 6 kinds: personalization, reference, decision, procedure, resource, observation |
 | `NoteStatus` | type | `types.ts` | 3 statuses: fleeting → permanent → archived |
 | `KIND_DEFAULT_STATUS` | const | `types.ts` | Maps kind → default status |
-| `PluginConfig` | interface | `types.ts` | Config shape: vault, logLevel, grooming |
+| `PluginConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle |
 | `SchemaManager` | class | `schema.ts` | DB schema versioning (v3), migrations |
 | `getConfig` | function | `config.ts` | 2-layer merge: defaults → YAML config |
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |
@@ -85,6 +86,7 @@ MCP server + OpenCode plugin for persistent Zettelkasten knowledge management. T
 - **Shared handlers**: `tool-handlers.ts` exports pure functions — both MCP server and OpenCode plugin call these
 - **ESM only**: `"type": "module"` — no CommonJS
 - **Strict TS**: `strict: true`, ES2022 target, NodeNext resolution
+- **Commit messages**: Capitalized imperative, no prefix, no trailing period (e.g. `Add feature`, `Fix bug`, `Update docs`)
 
 ## Commands
 

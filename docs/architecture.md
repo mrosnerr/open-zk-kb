@@ -96,7 +96,7 @@ The OpenCode plugin provides proactive knowledge management through six lifecycl
 
 All settings live in a single YAML file: `~/.config/open-zk-kb/config.yaml`
 
-- **Top-level keys** (vault, logLevel, grooming): Core settings used by both entry points. Merged with hardcoded defaults from `src/config.ts`.
+- **Top-level keys** (vault, logLevel, lifecycle): Core settings used by both entry points. Merged with hardcoded defaults from `src/config.ts`. See [Note Lifecycle](note-lifecycle.md) for details on the review system.
 - **`opencode:` section**: OpenCode plugin features (auto-capture thresholds, embedding API, injection parameters). Read via `getOpenCodeConfig()` — returns `null` if the section is absent.
 
 ## Schema & Migrations

@@ -7,8 +7,10 @@ open-zk-kb uses a single YAML configuration file:
 **Location**: `~/.config/open-zk-kb/config.yaml`
 
 The file has two sections:
-1. **Top-level keys** (vault, logLevel, grooming): Core settings used by both MCP Server and OpenCode Plugin.
+1. **Top-level keys** (vault, logLevel, lifecycle): Core settings used by both MCP Server and OpenCode Plugin.
 2. **`opencode:` section**: Advanced features for the OpenCode plugin (auto-capture, quality gate, embeddings, context injection).
+
+For a detailed explanation of note statuses, kinds, and the review system, see [Note Lifecycle](note-lifecycle.md).
 
 No configuration is required for basic MCP server usage — sensible defaults apply.
 
@@ -19,10 +21,10 @@ These apply to both the MCP Server and OpenCode Plugin.
 ```yaml
 vault: ~/.local/share/open-zk-kb
 logLevel: INFO
-grooming:
-  stalenessDays: 14
-  minAccessCount: 2
-  protectedKinds:
+lifecycle:
+  reviewAfterDays: 14
+  promotionThreshold: 2
+  exemptKinds:
     - personalization
     - decision
 ```
@@ -31,9 +33,9 @@ grooming:
 |--------|------|---------|-------------|
 | vault | string | ~/.local/share/open-zk-kb | Directory where notes and DB are stored |
 | logLevel | string | INFO | Log verbosity: DEBUG, INFO, WARN, ERROR |
-| grooming.stalenessDays | number | 14 | Days until a note is flagged for review |
-| grooming.minAccessCount | number | 2 | Access threshold — notes below this + stale days are flagged |
-| grooming.protectedKinds | string[] | ["personalization", "decision"] | Note kinds exempt from staleness |
+| lifecycle.reviewAfterDays | number | 14 | Days until a note is surfaced for review |
+| lifecycle.promotionThreshold | number | 2 | Accesses needed to recommend promotion to permanent |
+| lifecycle.exemptKinds | string[] | ["personalization", "decision"] | Note kinds exempt from the review queue |
 
 ## Section 2: OpenCode Plugin Settings
 

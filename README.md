@@ -6,6 +6,10 @@
 
 Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as Markdown notes indexed with SQLite FTS5 — so your assistant remembers across sessions.
 
+[![Demo](assets/demo.gif)](assets/demo.gif)
+
+*Store decisions, search knowledge, auto-inject context — across every session.*
+
 ## Modes of Operation
 
 1. **MCP Server**
@@ -137,6 +141,8 @@ bun run setup            # interactive installer
 Notes follow a progression to maintain relevance:
 **fleeting** → **permanent** → **archived**
 
+For details on the review system, promotion, and archiving, see [Note Lifecycle](docs/note-lifecycle.md).
+
 ## Configuration
 
 All settings live in a single file: `~/.config/open-zk-kb/config.yaml` — the installer creates this automatically.
@@ -169,6 +175,7 @@ Knowledge is stored as Markdown files with YAML frontmatter. A SQLite FTS5 index
 
 - [Setup Guide](docs/setup-guide.md)
 - [Configuration Reference](docs/configuration.md)
+- [Note Lifecycle](docs/note-lifecycle.md)
 - [Architecture Design](docs/architecture.md)
 - [Development & Contributing](docs/development.md)
 - [Contributing Guidelines](CONTRIBUTING.md)
