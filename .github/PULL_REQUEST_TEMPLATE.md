@@ -1,3 +1,7 @@
+<!-- PR title becomes the commit message (squash merge).
+     Format: Capitalized imperative, no prefix, no trailing period.
+     Examples: "Add feature", "Fix bug", "Update docs" -->
+
 ## Summary
 
 <!-- Brief description of what this PR does and why -->

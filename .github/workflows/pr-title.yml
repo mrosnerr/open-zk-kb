@@ -1,0 +1,61 @@
+name: PR Title
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+jobs:
+  check-title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate PR title
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const title = context.payload.pull_request.title;
+            const errors = [];
+
+            if (title !== title.trimStart()) {
+              errors.push('Title must not start with whitespace');
+            }
+
+            if (/^[a-z]/.test(title.trim())) {
+              errors.push('Title must start with a capital letter (e.g. "Add feature" not "add feature")');
+            }
+
+            if (/^(feat|fix|chore|refactor|docs|test|ci|style|perf|build)(\(.*\))?[!:]/.test(title.trim())) {
+              errors.push('No conventional commit prefixes (feat:, fix:, etc.) — use plain English');
+            }
+
+            if (/\.$/.test(title.trim())) {
+              errors.push('Title must not end with a period');
+            }
+
+            if (title.trim().length > 72) {
+              errors.push(`Title is ${title.trim().length} chars — keep it under 72`);
+            }
+
+            const pastTense = /^(Added|Fixed|Updated|Removed|Changed|Implemented|Created|Deleted|Moved|Renamed)\b/;
+            if (pastTense.test(title.trim())) {
+              const verb = title.trim().match(pastTense)[1];
+              const imperative = verb.replace(/ed$/, '').replace(/d$/, 'e');
+              errors.push(`Use imperative mood: "${imperative}" not "${verb}"`);
+            }
+
+            if (errors.length > 0) {
+              const message = [
+                '**PR title does not match commit convention.**',
+                '',
+                'Format: `Capitalized imperative sentence, no trailing period`',
+                '',
+                'Issues:',
+                ...errors.map(e => `- ${e}`),
+                '',
+                'Examples:',
+                '- `Add vector embeddings support for semantic search`',
+                '- `Fix FTS5 query sanitization for special characters`',
+                '- `Update manual install docs to use bunx from npm package`',
+              ].join('\n');
+
+              core.setFailed(message);
+            }

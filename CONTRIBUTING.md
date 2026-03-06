@@ -100,14 +100,35 @@ docker run --rm open-zk-kb-smoke bash tests/docker/smoke-test.sh
 2. Create a feature branch from `main`: `git checkout -b feature/my-feature main`.
 3. Make your changes with tests.
 4. Ensure `bun run build && bun test && bun run lint` all pass.
-5. Commit with clear, descriptive messages.
-6. Open a Pull Request **targeting `main`** with a description of what and why.
+5. Commit with clear, descriptive messages (see [Commit Messages](#commit-messages)).
+6. Open a Pull Request **targeting `main`**. Your PR title becomes the commit message (squash merge), so it must follow the commit message convention.
 
 ## Commit Messages
 
-- Use present tense: "Add feature" not "Added feature".
-- First line: concise summary (50 chars or less ideal).
-- Body: explain WHY, not just WHAT.
+Format: **Capitalized imperative sentence, no trailing period**
+
+```
+<Verb> <what changed>
+
+Optional body explaining WHY, not just WHAT.
+```
+
+- **Capitalize** the first word: `Add feature` not `add feature`
+- **Imperative mood**: `Add`, `Fix`, `Update`, `Remove`, `Expand` — not `Added`, `Fixes`, `Updates`
+- **50 chars or less** for the subject line (hard limit: 72)
+- **No trailing period** on the subject line
+- **No conventional commit prefixes** (`feat:`, `fix:`, etc.) — plain English
+
+Examples:
+```
+Add vector embeddings support for semantic search
+Fix FTS5 query sanitization for special characters
+Update manual install docs to use bunx from npm package
+Remove deprecated migration path from schema v1
+Expand Docker smoke tests from 21 to 97 checks
+```
+
+PRs use squash merge, so **your PR title becomes the commit message**. A CI check enforces the format on PR titles.
 
 ## Reporting Issues
 
