@@ -9,10 +9,10 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 ## Modes of Operation
 
 1. **MCP Server**
-   Works with any MCP-compatible client (Claude Code, Cursor, Windsurf, Zed). No configuration is required for basic use.
+   Works with any MCP-compatible client (OpenCode, Claude Code, Cursor, Windsurf, Zed). No configuration is required for basic use.
 
 2. **OpenCode Plugin**
-   Enhanced features including auto-capture via pattern detection, LLM quality gate, and 2-layer context injection. Requires a `config.yaml` file with an API provider.
+   Builds on the MCP server with auto-capture via pattern detection, LLM quality gate, and 2-layer context injection. Requires a `config.yaml` file with an API provider.
 
 ## Quick Start
 
@@ -25,6 +25,22 @@ The interactive installer lets you select which clients to set up (OpenCode, Cla
 ## Manual Install
 
 If you prefer manual configuration, add open-zk-kb to your client's MCP config file. No cloning required — the npm package includes everything.
+
+### OpenCode
+
+`~/.config/opencode/opencode.json`
+
+```json
+{
+  "mcp": {
+    "open-zk-kb": {
+      "type": "local",
+      "command": ["bunx", "open-zk-kb-server"],
+      "enabled": true
+    }
+  }
+}
+```
 
 ### Claude Code
 
@@ -81,22 +97,6 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
     "open-zk-kb": {
       "command": "bunx",
       "args": ["open-zk-kb-server"]
-    }
-  }
-}
-```
-
-### OpenCode
-
-`~/.config/opencode/opencode.json`
-
-```json
-{
-  "mcp": {
-    "open-zk-kb": {
-      "type": "local",
-      "command": ["bunx", "open-zk-kb-server"],
-      "enabled": true
     }
   }
 }
