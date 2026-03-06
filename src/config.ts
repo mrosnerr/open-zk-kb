@@ -14,10 +14,10 @@ const CONFIG_PATH = path.join(xdgConfigHome, 'open-zk-kb', 'config.yaml');
 interface RawConfig {
   vault?: string;
   logLevel?: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
-  grooming?: {
-    stalenessDays?: number;
-    minAccessCount?: number;
-    protectedKinds?: NoteKind[];
+  lifecycle?: {
+    reviewAfterDays?: number;
+    promotionThreshold?: number;
+    exemptKinds?: NoteKind[];
   };
   opencode?: OpenCodeConfig;
 }
@@ -56,10 +56,10 @@ export interface OpenCodeConfig {
 export const DEFAULT_CONFIG: PluginConfig = {
   logLevel: 'INFO',
   vault: path.join(xdgDataHome, 'open-zk-kb'),
-  grooming: {
-    stalenessDays: 14,
-    minAccessCount: 2,
-    protectedKinds: ['personalization', 'decision'],
+  lifecycle: {
+    reviewAfterDays: 14,
+    promotionThreshold: 2,
+    exemptKinds: ['personalization', 'decision'],
   },
 };
 
@@ -100,10 +100,10 @@ export function getConfig(): PluginConfig {
   return {
     vault,
     logLevel: raw?.logLevel ?? DEFAULT_CONFIG.logLevel,
-    grooming: {
-      stalenessDays: raw?.grooming?.stalenessDays ?? DEFAULT_CONFIG.grooming.stalenessDays,
-      minAccessCount: raw?.grooming?.minAccessCount ?? DEFAULT_CONFIG.grooming.minAccessCount,
-      protectedKinds: raw?.grooming?.protectedKinds ?? DEFAULT_CONFIG.grooming.protectedKinds,
+    lifecycle: {
+      reviewAfterDays: raw?.lifecycle?.reviewAfterDays ?? DEFAULT_CONFIG.lifecycle.reviewAfterDays,
+      promotionThreshold: raw?.lifecycle?.promotionThreshold ?? DEFAULT_CONFIG.lifecycle.promotionThreshold,
+      exemptKinds: raw?.lifecycle?.exemptKinds ?? DEFAULT_CONFIG.lifecycle.exemptKinds,
     },
   };
 }

@@ -10,10 +10,10 @@
 
 # vault: ~/.local/share/open-zk-kb       # Where notes are stored (default shown)
 # logLevel: INFO                          # DEBUG | INFO | WARN | ERROR
-# grooming:
-#   stalenessDays: 14                     # Days before a note is considered stale
-#   minAccessCount: 2                     # Minimum accesses to avoid staleness
-#   protectedKinds:                       # Kinds exempt from grooming
+# lifecycle:
+#   reviewAfterDays: 14                   # Days before a note is surfaced for review
+#   promotionThreshold: 2                 # Accesses needed to recommend promotion
+#   exemptKinds:                          # Kinds exempt from review
 #     - personalization
 #     - decision
 

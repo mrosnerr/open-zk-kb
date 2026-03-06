@@ -23,10 +23,10 @@ export const KIND_DEFAULT_STATUS: Record<NoteKind, NoteStatus> = {
 export interface PluginConfig {
   logLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
   vault: string;
-  grooming: {
-    stalenessDays: number;
-    minAccessCount: number;
-    protectedKinds: NoteKind[];
+  lifecycle: {
+    reviewAfterDays: number;
+    promotionThreshold: number;
+    exemptKinds: NoteKind[];
   };
 }
 
