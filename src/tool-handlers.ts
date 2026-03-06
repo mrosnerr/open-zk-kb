@@ -26,9 +26,9 @@ function formatDate(timestamp: number): string {
   return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
 }
 
-function getRecommendation(note: NoteMetadata, daysOld: number): string {
+function getRecommendation(note: NoteMetadata, daysOld: number, promotionThreshold: number = 2): string {
   const accesses = note.access_count || 0;
-  if (accesses >= 2) return '2caa Promote';
+  if (accesses >= promotionThreshold) return '2caa Promote';
   if (accesses === 0 && daysOld > 30) return '1f44 Archive';
   return '1f914 Review';
 }
@@ -260,9 +260,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return `Use knowledge-store with existingId to update note ${args.noteId}.`;
     }
     case 'review': {
-      const daysThreshold = args.days || 14;
+      const daysThreshold = args.days || config.lifecycle.reviewAfterDays;
       const limit = args.limit || 3;
-      const queue = repo.getReviewQueue(args.filter, daysThreshold, limit);
+      const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.promotionThreshold, config.lifecycle.exemptKinds);
       
       let output = '## Review Queue\n\n';
       
@@ -284,7 +284,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           const note = queue.fleeting.notes[i];
           const daysOld = Math.floor((Date.now() - note.created_at) / (1000 * 60 * 60 * 24));
           const accessInfo = note.access_count === 0 ? 'never accessed' : `${note.access_count} access${note.access_count === 1 ? '' : 'es'}`;
-          const rec = getRecommendation(note, daysOld);
+          const rec = getRecommendation(note, daysOld, config.lifecycle.promotionThreshold);
           output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | ${accessInfo} | ${rec}\n`;
         }
         

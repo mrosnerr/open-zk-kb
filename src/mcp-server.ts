@@ -158,7 +158,7 @@ const maintainSchema = z.object({
     .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings)'),
   noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
-  days: z.number().optional().describe('Days threshold for review (default: 14)'),
+  days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
   limit: z.number().optional().describe('Max notes to show (default: 3 for review)'),
   dryRun: z.boolean().optional().describe('Preview changes without applying'),
 });

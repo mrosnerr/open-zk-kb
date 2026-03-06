@@ -664,8 +664,8 @@ export class NoteRepository {
     };
   }
 
-  getStaleNotes(stalenessDays: number, minAccessCount: number, excludeKinds: NoteKind[]): NoteMetadata[] {
-    const cutoff = Date.now() - (stalenessDays * 24 * 60 * 60 * 1000);
+  getStaleNotes(reviewAfterDays: number, promotionThreshold: number, excludeKinds: NoteKind[]): NoteMetadata[] {
+    const cutoff = Date.now() - (reviewAfterDays * 24 * 60 * 60 * 1000);
     const placeholders = excludeKinds.map(() => '?').join(',');
 
     let sql = `
@@ -674,7 +674,7 @@ export class NoteRepository {
         AND created_at < ?
         AND access_count < ?
     `;
-    const params: (string | number)[] = [cutoff, minAccessCount];
+    const params: (string | number)[] = [cutoff, promotionThreshold];
 
     if (excludeKinds.length > 0) {
       sql += ` AND kind NOT IN (${placeholders})`;
@@ -1118,38 +1118,66 @@ export class NoteRepository {
     }));
   }
 
-  getReviewQueue(filter?: 'fleeting' | 'permanent', daysThreshold: number = 14, limit: number = 3): {
+  getReviewQueue(
+    filter?: 'fleeting' | 'permanent',
+    daysThreshold: number = 14,
+    limit: number = 3,
+    promotionThreshold: number = 2,
+    exemptKinds: NoteKind[] = [],
+  ): {
     fleeting: { notes: NoteMetadata[]; total: number };
     permanent: { notes: NoteMetadata[]; total: number };
   } {
     const cutoff = Date.now() - (daysThreshold * 24 * 60 * 60 * 1000);
 
-    const queryFleeting = (lim: number) => this.db.prepare(`
-      SELECT * FROM notes 
-      WHERE status = 'fleeting' 
-        AND created_at < ?
-      ORDER BY access_count ASC, created_at ASC
-      LIMIT ?
-    `).all(cutoff, lim) as NoteMetadata[];
+    // Build exempt kinds clause for SQL
+    const exemptPlaceholders = exemptKinds.length > 0
+      ? ` AND kind NOT IN (${exemptKinds.map(() => '?').join(',')})`
+      : '';
 
-    const countFleeting = () => this.db.prepare(`
-      SELECT COUNT(*) as count FROM notes 
-      WHERE status = 'fleeting' AND created_at < ?
-    `).get(cutoff) as { count: number };
+    const queryFleeting = (lim: number) => {
+      const params: (string | number)[] = [cutoff, promotionThreshold, ...exemptKinds, lim];
+      return this.db.prepare(`
+        SELECT * FROM notes 
+        WHERE status = 'fleeting' 
+          AND created_at < ?
+          AND access_count < ?
+          ${exemptPlaceholders}
+        ORDER BY access_count ASC, created_at ASC
+        LIMIT ?
+      `).all(...params) as NoteMetadata[];
+    };
 
-    const queryPermanent = (lim: number) => this.db.prepare(`
-      SELECT * FROM notes 
-      WHERE status = 'permanent' 
-        AND created_at < ?
-        AND access_count = 0
-      ORDER BY created_at ASC
-      LIMIT ?
-    `).all(cutoff, lim) as NoteMetadata[];
+    const countFleeting = () => {
+      const params: (string | number)[] = [cutoff, promotionThreshold, ...exemptKinds];
+      return this.db.prepare(`
+        SELECT COUNT(*) as count FROM notes 
+        WHERE status = 'fleeting' AND created_at < ? AND access_count < ?
+        ${exemptPlaceholders}
+      `).get(...params) as { count: number };
+    };
 
-    const countPermanent = () => this.db.prepare(`
-      SELECT COUNT(*) as count FROM notes 
-      WHERE status = 'permanent' AND created_at < ? AND access_count = 0
-    `).get(cutoff) as { count: number };
+    const queryPermanent = (lim: number) => {
+      const params: (string | number)[] = [cutoff, ...exemptKinds, lim];
+      return this.db.prepare(`
+        SELECT * FROM notes 
+        WHERE status = 'permanent' 
+          AND created_at < ?
+          AND access_count = 0
+          ${exemptPlaceholders}
+        ORDER BY created_at ASC
+        LIMIT ?
+      `).all(...params) as NoteMetadata[];
+    };
+
+    const countPermanent = () => {
+      const params: (string | number)[] = [cutoff, ...exemptKinds];
+      return this.db.prepare(`
+        SELECT COUNT(*) as count FROM notes 
+        WHERE status = 'permanent' AND created_at < ? AND access_count = 0
+        ${exemptPlaceholders}
+      `).get(...params) as { count: number };
+    };
 
     const mapResult = (r: NoteMetadata) => ({
       ...r,
