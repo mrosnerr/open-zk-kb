@@ -135,52 +135,199 @@ describe('Knowledge Capture Integration Tests', () => {
     });
   });
 
-  describe('Grooming (Stale Notes)', () => {
+  describe('Lifecycle (Review Queue)', () => {
     it('should find stale fleeting notes', () => {
-      // Create a note with a very old timestamp
-      const oldTimestamp = Date.now() - (30 * 24 * 60 * 60 * 1000); // 30 days ago
       context.engine.store('Old observation that nobody read', {
         title: 'Old Observation',
         kind: 'observation',
         status: 'fleeting',
       });
 
-      // Manually update the created_at to make it old
-      const notes = context.engine.getByKind('observation');
-      if (notes.length > 0) {
-        // Access the DB directly through the engine for testing
-        const stale = context.engine.getStaleNotes(1, 2, ['personalization', 'decision']);
-        // Note was just created, so it won't be stale yet (< 1 day)
-        // This tests the query works without errors
-        expect(Array.isArray(stale)).toBe(true);
-      }
+      const stale = context.engine.getStaleNotes(1, 2, ['personalization', 'decision']);
+      expect(Array.isArray(stale)).toBe(true);
     });
 
-    it('should exclude protected kinds from stale query', () => {
+    it('should exclude exempt kinds from stale query', () => {
       context.engine.store('This is my preference', {
         title: 'A Preference',
         kind: 'personalization',
         status: 'fleeting',
       });
 
-      // Even with 0-day staleness, personalization should be excluded
       const stale = context.engine.getStaleNotes(0, 0, ['personalization', 'decision']);
       const hasPersonalization = stale.some(n => n.kind === 'personalization');
       expect(hasPersonalization).toBe(false);
     });
 
-    it('should not exclude non-protected kinds', () => {
+    it('should not exclude non-exempt kinds', () => {
       context.engine.store('Old procedure nobody uses', {
         title: 'Old Procedure',
         kind: 'procedure',
         status: 'fleeting',
       });
 
-      // With 0-day staleness and 0 min access count, procedure should be included
       const stale = context.engine.getStaleNotes(0, 1, ['personalization', 'decision']);
-      // The note was just created (within current ms), so created_at < cutoff might not apply
-      // But the query should execute without errors
       expect(Array.isArray(stale)).toBe(true);
+    });
+  });
+
+  describe('Review Queue Selection Logic', () => {
+    const daysAgo = (days: number): number => Date.now() - (days * 24 * 60 * 60 * 1000);
+
+    const setCreatedAt = (noteId: string, timestamp: number): void => {
+      (context.engine as any).db.prepare('UPDATE notes SET created_at = ? WHERE id = ?').run(timestamp, noteId);
+    };
+
+    it('includes fleeting notes older than daysThreshold in review queue', () => {
+      const result = context.engine.store('Old fleeting note', {
+        title: 'Old Fleeting',
+        kind: 'observation',
+        status: 'fleeting',
+      });
+
+      const note = context.engine.getById(result.id)!;
+      setCreatedAt(note.id, daysAgo(20));
+
+      const queue = context.engine.getReviewQueue(
+        undefined,
+        14,
+        10,
+        context.config.lifecycle.promotionThreshold,
+        context.config.lifecycle.exemptKinds,
+      );
+
+      expect(queue.fleeting.total).toBe(1);
+      expect(queue.fleeting.notes.some(n => n.id === note.id)).toBe(true);
+    });
+
+    it('does not include fleeting notes newer than daysThreshold', () => {
+      context.engine.store('Fresh fleeting note', {
+        title: 'Fresh Fleeting',
+        kind: 'observation',
+        status: 'fleeting',
+      });
+
+      const queue = context.engine.getReviewQueue(
+        undefined,
+        14,
+        10,
+        context.config.lifecycle.promotionThreshold,
+        context.config.lifecycle.exemptKinds,
+      );
+
+      expect(queue.fleeting.total).toBe(0);
+      expect(queue.fleeting.notes).toHaveLength(0);
+    });
+
+    it('excludes fleeting notes with access_count >= promotionThreshold', () => {
+      const result = context.engine.store('Well-used fleeting note', {
+        title: 'Well-used Fleeting',
+        kind: 'observation',
+        status: 'fleeting',
+      });
+
+      const note = context.engine.getById(result.id)!;
+      setCreatedAt(note.id, daysAgo(20));
+
+      for (let i = 0; i < context.config.lifecycle.promotionThreshold; i++) {
+        context.engine.recordAccess(note.id);
+      }
+
+      const queue = context.engine.getReviewQueue(
+        undefined,
+        14,
+        10,
+        context.config.lifecycle.promotionThreshold,
+        context.config.lifecycle.exemptKinds,
+      );
+
+      expect(queue.fleeting.total).toBe(0);
+      expect(queue.fleeting.notes.some(n => n.id === note.id)).toBe(false);
+    });
+
+    it('excludes exemptKinds from both fleeting and permanent review', () => {
+      const fleetingExempt = context.engine.store('Exempt fleeting preference', {
+        title: 'Exempt Fleeting Preference',
+        kind: 'personalization',
+        status: 'fleeting',
+      });
+      const permanentExempt = context.engine.store('Exempt permanent decision', {
+        title: 'Exempt Permanent Decision',
+        kind: 'decision',
+        status: 'permanent',
+      });
+
+      setCreatedAt(fleetingExempt.id, daysAgo(20));
+      setCreatedAt(permanentExempt.id, daysAgo(20));
+
+      const queue = context.engine.getReviewQueue(
+        undefined,
+        14,
+        10,
+        context.config.lifecycle.promotionThreshold,
+        context.config.lifecycle.exemptKinds,
+      );
+
+      expect(queue.fleeting.total).toBe(0);
+      expect(queue.permanent.total).toBe(0);
+    });
+
+    it('includes permanent notes with zero accesses older than threshold', () => {
+      const result = context.engine.store('Old permanent note', {
+        title: 'Old Permanent',
+        kind: 'reference',
+        status: 'permanent',
+      });
+
+      const note = context.engine.getById(result.id)!;
+      setCreatedAt(note.id, daysAgo(20));
+
+      const queue = context.engine.getReviewQueue(
+        undefined,
+        14,
+        10,
+        context.config.lifecycle.promotionThreshold,
+        context.config.lifecycle.exemptKinds,
+      );
+
+      expect(queue.permanent.total).toBe(1);
+      expect(queue.permanent.notes.some(n => n.id === note.id)).toBe(true);
+    });
+
+    it('respects filter=fleeting and filter=permanent', () => {
+      const fleeting = context.engine.store('Old fleeting note', {
+        title: 'Filtered Fleeting',
+        kind: 'observation',
+        status: 'fleeting',
+      });
+      const permanent = context.engine.store('Old permanent note', {
+        title: 'Filtered Permanent',
+        kind: 'reference',
+        status: 'permanent',
+      });
+
+      setCreatedAt(fleeting.id, daysAgo(20));
+      setCreatedAt(permanent.id, daysAgo(20));
+
+      const fleetingOnly = context.engine.getReviewQueue(
+        'fleeting',
+        14,
+        10,
+        context.config.lifecycle.promotionThreshold,
+        context.config.lifecycle.exemptKinds,
+      );
+      expect(fleetingOnly.fleeting.total).toBe(1);
+      expect(fleetingOnly.permanent.total).toBe(0);
+
+      const permanentOnly = context.engine.getReviewQueue(
+        'permanent',
+        14,
+        10,
+        context.config.lifecycle.promotionThreshold,
+        context.config.lifecycle.exemptKinds,
+      );
+      expect(permanentOnly.fleeting.total).toBe(0);
+      expect(permanentOnly.permanent.total).toBe(1);
     });
   });
 

@@ -145,6 +145,11 @@ describe('MCP Tool: knowledge-search', () => {
 
 describe('MCP Tool: knowledge-maintain', () => {
   let ctx: TestContext;
+  const daysAgo = (days: number): number => Date.now() - (days * 24 * 60 * 60 * 1000);
+
+  const setCreatedAt = (noteId: string, timestamp: number): void => {
+    (ctx.engine as any).db.prepare('UPDATE notes SET created_at = ? WHERE id = ?').run(timestamp, noteId);
+  };
 
   beforeEach(() => {
     ctx = createTestHarness();
@@ -228,6 +233,110 @@ describe('MCP Tool: knowledge-maintain', () => {
 
     const output = await handleMaintain({ action: 'upgrade' }, ctx.engine, ctx.config);
     expect(output).toContain('No upgrade needed');
+  });
+
+  it('should return review output with proper formatting and counts', async () => {
+    ctx.engine.clearAll();
+
+    const fleeting = ctx.engine.store('Old fleeting item', {
+      title: 'Review Fleeting',
+      kind: 'observation',
+      status: 'fleeting',
+    });
+    const permanent = ctx.engine.store('Old permanent item', {
+      title: 'Review Permanent',
+      kind: 'reference',
+      status: 'permanent',
+    });
+
+    setCreatedAt(fleeting.id, daysAgo(20));
+    setCreatedAt(permanent.id, daysAgo(20));
+
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
+
+    expect(output).toContain('## Review Queue');
+    expect(output).toContain('### Fleeting Notes for Review (1 total)');
+    expect(output).toContain('### Permanent Notes for Review (1 total)');
+    expect(output).toContain('"Review Fleeting"');
+    expect(output).toContain('"Review Permanent"');
+    expect(output).toContain('## Next Steps:');
+  });
+
+  it('should include archive/review recommendations and exclude promote-threshold notes', async () => {
+    ctx.engine.clearAll();
+
+    const promoteCandidate = ctx.engine.store('Promote candidate', {
+      title: 'Promote Candidate',
+      kind: 'observation',
+      status: 'fleeting',
+    });
+    const archiveCandidate = ctx.engine.store('Archive candidate', {
+      title: 'Archive Candidate',
+      kind: 'observation',
+      status: 'fleeting',
+    });
+    const reviewCandidate = ctx.engine.store('Review candidate', {
+      title: 'Review Candidate',
+      kind: 'observation',
+      status: 'fleeting',
+    });
+
+    setCreatedAt(promoteCandidate.id, daysAgo(40));
+    setCreatedAt(archiveCandidate.id, daysAgo(40));
+    setCreatedAt(reviewCandidate.id, daysAgo(20));
+
+    for (let i = 0; i < ctx.config.lifecycle.promotionThreshold; i++) {
+      ctx.engine.recordAccess(promoteCandidate.id);
+    }
+    ctx.engine.recordAccess(reviewCandidate.id);
+
+    const output = await handleMaintain(
+      { action: 'review', filter: 'fleeting', days: 14, limit: 10 },
+      ctx.engine,
+      ctx.config,
+    );
+
+    expect(output).not.toContain('"Promote Candidate"');
+    expect(output).toContain('"Archive Candidate"');
+    expect(output).toContain('"Review Candidate"');
+    expect(output).not.toContain('| Promote');
+    expect(output).toContain('Archive');
+    expect(output).toContain('Review');
+    expect(output).toContain('### Fleeting Notes for Review (2 total)');
+  });
+
+  it('should respect review filter in handleMaintain review action', async () => {
+    ctx.engine.clearAll();
+
+    const fleeting = ctx.engine.store('Filter fleeting', {
+      title: 'Filter Fleeting',
+      kind: 'observation',
+      status: 'fleeting',
+    });
+    const permanent = ctx.engine.store('Filter permanent', {
+      title: 'Filter Permanent',
+      kind: 'reference',
+      status: 'permanent',
+    });
+
+    setCreatedAt(fleeting.id, daysAgo(20));
+    setCreatedAt(permanent.id, daysAgo(20));
+
+    const fleetingOnly = await handleMaintain(
+      { action: 'review', filter: 'fleeting', limit: 10 },
+      ctx.engine,
+      ctx.config,
+    );
+    expect(fleetingOnly).toContain('### Fleeting Notes for Review (1 total)');
+    expect(fleetingOnly).not.toContain('### Permanent Notes for Review');
+
+    const permanentOnly = await handleMaintain(
+      { action: 'review', filter: 'permanent', limit: 10 },
+      ctx.engine,
+      ctx.config,
+    );
+    expect(permanentOnly).toContain('### Permanent Notes for Review (1 total)');
+    expect(permanentOnly).not.toContain('### Fleeting Notes for Review');
   });
 });
 

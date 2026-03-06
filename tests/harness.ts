@@ -17,10 +17,10 @@ export function createTestHarness(): TestContext {
   const config: PluginConfig = {
     logLevel: 'ERROR',
     vault: tempDir,
-    grooming: {
-      stalenessDays: 14,
-      minAccessCount: 2,
-      protectedKinds: ['personalization', 'decision'],
+    lifecycle: {
+      reviewAfterDays: 14,
+      promotionThreshold: 2,
+      exemptKinds: ['personalization', 'decision'],
     },
   };
 

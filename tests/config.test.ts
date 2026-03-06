@@ -76,9 +76,9 @@ describe('config.ts', () => {
 
     expect(cfg.logLevel).toBe('INFO');
     expect(cfg.vault).toBe(path.join(isolated.dataDir, 'open-zk-kb'));
-    expect(cfg.grooming.stalenessDays).toBe(14);
-    expect(cfg.grooming.minAccessCount).toBe(2);
-    expect(cfg.grooming.protectedKinds).toEqual(['personalization', 'decision']);
+    expect(cfg.lifecycle.reviewAfterDays).toBe(14);
+    expect(cfg.lifecycle.promotionThreshold).toBe(2);
+    expect(cfg.lifecycle.exemptKinds).toEqual(['personalization', 'decision']);
   });
 
   it('reads vault path from YAML config', async () => {
@@ -94,27 +94,27 @@ describe('config.ts', () => {
 
   it('falls back to default values for missing keys in partial config', async () => {
     const isolated = createIsolatedConfigHome();
-    fs.writeFileSync(isolated.configPath, 'grooming:\n  stalenessDays: 30\n', 'utf-8');
+    fs.writeFileSync(isolated.configPath, 'lifecycle:\n  reviewAfterDays: 30\n', 'utf-8');
 
     const configModule = await loadFreshConfigModule();
     const cfg = configModule.getConfig();
 
-    expect(cfg.grooming.stalenessDays).toBe(30);
-    expect(cfg.grooming.minAccessCount).toBe(2);
-    expect(cfg.grooming.protectedKinds).toEqual(['personalization', 'decision']);
+    expect(cfg.lifecycle.reviewAfterDays).toBe(30);
+    expect(cfg.lifecycle.promotionThreshold).toBe(2);
+    expect(cfg.lifecycle.exemptKinds).toEqual(['personalization', 'decision']);
     expect(cfg.vault).toBe(path.join(isolated.dataDir, 'open-zk-kb'));
   });
 
   it('handles malformed YAML by returning defaults', async () => {
     const isolated = createIsolatedConfigHome();
-    fs.writeFileSync(isolated.configPath, 'grooming: [unclosed\n', 'utf-8');
+    fs.writeFileSync(isolated.configPath, 'lifecycle: [unclosed\n', 'utf-8');
 
     const configModule = await loadFreshConfigModule();
     const cfg = configModule.getConfig();
 
     expect(cfg.logLevel).toBe('INFO');
     expect(cfg.vault).toBe(path.join(isolated.dataDir, 'open-zk-kb'));
-    expect(cfg.grooming.stalenessDays).toBe(14);
+    expect(cfg.lifecycle.reviewAfterDays).toBe(14);
   });
 
   it('returns null from getOpenCodeConfig when section is missing', async () => {
