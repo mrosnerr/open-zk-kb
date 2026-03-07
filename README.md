@@ -8,9 +8,14 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 
 > **Beta** — This project is under active development (`0.1.x`). Core functionality works but APIs may change. [Bug reports](https://github.com/mrosnerr/open-zk-kb/issues) and feedback are welcome.
 
+*Store decisions, search knowledge, auto-inject context — across every session.*
+
+<details>
+<summary>Demo</summary>
+
 [![Demo](assets/demo.gif)](assets/demo.gif)
 
-*Store decisions, search knowledge, auto-inject context — across every session.*
+</details>
 
 ## Modes of Operation
 
