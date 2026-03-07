@@ -4,6 +4,9 @@ import {
   scoreContent,
   hashPattern,
   extractSurroundingContext,
+  sanitizeForCapture,
+  isAtomicContent,
+  QUALITY_GATE_SYSTEM_PROMPT,
   AGENT_RESPONSE_PATTERNS,
   USER_CAPTURE_PATTERNS,
   type CapturePattern,
@@ -148,7 +151,7 @@ describe('scoreContent', () => {
     expect(score).toBe(0);
   });
 
-  it('caps score at 10 for content matching all categories', () => {
+  it('scores content matching all categories above 10 (no cap)', () => {
     const content = `
       I prefer to use TypeScript because it prevents bugs.
       The pattern is to always use ESLint.
@@ -161,7 +164,21 @@ describe('scoreContent', () => {
     `;
     const score = scoreContent(content);
     
-    expect(score).toBeLessThanOrEqual(10);
+    expect(score).toBeGreaterThan(10);
+  });
+
+  it('penalizes very long content with word-count penalty', () => {
+    const longContent = 'I prefer ' + 'word '.repeat(350) + 'because it is better.';
+    const score = scoreContent(longContent);
+
+    expect(score).toBeLessThanOrEqual(5);
+  });
+
+  it('delegation prompt language scores low on pattern match', () => {
+    const delegationFragment = 'Fix the type error in auth.ts on line 42';
+    const score = scoreContent(delegationFragment);
+
+    expect(score).toBeLessThanOrEqual(2);
   });
 
   it('scores multiple categories appropriately', () => {
@@ -215,6 +232,96 @@ describe('extractSurroundingContext', () => {
     
     expect(context).toBe(fullText);
     expect(context).not.toContain('...');
+  });
+});
+
+describe('sanitizeForCapture', () => {
+  it('strips HTML comments including internal markers', () => {
+    const input = '<!-- OMO_INTERNAL_INITIATOR -->Remember to use TypeScript';
+    const result = sanitizeForCapture(input);
+    expect(result).toBe('Remember to use TypeScript');
+    expect(result).not.toContain('OMO_INTERNAL_INITIATOR');
+  });
+
+  it('strips delegation prompt blocks', () => {
+    const input = `Some preamble text.
+
+TASK: Fix the bug in auth.ts
+MUST DO: Use the existing pattern
+MUST NOT DO: Add new dependencies
+
+Some trailing text.`;
+    const result = sanitizeForCapture(input);
+    expect(result).not.toContain('TASK:');
+    expect(result).not.toContain('MUST DO:');
+    expect(result).not.toContain('MUST NOT DO:');
+    expect(result).toContain('Some preamble text');
+  });
+
+  it('strips markdown delegation headers', () => {
+    const input = '## 1. TASK\nDo something\n## 2. MUST DO\nSomething else';
+    const result = sanitizeForCapture(input);
+    expect(result).not.toContain('## 1. TASK');
+    expect(result).not.toContain('## 2. MUST DO');
+  });
+
+  it('preserves normal content', () => {
+    const input = 'I prefer using TypeScript because it catches bugs at compile time.';
+    const result = sanitizeForCapture(input);
+    expect(result).toBe(input);
+  });
+
+  it('handles empty string after sanitization', () => {
+    const input = '<!-- just a comment -->';
+    const result = sanitizeForCapture(input);
+    expect(result).toBe('');
+  });
+});
+
+describe('isAtomicContent', () => {
+  it('returns true for simple single-topic content', () => {
+    expect(isAtomicContent('I prefer tabs over spaces for indentation')).toBe(true);
+  });
+
+  it('returns true for content with one causal connector', () => {
+    expect(isAtomicContent('We chose PostgreSQL because of ACID support')).toBe(true);
+  });
+
+  it('returns true for content with two causal connectors', () => {
+    expect(isAtomicContent('The cache fails because of TTL issues, thus we switched to Redis')).toBe(true);
+  });
+
+  it('returns false for content with many causal connectors', () => {
+    const multiTopic = 'This fails because X. Therefore Y. Consequently Z needs to change because of W.';
+    expect(isAtomicContent(multiTopic)).toBe(false);
+  });
+
+  it('returns false for content with multiple headings', () => {
+    const multiSection = '## Overview\nSome text\n## Details\nMore text';
+    expect(isAtomicContent(multiSection)).toBe(false);
+  });
+
+  it('returns true for content with one heading', () => {
+    expect(isAtomicContent('## Decision\nWe chose to use FTS5')).toBe(true);
+  });
+});
+
+describe('QUALITY_GATE_SYSTEM_PROMPT', () => {
+  it('includes explicit delegation prompt rejection criteria', () => {
+    expect(QUALITY_GATE_SYSTEM_PROMPT).toContain('TASK:');
+    expect(QUALITY_GATE_SYSTEM_PROMPT).toContain('MUST DO:');
+    expect(QUALITY_GATE_SYSTEM_PROMPT).toContain('MUST NOT DO:');
+    expect(QUALITY_GATE_SYSTEM_PROMPT).toContain('EXPECTED OUTCOME:');
+  });
+
+  it('requires confidence field and not reason field in JSON schema', () => {
+    expect(QUALITY_GATE_SYSTEM_PROMPT).toContain('"confidence": 0.0 to 1.0');
+    expect(QUALITY_GATE_SYSTEM_PROMPT).not.toContain('"reason":');
+  });
+
+  it('contains explicit accept and reject guidance examples', () => {
+    expect(QUALITY_GATE_SYSTEM_PROMPT).toContain('EXAMPLES OF CONTENT TO REJECT');
+    expect(QUALITY_GATE_SYSTEM_PROMPT).toContain('EXAMPLES OF CONTENT TO ACCEPT');
   });
 });
 
@@ -340,9 +447,9 @@ describe('Pattern confidence levels', () => {
     expect(pattern?.confidence).toBe(0.8);
   });
 
-  it('warning has lower confidence', () => {
+  it('warning confidence is tuned for stricter capture', () => {
     const pattern = AGENT_RESPONSE_PATTERNS.find(p => p.name === 'warning');
-    expect(pattern?.confidence).toBe(0.65);
+    expect(pattern?.confidence).toBe(0.7);
   });
 });
 

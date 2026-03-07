@@ -169,6 +169,44 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('Notes missing summary');
   });
 
+  it('capture-stats returns statistics', async () => {
+    const captured = ctx.engine.store('Captured insight', {
+      title: 'Captured note',
+      kind: 'observation',
+      status: 'fleeting',
+      tags: ['auto-captured', 'source/agent'],
+    });
+
+    ctx.engine.recordCaptureMetric({
+      patternName: 'decision',
+      patternType: 'decision',
+      source: 'agent',
+      score: 12,
+      gateCalled: true,
+      gateWorthy: true,
+      gateConfidence: 0.92,
+      noteId: captured.id,
+    });
+
+    ctx.engine.recordCaptureMetric({
+      patternName: 'preference_statement',
+      patternType: 'preference',
+      source: 'user',
+      score: 6,
+      gateCalled: false,
+      gateWorthy: null,
+      gateConfidence: null,
+      noteId: null,
+    });
+
+    const result = await handleMaintain({ action: 'capture-stats' }, ctx.engine, ctx.config);
+    expect(result).toContain('Auto-Capture Statistics');
+    expect(result).toContain('Pipeline Metrics');
+    expect(result).toContain('Total capture attempts');
+    expect(result).toContain('By Pattern');
+    expect(result).toContain('By Source');
+  });
+
   it('should promote a note', async () => {
     const fleeting = ctx.engine.getByKind('reference');
     expect(fleeting.length).toBe(1);
@@ -337,6 +375,52 @@ describe('MCP Tool: knowledge-maintain', () => {
     );
     expect(permanentOnly).toContain('### Permanent Notes for Review (1 total)');
     expect(permanentOnly).not.toContain('### Fleeting Notes for Review');
+  });
+
+  it('dedupe shows permanent notes as protected and never recommends archiving them', async () => {
+    ctx.engine.clearAll();
+
+    const permanent = ctx.engine.store('Canonical decision content', {
+      title: 'Test Decision',
+      kind: 'decision',
+      status: 'permanent',
+    });
+    const duplicate = ctx.engine.store('Older duplicate decision content', {
+      title: 'Test Decision',
+      kind: 'decision',
+      status: 'fleeting',
+    });
+
+    ctx.engine.recordAccess(permanent.id);
+    ctx.engine.recordAccess(permanent.id);
+
+    const result = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
+
+    expect(result).toContain('permanent - protected');
+    expect(result).toContain('⚠️ Permanent notes (🔒) are never auto-archived');
+    expect(result).toContain(`Archive ${duplicate.id}`);
+    expect(result).not.toContain(`Archive ${permanent.id}`);
+  });
+
+  it('dedupe backfills missing hashes and reports SimHash near-duplicates', async () => {
+    ctx.engine.clearAll();
+
+    ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', {
+      title: 'Database Decision A',
+      kind: 'decision',
+      status: 'fleeting',
+    });
+    ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', {
+      title: 'Database Decision B',
+      kind: 'decision',
+      status: 'fleeting',
+    });
+
+    const result = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
+
+    expect(result).toContain('Backfilled 2 content hashes');
+    expect(result).toContain('Content-Based Near-Duplicates');
+    expect(result).toContain('(near-duplicate)');
   });
 });
 
