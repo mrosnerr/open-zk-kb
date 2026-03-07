@@ -9,6 +9,7 @@ import { logToFile } from './logger.js';
 import { generateEmbedding, buildEmbeddingText } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind as CanonicalNoteKind, NoteStatus } from './types.js';
+import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // PATTERN DETECTION
@@ -95,7 +96,7 @@ export const AGENT_RESPONSE_PATTERNS: CapturePattern[] = [
     regex: /(?:be careful with|watch out for|gotcha|caveat|pitfall|(?:do not|don't|never) (?:use|do|call|set|mix|combine))\s+(.{15,200})/i,
     type: 'fact',
     suggestedKind: 'reference',
-    confidence: 0.65,
+    confidence: 0.7,
   },
   // ── Insights & Discoveries ──
   {
@@ -110,7 +111,7 @@ export const AGENT_RESPONSE_PATTERNS: CapturePattern[] = [
     regex: /(?:note that|important(?:ly)?|remember that|keep in mind|crucial(?:ly)?|critical(?:ly)?)\s+(.{15,200})/i,
     type: 'fact',
     suggestedKind: 'reference',
-    confidence: 0.5,
+    confidence: 0.75,
   },
   // ── Procedures & How-To ──
   {
@@ -133,7 +134,7 @@ export const AGENT_RESPONSE_PATTERNS: CapturePattern[] = [
     regex: /(?:in general|typically|usually|as a rule of thumb|the pattern is|(?:best|common|standard) practice is|the convention is)\s+(.{20,200})/i,
     type: 'pattern',
     suggestedKind: 'observation',
-    confidence: 0.6,
+    confidence: 0.7,
   },
   // ── Comparisons & Distinctions ──
   {
@@ -141,7 +142,7 @@ export const AGENT_RESPONSE_PATTERNS: CapturePattern[] = [
     regex: /(?:the difference between|unlike|in contrast to|(?:is |are )(?:better|worse|faster|slower|simpler|safer) than|compared to|X vs\.? Y)\s+(.{20,200})/i,
     type: 'fact',
     suggestedKind: 'reference',
-    confidence: 0.65,
+    confidence: 0.7,
   },
   // ── Definitions & Concepts ──
   {
@@ -149,7 +150,7 @@ export const AGENT_RESPONSE_PATTERNS: CapturePattern[] = [
     regex: /(?:(?:this|that|it) (?:is called|refers to|means)|is defined as|in other words,|(?:the term|the concept of) .{3,40} (?:means|refers to|is))\s+(.{15,200})/i,
     type: 'fact',
     suggestedKind: 'reference',
-    confidence: 0.6,
+    confidence: 0.7,
   },
   // ── Future Intent & Policy ──
   {
@@ -223,7 +224,7 @@ export const USER_CAPTURE_PATTERNS: CapturePattern[] = [
     regex: /(?:i think .{5,40} is|i believe|in my experience|i've found that|i consider)\s+(.{15,200})/i,
     type: 'preference',
     suggestedKind: 'observation',
-    confidence: 0.6,
+    confidence: 0.7,
   },
 ];
 
@@ -246,6 +247,39 @@ export function extractSurroundingContext(fullText: string, matchStr: string): s
   if (end < fullText.length) context = context + '...';
 
   return context;
+}
+
+/**
+ * Sanitize message text before capture pattern detection.
+ * Strips internal markers, delegation prompts, and system artifacts.
+ */
+export function sanitizeForCapture(text: string): string {
+  let sanitized = text;
+  
+  // Strip HTML comments (including <!-- OMO_INTERNAL_INITIATOR -->)
+  sanitized = sanitized.replace(/<!--[\s\S]*?-->/g, '');
+  
+  // Strip delegation prompt blocks (TASK:, MUST DO:, MUST NOT DO:, CONTEXT:, EXPECTED OUTCOME:, REQUIRED TOOLS:)
+  // These blocks typically start with the keyword and continue until the next keyword or double newline
+  sanitized = sanitized.replace(/(?:^|\n)\s*(?:TASK|MUST DO|MUST NOT DO|CONTEXT|EXPECTED OUTCOME|REQUIRED TOOLS)\s*:\s*[\s\S]*?(?=\n\s*(?:TASK|MUST DO|MUST NOT DO|CONTEXT|EXPECTED OUTCOME|REQUIRED TOOLS)\s*:|\n\n|$)/gi, '');
+  
+  // Strip markdown task delegation headers (## 1. TASK, ## 2. EXPECTED OUTCOME, etc.)
+  sanitized = sanitized.replace(/^##\s*\d+\.\s*(?:TASK|EXPECTED OUTCOME|REQUIRED TOOLS|MUST DO|MUST NOT DO|CONTEXT)\b.*$/gm, '');
+  
+  // Clean up excessive whitespace left after stripping
+  sanitized = sanitized.replace(/\n{3,}/g, '\n\n').trim();
+  
+  return sanitized;
+}
+
+/**
+ * Check if content is likely atomic (single topic).
+ * Multi-topic content has multiple causal chains or multiple sections.
+ */
+export function isAtomicContent(content: string): boolean {
+  const causalConnectors = (content.match(/\b(therefore|because|thus|hence|as a result|consequently|so that|in order to)\b/gi) || []).length;
+  const headings = (content.match(/^#{2,}/gm) || []).length;
+  return causalConnectors <= 2 && headings <= 1;
 }
 
 export function detectPatterns(content: string, patterns: CapturePattern[]): DetectedPattern[] {
@@ -391,7 +425,7 @@ function getRepo(): NoteRepository | null {
 // LLM QUALITY GATE — External API (OpenRouter-compatible)
 // ═════════════════════════════════════════════════════════════════════════════
 
-const QUALITY_GATE_SYSTEM_PROMPT = `You are a knowledge quality gate for a Zettelkasten knowledge base.
+export const QUALITY_GATE_SYSTEM_PROMPT = `You are a knowledge quality gate for a Zettelkasten knowledge base.
 Your job is to evaluate whether a captured snippet is worth persisting as a reusable note.
 
 Evaluate the candidate on these criteria:
@@ -400,16 +434,35 @@ Evaluate the candidate on these criteria:
 3. UNIQUENESS: Does this contain specific, non-obvious information?
 4. ACTIONABILITY: Can someone act on or apply this knowledge?
 
+REJECT if the candidate:
+- Is a task delegation prompt (contains TASK:, MUST DO:, MUST NOT DO:, EXPECTED OUTCOME:)
+- Is a system/internal message or agent coordination artifact
+- Is a fragment that requires surrounding context to understand
+- Contains only status updates ("all tasks done", "working on it", "we have this working")
+- Is a code snippet without explanatory context
+- Restates obvious facts that any developer would know
+
+EXAMPLES OF CONTENT TO REJECT:
+- "Fix the type error in auth.ts on line 42" (task instruction, not knowledge)
+- "all tasks are done" (status update, not reusable)
+- "we have this working now" (context-dependent fragment)
+- "TASK: Implement the login flow MUST DO: Use JWT tokens" (delegation prompt)
+
+EXAMPLES OF CONTENT TO ACCEPT:
+- "We chose PostgreSQL over MongoDB because our data is highly relational and we need ACID transactions" (decision with rationale)
+- "I prefer tabs over spaces for indentation in all projects" (personal preference)
+- "The root cause was that FTS5 triggers don't work reliably with TEXT primary keys" (non-obvious insight)
+
 Respond with ONLY valid JSON (no markdown, no backticks):
 {
   "worthy": true or false,
   "title": "concise descriptive title (max 80 chars)",
   "summary": "1-2 sentence summary of the knowledge",
   "kind": "personalization" | "decision" | "procedure" | "observation" | "reference",
-  "reason": "brief explanation of why this is/isn't worth keeping"
+  "confidence": 0.0 to 1.0
 }
 
-Reject: fragments, context-dependent statements, obvious facts, duplicate concepts.
+Reject: fragments, context-dependent statements, obvious facts, duplicate concepts, delegation prompts, status updates.
 Accept: decisions with rationale, user preferences, reusable procedures, non-obvious insights.`;
 
 interface QualityGateResult {
@@ -417,7 +470,8 @@ interface QualityGateResult {
   title: string;
   summary: string;
   kind: string;
-  reason: string;
+  confidence?: number;
+  reason?: string;
 }
 
 async function _callQualityGateImpl(candidate: {
@@ -506,7 +560,7 @@ async function _callQualityGateImpl(candidate: {
       worthy: result.worthy,
       title: result.title,
       kind: result.kind,
-      reason: result.reason,
+      reason: result.confidence ? `confidence: ${result.confidence}` : result.reason ?? 'no reason',
       successCount: qualityGateSuccessCount,
     }, getConfig());
 
@@ -741,7 +795,10 @@ export function scoreContent(content: string): number {
     score += 1;
   }
 
-  return Math.min(score, 10);
+  const wordCount = content.split(/\s+/).length;
+  if (wordCount > 300) score -= 2;
+
+  return score;
 }
 
 export default async function plugin(input: { 
@@ -946,80 +1003,162 @@ export default async function plugin(input: {
       const captureApiKey = cfg ? resolveCaptureProviderKey(cfg) : null;
       if (!captureBaseUrl || !captureApiKey || !cfg?.capture?.model) return;
       
-      try {
-        const toolOutput = result;
-        const truncatedContent = toolOutput.length > 3000 
-          ? toolOutput.substring(0, 3000) + '\n\n[...truncated...]'
-          : toolOutput;
-        
-        const gateResult = await callQualityGate({
-          type: 'documentation',
-          match: title || path.basename(filePath) || toolName,
-          context: truncatedContent.substring(0, 800),
-          source: 'tool',
-        });
-        
-        if (gateResult && !gateResult.worthy) {
-          logToFile('INFO', 'Plugin: quality gate rejected tool capture', {
-            toolName,
-            reason: gateResult.reason,
-          }, config);
-          return;
-        }
-        
-        if (!gateResult) {
-          logToFile('WARN', 'Plugin: quality gate returned null for tool capture, skipping', {
-            toolName,
-          }, config);
-          return;
-        }
-        
-        const noteTitle = gateResult.title;
-        const noteContent = `# ${noteTitle}\n\n**Source:** ${toolName}\n**Path/URL:** ${filePath || title || 'N/A'}\n**Captured:** ${new Date().toISOString()}\n\n---\n\n${truncatedContent}`;
-        
-        const storeResult = repo.store({
-          title: noteTitle.substring(0, 100),
-          content: noteContent,
-          kind: toCanonicalKind(gateResult.kind),
-          status: 'fleeting' as NoteStatus,
-          tags: [
-            'auto-captured',
-            'llm-verified',
-            `source/${toolName}`,
-            'documentation',
-            ...(currentProjectName ? [`project:${currentProjectName}`] : []),
-          ],
-          summary: gateResult.summary,
-          guidance: `Verified reference from ${toolName} \u2014 apply when relevant.`,
-        });
-        
-        fireAndForgetEmbedding(repo, storeResult.id, noteTitle, gateResult.summary, truncatedContent);
-        sessionState.notesCreated.push(storeResult.id);
-        sessionState.knowledgeScore += 3;
-        baselineInvalidated = true;
-        
-        logToFile('INFO', 'Plugin: captured documentation from tool', {
-          noteId: storeResult.id,
-          toolName,
-          filePath: filePath || title,
-          contentLength: toolOutput.length,
-        }, config);
-        
-        if (client.tui?.showToast) {
-          client.tui.showToast({
-            body: {
-              message: `\ud83d\udcda Captured: ${noteTitle.substring(0, 40)}...`,
-              variant: 'info',
-              duration: 2000,
+      const toolCaptureProcessing = async () => {
+        try {
+          try {
+            const toolOutput = result;
+            const truncatedContent = toolOutput.length > 500
+              ? toolOutput.substring(0, 500) + '\n\n[...truncated...]'
+              : toolOutput;
+
+            const toolCandidateHash = computeSimHash(truncatedContent);
+            const toolNearDuplicates = repo.findNearDuplicates(toolCandidateHash);
+            if (toolNearDuplicates.length > 0) {
+              const duplicate = toolNearDuplicates[0];
+              const duplicateHash = duplicate.content
+                ? computeSimHash(duplicate.content)
+                : toolCandidateHash;
+
+              if (isNearDuplicate(toolCandidateHash, duplicateHash)) {
+                try {
+                  repo.recordCaptureMetric({
+                    patternName: toolName || 'tool-output',
+                    patternType: 'documentation',
+                    source: 'tool',
+                    score: 0,
+                    gateCalled: false,
+                    gateWorthy: null,
+                    gateConfidence: null,
+                    noteId: null,
+                  });
+                } catch {}
+
+                logToFile('DEBUG', 'Plugin: skipping near-duplicate tool capture via SimHash', {
+                  toolName,
+                  duplicateOf: duplicate.id,
+                }, config);
+                return;
+              }
             }
-          });
+
+            const gateResult = await callQualityGate({
+              type: 'documentation',
+              match: title || path.basename(filePath) || toolName,
+              context: truncatedContent.substring(0, 800),
+              source: 'tool',
+            });
+
+            if (gateResult && !gateResult.worthy) {
+              try {
+                repo.recordCaptureMetric({
+                  patternName: toolName || 'tool-output',
+                  patternType: 'documentation',
+                  source: 'tool',
+                  score: 0,
+                  gateCalled: true,
+                  gateWorthy: false,
+                  gateConfidence: gateResult.confidence ?? null,
+                  noteId: null,
+                });
+              } catch {}
+
+              logToFile('INFO', 'Plugin: quality gate rejected tool capture', {
+                toolName,
+                reason: gateResult.confidence ? `confidence: ${gateResult.confidence}` : gateResult.reason ?? 'no reason',
+              }, config);
+              return;
+            }
+
+            if (!gateResult) {
+              try {
+                repo.recordCaptureMetric({
+                  patternName: toolName || 'tool-output',
+                  patternType: 'documentation',
+                  source: 'tool',
+                  score: 0,
+                  gateCalled: true,
+                  gateWorthy: null,
+                  gateConfidence: null,
+                  noteId: null,
+                });
+              } catch {}
+
+              logToFile('WARN', 'Plugin: quality gate returned null for tool capture, skipping', {
+                toolName,
+              }, config);
+              return;
+            }
+
+            const noteTitle = gateResult.title;
+            const noteContent = `# ${noteTitle}\n\n**Source:** ${toolName}\n**Path/URL:** ${filePath || title || 'N/A'}\n**Captured:** ${new Date().toISOString()}\n\n---\n\n${gateResult.summary}`;
+
+            const storeResult = repo.store({
+              title: noteTitle.substring(0, 100),
+              content: noteContent,
+              kind: toCanonicalKind(gateResult.kind),
+              status: 'fleeting' as NoteStatus,
+              tags: [
+                'auto-captured',
+                'llm-verified',
+                `source/${toolName}`,
+                'documentation',
+                ...(currentProjectName ? [`project:${currentProjectName}`] : []),
+              ],
+              summary: gateResult.summary,
+              guidance: `Verified reference from ${toolName} \u2014 apply when relevant.`,
+            });
+
+            repo.updateContentHash(storeResult.id, computeSimHash(noteContent));
+
+            fireAndForgetEmbedding(repo, storeResult.id, noteTitle, gateResult.summary, truncatedContent);
+            sessionState.notesCreated.push(storeResult.id);
+            sessionState.knowledgeScore += 3;
+            baselineInvalidated = true;
+
+            try {
+              repo.recordCaptureMetric({
+                patternName: toolName || 'tool-output',
+                patternType: 'documentation',
+                source: 'tool',
+                score: 0,
+                gateCalled: true,
+                gateWorthy: true,
+                gateConfidence: gateResult.confidence ?? null,
+                noteId: storeResult.id,
+              });
+            } catch {}
+
+            logToFile('INFO', 'Plugin: captured documentation from tool', {
+              noteId: storeResult.id,
+              toolName,
+              filePath: filePath || title,
+              contentLength: toolOutput.length,
+            }, config);
+
+            if (client.tui?.showToast) {
+              client.tui.showToast({
+                body: {
+                  message: `\ud83d\udcda Captured: ${noteTitle.substring(0, 40)}...`,
+                  variant: 'info',
+                  duration: 2000,
+                }
+              });
+            }
+          } catch (error) {
+            logToFile('ERROR', 'Plugin: failed to capture tool output', {
+              error: error instanceof Error ? error.message : String(error),
+              toolName,
+            }, config);
+          }
+        } catch (error) {
+          logToFile('ERROR', 'Plugin: background tool capture failed', {
+            error: error instanceof Error ? error.message : String(error),
+            toolName,
+          }, config);
         }
-      } catch (error) {
-        logToFile('ERROR', 'Plugin: failed to capture tool output', {
-          error: error instanceof Error ? error.message : String(error),
-          toolName,
-        }, config);
-      }
+      };
+
+      void toolCaptureProcessing();
     },
     
     'chat.message': async (input, output) => {
@@ -1030,6 +1169,9 @@ export default async function plugin(input: {
       if (!cfg?.capture?.auto || !repo) {
         return;
       }
+
+      const captureProcessing = async () => {
+        try {
       
       // Drain pending user captures from messages.transform
       // (messages.transform can't call quality gate without deadlocking,
@@ -1041,30 +1183,81 @@ export default async function plugin(input: {
         for (const capture of captures) {
           const pHash = hashPattern(capture.pattern.match);
           if (sessionState.capturedPatterns.includes(pHash)) continue;
+
+          const userContentForHash = capture.pattern.context || capture.pattern.match;
+          const userCandidateHash = computeSimHash(userContentForHash);
+          const userNearDuplicates = repo.findNearDuplicates(userCandidateHash);
+          if (userNearDuplicates.length > 0) {
+            logToFile('DEBUG', 'Plugin: skipping near-duplicate user capture via SimHash', {
+              pattern: capture.pattern.name,
+              duplicateOf: userNearDuplicates[0].id,
+            }, config);
+            try {
+              repo.recordCaptureMetric({
+                patternName: capture.pattern.name,
+                patternType: capture.pattern.type,
+                source: 'user',
+                score: capture.combinedScore,
+                gateCalled: false,
+                gateWorthy: null,
+                gateConfidence: null,
+                noteId: null,
+              });
+            } catch {}
+            continue;
+          }
           
           try {
-            const noteContent = capture.pattern.context || capture.pattern.match;
+            const gateContext = capture.pattern.context || capture.pattern.match;
             const gateResult = await callQualityGate({
               type: capture.pattern.type,
               match: capture.pattern.match,
-              context: noteContent,
+              context: gateContext,
               source: 'user',
             });
-            
+
             if (gateResult && !gateResult.worthy) {
+              try {
+                repo.recordCaptureMetric({
+                  patternName: capture.pattern.name,
+                  patternType: capture.pattern.type,
+                  source: 'user',
+                  score: capture.combinedScore,
+                  gateCalled: true,
+                  gateWorthy: false,
+                  gateConfidence: gateResult.confidence ?? null,
+                  noteId: null,
+                });
+              } catch {}
+
               logToFile('INFO', 'Plugin: quality gate rejected queued user capture', {
-                pattern: capture.pattern.name, reason: gateResult.reason,
+                pattern: capture.pattern.name,
+                reason: gateResult.confidence ? `confidence: ${gateResult.confidence}` : gateResult.reason ?? 'no reason',
               }, config);
               continue;
             }
-            
+
             if (!gateResult) {
+              try {
+                repo.recordCaptureMetric({
+                  patternName: capture.pattern.name,
+                  patternType: capture.pattern.type,
+                  source: 'user',
+                  score: capture.combinedScore,
+                  gateCalled: true,
+                  gateWorthy: null,
+                  gateConfidence: null,
+                  noteId: null,
+                });
+              } catch {}
+
               logToFile('WARN', 'Plugin: quality gate returned null for queued capture, skipping', {
                 pattern: capture.pattern.name,
               }, config);
               continue;
             }
             
+            const noteContent = gateResult.summary || gateContext;
             const result = repo.store({
               title: gateResult.title,
               content: noteContent,
@@ -1080,12 +1273,27 @@ export default async function plugin(input: {
               summary: gateResult.summary,
               guidance: 'User-stated preference \u2014 apply in future interactions.',
             });
+
+            repo.updateContentHash(result.id, computeSimHash(noteContent));
             
             fireAndForgetEmbedding(repo, result.id, gateResult.title, gateResult.summary, noteContent);
             sessionState.capturedPatterns.push(pHash);
             sessionState.notesCreated.push(result.id);
             sessionState.knowledgeScore += capture.combinedScore;
             baselineInvalidated = true;
+
+            try {
+              repo.recordCaptureMetric({
+                patternName: capture.pattern.name,
+                patternType: capture.pattern.type,
+                source: 'user',
+                score: capture.combinedScore,
+                gateCalled: true,
+                gateWorthy: true,
+                gateConfidence: gateResult.confidence ?? null,
+                noteId: result.id,
+              });
+            } catch {}
             
             logToFile('INFO', 'Plugin: processed queued user capture', {
               noteId: result.id,
@@ -1112,7 +1320,7 @@ export default async function plugin(input: {
           }
         }
       }
-      const autoThreshold = cfg.capture?.threshold ?? 7;
+      const autoThreshold = cfg.capture?.threshold ?? 10;
       const captureUrl = cfg ? resolveCaptureProviderUrl(cfg) : null;
       const captureKey = cfg ? resolveCaptureProviderKey(cfg) : null;
       
@@ -1130,7 +1338,9 @@ export default async function plugin(input: {
       const patterns = isUserMessage ? USER_CAPTURE_PATTERNS : AGENT_RESPONSE_PATTERNS;
       
       // Detect patterns in the message
-      const detected = detectPatterns(messageText, patterns);
+      const sanitizedText = sanitizeForCapture(messageText);
+      if (!sanitizedText || sanitizedText.length < 20) return;
+      const detected = detectPatterns(sanitizedText, patterns);
       
       for (const pattern of detected) {
         // Dedup: skip if already captured in this session
@@ -1138,13 +1348,33 @@ export default async function plugin(input: {
         if (sessionState.capturedPatterns.includes(patternHash)) {
           continue;
         }
+
+        if (!isAtomicContent(pattern.match)) {
+          logToFile('DEBUG', 'Plugin: skipping non-atomic pattern', {
+            pattern: pattern.name, matchPreview: pattern.match.substring(0, 50),
+          }, config);
+          continue;
+        }
         
         // Calculate score based on pattern confidence + content scoring
-        const contentScore = scoreContent(messageText);
+        const contentScore = scoreContent(pattern.match);
         const combinedScore = Math.round(pattern.confidence * 10 + contentScore);
         
         // Only auto-capture if above threshold
         if (combinedScore < autoThreshold) {
+          try {
+            repo.recordCaptureMetric({
+              patternName: pattern.name,
+              patternType: pattern.type,
+              source: isUserMessage ? 'user' : 'agent',
+              score: combinedScore,
+              gateCalled: false,
+              gateWorthy: null,
+              gateConfidence: null,
+              noteId: null,
+            });
+          } catch {}
+
           logToFile('DEBUG', 'Plugin: pattern below threshold', {
             pattern: pattern.name,
             score: combinedScore,
@@ -1152,25 +1382,75 @@ export default async function plugin(input: {
           }, config);
           continue;
         }
+
+        const contentForHash = pattern.context || pattern.match;
+        const candidateHash = computeSimHash(contentForHash);
+        const nearDuplicates = repo.findNearDuplicates(candidateHash);
+        if (nearDuplicates.length > 0) {
+          logToFile('DEBUG', 'Plugin: skipping near-duplicate via SimHash', {
+            pattern: pattern.name,
+            matchPreview: pattern.match.substring(0, 50),
+            duplicateOf: nearDuplicates[0].id,
+          }, config);
+          try {
+            repo.recordCaptureMetric({
+              patternName: pattern.name,
+              patternType: pattern.type,
+              source: isUserMessage ? 'user' : 'agent',
+              score: combinedScore,
+              gateCalled: false,
+              gateWorthy: null,
+              gateConfidence: null,
+              noteId: null,
+            });
+          } catch {}
+          continue;
+        }
         
         try {
-          const noteContent = pattern.context || pattern.match;
+          const gateContext = pattern.context || pattern.match;
           const gateResult = await callQualityGate({
             type: pattern.type,
             match: pattern.match,
-            context: noteContent,
+            context: gateContext,
             source: isUserMessage ? 'user' : 'agent',
           });
-          
+
           if (gateResult && !gateResult.worthy) {
+            try {
+              repo.recordCaptureMetric({
+                patternName: pattern.name,
+                patternType: pattern.type,
+                source: isUserMessage ? 'user' : 'agent',
+                score: combinedScore,
+                gateCalled: true,
+                gateWorthy: false,
+                gateConfidence: gateResult.confidence ?? null,
+                noteId: null,
+              });
+            } catch {}
+
             logToFile('INFO', 'Plugin: quality gate rejected capture', {
               pattern: pattern.name,
-              reason: gateResult.reason,
+              reason: gateResult.confidence ? `confidence: ${gateResult.confidence}` : gateResult.reason ?? 'no reason',
             }, config);
             continue;
           }
-          
+
           if (!gateResult) {
+            try {
+              repo.recordCaptureMetric({
+                patternName: pattern.name,
+                patternType: pattern.type,
+                source: isUserMessage ? 'user' : 'agent',
+                score: combinedScore,
+                gateCalled: true,
+                gateWorthy: null,
+                gateConfidence: null,
+                noteId: null,
+              });
+            } catch {}
+
             // LLM gate failed (timeout, rate limit) — skip rather than store junk
             logToFile('WARN', 'Plugin: quality gate returned null, skipping capture', {
               pattern: pattern.name,
@@ -1178,6 +1458,7 @@ export default async function plugin(input: {
             continue;
           }
           
+          const noteContent = gateResult.summary || pattern.context || pattern.match;
           const noteTitle = gateResult.title;
           const noteSummary = gateResult.summary;
           const noteKind = toCanonicalKind(gateResult.kind);
@@ -1202,12 +1483,27 @@ export default async function plugin(input: {
             guidance: noteGuidance,
           });
           const noteId = result.id;
+
+          repo.updateContentHash(noteId, computeSimHash(noteContent));
           
           fireAndForgetEmbedding(repo, noteId, noteTitle, noteSummary, noteContent);
           sessionState.capturedPatterns.push(patternHash);
           sessionState.notesCreated.push(noteId);
           sessionState.knowledgeScore += combinedScore;
           baselineInvalidated = true;
+
+          try {
+            repo.recordCaptureMetric({
+              patternName: pattern.name,
+              patternType: pattern.type,
+              source: isUserMessage ? 'user' : 'agent',
+              score: combinedScore,
+              gateCalled: true,
+              gateWorthy: true,
+              gateConfidence: gateResult.confidence ?? null,
+              noteId,
+            });
+          } catch {}
           
           logToFile('INFO', 'Plugin: auto-captured from chat', {
             noteId,
@@ -1237,6 +1533,14 @@ export default async function plugin(input: {
           }, config);
         }
       }
+        } catch (error) {
+          logToFile('ERROR', 'Plugin: background capture processing failed', {
+            error: error instanceof Error ? error.message : String(error),
+          }, config);
+        }
+      };
+
+      void captureProcessing();
     },
     
     // Context-aware knowledge injection + user message pattern detection
@@ -1293,39 +1597,64 @@ export default async function plugin(input: {
             if (!captureUrl || !captureKey || !cfg?.capture?.model) {
             logToFile('DEBUG', 'Plugin: skipping user capture detection (provider not configured)', {}, config);
           } else {
-            const autoThreshold = cfg.capture?.threshold ?? 7;
-            const detected = detectPatterns(userText, USER_CAPTURE_PATTERNS);
-            
-            logToFile('INFO', 'Plugin: user message pattern scan', {
-              textLength: userText.length,
-              patternsFound: detected.length,
-              patterns: detected.map(d => d.name),
-            }, config);
-            
-            for (const pattern of detected) {
-              const patternHash = hashPattern(pattern.match);
-              if (sessionState.capturedPatterns.includes(patternHash)) continue;
+            const autoThreshold = cfg.capture?.threshold ?? 10;
+            const sanitizedUserText = sanitizeForCapture(userText);
+            if (sanitizedUserText.length < 20) {
+              logToFile('DEBUG', 'Plugin: user text too short after sanitization', {}, config);
+            } else {
+              const detected = detectPatterns(sanitizedUserText, USER_CAPTURE_PATTERNS);
               
-              const contentScore = scoreContent(userText);
-              const combinedScore = Math.round(pattern.confidence * 10 + contentScore);
-              
-              if (combinedScore < autoThreshold) {
-                logToFile('INFO', 'Plugin: user pattern below threshold', {
-                  pattern: pattern.name, score: combinedScore, threshold: autoThreshold,
-                }, config);
-                continue;
-              }
-              
-              // Queue for quality gate processing in chat.message hook
-              // (calling quality gate here would deadlock the request pipeline)
-              if (pendingUserCaptures.length >= MAX_PENDING_CAPTURES) {
-                logToFile('DEBUG', 'Plugin: pending capture queue full, dropping oldest', {}, config);
-                pendingUserCaptures.shift();
-              }
-              pendingUserCaptures.push({ pattern, messageText: userText, combinedScore });
-              logToFile('INFO', 'Plugin: queued user capture for quality gate', {
-                pattern: pattern.name, score: combinedScore, queueSize: pendingUserCaptures.length,
+              logToFile('INFO', 'Plugin: user message pattern scan', {
+                textLength: userText.length,
+                patternsFound: detected.length,
+                patterns: detected.map(d => d.name),
               }, config);
+              
+              for (const pattern of detected) {
+                const patternHash = hashPattern(pattern.match);
+                if (sessionState.capturedPatterns.includes(patternHash)) continue;
+
+                if (!isAtomicContent(pattern.match)) {
+                  logToFile('DEBUG', 'Plugin: skipping non-atomic pattern', {
+                    pattern: pattern.name, matchPreview: pattern.match.substring(0, 50),
+                  }, config);
+                  continue;
+                }
+                
+                const contentScore = scoreContent(pattern.match);
+                const combinedScore = Math.round(pattern.confidence * 10 + contentScore);
+                
+                if (combinedScore < autoThreshold) {
+                  try {
+                    repo.recordCaptureMetric({
+                      patternName: pattern.name,
+                      patternType: pattern.type,
+                      source: 'user',
+                      score: combinedScore,
+                      gateCalled: false,
+                      gateWorthy: null,
+                      gateConfidence: null,
+                      noteId: null,
+                    });
+                  } catch {}
+
+                  logToFile('INFO', 'Plugin: user pattern below threshold', {
+                    pattern: pattern.name, score: combinedScore, threshold: autoThreshold,
+                  }, config);
+                  continue;
+                }
+                
+                // Queue for quality gate processing in chat.message hook
+                // (calling quality gate here would deadlock the request pipeline)
+                if (pendingUserCaptures.length >= MAX_PENDING_CAPTURES) {
+                  logToFile('DEBUG', 'Plugin: pending capture queue full, dropping oldest', {}, config);
+                  pendingUserCaptures.shift();
+                }
+                pendingUserCaptures.push({ pattern, messageText: userText, combinedScore });
+                logToFile('INFO', 'Plugin: queued user capture for quality gate', {
+                  pattern: pattern.name, score: combinedScore, queueSize: pendingUserCaptures.length,
+                }, config);
+              }
             }
           }
         }
