@@ -5,7 +5,7 @@ import { Database } from 'bun:sqlite';
 import { logToFile } from './logger.js';
 
 export class SchemaManager {
-  static readonly SCHEMA_VERSION = 4;
+  static readonly SCHEMA_VERSION = 5;
 
   private static readonly MIGRATIONS: Array<{
     version: number;
@@ -73,6 +73,33 @@ export class SchemaManager {
         if (!columns.some(c => c.name === 'embedding_model')) {
           db.run("ALTER TABLE notes ADD COLUMN embedding_model TEXT DEFAULT NULL");
         }
+      },
+    },
+    {
+      version: 5,
+      description: 'Add content_hash column and capture_metrics table',
+      migrate: (db) => {
+        const columns = db.prepare('PRAGMA table_info(notes)').all() as Array<{ name: string }>;
+        if (!columns.some(c => c.name === 'content_hash')) {
+          db.run('ALTER TABLE notes ADD COLUMN content_hash TEXT DEFAULT NULL');
+        }
+
+        db.run(`CREATE TABLE IF NOT EXISTS capture_metrics (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          pattern_name TEXT NOT NULL,
+          pattern_type TEXT NOT NULL,
+          source TEXT NOT NULL,
+          score INTEGER NOT NULL,
+          gate_called BOOLEAN DEFAULT 0,
+          gate_worthy BOOLEAN DEFAULT NULL,
+          gate_confidence REAL DEFAULT NULL,
+          note_id TEXT DEFAULT NULL,
+          created_at INTEGER NOT NULL
+        )`);
+
+        db.run('CREATE INDEX IF NOT EXISTS idx_capture_metrics_created ON capture_metrics(created_at)');
+        db.run('CREATE INDEX IF NOT EXISTS idx_capture_metrics_pattern ON capture_metrics(pattern_name)');
+        db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
       },
     },
   ];
@@ -154,9 +181,29 @@ export class SchemaManager {
         summary TEXT DEFAULT '',
         guidance TEXT DEFAULT '',
         embedding BLOB DEFAULT NULL,
-        embedding_model TEXT DEFAULT NULL
+        embedding_model TEXT DEFAULT NULL,
+        content_hash TEXT DEFAULT NULL
       )
     `);
+
+    this.db.run(`
+      CREATE TABLE IF NOT EXISTS capture_metrics (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        pattern_name TEXT NOT NULL,
+        pattern_type TEXT NOT NULL,
+        source TEXT NOT NULL,
+        score INTEGER NOT NULL,
+        gate_called BOOLEAN DEFAULT 0,
+        gate_worthy BOOLEAN DEFAULT NULL,
+        gate_confidence REAL DEFAULT NULL,
+        note_id TEXT DEFAULT NULL,
+        created_at INTEGER NOT NULL
+      )
+    `);
+
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_capture_metrics_created ON capture_metrics(created_at)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_capture_metrics_pattern ON capture_metrics(pattern_name)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
 
     this.db.run(`
       CREATE TABLE IF NOT EXISTS note_links (
