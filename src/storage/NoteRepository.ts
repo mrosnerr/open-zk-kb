@@ -545,6 +545,114 @@ export class NoteRepository {
     return (result as unknown as { changes: number }).changes > 0;
   }
 
+  updateContentHash(noteId: string, hash: string): void {
+    this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(hash, noteId);
+  }
+
+  getNotesWithoutContentHash(limit: number = 100): NoteMetadata[] {
+    type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string };
+
+    const rows = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE content_hash IS NULL AND status != 'archived'
+      ORDER BY created_at DESC
+      LIMIT ?
+    `).all(limit) as NoteRow[];
+
+    return rows.map((row) => ({
+      ...row,
+      kind: (row.kind || 'observation') as NoteKind,
+      tags: JSON.parse(row.tags),
+    }));
+  }
+
+  findNearDuplicates(hash: string, threshold: number = 3): NoteMetadata[] {
+    type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string; content_hash: string };
+
+    const rows = this.db.prepare(
+      "SELECT * FROM notes WHERE content_hash IS NOT NULL AND status != 'archived'"
+    ).all() as NoteRow[];
+
+    const targetBigInt = BigInt(`0x${hash}`);
+    const matches = rows.filter((row) => {
+      const noteBigInt = BigInt(`0x${row.content_hash}`);
+      let xor = targetBigInt ^ noteBigInt;
+      let count = 0;
+      while (xor > 0n) {
+        count += Number(xor & 1n);
+        xor >>= 1n;
+      }
+      return count <= threshold;
+    });
+
+    return matches.map((row) => ({
+      ...row,
+      kind: (row.kind || 'observation') as NoteKind,
+      tags: JSON.parse(row.tags),
+    }));
+  }
+
+  findSimHashDuplicates(threshold: number = 3): Map<string, NoteMetadata[]> {
+    type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string; content_hash: string };
+
+    const rows = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE status != 'archived' AND content_hash IS NOT NULL
+      ORDER BY created_at DESC
+    `).all() as NoteRow[];
+
+    const notes: Array<NoteMetadata & { content_hash: string }> = rows.map((row) => ({
+      ...row,
+      kind: (row.kind || 'observation') as NoteKind,
+      tags: JSON.parse(row.tags),
+    }));
+
+    const groups = new Map<string, NoteMetadata[]>();
+    const assigned = new Set<string>();
+
+    for (let i = 0; i < notes.length; i++) {
+      const seed = notes[i];
+      if (assigned.has(seed.id)) continue;
+
+      const group: Array<NoteMetadata & { content_hash: string }> = [seed];
+      assigned.add(seed.id);
+
+      for (let j = i + 1; j < notes.length; j++) {
+        const candidate = notes[j];
+        if (assigned.has(candidate.id)) continue;
+
+        const seedHash = seed.content_hash;
+        const candidateHash = candidate.content_hash;
+        const a = BigInt(`0x${seedHash}`);
+        const b = BigInt(`0x${candidateHash}`);
+
+        let xor = a ^ b;
+        let count = 0;
+        while (xor > 0n) {
+          count += Number(xor & 1n);
+          xor >>= 1n;
+        }
+
+        if (count <= threshold) {
+          group.push(candidate);
+          assigned.add(candidate.id);
+        }
+      }
+
+      if (group.length >= 2) {
+        groups.set(seed.id, group.map(({ content_hash: _contentHash, ...note }) => note));
+      }
+    }
+
+    return groups;
+  }
+
+  getAllContentHashes(): Array<{ id: string; hash: string }> {
+    return this.db.prepare(
+      'SELECT id, content_hash as hash FROM notes WHERE content_hash IS NOT NULL'
+    ).all() as Array<{ id: string; hash: string }>;
+  }
+
   /**
    * Get IDs of notes that don't have embeddings yet.
    */
@@ -1245,6 +1353,86 @@ export class NoteRepository {
       .replace(/\.md$/i, '')
       .replace(/[^a-z0-9]/g, '')
       .substring(0, 50);
+  }
+
+  recordCaptureMetric(metric: {
+    patternName: string;
+    patternType: string;
+    source: string;
+    score: number;
+    gateCalled: boolean;
+    gateWorthy: boolean | null;
+    gateConfidence: number | null;
+    noteId: string | null;
+  }): void {
+    try {
+      this.db.prepare(
+        `INSERT INTO capture_metrics (pattern_name, pattern_type, source, score, gate_called, gate_worthy, gate_confidence, note_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        metric.patternName,
+        metric.patternType,
+        metric.source,
+        metric.score,
+        metric.gateCalled ? 1 : 0,
+        metric.gateWorthy === null ? null : (metric.gateWorthy ? 1 : 0),
+        metric.gateConfidence,
+        metric.noteId,
+        Date.now(),
+      );
+    } catch (error) {
+      logToFile('WARN', 'Failed to record capture metric', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  getCaptureStats(): {
+    totalAttempts: number;
+    gateCalledCount: number;
+    gateApprovedCount: number;
+    gateRejectedCount: number;
+    byPattern: Array<{ name: string; attempts: number; approved: number; rejected: number }>;
+    bySource: Array<{ source: string; attempts: number; approved: number }>;
+    avgConfidence: number | null;
+  } {
+    const totalAttempts = (this.db.prepare('SELECT COUNT(*) as cnt FROM capture_metrics').get() as { cnt: number }).cnt;
+    const gateCalledCount = (this.db.prepare('SELECT COUNT(*) as cnt FROM capture_metrics WHERE gate_called = 1').get() as { cnt: number }).cnt;
+    const gateApprovedCount = (this.db.prepare('SELECT COUNT(*) as cnt FROM capture_metrics WHERE gate_worthy = 1').get() as { cnt: number }).cnt;
+    const gateRejectedCount = (this.db.prepare('SELECT COUNT(*) as cnt FROM capture_metrics WHERE gate_worthy = 0').get() as { cnt: number }).cnt;
+
+    const byPattern = this.db.prepare(`
+      SELECT pattern_name as name,
+             COUNT(*) as attempts,
+             SUM(CASE WHEN gate_worthy = 1 THEN 1 ELSE 0 END) as approved,
+             SUM(CASE WHEN gate_worthy = 0 THEN 1 ELSE 0 END) as rejected
+      FROM capture_metrics
+      GROUP BY pattern_name
+      ORDER BY attempts DESC
+    `).all() as Array<{ name: string; attempts: number; approved: number; rejected: number }>;
+
+    const bySource = this.db.prepare(`
+      SELECT source,
+             COUNT(*) as attempts,
+             SUM(CASE WHEN gate_worthy = 1 THEN 1 ELSE 0 END) as approved
+      FROM capture_metrics
+      GROUP BY source
+      ORDER BY attempts DESC
+    `).all() as Array<{ source: string; attempts: number; approved: number }>;
+
+    const avgRow = this.db.prepare(
+      'SELECT AVG(gate_confidence) as avg FROM capture_metrics WHERE gate_confidence IS NOT NULL',
+    ).get() as { avg: number | null };
+
+    return {
+      totalAttempts,
+      gateCalledCount,
+      gateApprovedCount,
+      gateRejectedCount,
+      byPattern,
+      bySource,
+      avgConfidence: avgRow.avg,
+    };
   }
 
   clearAll(): void {
