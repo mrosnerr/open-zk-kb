@@ -12,8 +12,8 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 
 <details>
 <summary>Demo</summary>
-
-[![Demo](assets/demo.gif)](assets/demo.gif)
+<br>
+<img src="assets/demo.gif" alt="Demo" width="600">
 
 </details>
 
