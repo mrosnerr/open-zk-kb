@@ -6,6 +6,8 @@
 
 Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as Markdown notes indexed with SQLite FTS5 — so your assistant remembers across sessions.
 
+> **Beta** — This project is under active development (`0.1.x`). Core functionality works but APIs may change. [Bug reports](https://github.com/mrosnerr/open-zk-kb/issues) and feedback are welcome.
+
 [![Demo](assets/demo.gif)](assets/demo.gif)
 
 *Store decisions, search knowledge, auto-inject context — across every session.*
