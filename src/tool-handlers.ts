@@ -15,6 +15,7 @@ import { formatWikiLink } from './utils/wikilink.js';
 import { renderNoteForAgent, renderNoteForSearch } from './prompts.js';
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
+import { computeSimHash } from './utils/simhash.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
 
@@ -98,6 +99,10 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     guidance: args.guidance,
     related: args.related,
   });
+
+  const hashContent = args.summary || args.content || args.title;
+  const hash = computeSimHash(hashContent);
+  repo.updateContentHash(result.id, hash);
 
   if (embeddingConfig) {
     const text = buildEmbeddingText(args.title, args.summary, args.content);
@@ -323,45 +328,99 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'dedupe': {
-      const duplicates = repo.findDuplicates();
-      
-      if (duplicates.size === 0) {
-        return 'No duplicate notes found.';
+      const unhashed = repo.getNotesWithoutContentHash(500);
+      let backfilled = 0;
+      for (const note of unhashed) {
+        const hashContent = note.summary || note.content || note.title;
+        if (!hashContent) continue;
+        const hash = computeSimHash(hashContent);
+        repo.updateContentHash(note.id, hash);
+        backfilled++;
       }
-      
+      if (backfilled > 0) {
+        logToFile('INFO', 'Backfilled content hashes during dedupe', { count: backfilled });
+      }
+
+      const titleDuplicates = repo.findDuplicates();
+      const simhashDuplicates = repo.findSimHashDuplicates();
+
+      if (titleDuplicates.size === 0 && simhashDuplicates.size === 0) {
+        const backfillMsg = backfilled > 0 ? ` Backfilled ${backfilled} content hash${backfilled === 1 ? '' : 'es'}.` : '';
+        return `No duplicate notes found.${backfillMsg}`;
+      }
+
       let output = '## Duplicate Detection\n\n';
-      output += `Found ${duplicates.size} group${duplicates.size === 1 ? '' : 's'} of potential duplicates.\n\n`;
-      
-      let groupNum = 1;
-      for (const [baseTitle, notes] of duplicates) {
-        output += `### Group ${groupNum}: "${notes[0].title}" (${notes.length} notes)\n`;
-        
-        notes.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
-        
-        for (let i = 0; i < notes.length; i++) {
-          const note = notes[i];
-          const marker = i === 0 ? '(keep)' : '(duplicate)';
-          output += `- ${note.id} | ${note.access_count || 0} accesses | ${marker}\n`;
-        }
-        
-        if (notes.length > 1) {
-          const keepId = notes[0].id;
-          const archiveIds = notes.slice(1).map(n => n.id).join(', ');
-          output += `\n**Recommendation:** Keep ${keepId}, archive ${archiveIds}\n`;
-        }
-        output += '\n';
-        groupNum++;
-        
-        if (groupNum > 10) {
-          output += `... and ${duplicates.size - 10} more groups.\n`;
-          break;
+      if (backfilled > 0) {
+        output += `*Backfilled ${backfilled} content hash${backfilled === 1 ? '' : 'es'} for SimHash comparison.*\n\n`;
+      }
+
+      if (titleDuplicates.size > 0) {
+        output += `### Title-Based Duplicates (${titleDuplicates.size} groups)\n\n`;
+
+        let groupNum = 1;
+        for (const [, notes] of titleDuplicates) {
+          output += `**Group ${groupNum}: "${notes[0].title}" (${notes.length} notes)**\n`;
+          notes.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
+
+          for (let i = 0; i < notes.length; i++) {
+            const note = notes[i];
+            const isPermanent = note.status === 'permanent';
+            const marker = isPermanent ? '🔒 (permanent - protected)' : (i === 0 ? '(keep)' : '(duplicate)');
+            output += `- ${note.id} | ${note.status} | ${note.access_count || 0} accesses | ${marker}\n`;
+          }
+
+          const archivable = notes.filter((n, i) => i > 0 && n.status !== 'permanent');
+          if (archivable.length > 0) {
+            output += `\n**Recommendation:** Archive ${archivable.map((n) => n.id).join(', ')}\n`;
+          } else {
+            output += '\n**Note:** All duplicates are permanent — manual review needed.\n';
+          }
+
+          output += '\n';
+          groupNum++;
+
+          if (groupNum > 10) {
+            output += `... and ${titleDuplicates.size - 10} more groups.\n\n`;
+            break;
+          }
         }
       }
-      
+
+      if (simhashDuplicates.size > 0) {
+        output += `### Content-Based Near-Duplicates (${simhashDuplicates.size} groups)\n\n`;
+
+        let groupNum = 1;
+        for (const [, notes] of simhashDuplicates) {
+          output += `**Group ${groupNum} (${notes.length} notes)**\n`;
+          notes.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
+
+          for (let i = 0; i < notes.length; i++) {
+            const note = notes[i];
+            const isPermanent = note.status === 'permanent';
+            const marker = isPermanent ? '🔒 (permanent - protected)' : (i === 0 ? '(keep)' : '(near-duplicate)');
+            output += `- ${note.id} | "${note.title}" | ${note.status} | ${marker}\n`;
+          }
+
+          const archivable = notes.filter((n, i) => i > 0 && n.status !== 'permanent');
+          if (archivable.length > 0) {
+            output += `\n**Recommendation:** Archive ${archivable.map((n) => n.id).join(', ')}\n`;
+          }
+
+          output += '\n';
+          groupNum++;
+
+          if (groupNum > 10) {
+            output += `... and ${simhashDuplicates.size - 10} more groups.\n\n`;
+            break;
+          }
+        }
+      }
+
       output += '## Next Steps:\n';
       output += '[A] Archive specific duplicate (requires --noteId)\n';
       output += '[B] View specific note details (use knowledge-search)\n';
-      
+      output += '\n⚠️ Permanent notes (🔒) are never auto-archived. Promote the best version before archiving others.\n';
+
       return output;
     }
     case 'embed': {
@@ -396,6 +455,52 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       } catch (err) {
         return `Embedding failed: ${err instanceof Error ? err.message : String(err)}`;
       }
+    }
+    case 'capture-stats': {
+      const captureStats = repo.getCaptureStats();
+
+      const autoCaptured = repo.getByTag('auto-captured', 1000);
+      const promoted = autoCaptured.filter(n => n.status === 'permanent');
+      const archived = autoCaptured.filter(n => n.status === 'archived');
+
+      let output = '# Auto-Capture Statistics\n\n';
+      output += '## Pipeline Metrics\n';
+      output += `- Total capture attempts: ${captureStats.totalAttempts}\n`;
+      output += `- Quality gate called: ${captureStats.gateCalledCount}\n`;
+      output += `- Gate approved: ${captureStats.gateApprovedCount}\n`;
+      output += `- Gate rejected: ${captureStats.gateRejectedCount}\n`;
+      if (captureStats.avgConfidence !== null) {
+        output += `- Avg gate confidence: ${captureStats.avgConfidence.toFixed(2)}\n`;
+      }
+
+      output += '\n## Note Status\n';
+      output += `- Auto-captured notes: ${autoCaptured.length}\n`;
+      output += `- Promoted to permanent: ${promoted.length}\n`;
+      output += `- Archived: ${archived.length}\n`;
+      output += `- Still fleeting: ${autoCaptured.length - promoted.length - archived.length}\n`;
+      if (autoCaptured.length > 0) {
+        output += `- Promotion rate: ${(promoted.length / autoCaptured.length * 100).toFixed(1)}%\n`;
+      }
+
+      if (captureStats.byPattern.length > 0) {
+        output += '\n## By Pattern\n';
+        output += '| Pattern | Attempts | Approved | Rejected |\n';
+        output += '|---------|----------|----------|----------|\n';
+        for (const p of captureStats.byPattern) {
+          output += `| ${p.name} | ${p.attempts} | ${p.approved} | ${p.rejected} |\n`;
+        }
+      }
+
+      if (captureStats.bySource.length > 0) {
+        output += '\n## By Source\n';
+        output += '| Source | Attempts | Approved |\n';
+        output += '|--------|----------|----------|\n';
+        for (const s of captureStats.bySource) {
+          output += `| ${s.source} | ${s.attempts} | ${s.approved} |\n`;
+        }
+      }
+
+      return output;
     }
     default:
       return `Unknown action: ${args.action}`;
