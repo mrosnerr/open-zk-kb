@@ -33,6 +33,11 @@ jobs:
         run: |
           LOCAL_VERSION=$(node -p "require('./package.json').version")
           echo "local_version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
+          if echo "$LOCAL_VERSION" | grep -qE '(alpha|beta|rc)'; then
+            echo "tag=beta" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+          fi
           PUBLISHED=$(npm view open-zk-kb@"$LOCAL_VERSION" version 2>/dev/null || echo "")
           if [ "$PUBLISHED" = "$LOCAL_VERSION" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
@@ -58,9 +63,13 @@ jobs:
         if: steps.version-check.outputs.skip == 'false'
         run: bun test
 
+      - name: Prepare bin scripts
+        if: steps.version-check.outputs.skip == 'false'
+        run: chmod +x dist/setup.js dist/mcp-server.js
+
       - name: Publish
         if: steps.version-check.outputs.skip == 'false'
-        run: npm publish --provenance --access public
+        run: npm publish --provenance --access public --tag ${{ steps.version-check.outputs.tag }}
 
       - name: Create GitHub Release
         if: steps.version-check.outputs.skip == 'false'
@@ -71,8 +80,12 @@ jobs:
           TAG="v$VERSION"
           git tag "$TAG"
           git push origin "$TAG"
+          PRERELEASE_FLAG=""
+          if [ "${{ steps.version-check.outputs.tag }}" != "latest" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
           gh release create "$TAG" \
             --title "$TAG" \
             --notes "**Install:** \`bunx open-zk-kb@$VERSION\`
           **npm:** https://www.npmjs.com/package/open-zk-kb/v/$VERSION" \
-            --latest
+            $PRERELEASE_FLAG
