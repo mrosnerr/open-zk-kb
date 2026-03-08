@@ -77,7 +77,8 @@ src/
 
 ## Branch Strategy
 
-- **`main`** — Stable branch. All PRs target `main`.
+- **`dev`** — Active development. All PRs target `dev`.
+- **`main`** — Stable/release branch. Merging `dev` → `main` auto-publishes to npm if the version in `package.json` was bumped.
 
 ## CI Pipeline
 
@@ -101,7 +102,7 @@ docker run --rm open-zk-kb-smoke bash tests/docker/smoke-test.sh
 3. Make your changes with tests.
 4. Ensure `bun run build && bun test && bun run lint` all pass.
 5. Commit with clear, descriptive messages (see [Commit Messages](#commit-messages)).
-6. Open a Pull Request **targeting `main`**. Your PR title becomes the commit message (squash merge), so it must follow the commit message convention.
+6. Open a Pull Request **targeting `dev`**. Your PR title becomes the commit message (squash merge), so it must follow the commit message convention.
 
 ## Commit Messages
 

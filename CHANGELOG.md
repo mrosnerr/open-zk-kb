@@ -1,8 +1,8 @@
 # Changelog
 
-## 1.0.0
+## 0.1.0-beta.1
 
-Initial release.
+Initial beta release.
 
 ### Features
 
@@ -14,5 +14,5 @@ Initial release.
 - **Dual storage**: Markdown files (source of truth) + SQLite FTS5 index
 - **Wiki-links**: Obsidian-compatible `[[slug|display]]` format with backlink tracking
 - **Vector search**: Optional embedding support via OpenAI-compatible API
-- **CLI installer**: `bun run setup install --client <name>` for 5 clients
+- **CLI installer**: `bunx open-zk-kb` (npm) or `bun run setup` (source) for 5 clients
 - **Data migrations**: Agent-driven `upgrade` action for schema evolution
