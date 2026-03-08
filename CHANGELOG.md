@@ -1,15 +1,16 @@
 # Changelog
 
-## 0.1.0-beta.3
+## 0.1.0-beta.4
 
 - Fix npm trusted publishing (requires npm >= 11.5.1 for OIDC token exchange)
+- Fix prerelease publish requiring `--tag beta` on npm latest
 - Bun runtime guards on MCP server and installer
 - Installer writes `bunx` commands for npm installs
 - Dev → main branch workflow with auto-publish
 
-## 0.1.0-beta.2
+## 0.1.0-beta.2 / beta.3
 
-(Failed publish — provenance signed but npm OIDC exchange required npm >= 11.5.1)
+(Failed publishes — OIDC token exchange required npm >= 11.5.1, prerelease required --tag)
 
 ## 0.1.0-beta.1
 
