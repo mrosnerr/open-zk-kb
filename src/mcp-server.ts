@@ -3,6 +3,15 @@
 // Exposes knowledge-store, knowledge-search, knowledge-maintain as MCP tools.
 // Stdout is the MCP transport — use logToFile() for all logging.
 
+if (typeof globalThis.Bun === 'undefined') {
+  console.error(
+    'open-zk-kb requires the Bun runtime (uses bun:sqlite).\n' +
+    'Install Bun: https://bun.sh\n' +
+    'Then run: bunx open-zk-kb-server'
+  );
+  process.exit(1);
+}
+
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';

@@ -1,8 +1,8 @@
 name: Publish to npm
 
 on:
-  release:
-    types: [published]
+  push:
+    branches: [main]
 
 jobs:
   publish:
@@ -25,27 +25,53 @@ jobs:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
 
+      - name: Check if version already published
+        id: version-check
+        run: |
+          LOCAL_VERSION=$(node -p "require('./package.json').version")
+          echo "local_version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
+          PUBLISHED=$(npm view open-zk-kb@"$LOCAL_VERSION" version 2>/dev/null || echo "")
+          if [ "$PUBLISHED" = "$LOCAL_VERSION" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Version $LOCAL_VERSION already published — skipping."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+            echo "Version $LOCAL_VERSION not yet published — will publish."
+          fi
+
       - name: Install dependencies
+        if: steps.version-check.outputs.skip == 'false'
         run: bun install
 
       - name: Build
+        if: steps.version-check.outputs.skip == 'false'
         run: bun run build
 
       - name: Lint
+        if: steps.version-check.outputs.skip == 'false'
         run: bun run lint
 
       - name: Test
+        if: steps.version-check.outputs.skip == 'false'
         run: bun test
 
       - name: Publish
+        if: steps.version-check.outputs.skip == 'false'
         run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Append npm link to release notes
+      - name: Create GitHub Release
+        if: steps.version-check.outputs.skip == 'false'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION=$(node -p "require('./package.json').version")
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          EXISTING_BODY=$(gh release view "$RELEASE_TAG" --json body -q .body)
-          FOOTER=$(printf '\n---\n\n**Install:** `npm install open-zk-kb@%s`\n**npm:** https://www.npmjs.com/package/open-zk-kb/v/%s' "$VERSION" "$VERSION")
-          gh release edit "$RELEASE_TAG" --notes "${EXISTING_BODY}${FOOTER}"
+          VERSION="${{ steps.version-check.outputs.local_version }}"
+          TAG="v$VERSION"
+          git tag "$TAG"
+          git push origin "$TAG"
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes "**Install:** \`bunx open-zk-kb@$VERSION\`
+          **npm:** https://www.npmjs.com/package/open-zk-kb/v/$VERSION" \
+            --latest

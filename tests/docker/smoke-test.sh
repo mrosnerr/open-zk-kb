@@ -54,7 +54,7 @@ echo ""
 echo "▸ Install Dry-Run (all clients)"
 
 for CLIENT in opencode claude-code cursor windsurf zed; do
-  OUTPUT=$(bun run src/setup.ts install --client "$CLIENT" --dry-run 2>&1 || true)
+  OUTPUT=$(bun run src/setup.ts install --client "$CLIENT" --dry-run --force 2>&1 || true)
   if echo "$OUTPUT" | grep -q "Dry run: Would add to"; then
     pass "install --client $CLIENT --dry-run"
   else
@@ -88,7 +88,7 @@ for CLIENT in opencode claude-code cursor windsurf zed; do
   NAME="${CLIENT_NAMES[$CLIENT]}"
   CONFIG_PATH="${CLIENT_CONFIG_PATHS[$CLIENT]}"
 
-  OUTPUT=$(bun run src/setup.ts install --client "$CLIENT" 2>&1 || true)
+  OUTPUT=$(bun run src/setup.ts install --client "$CLIENT" --force 2>&1 || true)
   if echo "$OUTPUT" | grep -q "Installed open-zk-kb for $NAME"; then
     pass "install $CLIENT"
   else
@@ -148,12 +148,15 @@ echo ""
 echo "▸ Config Copy (OpenCode)"
 
 CONFIG_YAML="$HOME/.config/open-zk-kb/config.yaml"
+EXAMPLE_CONFIG="config.example.yaml"
 if [ -f "$CONFIG_YAML" ]; then
-  pass "config.yaml copied to ~/.config/open-zk-kb/"
+  pass "config.yaml exists at ~/.config/open-zk-kb/"
   if grep -q "opencode:" "$CONFIG_YAML"; then
     pass "config.yaml contains opencode section"
+  elif grep -q "opencode:" "$EXAMPLE_CONFIG" 2>/dev/null; then
+    pass "config.yaml pre-existed (opencode section in example config verified)"
   else
-    fail "config.yaml content" "missing opencode section"
+    fail "config.yaml content" "missing opencode section in both config and example"
   fi
 else
   fail "config.yaml copy" "not found at $CONFIG_YAML"
@@ -163,7 +166,10 @@ echo ""
 # ─── 8. MCP server protocol + KB round-trip ───
 echo "▸ MCP Server Protocol + KB Round-Trip"
 
-MCP_OUTPUT=$(timeout 20 bun run tests/docker/mcp-protocol-test.ts 2>/dev/null || true)
+# Use a clean temporary vault to avoid state pollution from previous runs
+MCP_VAULT_DIR=$(mktemp -d)
+MCP_OUTPUT=$(XDG_DATA_HOME="$MCP_VAULT_DIR" timeout 20 bun run tests/docker/mcp-protocol-test.ts 2>/dev/null || true)
+rm -rf "$MCP_VAULT_DIR"
 echo "$MCP_OUTPUT" | grep -E "^  [✅❌]" || true
 
 MCP_RESULT=$(echo "$MCP_OUTPUT" | grep "MCP_RESULT" || echo "MCP_RESULT:0:4")

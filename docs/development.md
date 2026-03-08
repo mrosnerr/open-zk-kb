@@ -115,11 +115,19 @@ ESLint is configured with TypeScript plugin in eslint.config.cjs.
 
 ## Branch Strategy & CI
 
-- **`main`** — Stable branch. All PRs target `main`.
+- **`dev`** — Active development. Push here, CI runs on every push.
+- **`main`** — Stable/release branch. Merging `dev` → `main` auto-publishes to npm (if version was bumped).
 
-| Trigger | Build + Lint + Tests | Smoke Tests |
-|---------|---------------------|-------------|
-| PR → `main` | ✅ | ✅ |
+| Trigger | Build + Lint + Tests | Smoke Tests | npm Publish |
+|---------|---------------------|-------------|-------------|
+| Push to `dev` | ✅ | ✅ | — |
+| PR → `main` | ✅ | ✅ | — |
+| Merge to `main` | ✅ | ✅ | ✅ (if version changed) |
+
+### Publishing a new version
+1. Bump version on `dev`: `npm version patch` (or `minor`/`major`)
+2. Push to `dev`, verify CI passes
+3. Merge `dev` → `main` — publish workflow auto-detects the new version and publishes
 
 Smoke tests verify: install/uninstall for all 5 clients, MCP protocol, and KB round-trip.
 

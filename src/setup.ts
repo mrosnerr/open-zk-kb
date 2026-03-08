@@ -2,6 +2,15 @@
 // setup.ts - Install/uninstall open-zk-kb MCP server to client configs
 // Can be run as CLI or used as module by MCP tools
 
+if (typeof globalThis.Bun === 'undefined') {
+  console.error(
+    'open-zk-kb requires the Bun runtime (uses bun:sqlite).\n' +
+    'Install Bun: https://bun.sh\n' +
+    'Then run: bunx open-zk-kb'
+  );
+  process.exit(1);
+}
+
 import * as fs from 'fs';
 import * as path from 'path';
 import * as p from '@clack/prompts';
@@ -86,15 +95,37 @@ const CLIENT_PROMPT_OPTIONS: Array<{ value: McpClient; label: string; hint: stri
 type McpEntry =
   | {
       type: 'local';
-      command: [string, string, string];
+      command: string[];
       enabled: true;
     }
   | {
-      command: 'bun';
-      args: [string, string];
+      command: string;
+      args: string[];
     };
 
-function buildMcpEntry(clientConfig: ClientConfig, serverPath: string): McpEntry {
+function isNpmInstall(): boolean {
+  const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+  const projectRoot = path.resolve(scriptDir, '..');
+  return !fs.existsSync(path.join(projectRoot, '.git'));
+}
+
+function buildMcpEntry(clientConfig: ClientConfig, serverPath: string | null): McpEntry {
+  // null serverPath = npm mode → use bunx
+  if (serverPath === null) {
+    if (clientConfig.mcpFormat === 'opencode') {
+      return {
+        type: 'local',
+        command: ['bunx', 'open-zk-kb-server'],
+        enabled: true,
+      };
+    }
+    return {
+      command: 'bunx',
+      args: ['open-zk-kb-server'],
+    };
+  }
+
+  // Explicit server path = local dev mode
   if (clientConfig.mcpFormat === 'opencode') {
     return {
       type: 'local',
@@ -109,7 +140,10 @@ function buildMcpEntry(clientConfig: ClientConfig, serverPath: string): McpEntry
   };
 }
 
-function detectServerPath(): string {
+function detectServerPath(): string | null {
+  if (isNpmInstall()) {
+    return null; // npm mode — use bunx instead of absolute path
+  }
   const scriptDir = path.dirname(new URL(import.meta.url).pathname);
   const distPath = path.resolve(scriptDir, '..', 'dist', 'mcp-server.js');
   if (fs.existsSync(distPath)) {
@@ -198,10 +232,10 @@ function getVaultStats(vaultPath: string): { noteCount: number; projectCount: nu
 
 export function install(args: InstallArgs): string {
   const clientConfig = CLIENT_CONFIGS[args.client];
-  const serverPath = args.serverPath || detectServerPath();
+  const serverPath = args.serverPath ?? detectServerPath();
   const vaultPath = getVaultPath();
   
-  if (!fs.existsSync(serverPath)) {
+  if (serverPath !== null && !fs.existsSync(serverPath)) {
     throw new Error(`Server not found at: ${serverPath}`);
   }
   
@@ -241,7 +275,6 @@ export function install(args: InstallArgs): string {
     fs.mkdirSync(path.join(vaultPath, '.index'), { recursive: true });
   }
   
-  // Copy config.example.yaml → ~/.config/open-zk-kb/config.yaml if no config exists yet
   const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
   const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
   const configYamlDir = path.join(xdgConfigHome, 'open-zk-kb');
@@ -255,10 +288,11 @@ export function install(args: InstallArgs): string {
     configCopied = true;
   }
   
+  const serverDisplay = serverPath ?? 'bunx open-zk-kb-server';
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;
   output += `Config: ${clientConfig.configPath}\n`;
   output += `Vault: ${vaultPath}\n`;
-  output += `Server: ${serverPath}\n\n`;
+  output += `Server: ${serverDisplay}\n\n`;
   output += `Next steps:\n`;
   if (configCopied) {
     output += `1. Edit ${configYamlPath} with your API key and preferences\n`;
@@ -341,7 +375,7 @@ export function uninstall(args: UninstallArgs): string {
     output += `Deleted vault: ${vaultPath}\n`;
   } else {
     output += `Vault preserved at: ${vaultPath}\n`;
-    output += `Reinstall anytime with: bunx open-zk-kb setup install --client ${args.client}\n`;
+    output += `Reinstall anytime with: bunx open-zk-kb install --client ${args.client}\n`;
   }
   
   return output;
