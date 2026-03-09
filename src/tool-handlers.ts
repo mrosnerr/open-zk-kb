@@ -52,6 +52,7 @@ export interface SearchArgs {
   kind?: NoteKind;
   status?: string;
   project?: string;
+  tags?: string[];
   limit?: number;
 }
 
@@ -129,6 +130,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   let results = repo.searchHybrid(args.query, queryEmbedding || null, {
     kind: args.kind,
     status: args.status ? toNoteStatus(args.status, 'fleeting') : undefined,
+    tags: args.tags,
     limit: args.limit || 10,
   });
 
