@@ -4,8 +4,8 @@
  * Tests whether `knowledge-search` returns the right notes for natural-language
  * queries that an agent would make (guided by AGENTS.md instructions).
  *
- * This answers the question: "Can we eliminate plugin injection if the agent
- * self-searches via AGENTS.md instructions?"
+ * This answers the question: "Can the agent self-search effectively
+ * via AGENTS.md instructions?"
  */
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
@@ -92,7 +92,7 @@ async function run() {
   if (fail > 0) {
     console.log('Failed queries:');
     for (const f of failures) console.log(`  - ${f}`);
-    console.log('\nThese queries would need plugin injection as backup.\n');
+    console.log('\nThese queries did not return the expected note.\n');
   } else {
     console.log('All queries succeeded — agent self-search via AGENTS.md is sufficient!\n');
   }

@@ -33,11 +33,11 @@ MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQL
 |------|----------|-------|
 | Add/modify a tool | `src/tool-handlers.ts` | Shared by MCP server |
 | Register tool for MCP | `src/mcp-server.ts` | Uses @modelcontextprotocol/sdk |
-| Storage/DB changes | `src/storage/NoteRepository.ts` | ~1,235 LOC, dual SQLite+filesystem |
+| Storage/DB changes | `src/storage/NoteRepository.ts` | ~1,370 LOC, dual SQLite+filesystem |
 | Schema migrations | `src/schema.ts` | PRAGMA user_version based |
 | Data migrations | `src/data-migrations.ts` | Agent-driven content upgrades |
 | Configuration | `src/config.ts` | YAML config with defaults |
-| Types/interfaces | `src/types.ts` | NoteKind, NoteStatus, NoteMetadata |
+| Types/interfaces | `src/types.ts` | NoteKind, NoteStatus, AppConfig |
 | Note rendering | `src/prompts.ts` | XML format for agent consumption |
 | Install/uninstall CLI | `src/setup.ts` | 4 clients: opencode, claude-code, cursor, windsurf |
 | Tests | `tests/` | bun:test with harness + fixtures |
@@ -55,7 +55,7 @@ MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQL
 | `NoteStatus` | type | `types.ts` | 3 statuses: fleeting → permanent → archived |
 | `KIND_DEFAULT_STATUS` | const | `types.ts` | Maps kind → default status |
 | `AppConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle |
-| `SchemaManager` | class | `schema.ts` | DB schema versioning (v3), migrations |
+| `SchemaManager` | class | `schema.ts` | DB schema versioning (v5), migrations |
 | `getConfig` | function | `config.ts` | 2-layer merge: defaults → YAML config |
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |
 | `renderNoteForAgent` | function | `prompts.ts` | XML note rendering for agent consumption |

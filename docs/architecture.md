@@ -88,14 +88,14 @@ All settings live in a single YAML file: `~/.config/open-zk-kb/config.yaml`
 
 The SQLite schema is versioned and managed programmatically:
 
-* **Version Tracking**: Uses `PRAGMA user_version` (currently v3).
+* **Version Tracking**: Uses `PRAGMA user_version` (currently v5).
 * **DDL Migrations**: Managed by the `SchemaManager` class in `src/schema.ts`.
 * **Data Migrations**: Handled in `src/data-migrations.ts` for agent-driven content upgrades.
 * **Core Tables**:
     * `notes`: Primary metadata and content.
     * `notes_fts`: FTS5 virtual table for full-text search.
     * `note_links`: Tracks bidirectional wiki-links (`[[slug|display]]`).
-    * `note_embeddings`: Stores vector representations for semantic search.
+    * `notes.embedding`: BLOB column storing vector representations for semantic search.
 
 ## Design Decisions
 
@@ -104,9 +104,6 @@ The SQLite schema is versioned and managed programmatically:
 3. **Bun Runtime**: Chosen for its built-in SQLite support (eliminating native compilation issues) and high-performance test runner.
 4. **Wiki-links**: Adopts the Obsidian-compatible `[[slug|display]]` format to ensure interoperability with popular personal knowledge management tools.
 5. **Agent-Driven Capture**: Eliminates complex heuristic-based auto-capture in favor of explicit tool use by the calling model, guided by system instructions.
-
----
-For implementation details, see [src/AGENTS.md](../src/AGENTS.md) and [tests/AGENTS.md](../tests/AGENTS.md).
 
 ---
 For implementation details, see [src/AGENTS.md](../src/AGENTS.md) and [tests/AGENTS.md](../tests/AGENTS.md).

@@ -10,15 +10,22 @@
 tests/
 ├── setup.ts               # Exports bun:test globals, sets NODE_ENV=test
 ├── harness.ts             # TestContext: temp dirs, NoteRepository lifecycle, file helpers
-├── fixtures.ts            # 7 note fixtures (permanent, fleeting, stale, large, broken links, etc.)
+├── fixtures.ts            # 5 note fixtures + 2 content snippets
 ├── mcp-tools.test.ts      # Tests handleStore/Search/Maintain via tool-handlers.ts
 ├── integration.test.ts    # NoteRepository direct: kind defaults, frontmatter, search filters
 ├── edge-cases.test.ts     # FTS5 edge cases (operators, injection, unicode) + input validation
 ├── embeddings.test.ts     # Pure functions: cosineSimilarity, blob round-trip, buildEmbeddingText
+├── simhash.test.ts        # SimHash duplicate detection
 ├── config.test.ts         # Config loading: defaults, YAML override, partial, malformed
-├── schema.test.ts         # DB schema: fresh creation, migrations v1→v3→v4
-├── setup.test.ts          # CLI installer: install, uninstall, idempotency
+├── schema.test.ts         # DB schema: fresh creation, migrations v1→v5
+├── setup.test.ts          # CLI installer: install, uninstall, instruction injection
 ├── knowledge-quality-assessment.test.ts  # Content quality scoring
+├── injection-quality-test.ts  # Agent self-search quality via MCP
+├── docker/                # Docker-based integration tests
+│   ├── smoke-test.sh      # Full install/uninstall + MCP protocol + KB round-trip
+│   ├── mcp-protocol-test.ts   # MCP protocol compliance
+│   ├── model-smoke-test.ts    # Local model quality validation
+│   └── Dockerfile
 └── eval/                  # Agent evaluation suite (EVAL=1 to enable)
     ├── eval.test.ts       # Entry — describe.skipIf(!process.env.EVAL)
     ├── harness.ts         # Isolated vaults + CLI adapters (claude/opencode)
@@ -49,7 +56,7 @@ describe('My Feature', () => {
 
 - **Always use `createTestHarness()`** — creates temp dir + NoteRepository, cleaned up in afterEach
 - **Test handlers directly** — import from `tool-handlers.ts`, pass `ctx.engine`
-- **Fixtures are realistic** — 7 fixtures cover: permanent, fleeting, stale, large, broken links, merge, contradiction
+- **Fixtures are realistic** — 5 fixtures cover: permanent, fleeting, stale, large, broken links
 - **File helpers**: `createNoteFile()`, `readNoteFile()`, `noteFileExists()`, `listNoteFiles()`, `getNoteCount()`
 - **Eval suite is gated**: Only runs with `EVAL=1` env var, 120s timeout
 

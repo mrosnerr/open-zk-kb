@@ -9,19 +9,21 @@ TypeScript source for the MCP server (`mcp-server.ts`), with core logic in `tool
 ```
 src/
 ├── mcp-server.ts          # MCP stdio server — 3 tools via @modelcontextprotocol/sdk
-├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleMaintain (~403 LOC)
+├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleMaintain (~477 LOC)
 ├── storage/
-│   └── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,235 LOC)
+│   └── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
 ├── utils/
 │   ├── path.ts             # ~ expansion, XDG path resolution
-│   └── wikilink.ts         # [[slug|display]] parsing, Obsidian-compatible
+│   ├── wikilink.ts         # [[slug|display]] parsing, Obsidian-compatible
+│   └── simhash.ts          # SimHash for near-duplicate detection
 ├── config.ts              # getConfig(): YAML config with defaults
+├── embeddings.ts          # Local + API embedding generation, similarity
 ├── data-migrations.ts     # Agent-driven content upgrades (summary/guidance)
 ├── logger.ts              # logToFile() — file-based, never stdout
 ├── prompts.ts             # renderNoteForAgent() — XML <note> format
-├── schema.ts              # SchemaManager — PRAGMA user_version (v3)
+├── schema.ts              # SchemaManager — PRAGMA user_version (v5)
 ├── setup.ts               # CLI install/uninstall for 4 clients (bun run setup)
-└── types.ts               # NoteKind, NoteStatus, NoteMetadata
+└── types.ts               # NoteKind, NoteStatus, AppConfig
 ```
 
 ## Data Flow

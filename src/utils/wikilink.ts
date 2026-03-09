@@ -1,18 +1,18 @@
 // utils/wikilink.ts - Centralized wiki-link formatting and parsing
 //
 // Obsidian wiki-link format: [[slug#heading|Display Text]]
-// - slug:    full filename without .md (e.g. "202502071922-opencode-tool-development-patterns")
+// - slug:    full filename without .md (e.g. "202502071922-my-note-title")
 // - heading: optional anchor to a heading within the note
 // - display: optional display text shown instead of slug
 //
 // Examples:
-//   [[202502071922-opencode-tool-development-patterns|OpenCode Tool Development Patterns]]
-//   [[202602081523-knowledge-capture-plugin-roadmap#Sprint 1|Sprint 1: Foundation]]
+//   [[202502071922-my-note-title|My Note Title]]
+//   [[202602081523-project-roadmap#Sprint 1|Sprint 1: Foundation]]
 
 // ---------- Types ----------
 
 export interface WikiLink {
-  /** Full slug (filename without .md), e.g. "202502071922-opencode-tool-development-patterns" */
+  /** Full slug (filename without .md), e.g. "202502071922-my-note-title" */
   slug: string;
   /** Note ID extracted from slug, e.g. "202502071922" */
   id: string;
