@@ -17,7 +17,7 @@ interface FileSnapshot {
   content?: string;
 }
 
-type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf' | 'zed';
+type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf';
 
 interface ClientCase {
   client: McpClient;
@@ -52,12 +52,6 @@ const CLIENT_CASES: ClientCase[] = [
     client: 'windsurf',
     getConfigPath: ({ homeDir }) => path.join(homeDir, '.codeium', 'windsurf', 'mcp_config.json'),
     mcpPath: ['mcpServers', 'open-zk-kb'],
-    format: 'standard',
-  },
-  {
-    client: 'zed',
-    getConfigPath: ({ xdgConfigHome }) => path.join(xdgConfigHome, 'zed', 'settings.json'),
-    mcpPath: ['context_servers', 'open-zk-kb'],
     format: 'standard',
   },
 ];
@@ -164,7 +158,7 @@ describe('setup.ts', () => {
     return import(`../src/setup.js?test=${Date.now()}-${Math.random()}`);
   }
 
-  it('produces correct dry-run output format for all 5 clients', async () => {
+  it('produces correct dry-run output format for all 4 clients', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -192,7 +186,7 @@ describe('setup.ts', () => {
     }
   });
 
-  it('creates config at expected path with correct nested keys and MCP entry formats for all 5 clients', async () => {
+  it('creates config at expected path with correct nested keys and MCP entry formats for all 4 clients', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -283,5 +277,193 @@ describe('setup.ts', () => {
     const vaultPath = path.join(env.xdgDataHome, 'open-zk-kb');
     expect(fs.existsSync(vaultPath)).toBe(true);
     expect(fs.existsSync(path.join(vaultPath, '.index'))).toBe(true);
+  });
+
+  describe('injectInstructions()', () => {
+    let tempDir: string;
+    let testFilePath: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'inject-test-'));
+      testFilePath = path.join(tempDir, 'test.md');
+      tempDirs.push(tempDir);
+    });
+
+    it('creates new file with marker block when file does not exist', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const result = setupModule.injectInstructions(testFilePath);
+
+      expect(result.created).toBe(true);
+      expect(result.updated).toBe(false);
+      expect(fs.existsSync(testFilePath)).toBe(true);
+
+      const content = fs.readFileSync(testFilePath, 'utf-8');
+      expect(content).toContain('<!-- OPEN-ZK-KB:START');
+      expect(content).toContain('<!-- OPEN-ZK-KB:END -->');
+      expect(content).toContain('Knowledge Base (open-zk-kb)');
+    });
+
+    it('appends marker block to existing file without markers', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const originalContent = '# My Notes\n\nSome content here.';
+      fs.writeFileSync(testFilePath, originalContent);
+
+      const result = setupModule.injectInstructions(testFilePath);
+
+      expect(result.created).toBe(false);
+      expect(result.updated).toBe(true);
+
+      const content = fs.readFileSync(testFilePath, 'utf-8');
+      expect(content).toContain(originalContent);
+      expect(content).toContain('<!-- OPEN-ZK-KB:START');
+      expect(content).toContain('<!-- OPEN-ZK-KB:END -->');
+    });
+
+    it('updates existing marker block (replaces content between markers)', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const oldInstructions = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nOLD CONTENT\n<!-- OPEN-ZK-KB:END -->';
+      const beforeMarker = '# Header\n\n';
+      const afterMarker = '\n\n# Footer';
+      fs.writeFileSync(testFilePath, beforeMarker + oldInstructions + afterMarker);
+
+      const result = setupModule.injectInstructions(testFilePath);
+
+      expect(result.created).toBe(false);
+      expect(result.updated).toBe(true);
+
+      const content = fs.readFileSync(testFilePath, 'utf-8');
+      expect(content).toContain(beforeMarker);
+      expect(content).toContain(afterMarker);
+      expect(content).not.toContain('OLD CONTENT');
+      expect(content).toContain('Knowledge Base (open-zk-kb)');
+    });
+
+    it('is idempotent (calling twice produces same result)', async () => {
+      const setupModule = await loadFreshSetupModule();
+
+      const result1 = setupModule.injectInstructions(testFilePath);
+      const content1 = fs.readFileSync(testFilePath, 'utf-8');
+
+      const result2 = setupModule.injectInstructions(testFilePath);
+      const content2 = fs.readFileSync(testFilePath, 'utf-8');
+
+      expect(result1.created).toBe(true);
+      expect(result2.created).toBe(false);
+      expect(result2.updated).toBe(false);
+      expect(content1).toBe(content2);
+    });
+
+    it('preserves user content outside markers', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const beforeMarker = '# My Custom Header\n\nImportant notes.\n\n';
+      const afterMarker = '\n\n## Footer Section\n\nMore content.';
+      fs.writeFileSync(testFilePath, beforeMarker + afterMarker);
+
+      setupModule.injectInstructions(testFilePath);
+
+      const content = fs.readFileSync(testFilePath, 'utf-8');
+      expect(content).toContain('# My Custom Header');
+      expect(content).toContain('Important notes.');
+      expect(content).toContain('## Footer Section');
+      expect(content).toContain('More content.');
+    });
+
+    it('dryRun=true does not write to disk', async () => {
+      const setupModule = await loadFreshSetupModule();
+
+      const result = setupModule.injectInstructions(testFilePath, true);
+
+      expect(result.created).toBe(true);
+      expect(fs.existsSync(testFilePath)).toBe(false);
+    });
+  });
+
+  describe('removeInstructions()', () => {
+    let tempDir: string;
+    let testFilePath: string;
+
+    beforeEach(() => {
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'remove-test-'));
+      testFilePath = path.join(tempDir, 'test.md');
+      tempDirs.push(tempDir);
+    });
+
+    it('returns { removed: false } when file does not exist', async () => {
+      const setupModule = await loadFreshSetupModule();
+
+      const result = setupModule.removeInstructions(testFilePath);
+
+      expect(result.removed).toBe(false);
+    });
+
+    it('returns { removed: false } when file has no markers', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const content = '# My Notes\n\nNo markers here.';
+      fs.writeFileSync(testFilePath, content);
+
+      const result = setupModule.removeInstructions(testFilePath);
+
+      expect(result.removed).toBe(false);
+      expect(fs.readFileSync(testFilePath, 'utf-8')).toBe(content);
+    });
+
+    it('removes marker block and cleans up extra whitespace', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const markedBlock = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
+      const content = '# Header\n\n\n' + markedBlock + '\n\n\n# Footer';
+      fs.writeFileSync(testFilePath, content);
+
+      const result = setupModule.removeInstructions(testFilePath);
+
+      expect(result.removed).toBe(true);
+
+      const updated = fs.readFileSync(testFilePath, 'utf-8');
+      expect(updated).toContain('# Header');
+      expect(updated).toContain('# Footer');
+      expect(updated).not.toContain('KB Instructions');
+      expect(updated).not.toContain('<!-- OPEN-ZK-KB:START');
+      // Should have cleaned up extra newlines
+      expect(updated).not.toContain('\n\n\n');
+    });
+
+    it('deletes file if marker block was the only content', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const markedBlock = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
+      fs.writeFileSync(testFilePath, markedBlock);
+
+      const result = setupModule.removeInstructions(testFilePath);
+
+      expect(result.removed).toBe(true);
+      expect(fs.existsSync(testFilePath)).toBe(false);
+    });
+
+    it('preserves user content outside markers', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const beforeMarker = '# My Header\n\nUser content before.\n\n';
+      const markedBlock = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
+      const afterMarker = '\n\n# Footer\n\nUser content after.';
+      fs.writeFileSync(testFilePath, beforeMarker + markedBlock + afterMarker);
+
+      setupModule.removeInstructions(testFilePath);
+
+      const updated = fs.readFileSync(testFilePath, 'utf-8');
+      expect(updated).toContain('# My Header');
+      expect(updated).toContain('User content before.');
+      expect(updated).toContain('# Footer');
+      expect(updated).toContain('User content after.');
+      expect(updated).not.toContain('KB Instructions');
+    });
+
+    it('dryRun=true does not modify file', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const markedBlock = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
+      const content = '# Header\n\n' + markedBlock + '\n\n# Footer';
+      fs.writeFileSync(testFilePath, content);
+
+      const result = setupModule.removeInstructions(testFilePath, true);
+
+      expect(result.removed).toBe(true);
+      expect(fs.readFileSync(testFilePath, 'utf-8')).toBe(content);
+    });
   });
 });
