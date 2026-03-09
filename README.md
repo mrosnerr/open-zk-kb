@@ -13,6 +13,8 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 <br>
 <img src="assets/demo.gif" alt="Demo" width="600">
 
+> The GIF shows the installer and a scripted API harness exercising all three MCP tools. In real usage, your AI assistant calls the tools automatically based on the injected AGENTS.md instructions — no manual tool calls needed.
+
 </details>
 
 ## Quick Start

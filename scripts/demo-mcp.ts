@@ -1,4 +1,7 @@
 #!/usr/bin/env bun
+// demo-mcp.ts — API harness that exercises all three MCP tools in sequence.
+// This is a scripted integration example, not a simulation of agent behavior.
+// In real usage, AI assistants call these tools automatically via AGENTS.md instructions.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import color from 'picocolors';
@@ -71,7 +74,8 @@ async function main() {
 
   try {
     // ── Store ──
-    console.log(color.dim('\n> I prefer Elixir for backend projects\n'));
+    console.log(color.cyan('\n─── knowledge-store ───────────────────────────────────\n'));
+    console.log(color.dim('Storing a user preference note...\n'));
     await sleep(500);
 
     const storeArgs = {
@@ -88,9 +92,10 @@ async function main() {
     console.log(color.green('✓ Stored as personalization'));
     await sleep(5000);
 
-    // ── Code generation (preference injected via KB search) ──
+    // ── Search + code generation ──
     clear();
-    console.log(color.dim('\n> Write a function to reverse a string\n'));
+    console.log(color.cyan('\n─── knowledge-search ──────────────────────────────────\n'));
+    console.log(color.dim('Searching KB before generating code...\n'));
     await sleep(500);
 
     const searchArgs = { query: 'language preference', limit: 3 };
@@ -114,7 +119,7 @@ async function main() {
 
     // ── Stats ──
     clear();
-    console.log(color.dim('\n> Tell me about the knowledge base\n'));
+    console.log(color.cyan('\n─── knowledge-maintain stats ──────────────────────────\n'));
     await sleep(500);
 
     const statsArgs = { action: 'stats' };
