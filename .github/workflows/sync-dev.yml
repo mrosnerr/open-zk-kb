@@ -1,0 +1,22 @@
+name: Sync dev after main
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  sync-dev:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Fast-forward dev to main
+        run: |
+          git checkout dev
+          git merge main
+          git push origin dev
