@@ -60,6 +60,9 @@ MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQL
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |
 | `renderNoteForAgent` | function | `prompts.ts` | XML note rendering for agent consumption |
 | `renderNoteForSearch` | function | `prompts.ts` | XML note rendering with full content for search results |
+| `injectInstructions` | function | `setup.ts` | Injects KB instructions into client instruction files |
+| `removeInstructions` | function | `setup.ts` | Removes injected KB instructions on uninstall |
+| `INSTRUCTION_FILE_PATHS` | const | `setup.ts` | Maps client → global instruction file path |
 
 ## Anti-Patterns (This Project)
 

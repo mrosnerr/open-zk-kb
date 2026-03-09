@@ -63,7 +63,7 @@ src/
 ├── tool-handlers.ts    # Shared handler functions
 ├── storage/            # NoteRepository — SQLite + FTS5 + filesystem
 ├── config.ts           # Configuration loading
-├── setup.ts            # CLI installer for 5 clients
+├── setup.ts            # CLI installer for 4 clients
 └── types.ts            # TypeScript interfaces and types
 ```
 
@@ -81,7 +81,7 @@ src/
 
 ## CI Pipeline
 
-All PRs run: build, lint, unit tests, and **smoke tests** (install/uninstall for all 5 clients, MCP protocol verification, and a full KB round-trip).
+All PRs run: build, lint, unit tests, and **smoke tests** (install/uninstall for all 4 clients, MCP protocol verification, and a full KB round-trip).
 
 You can run smoke tests locally:
 ```bash

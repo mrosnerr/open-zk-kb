@@ -64,6 +64,30 @@ bun run setup install --client opencode
    - `knowledge-search` -- full-text search across notes
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
 
+## Instruction Injection
+
+During installation, open-zk-kb automatically injects knowledge base instructions into your client's global instruction file:
+
+| Client | Instruction File |
+|--------|-----------------|
+| OpenCode | `~/.config/opencode/AGENTS.md` |
+| Claude Code | `~/.claude/CLAUDE.md` |
+| Cursor | `~/.cursor/rules/open-zk-kb.mdc` |
+| Windsurf | `~/.windsurf/rules/open-zk-kb.md` |
+
+The injected block is wrapped in managed markers:
+```
+<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->
+...instructions...
+<!-- OPEN-ZK-KB:END -->
+```
+
+**Safe to edit**: You can freely add your own content outside the managed markers. Re-running the installer updates only the content between markers.
+
+**Upgrade**: Running `bunx open-zk-kb install --client <name> --force` updates the instructions to the latest version without touching your other content.
+
+**Uninstall**: Running `bunx open-zk-kb uninstall --client <name>` removes the managed block from the instruction file.
+
 ## Optional Configuration
 - **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and vector embeddings in a single file. See [configuration.md](configuration.md).
 

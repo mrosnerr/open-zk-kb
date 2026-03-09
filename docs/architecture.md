@@ -68,6 +68,15 @@ The MCP server provides a reactive interface to the knowledge base:
     * **Cache**: Stored at `~/.cache/open-zk-kb/models/`.
     * **Override**: Supports optional vector embeddings via an OpenAI-compatible API if configured in `config.yaml`.
 
+### Instruction Injection
+
+During setup, open-zk-kb automatically injects knowledge base instructions into each client's global instruction file. This guides the AI to proactively search and store knowledge without requiring manual configuration.
+
+* **Canonical source**: Instructions are shipped with the npm package in `agent-instructions.md`.
+* **Managed markers**: Injected blocks are wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` and `<!-- OPEN-ZK-KB:END -->`), allowing safe upgrades and removal.
+* **Lifecycle management**: The `injectInstructions()` function (in `src/setup.ts`) handles installation; `removeInstructions()` handles uninstall. Re-running the installer updates only the content between markers, preserving user-added content outside the block.
+* **Client-specific paths**: Each client has a dedicated instruction file (e.g., `~/.config/opencode/AGENTS.md` for OpenCode, `~/.claude/CLAUDE.md` for Claude Code).
+
 ## Configuration Architecture
 
 All settings live in a single YAML file: `~/.config/open-zk-kb/config.yaml`

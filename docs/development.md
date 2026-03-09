@@ -44,7 +44,7 @@ src/
 ├── embeddings.ts       # Vector embedding support
 ├── logger.ts           # File-based logging (never stdout)
 ├── prompts.ts          # Note rendering to XML format
-├── setup.ts            # CLI installer for 5 clients
+├── setup.ts            # CLI installer for 4 clients
 ├── types.ts            # TypeScript interfaces
 └── utils/
     ├── path.ts         # Path expansion, XDG resolution
