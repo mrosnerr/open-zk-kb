@@ -1,6 +1,6 @@
 /**
  * Type definitions for open-zk-kb
- * OpenCode plugin for Zettelkasten-based knowledge management
+ * MCP server for Zettelkasten-based knowledge management
  */
 
 // ============ NOTE KIND ============

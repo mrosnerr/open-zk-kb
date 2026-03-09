@@ -77,29 +77,14 @@ export class SchemaManager {
     },
     {
       version: 5,
-      description: 'Add content_hash column and capture_metrics table',
+      description: 'Add content_hash column',
       migrate: (db) => {
         const columns = db.prepare('PRAGMA table_info(notes)').all() as Array<{ name: string }>;
         if (!columns.some(c => c.name === 'content_hash')) {
           db.run('ALTER TABLE notes ADD COLUMN content_hash TEXT DEFAULT NULL');
         }
-
-        db.run(`CREATE TABLE IF NOT EXISTS capture_metrics (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          pattern_name TEXT NOT NULL,
-          pattern_type TEXT NOT NULL,
-          source TEXT NOT NULL,
-          score INTEGER NOT NULL,
-          gate_called BOOLEAN DEFAULT 0,
-          gate_worthy BOOLEAN DEFAULT NULL,
-          gate_confidence REAL DEFAULT NULL,
-          note_id TEXT DEFAULT NULL,
-          created_at INTEGER NOT NULL
-        )`);
-
-        db.run('CREATE INDEX IF NOT EXISTS idx_capture_metrics_created ON capture_metrics(created_at)');
-        db.run('CREATE INDEX IF NOT EXISTS idx_capture_metrics_pattern ON capture_metrics(pattern_name)');
         db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
+        db.run('DROP TABLE IF EXISTS capture_metrics');
       },
     },
   ];
@@ -186,23 +171,6 @@ export class SchemaManager {
       )
     `);
 
-    this.db.run(`
-      CREATE TABLE IF NOT EXISTS capture_metrics (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        pattern_name TEXT NOT NULL,
-        pattern_type TEXT NOT NULL,
-        source TEXT NOT NULL,
-        score INTEGER NOT NULL,
-        gate_called BOOLEAN DEFAULT 0,
-        gate_worthy BOOLEAN DEFAULT NULL,
-        gate_confidence REAL DEFAULT NULL,
-        note_id TEXT DEFAULT NULL,
-        created_at INTEGER NOT NULL
-      )
-    `);
-
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_capture_metrics_created ON capture_metrics(created_at)');
-    this.db.run('CREATE INDEX IF NOT EXISTS idx_capture_metrics_pattern ON capture_metrics(pattern_name)');
     this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
 
     this.db.run(`

@@ -1,5 +1,4 @@
-// tool-handlers.ts - Shared handler functions for knowledge tools
-// Used by both the MCP server and OpenCode plugin entry points
+// tool-handlers.ts - Handler functions for knowledge tools
 
 import type { NoteKind, NoteStatus, PluginConfig } from './types.js';
 import { KIND_DEFAULT_STATUS } from './types.js';
@@ -179,15 +178,29 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       for (const [kind, s] of Object.entries(kindStats)) {
         output += `- **${kind}**: ${s.total} total\n`;
       }
-      output += '\n## Embeddings\n';
-      output += `- With embedding: ${embeddingStats.withEmbedding}/${embeddingStats.total}\n`;
-      output += `- Without embedding: ${embeddingStats.withoutEmbedding}/${embeddingStats.total}\n`;
-      if (Object.keys(embeddingStats.models).length > 0) {
-        output += '- Models: ' + Object.entries(embeddingStats.models).map(([m, c]) => `${m} (${c})`).join(', ') + '\n';
+      if (embeddingStats.total > 0 || embeddingConfig) {
+        output += '\n## Embeddings\n';
+        if (embeddingConfig) {
+          output += `- Provider: ${embeddingConfig.provider} (${embeddingConfig.model})\n`;
+        }
+        output += `- Embedded: ${embeddingStats.withEmbedding}/${embeddingStats.total} notes\n`;
       }
-      output += '\n## Upgrade Status\n';
-      output += `- Notes missing summary: ${upgradeStatus.needsSummary}/${upgradeStatus.total}\n`;
-      output += `- Notes missing guidance: ${upgradeStatus.needsGuidance}/${upgradeStatus.total}\n`;
+      if (upgradeStatus.needsSummary > 0 || upgradeStatus.needsGuidance > 0) {
+        output += '\n## Upgrade Status\n';
+        output += `- Notes missing summary: ${upgradeStatus.needsSummary}/${upgradeStatus.total}\n`;
+        output += `- Notes missing guidance: ${upgradeStatus.needsGuidance}/${upgradeStatus.total}\n`;
+      }
+      if (stats.total > 0) {
+        const recentNotes = repo.getRecentNotes(5);
+        output += '\n## Recent Notes\n';
+        for (const note of recentNotes) {
+          const status = note.status === 'permanent' ? '🔒' : note.status === 'archived' ? '📦' : '📝';
+          output += `- ${status} **${note.title}** (${note.kind})\n`;
+        }
+        if (stats.total > 5) {
+          output += `\nShowing 5 of ${stats.total}. Use \`knowledge-search\` to find specific notes.\n`;
+        }
+      }
       return output;
     }
     case 'promote': {
@@ -455,52 +468,6 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       } catch (err) {
         return `Embedding failed: ${err instanceof Error ? err.message : String(err)}`;
       }
-    }
-    case 'capture-stats': {
-      const captureStats = repo.getCaptureStats();
-
-      const autoCaptured = repo.getByTag('auto-captured', 1000);
-      const promoted = autoCaptured.filter(n => n.status === 'permanent');
-      const archived = autoCaptured.filter(n => n.status === 'archived');
-
-      let output = '# Auto-Capture Statistics\n\n';
-      output += '## Pipeline Metrics\n';
-      output += `- Total capture attempts: ${captureStats.totalAttempts}\n`;
-      output += `- Quality gate called: ${captureStats.gateCalledCount}\n`;
-      output += `- Gate approved: ${captureStats.gateApprovedCount}\n`;
-      output += `- Gate rejected: ${captureStats.gateRejectedCount}\n`;
-      if (captureStats.avgConfidence !== null) {
-        output += `- Avg gate confidence: ${captureStats.avgConfidence.toFixed(2)}\n`;
-      }
-
-      output += '\n## Note Status\n';
-      output += `- Auto-captured notes: ${autoCaptured.length}\n`;
-      output += `- Promoted to permanent: ${promoted.length}\n`;
-      output += `- Archived: ${archived.length}\n`;
-      output += `- Still fleeting: ${autoCaptured.length - promoted.length - archived.length}\n`;
-      if (autoCaptured.length > 0) {
-        output += `- Promotion rate: ${(promoted.length / autoCaptured.length * 100).toFixed(1)}%\n`;
-      }
-
-      if (captureStats.byPattern.length > 0) {
-        output += '\n## By Pattern\n';
-        output += '| Pattern | Attempts | Approved | Rejected |\n';
-        output += '|---------|----------|----------|----------|\n';
-        for (const p of captureStats.byPattern) {
-          output += `| ${p.name} | ${p.attempts} | ${p.approved} | ${p.rejected} |\n`;
-        }
-      }
-
-      if (captureStats.bySource.length > 0) {
-        output += '\n## By Source\n';
-        output += '| Source | Attempts | Approved |\n';
-        output += '|--------|----------|----------|\n';
-        for (const s of captureStats.bySource) {
-          output += `| ${s.source} | ${s.attempts} | ${s.approved} |\n`;
-        }
-      }
-
-      return output;
     }
     default:
       return `Unknown action: ${args.action}`;

@@ -45,7 +45,7 @@ describe('schema.ts', () => {
     db.close();
   });
 
-  it('creates required tables notes, notes_fts, note_links, and capture_metrics', () => {
+  it('creates required tables notes, notes_fts, and note_links', () => {
     const db = new Database(':memory:');
     const schema = new SchemaManager(db);
 
@@ -55,7 +55,6 @@ describe('schema.ts', () => {
     expect(tableExists(db, 'notes')).toBe(true);
     expect(tableExists(db, 'notes_fts')).toBe(true);
     expect(tableExists(db, 'note_links')).toBe(true);
-    expect(tableExists(db, 'capture_metrics')).toBe(true);
     db.close();
   });
 
@@ -197,7 +196,7 @@ describe('schema.ts', () => {
     db.close();
   });
 
-  it('migrates from v4 to v5: content_hash + capture_metrics', () => {
+  it('migrates from v4 to v5: adds content_hash and drops capture_metrics', () => {
     const db = new Database(':memory:');
 
     db.run(`
@@ -224,6 +223,7 @@ describe('schema.ts', () => {
     `);
     db.run("CREATE VIRTUAL TABLE notes_fts USING fts5(note_id, title, content, tags, context, tokenize='porter')");
     db.run('CREATE TABLE note_links (source_id TEXT, target_id TEXT, link_text TEXT, created_at INTEGER, PRIMARY KEY (source_id, target_id))');
+    db.run('CREATE TABLE capture_metrics (id INTEGER PRIMARY KEY)');
     db.run('PRAGMA user_version = 4');
 
     const schema = new SchemaManager(db);
@@ -231,7 +231,7 @@ describe('schema.ts', () => {
 
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('content_hash');
-    expect(tableExists(db, 'capture_metrics')).toBe(true);
+    expect(tableExists(db, 'capture_metrics')).toBe(false);
     expect(getUserVersion(db)).toBe(5);
     db.close();
   });
