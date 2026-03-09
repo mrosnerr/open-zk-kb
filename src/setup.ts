@@ -13,6 +13,7 @@ if (typeof globalThis.Bun === 'undefined') {
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
@@ -77,7 +78,8 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
 
 const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf'];
 
-const INSTRUCTION_MARKER_START = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->';
+const INSTRUCTION_MARKER_PREFIX = '<!-- OPEN-ZK-KB:START';
+const INSTRUCTION_MARKER_START = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
 const INSTRUCTION_MARKER_END = '<!-- OPEN-ZK-KB:END -->';
 
 const INSTRUCTION_FILE_PATHS: Record<McpClient, string> = {
@@ -88,7 +90,7 @@ const INSTRUCTION_FILE_PATHS: Record<McpClient, string> = {
 };
 
 function loadCanonicalInstructions(): string {
-  const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const templatePath = path.join(projectRoot, 'agent-instructions.md');
   if (fs.existsSync(templatePath)) {
     return fs.readFileSync(templatePath, 'utf-8').trim();
@@ -113,14 +115,25 @@ function buildMarkedBlock(content: string): string {
   return `${INSTRUCTION_MARKER_START}\n${content}\n${INSTRUCTION_MARKER_END}`;
 }
 
+function findMarkerIndices(content: string): { startIdx: number; endIdx: number } {
+  let startIdx = content.indexOf(INSTRUCTION_MARKER_START);
+  if (startIdx === -1) {
+    startIdx = content.indexOf(INSTRUCTION_MARKER_PREFIX);
+    if (startIdx !== -1 && content.indexOf('\n', startIdx) === -1) {
+      startIdx = -1;
+    }
+  }
+  const endIdx = content.indexOf(INSTRUCTION_MARKER_END);
+  return { startIdx, endIdx };
+}
+
 export function injectInstructions(filePath: string, dryRun: boolean = false): { updated: boolean; created: boolean } {
   const instructions = loadCanonicalInstructions();
   const markedBlock = buildMarkedBlock(instructions);
 
   if (fs.existsSync(filePath)) {
     const existing = fs.readFileSync(filePath, 'utf-8');
-    const startIdx = existing.indexOf(INSTRUCTION_MARKER_START);
-    const endIdx = existing.indexOf(INSTRUCTION_MARKER_END);
+    const { startIdx, endIdx } = findMarkerIndices(existing);
 
     if (startIdx !== -1 && endIdx !== -1) {
       const before = existing.substring(0, startIdx);
@@ -168,7 +181,7 @@ type McpEntry =
     };
 
 function isNpmInstall(): boolean {
-  const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const projectRoot = path.resolve(scriptDir, '..');
   return !fs.existsSync(path.join(projectRoot, '.git'));
 }
@@ -208,7 +221,7 @@ function detectServerPath(): string | null {
   if (isNpmInstall()) {
     return null; // npm mode — use bunx instead of absolute path
   }
-  const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const distPath = path.resolve(scriptDir, '..', 'dist', 'mcp-server.js');
   if (fs.existsSync(distPath)) {
     return distPath;
@@ -339,7 +352,7 @@ export function install(args: InstallArgs): string {
     fs.mkdirSync(path.join(vaultPath, '.index'), { recursive: true });
   }
   
-  const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
   const configYamlDir = path.join(xdgConfigHome, 'open-zk-kb');
   const configYamlPath = path.join(configYamlDir, 'config.yaml');
@@ -386,8 +399,7 @@ export function removeInstructions(filePath: string, dryRun: boolean = false): {
   }
 
   const content = fs.readFileSync(filePath, 'utf-8');
-  const startIdx = content.indexOf(INSTRUCTION_MARKER_START);
-  const endIdx = content.indexOf(INSTRUCTION_MARKER_END);
+  const { startIdx, endIdx } = findMarkerIndices(content);
 
   if (startIdx === -1 || endIdx === -1) {
     return { removed: false };
@@ -395,13 +407,14 @@ export function removeInstructions(filePath: string, dryRun: boolean = false): {
 
   const before = content.substring(0, startIdx);
   const after = content.substring(endIdx + INSTRUCTION_MARKER_END.length);
-  const updated = (before + after).replace(/\n{3,}/g, '\n\n').trim();
+  const joined = before + after;
+  const updated = joined.replace(/\n{3,}/g, '\n\n');
 
   if (!dryRun) {
-    if (updated.length === 0) {
+    if (updated.trim().length === 0) {
       fs.unlinkSync(filePath);
     } else {
-      fs.writeFileSync(filePath, updated + '\n');
+      fs.writeFileSync(filePath, updated);
     }
   }
 

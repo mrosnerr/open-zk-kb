@@ -77,7 +77,7 @@ During installation, open-zk-kb automatically injects knowledge base instruction
 
 The injected block is wrapped in managed markers:
 ```
-<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->
+<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->
 ...instructions...
 <!-- OPEN-ZK-KB:END -->
 ```

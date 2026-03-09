@@ -19,7 +19,7 @@ interface FileSnapshot {
 
 type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf';
 
-const INSTRUCTION_MARKER_START = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->';
+const INSTRUCTION_MARKER_START = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
 const INSTRUCTION_MARKER_END = '<!-- OPEN-ZK-KB:END -->';
 
 interface ClientCase {
@@ -549,7 +549,7 @@ describe('setup.ts', () => {
 
     it('updates existing marker block (replaces content between markers)', async () => {
       const setupModule = await loadFreshSetupModule();
-      const oldInstructions = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nOLD CONTENT\n<!-- OPEN-ZK-KB:END -->';
+      const oldInstructions = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOLD CONTENT\n<!-- OPEN-ZK-KB:END -->';
       const beforeMarker = '# Header\n\n';
       const afterMarker = '\n\n# Footer';
       fs.writeFileSync(testFilePath, beforeMarker + oldInstructions + afterMarker);
@@ -672,7 +672,7 @@ describe('setup.ts', () => {
 
     it('removes marker block and cleans up extra whitespace', async () => {
       const setupModule = await loadFreshSetupModule();
-      const markedBlock = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
+      const markedBlock = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
       const content = '# Header\n\n\n' + markedBlock + '\n\n\n# Footer';
       fs.writeFileSync(testFilePath, content);
 
@@ -691,7 +691,7 @@ describe('setup.ts', () => {
 
     it('deletes file if marker block was the only content', async () => {
       const setupModule = await loadFreshSetupModule();
-      const markedBlock = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
+      const markedBlock = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
       fs.writeFileSync(testFilePath, markedBlock);
 
       const result = setupModule.removeInstructions(testFilePath);
@@ -703,7 +703,7 @@ describe('setup.ts', () => {
     it('preserves user content outside markers', async () => {
       const setupModule = await loadFreshSetupModule();
       const beforeMarker = '# My Header\n\nUser content before.\n\n';
-      const markedBlock = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
+      const markedBlock = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
       const afterMarker = '\n\n# Footer\n\nUser content after.';
       fs.writeFileSync(testFilePath, beforeMarker + markedBlock + afterMarker);
 
@@ -719,7 +719,7 @@ describe('setup.ts', () => {
 
     it('dryRun=true does not modify file', async () => {
       const setupModule = await loadFreshSetupModule();
-      const markedBlock = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
+      const markedBlock = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nKB Instructions\n<!-- OPEN-ZK-KB:END -->';
       const content = '# Header\n\n' + markedBlock + '\n\n# Footer';
       fs.writeFileSync(testFilePath, content);
 

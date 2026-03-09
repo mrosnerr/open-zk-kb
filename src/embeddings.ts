@@ -29,6 +29,7 @@ export interface EmbeddingResult {
 
 let localPipeline: FeatureExtractionPipeline | null = null;
 let localPipelineLoading: Promise<FeatureExtractionPipeline | null> | null = null;
+let loadedModelName: string | null = null;
 
 function getModelCacheDir(): string {
   const xdgCache = process.env.XDG_CACHE_HOME || (
@@ -38,9 +39,10 @@ function getModelCacheDir(): string {
 }
 
 async function getLocalPipeline(modelName: string): Promise<FeatureExtractionPipeline | null> {
-  if (localPipeline) return localPipeline;
-  if (localPipelineLoading) return localPipelineLoading;
+  if (localPipeline && loadedModelName === modelName) return localPipeline;
+  if (localPipelineLoading && loadedModelName === modelName) return localPipelineLoading;
 
+  loadedModelName = modelName;
   localPipelineLoading = (async () => {
     try {
       const { pipeline, env } = await import('@huggingface/transformers');
