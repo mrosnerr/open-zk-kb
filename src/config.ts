@@ -11,6 +11,15 @@ const CONFIG_PATH = path.join(xdgConfigHome, 'open-zk-kb', 'config.yaml');
 
 // ── Raw YAML shape ──
 
+export interface EmbeddingsConfig {
+  enabled?: boolean;
+  provider?: 'local' | 'api';
+  model?: string;
+  dimensions?: number;
+  base_url?: string;
+  api_key?: string;
+}
+
 interface RawConfig {
   vault?: string;
   logLevel?: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
@@ -19,36 +28,7 @@ interface RawConfig {
     promotionThreshold?: number;
     exemptKinds?: NoteKind[];
   };
-  opencode?: OpenCodeConfig;
-}
-
-export interface OpenCodeConfig {
-  provider?: {
-    base_url?: string;
-    api_key?: string;
-  };
-  capture?: {
-    auto?: boolean;
-    model?: string;
-    threshold?: number;
-    max_calls_per_session?: number;
-    base_url?: string;
-    api_key?: string;
-  };
-  embeddings?: {
-    enabled?: boolean;
-    model?: string;
-    dimensions?: number;
-    base_url?: string;
-    api_key?: string;
-  };
-  injection?: {
-    enabled?: boolean;
-    max_notes?: number;
-    context_aware?: boolean;
-    inject_capture_status?: boolean;
-  };
-  excluded_apps?: string[];
+  embeddings?: EmbeddingsConfig;
 }
 
 // ── Defaults ──
@@ -88,10 +68,6 @@ function loadYamlConfig(): RawConfig | null {
 
 // ── Public API ──
 
-/**
- * Core config used by both MCP server and OpenCode plugin.
- * Reads from ~/.config/open-zk-kb/config.yaml (top-level keys).
- */
 export function getConfig(): PluginConfig {
   const raw = loadYamlConfig();
 
@@ -108,11 +84,8 @@ export function getConfig(): PluginConfig {
   };
 }
 
-/**
- * OpenCode-specific config (provider, capture, embeddings, injection).
- * Returns null if the `opencode` section is absent from config.yaml.
- */
-export function getOpenCodeConfig(): OpenCodeConfig | null {
+export function getEmbeddingsConfig(): EmbeddingsConfig | null {
   const raw = loadYamlConfig();
-  return raw?.opencode ?? null;
+
+  return raw?.embeddings ?? null;
 }

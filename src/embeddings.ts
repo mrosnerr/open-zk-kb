@@ -3,18 +3,111 @@
 // Falls back gracefully when no provider is configured.
 
 import { logToFile } from './logger.js';
+import type { FeatureExtractionPipeline } from '@huggingface/transformers';
 
 export interface EmbeddingConfig {
-  baseUrl: string;
-  apiKey: string;
+  provider: 'local' | 'api';
+  localModel?: string;
+  baseUrl?: string;
+  apiKey?: string;
   model: string;
   dimensions: number;
 }
+
+export const DEFAULT_EMBEDDING_CONFIG: EmbeddingConfig = {
+  provider: 'local',
+  localModel: 'Xenova/all-MiniLM-L6-v2',
+  model: 'all-MiniLM-L6-v2',
+  dimensions: 384,
+};
 
 export interface EmbeddingResult {
   embedding: number[];
   model: string;
   tokenCount: number;
+}
+
+let localPipeline: FeatureExtractionPipeline | null = null;
+let localPipelineLoading: Promise<FeatureExtractionPipeline | null> | null = null;
+
+function getModelCacheDir(): string {
+  const xdgCache = process.env.XDG_CACHE_HOME || (
+    process.env.HOME ? `${process.env.HOME}/.cache` : '/tmp'
+  );
+  return `${xdgCache}/open-zk-kb/models`;
+}
+
+async function getLocalPipeline(modelName: string): Promise<FeatureExtractionPipeline | null> {
+  if (localPipeline) return localPipeline;
+  if (localPipelineLoading) return localPipelineLoading;
+
+  localPipelineLoading = (async () => {
+    try {
+      const { pipeline, env } = await import('@huggingface/transformers');
+      env.cacheDir = getModelCacheDir();
+      localPipeline = await pipeline('feature-extraction', modelName, { dtype: 'q8' }) as FeatureExtractionPipeline;
+      logToFile('INFO', 'Local embedding model loaded', { model: modelName, cacheDir: env.cacheDir });
+      return localPipeline;
+    } catch (error) {
+      logToFile('ERROR', 'Failed to load local embedding model', {
+        model: modelName,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      localPipelineLoading = null;
+      return null;
+    }
+  })();
+
+  return localPipelineLoading;
+}
+
+function hasApiCredentials(config: EmbeddingConfig): config is EmbeddingConfig & { provider: 'api'; baseUrl: string; apiKey: string } {
+  return config.provider === 'api' && !!config.baseUrl && !!config.apiKey;
+}
+
+async function generateLocalEmbedding(text: string, config: EmbeddingConfig): Promise<EmbeddingResult | null> {
+  const pipe = await getLocalPipeline(config.localModel || 'Xenova/all-MiniLM-L6-v2');
+  if (!pipe) return null;
+
+  try {
+    const output = await pipe(text, { pooling: 'mean', normalize: true });
+    const embedding = Array.from(output.data as Float32Array);
+    return {
+      embedding,
+      model: config.model,
+      tokenCount: 0,
+    };
+  } catch (error) {
+    logToFile('ERROR', 'Local embedding generation failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+async function generateLocalEmbeddingBatch(texts: string[], config: EmbeddingConfig): Promise<(EmbeddingResult | null)[]> {
+  const pipe = await getLocalPipeline(config.localModel || 'Xenova/all-MiniLM-L6-v2');
+  if (!pipe) return texts.map(() => null);
+
+  try {
+    const output = await pipe(texts, { pooling: 'mean', normalize: true });
+    const results: (EmbeddingResult | null)[] = [];
+    const embeddings = output.tolist() as number[][];
+    for (const embedding of embeddings) {
+      results.push({
+        embedding,
+        model: config.model,
+        tokenCount: 0,
+      });
+    }
+    return results;
+  } catch (error) {
+    logToFile('ERROR', 'Local batch embedding failed', {
+      error: error instanceof Error ? error.message : String(error),
+      batchSize: texts.length,
+    });
+    return texts.map(() => null);
+  }
 }
 
 /**
@@ -26,7 +119,20 @@ export async function generateEmbedding(
   config: EmbeddingConfig,
   timeoutMs: number = 10000,
 ): Promise<EmbeddingResult | null> {
-  const url = `${config.baseUrl.replace(/\/+$/, '')}/embeddings`;
+  if (config.provider === 'local') {
+    return generateLocalEmbedding(text, config);
+  }
+
+  if (!hasApiCredentials(config)) {
+    logToFile('ERROR', 'Embeddings: missing API embedding configuration', {
+      model: config.model,
+      provider: config.provider,
+    });
+    return null;
+  }
+
+  const apiConfig = config;
+  const url = `${apiConfig.baseUrl.replace(/\/+$/, '')}/embeddings`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -36,12 +142,12 @@ export async function generateEmbedding(
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`,
+        'Authorization': `Bearer ${apiConfig.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.model,
+        model: apiConfig.model,
         input: text,
-        ...(config.dimensions ? { dimensions: config.dimensions } : {}),
+        ...(apiConfig.dimensions ? { dimensions: apiConfig.dimensions } : {}),
       }),
     });
 
@@ -50,7 +156,7 @@ export async function generateEmbedding(
       logToFile('ERROR', 'Embeddings: API error', {
         status: response.status,
         body: body.slice(0, 500),
-        model: config.model,
+        model: apiConfig.model,
       });
       return null;
     }
@@ -72,7 +178,7 @@ export async function generateEmbedding(
 
     return {
       embedding,
-      model: data.model || config.model,
+      model: data.model || apiConfig.model,
       tokenCount: data.usage?.prompt_tokens || 0,
     };
   } catch (error) {
@@ -80,7 +186,7 @@ export async function generateEmbedding(
     logToFile('ERROR', 'Embeddings: call failed', {
       error: error instanceof Error ? error.message : String(error),
       timedOut: isAbort,
-      model: config.model,
+      model: apiConfig.model,
     });
     return null;
   } finally {
@@ -98,12 +204,26 @@ export async function generateEmbeddingBatch(
   timeoutMs: number = 30000,
 ): Promise<(EmbeddingResult | null)[]> {
   if (texts.length === 0) return [];
+  if (config.provider === 'local') {
+    return generateLocalEmbeddingBatch(texts, config);
+  }
+
+  if (!hasApiCredentials(config)) {
+    logToFile('ERROR', 'Embeddings: missing API batch embedding configuration', {
+      model: config.model,
+      provider: config.provider,
+      batchSize: texts.length,
+    });
+    return texts.map(() => null);
+  }
+
+  const apiConfig = config;
   if (texts.length === 1) {
-    const result = await generateEmbedding(texts[0], config, timeoutMs);
+    const result = await generateEmbedding(texts[0], apiConfig, timeoutMs);
     return [result];
   }
 
-  const url = `${config.baseUrl.replace(/\/+$/, '')}/embeddings`;
+  const url = `${apiConfig.baseUrl.replace(/\/+$/, '')}/embeddings`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -113,12 +233,12 @@ export async function generateEmbeddingBatch(
       signal: controller.signal,
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${config.apiKey}`,
+        'Authorization': `Bearer ${apiConfig.apiKey}`,
       },
       body: JSON.stringify({
-        model: config.model,
+        model: apiConfig.model,
         input: texts,
-        ...(config.dimensions ? { dimensions: config.dimensions } : {}),
+        ...(apiConfig.dimensions ? { dimensions: apiConfig.dimensions } : {}),
       }),
     });
 
@@ -149,7 +269,7 @@ export async function generateEmbeddingBatch(
       if (!entry.embedding || !Array.isArray(entry.embedding)) return null;
       return {
         embedding: entry.embedding,
-        model: data.model || config.model,
+        model: data.model || apiConfig.model,
         tokenCount: 0, // Per-item tokens not available in batch
       };
     });

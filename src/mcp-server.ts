@@ -16,10 +16,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { NoteRepository } from './storage/NoteRepository.js';
-import { getConfig, getOpenCodeConfig } from './config.js';
+import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { handleStore, handleSearch, handleMaintain } from './tool-handlers.js';
-import { generateEmbedding } from './embeddings.js';
+import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
 
@@ -39,25 +39,29 @@ let cachedEmbeddingConfig: EmbeddingConfig | null | undefined;
 function getEmbeddingConfig(): EmbeddingConfig | null {
   if (cachedEmbeddingConfig !== undefined) return cachedEmbeddingConfig;
 
-  const oc = getOpenCodeConfig();
-  if (!oc?.embeddings?.enabled || !oc?.embeddings?.model) {
+  const embCfg = getEmbeddingsConfig();
+
+  if (embCfg?.enabled === false) {
     cachedEmbeddingConfig = null;
     return null;
   }
 
-  const baseUrl = oc.embeddings.base_url || oc.provider?.base_url;
-  const apiKey = oc.embeddings.api_key || oc.provider?.api_key;
-  if (!baseUrl || !apiKey) {
-    cachedEmbeddingConfig = null;
-    return null;
+  if (embCfg?.provider === 'api' && embCfg.model) {
+    const baseUrl = embCfg.base_url;
+    const apiKey = embCfg.api_key;
+    if (baseUrl && apiKey) {
+      cachedEmbeddingConfig = {
+        provider: 'api',
+        baseUrl,
+        apiKey,
+        model: embCfg.model,
+        dimensions: embCfg.dimensions || 1536,
+      };
+      return cachedEmbeddingConfig;
+    }
   }
 
-  cachedEmbeddingConfig = {
-    baseUrl,
-    apiKey,
-    model: oc.embeddings.model,
-    dimensions: oc.embeddings.dimensions || 1536,
-  };
+  cachedEmbeddingConfig = { ...DEFAULT_EMBEDDING_CONFIG };
   return cachedEmbeddingConfig;
 }
 
@@ -163,8 +167,8 @@ server.registerTool(
 // ---- knowledge-maintain ----
 
 const maintainSchema = z.object({
-  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'capture-stats'])
-    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), capture-stats (auto-capture effectiveness)'),
+  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed'])
+    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings)'),
   noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
@@ -209,7 +213,6 @@ async function main() {
   logToFile('INFO', 'MCP server: connected via stdio', {}, config);
 }
 
-// Graceful shutdown
 function shutdown() {
   logToFile('INFO', 'MCP server: shutting down', {}, config);
   if (repo) {
