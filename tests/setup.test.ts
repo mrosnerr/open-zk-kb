@@ -19,6 +19,9 @@ interface FileSnapshot {
 
 type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf';
 
+const INSTRUCTION_MARKER_START = '<!-- OPEN-ZK-KB:START — managed by open-zk-kb, do not edit -->';
+const INSTRUCTION_MARKER_END = '<!-- OPEN-ZK-KB:END -->';
+
 interface ClientCase {
   client: McpClient;
   getConfigPath: (env: {
@@ -67,6 +70,50 @@ function getNestedValue(obj: unknown, keys: string[]): unknown {
   }
 
   return current;
+}
+
+function getInstructionPath(env: { xdgConfigHome: string; homeDir: string }, client: McpClient): string {
+  switch (client) {
+    case 'opencode':
+      return path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    case 'claude-code':
+      return path.join(env.homeDir, '.claude', 'CLAUDE.md');
+    case 'cursor':
+      return path.join(env.homeDir, '.cursor', 'rules', 'open-zk-kb.mdc');
+    case 'windsurf':
+      return path.join(env.homeDir, '.windsurf', 'rules', 'open-zk-kb.md');
+  }
+}
+
+function loadExpectedCanonicalInstructions(): string {
+  const templatePath = path.join(process.cwd(), 'agent-instructions.md');
+  if (fs.existsSync(templatePath)) {
+    return fs.readFileSync(templatePath, 'utf-8').trim();
+  }
+  return [
+    '## Knowledge Base (open-zk-kb)',
+    '',
+    'ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.',
+    '',
+    '### Before Starting Work',
+    '- Search for relevant context: `knowledge-search` with a query describing your task',
+    '- Check for personalization notes (user preferences, coding style)',
+    '- Check for decision notes (past architectural choices)',
+    '',
+    '### While Working',
+    '- Store decisions, preferences, procedures, and insights via `knowledge-store`',
+    '- One concept per note. Include `summary` and `guidance` fields.',
+  ].join('\n');
+}
+
+function extractManagedBlockContent(fileContent: string): string {
+  const startIdx = fileContent.indexOf(INSTRUCTION_MARKER_START);
+  const endIdx = fileContent.indexOf(INSTRUCTION_MARKER_END);
+  if (startIdx === -1 || endIdx === -1) {
+    return '';
+  }
+  const startContentIdx = startIdx + INSTRUCTION_MARKER_START.length;
+  return fileContent.substring(startContentIdx, endIdx).trim();
 }
 
 describe('setup.ts', () => {
@@ -134,8 +181,11 @@ describe('setup.ts', () => {
 
     const homeConfigPaths = [
       path.join(homeDir, '.claude', 'settings.json'),
+      path.join(homeDir, '.claude', 'CLAUDE.md'),
       path.join(homeDir, '.cursor', 'mcp.json'),
+      path.join(homeDir, '.cursor', 'rules', 'open-zk-kb.mdc'),
       path.join(homeDir, '.codeium', 'windsurf', 'mcp_config.json'),
+      path.join(homeDir, '.windsurf', 'rules', 'open-zk-kb.md'),
     ];
     for (const filePath of homeConfigPaths) {
       if (fs.existsSync(filePath)) {
@@ -279,6 +329,184 @@ describe('setup.ts', () => {
     expect(fs.existsSync(path.join(vaultPath, '.index'))).toBe(true);
   });
 
+  it('install() creates instruction file for each client', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    for (const testCase of CLIENT_CASES) {
+      setupModule.install({
+        client: testCase.client,
+        serverPath: env.fakeServerPath,
+        force: true,
+      });
+
+      const instructionFilePath = getInstructionPath(env, testCase.client);
+      expect(fs.existsSync(instructionFilePath)).toBe(true);
+
+      const content = fs.readFileSync(instructionFilePath, 'utf-8');
+      expect(content).toContain(INSTRUCTION_MARKER_START);
+      expect(content).toContain(INSTRUCTION_MARKER_END);
+    }
+  });
+
+  it('install() instruction file contains canonical content', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+    const canonical = loadExpectedCanonicalInstructions();
+
+    for (const testCase of CLIENT_CASES) {
+      setupModule.install({
+        client: testCase.client,
+        serverPath: env.fakeServerPath,
+        force: true,
+      });
+
+      const instructionFilePath = getInstructionPath(env, testCase.client);
+      const content = fs.readFileSync(instructionFilePath, 'utf-8');
+      expect(extractManagedBlockContent(content)).toBe(canonical);
+    }
+  });
+
+  it('install() output mentions instruction file', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    for (const testCase of CLIENT_CASES) {
+      const output = setupModule.install({
+        client: testCase.client,
+        serverPath: env.fakeServerPath,
+        force: true,
+      });
+
+      const instructionFilePath = getInstructionPath(env, testCase.client);
+      expect(output).toContain(`Instructions: ${instructionFilePath}`);
+      expect(
+        output.includes(`Created ${instructionFilePath}`) ||
+          output.includes(`Updated KB instructions in ${instructionFilePath}.`) ||
+          output.includes(`KB instructions in ${instructionFilePath} already up to date.`)
+      ).toBe(true);
+    }
+  });
+
+  it('uninstall() removes instruction block from file', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    for (const testCase of CLIENT_CASES) {
+      setupModule.install({
+        client: testCase.client,
+        serverPath: env.fakeServerPath,
+        force: true,
+      });
+
+      const instructionFilePath = getInstructionPath(env, testCase.client);
+      setupModule.uninstall({ client: testCase.client });
+
+      if (fs.existsSync(instructionFilePath)) {
+        const content = fs.readFileSync(instructionFilePath, 'utf-8');
+        expect(content).not.toContain(INSTRUCTION_MARKER_START);
+        expect(content).not.toContain(INSTRUCTION_MARKER_END);
+      } else {
+        expect(fs.existsSync(instructionFilePath)).toBe(false);
+      }
+    }
+  });
+
+  it('uninstall() preserves user content outside markers in instruction file', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+    const instructionFilePath = getInstructionPath(env, 'opencode');
+    const userBefore = '# User header\n\nKeep this section.\n\n';
+    const userAfter = '\n\n## User footer\n\nAnd keep this section too.';
+    const canonical = loadExpectedCanonicalInstructions();
+    const markedBlock = `${INSTRUCTION_MARKER_START}\n${canonical}\n${INSTRUCTION_MARKER_END}`;
+
+    fs.mkdirSync(path.dirname(instructionFilePath), { recursive: true });
+    fs.writeFileSync(instructionFilePath, userBefore + markedBlock + userAfter, 'utf-8');
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+    setupModule.uninstall({ client: 'opencode' });
+
+    const updated = fs.readFileSync(instructionFilePath, 'utf-8');
+    expect(updated).toContain('# User header');
+    expect(updated).toContain('Keep this section.');
+    expect(updated).toContain('## User footer');
+    expect(updated).toContain('And keep this section too.');
+    expect(updated).not.toContain(INSTRUCTION_MARKER_START);
+    expect(updated).not.toContain(INSTRUCTION_MARKER_END);
+  });
+
+  it('uninstall() output mentions instruction removal', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+    const instructionFilePath = getInstructionPath(env, 'opencode');
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const output = setupModule.uninstall({ client: 'opencode' });
+    expect(output).toContain(`Removed KB instructions from: ${instructionFilePath}`);
+  });
+
+  it('install() twice updates instruction content when canonical changes', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+    const instructionFilePath = getInstructionPath(env, 'opencode');
+    const canonical = loadExpectedCanonicalInstructions();
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const userBefore = '# Existing user content\n\n';
+    const userAfter = '\n\n# End user content';
+    const staleBlock = `${INSTRUCTION_MARKER_START}\nOLD INSTRUCTIONS\n${INSTRUCTION_MARKER_END}`;
+    fs.writeFileSync(instructionFilePath, userBefore + staleBlock + userAfter, 'utf-8');
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const updated = fs.readFileSync(instructionFilePath, 'utf-8');
+    expect(updated).toContain(userBefore.trim());
+    expect(updated).toContain(userAfter.trim());
+    expect(updated).not.toContain('OLD INSTRUCTIONS');
+    expect(extractManagedBlockContent(updated)).toBe(canonical);
+  });
+
+  it('install() is idempotent for instructions', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+    const instructionFilePath = getInstructionPath(env, 'opencode');
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+    const firstContent = fs.readFileSync(instructionFilePath, 'utf-8');
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+    const secondContent = fs.readFileSync(instructionFilePath, 'utf-8');
+
+    expect(secondContent).toBe(firstContent);
+  });
+
   describe('injectInstructions()', () => {
     let tempDir: string;
     let testFilePath: string;
@@ -376,6 +604,41 @@ describe('setup.ts', () => {
       expect(result.created).toBe(true);
       expect(fs.existsSync(testFilePath)).toBe(false);
     });
+
+    it('injectInstructions() handles file with START marker but no END marker', async () => {
+      const setupModule = await loadFreshSetupModule();
+      fs.writeFileSync(testFilePath, `${INSTRUCTION_MARKER_START}\npartial block`);
+
+      const result = setupModule.injectInstructions(testFilePath);
+
+      expect(result).toEqual({ updated: true, created: false });
+      const content = fs.readFileSync(testFilePath, 'utf-8');
+      expect(content).toContain(INSTRUCTION_MARKER_START);
+      expect(content).toContain(INSTRUCTION_MARKER_END);
+    });
+
+    it('injectInstructions() handles file with END marker but no START marker', async () => {
+      const setupModule = await loadFreshSetupModule();
+      fs.writeFileSync(testFilePath, `partial block\n${INSTRUCTION_MARKER_END}`);
+
+      const result = setupModule.injectInstructions(testFilePath);
+
+      expect(result).toEqual({ updated: true, created: false });
+      const content = fs.readFileSync(testFilePath, 'utf-8');
+      expect(content).toContain(INSTRUCTION_MARKER_START);
+      expect(content).toContain(INSTRUCTION_MARKER_END);
+    });
+
+    it('injectInstructions() creates parent directories', async () => {
+      const setupModule = await loadFreshSetupModule();
+      const nestedFilePath = path.join(tempDir, 'deep', 'nested', 'rules', 'AGENTS.md');
+
+      const result = setupModule.injectInstructions(nestedFilePath);
+
+      expect(result).toEqual({ updated: false, created: true });
+      expect(fs.existsSync(path.dirname(nestedFilePath))).toBe(true);
+      expect(fs.existsSync(nestedFilePath)).toBe(true);
+    });
   });
 
   describe('removeInstructions()', () => {
@@ -464,6 +727,16 @@ describe('setup.ts', () => {
 
       expect(result.removed).toBe(true);
       expect(fs.readFileSync(testFilePath, 'utf-8')).toBe(content);
+    });
+
+    it('removeInstructions() handles file with only START marker', async () => {
+      const setupModule = await loadFreshSetupModule();
+      fs.writeFileSync(testFilePath, `${INSTRUCTION_MARKER_START}\npartial only`);
+
+      const result = setupModule.removeInstructions(testFilePath);
+
+      expect(result).toEqual({ removed: false });
+      expect(fs.readFileSync(testFilePath, 'utf-8')).toContain(INSTRUCTION_MARKER_START);
     });
   });
 });
