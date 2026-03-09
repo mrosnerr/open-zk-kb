@@ -11,7 +11,6 @@ Instead, use [GitHub's private vulnerability reporting](https://github.com/mrosn
 ## Scope
 
 - MCP server (`mcp-server.ts`)
-- OpenCode plugin (`opencode-plugin.ts`)
 - CLI installer (`setup.ts`)
 - SQLite database handling
 - Configuration file parsing

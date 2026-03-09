@@ -53,7 +53,7 @@ const v3SummaryGuidance: DataMigration = {
   },
 
   instructions: `For each note, generate:
-- summary: One-line present-tense key takeaway (e.g., "User prefers Tailwind CSS utility classes over Bootstrap"). This is what agents see first in search results and context injection.
+- summary: One-line present-tense key takeaway (e.g., "User prefers Tailwind CSS utility classes over Bootstrap"). This is what agents see first in search results.
 - guidance: Imperative actionable instruction for agents — how to apply this knowledge (e.g., "Use Tailwind when suggesting CSS frameworks or reviewing CSS code"). Falls back to kind-specific default if omitted.
 
 Kind-specific guidance examples:

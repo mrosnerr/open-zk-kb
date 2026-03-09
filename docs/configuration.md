@@ -6,17 +6,13 @@ open-zk-kb uses a single YAML configuration file:
 
 **Location**: `~/.config/open-zk-kb/config.yaml`
 
-The file has two sections:
-1. **Top-level keys** (vault, logLevel, lifecycle): Core settings used by both MCP Server and OpenCode Plugin.
-2. **`opencode:` section**: Advanced features for the OpenCode plugin (auto-capture, quality gate, embeddings, context injection).
+The file contains core settings for the MCP server, including vault location, log level, note lifecycle, and vector embeddings.
 
 For a detailed explanation of note statuses, kinds, and the review system, see [Note Lifecycle](note-lifecycle.md).
 
-No configuration is required for basic MCP server usage — sensible defaults apply.
+No configuration is required for basic usage — sensible defaults apply.
 
-## Section 1: Core Settings
-
-These apply to both the MCP Server and OpenCode Plugin.
+## Core Settings
 
 ```yaml
 vault: ~/.local/share/open-zk-kb
@@ -27,6 +23,9 @@ lifecycle:
   exemptKinds:
     - personalization
     - decision
+embeddings:
+  enabled: true
+  provider: local
 ```
 
 | Option | Type | Default | Description |
@@ -36,61 +35,23 @@ lifecycle:
 | lifecycle.reviewAfterDays | number | 14 | Days until a note is surfaced for review |
 | lifecycle.promotionThreshold | number | 2 | Accesses needed to recommend promotion to permanent |
 | lifecycle.exemptKinds | string[] | ["personalization", "decision"] | Note kinds exempt from the review queue |
+| embeddings.enabled | boolean | true | Enable vector embeddings |
+| embeddings.provider | string | local | Embedding provider: local or api |
+| embeddings.model | string | all-MiniLM-L6-v2 | Embedding model (local or API) |
+| embeddings.dimensions | number | 384 | Embedding dimensions (must match model) |
+| embeddings.base_url | string | (optional) | Base URL for OpenAI-compatible API |
+| embeddings.api_key | string | (optional) | API key for the provider |
 
-## Section 2: OpenCode Plugin Settings
+## Embeddings (Local-First)
 
-Nested under the `opencode:` key. Required for OpenCode plugin features (auto-capture, embeddings, context injection).
+Embeddings work **out of the box** with zero configuration using a local model (`all-MiniLM-L6-v2`, 384 dimensions).
+- ~23MB model downloaded on first use, cached in `~/.cache/open-zk-kb/models/`
+- To override with an API provider (for higher-quality embeddings), configure the `embeddings` section with `provider: api`.
+- To disable embeddings entirely, set `enabled: false`.
 
-```yaml
-opencode:
-  provider:
-    base_url: https://openrouter.ai/api/v1
-    api_key: "your-api-key-here"
+## Example Configurations
 
-  capture:
-    auto: true
-    model: anthropic/claude-haiku-4-5
-    threshold: 7
-    max_calls_per_session: 20
-
-  embeddings:
-    enabled: true
-    model: openai/text-embedding-3-small
-    dimensions: 1536
-
-  injection:
-    enabled: true
-    max_notes: 10
-    context_aware: false
-    inject_capture_status: false
-
-  excluded_apps: []
-```
-
-| Option | Type | Default | Description |
-|--------|------|---------|-------------|
-| opencode.provider.base_url | string | (required) | Base URL for OpenAI-compatible API |
-| opencode.provider.api_key | string | (required) | API key for the provider |
-| opencode.capture.auto | boolean | true | Enable auto-capture via pattern detection |
-| opencode.capture.model | string | anthropic/claude-haiku-4-5 | Model for quality gate evaluation |
-| opencode.capture.threshold | number | 7 | Minimum score (1-10) for auto-capture |
-| opencode.capture.max_calls_per_session | number | 20 | Max quality gate calls per session |
-| opencode.capture.base_url | string | inherits from provider | Override API URL for capture |
-| opencode.capture.api_key | string | inherits from provider | Override API key for capture |
-| opencode.embeddings.enabled | boolean | true | Enable vector embeddings |
-| opencode.embeddings.model | string | openai/text-embedding-3-small | Embedding model |
-| opencode.embeddings.dimensions | number | 1536 | Embedding dimensions (must match model) |
-| opencode.embeddings.base_url | string | inherits from provider | Override API URL for embeddings |
-| opencode.embeddings.api_key | string | inherits from provider | Override API key for embeddings |
-| opencode.injection.enabled | boolean | true | Enable knowledge injection into prompts |
-| opencode.injection.max_notes | number | 10 | Maximum notes injected per turn |
-| opencode.injection.context_aware | boolean | false | Enable query-based note selection (Layer 2) |
-| opencode.injection.inject_capture_status | boolean | false | Show capture activity in system prompt |
-| opencode.excluded_apps | string[] | [] | App names to exclude from capture |
-
-## Section 3: Example Configurations
-
-### a) Minimal (MCP server only)
+### a) Minimal
 No configuration file required. Install and use with default settings.
 
 ### b) Custom vault path only
@@ -98,35 +59,23 @@ No configuration file required. Install and use with default settings.
 vault: ~/my-knowledge-base
 ```
 
-### c) OpenCode with OpenRouter
+### c) API Embeddings (Override)
 ```yaml
-opencode:
-  provider:
-    base_url: https://openrouter.ai/api/v1
-    api_key: "your-api-key-here"
-  capture:
-    auto: true
-    model: anthropic/claude-haiku-4-5
-  embeddings:
-    enabled: true
-    model: openai/text-embedding-3-small
-    dimensions: 1536
+embeddings:
+  provider: api
+  base_url: https://openrouter.ai/api/v1
+  api_key: "your-api-key-here"
+  model: openai/text-embedding-3-small
+  dimensions: 1536
 ```
 
-### d) OpenCode with local LLM
+### d) Embeddings disabled
 ```yaml
-opencode:
-  provider:
-    base_url: http://localhost:11434/v1
-    api_key: "ollama"
-  capture:
-    auto: true
-    model: llama3
-  embeddings:
-    enabled: false
+embeddings:
+  enabled: false
 ```
 
-## Section 4: Environment & Paths
+## Environment & Paths
 
 | Path | Default | Purpose |
 |------|---------|---------|

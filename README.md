@@ -8,34 +8,67 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 
 > **Beta** — This project is under active development (`0.1.x`). Core functionality works but APIs may change. [Bug reports](https://github.com/mrosnerr/open-zk-kb/issues) and feedback are welcome.
 
-*Store decisions, search knowledge, auto-inject context — across every session.*
-
 <details>
 <summary>Demo</summary>
 <br>
 <img src="assets/demo.gif" alt="Demo" width="600">
 
+> The GIF shows the installer and a scripted API harness exercising all three MCP tools. In real usage, your AI assistant calls the tools automatically based on the injected AGENTS.md instructions — no manual tool calls needed.
+
 </details>
 
-## Modes of Operation
-
-1. **MCP Server**
-   Works with any MCP-compatible client (OpenCode, Claude Code, Cursor, Windsurf, Zed). No configuration is required for basic use.
-
-2. **OpenCode Plugin**
-   Builds on the MCP server with auto-capture via pattern detection, LLM quality gate, and 2-layer context injection. Requires a `config.yaml` file with an API provider.
-
 ## Quick Start
+
+> **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
 
 ```bash
 bunx open-zk-kb
 ```
 
-The interactive installer lets you select which clients to set up (OpenCode, Claude Code, Cursor, Windsurf, Zed). For OpenCode plugin features like auto-capture and context injection, you'll need to add an API key — see [Configuration](#configuration).
+That's it. The interactive installer:
+1. Adds the MCP server to your client config
+2. Injects knowledge base instructions into your client's instruction file (`AGENTS.md`, `CLAUDE.md`, or rules file)
+3. Creates a local vault at `~/.local/share/open-zk-kb`
 
-## Manual Install
+Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**
+
+## How It Works
+
+Your AI assistant gets three MCP tools:
+
+| Tool | What it does |
+|------|-------------|
+| `knowledge-search` | Search the knowledge base before starting work |
+| `knowledge-store` | Save decisions, preferences, procedures, and insights |
+| `knowledge-maintain` | Review, promote, archive, and rebuild notes |
+
+The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
+
+Notes are stored as Markdown files with YAML frontmatter. A SQLite FTS5 index provides fast full-text search, with local vector embeddings (MiniLM, 23MB) for semantic matching. No API key needed.
+
+## Configuration
+
+Zero configuration required for basic usage. The installer creates `~/.config/open-zk-kb/config.yaml` automatically.
+
+To use an API provider for embeddings instead of local models:
+
+```yaml
+embeddings:
+  provider: "api"
+  base_url: "https://openrouter.ai/api/v1"
+  api_key: "your-api-key-here"
+  model: "openai/text-embedding-3-small"
+  dimensions: 1536
+```
+
+Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). See [docs/configuration.md](docs/configuration.md) for the full reference.
+
+<details>
+<summary><h2>Manual Install</h2></summary>
 
 If you prefer manual configuration, add open-zk-kb to your client's MCP config file. No cloning required — the npm package includes everything.
+
+> **Note**: Manual install only adds the MCP server. To also inject the agent instructions, run `bunx open-zk-kb install --client <name>` or add the contents of `agent-instructions.md` to your client's instruction file.
 
 ### OpenCode
 
@@ -98,24 +131,25 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
 }
 ```
 
-### Zed
+</details>
 
-`~/.config/zed/settings.json`
+<details>
+<summary><h2>Note Kinds</h2></summary>
 
-```json
-{
-  "context_servers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb-server"]
-    }
-  }
-}
-```
+| Kind | Default Status | Use Case |
+|------|----------------|----------|
+| `personalization` | permanent | User preferences, habits, and personal style |
+| `reference` | fleeting | Technical facts, API details, and documentation snippets |
+| `decision` | permanent | Architectural choices, project commitments, and trade-offs |
+| `procedure` | fleeting | Step-by-step workflows and recurring tasks |
+| `resource` | permanent | Links, tools, libraries, and external documentation |
+| `observation` | fleeting | Insights, patterns, and temporary findings |
+
+Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
+
+</details>
 
 ## Development
-
-### From source
 
 ```bash
 git clone https://github.com/mrosnerr/open-zk-kb
@@ -124,67 +158,13 @@ bun install && bun run build
 bun run setup            # interactive installer
 ```
 
-## Tools
-
-| Tool | Description |
-|------|-------------|
-| `knowledge-store` | Create or update a knowledge note with metadata. |
-| `knowledge-search` | Full-text search across the entire knowledge base. |
-| `knowledge-maintain` | Manage the knowledge base: stats, review, promote, archive, or rebuild. |
-
-## Note Kinds
-
-| Kind | Default Status | Use Case |
-|------|----------------|----------|
-| `personalization` | permanent | User preferences, habits, and personal style. |
-| `reference` | fleeting | Technical facts, API details, and documentation snippets. |
-| `decision` | permanent | Architectural choices, project commitments, and trade-offs. |
-| `procedure` | fleeting | Step-by-step workflows and recurring tasks. |
-| `resource` | permanent | Links, tools, libraries, and external documentation. |
-| `observation` | fleeting | Insights, patterns, and temporary findings. |
-
-## Note Lifecycle
-
-Notes follow a progression to maintain relevance:
-**fleeting** → **permanent** → **archived**
-
-For details on the review system, promotion, and archiving, see [Note Lifecycle](docs/note-lifecycle.md).
-
-## Configuration
-
-All settings live in a single file: `~/.config/open-zk-kb/config.yaml` — the installer creates this automatically.
-
-No configuration is required for basic MCP server usage. For OpenCode plugin features (auto-capture, quality gate, context injection), add your API key:
-
-```yaml
-opencode:
-  provider:
-    base_url: https://openrouter.ai/api/v1
-    api_key: "your-api-key-here"
-
-  capture:
-    auto: true
-    model: anthropic/claude-haiku-4-5
-    max_calls_per_session: 20
-```
-
-Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). For the full reference, see [docs/configuration.md](docs/configuration.md).
-
-## Storage
-
-Knowledge is stored as Markdown files with YAML frontmatter. A SQLite FTS5 index provides fast searching. The filesystem remains the source of truth; the database can be reconstructed from files using `knowledge-maintain rebuild`.
-
-## Requirements
-
-- [Bun](https://bun.sh) >= 1.0.0 (required — uses `bun:sqlite` for storage)
-
 ## Links
 
-- [Setup Guide](docs/setup-guide.md)
-- [Configuration Reference](docs/configuration.md)
-- [Note Lifecycle](docs/note-lifecycle.md)
-- [Architecture Design](docs/architecture.md)
-- [Development & Contributing](docs/development.md)
+- [Setup Guide](docs/setup-guide.md) — installation, instruction injection, verification
+- [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
+- [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
+- [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection
+- [Development & Contributing](docs/development.md) — local dev, testing, debugging
 - [Contributing Guidelines](CONTRIBUTING.md)
 
 ## License
