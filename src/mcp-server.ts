@@ -226,6 +226,14 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logToFile('INFO', 'MCP server: connected via stdio', {}, config);
+
+  // Warm up embedding model in background so first search gets semantic results
+  const embConfig = getEmbeddingConfig();
+  if (embConfig) {
+    generateEmbedding('warmup', embConfig).catch(() => {
+      // Non-fatal — search falls back to FTS5-only
+    });
+  }
 }
 
 function shutdown() {
