@@ -2,7 +2,7 @@
 
 ## Overview
 
-MCP server + OpenCode plugin for persistent Zettelkasten knowledge management. TypeScript/Bun, SQLite FTS5, Markdown files with YAML frontmatter. Dual entry points: `mcp-server.ts` (MCP stdio) and `opencode-plugin.ts` (OpenCode plugin hooks).
+MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQLite FTS5, Markdown files with YAML frontmatter. Entry point: `mcp-server.ts` (MCP stdio).
 
 ## Structure
 
@@ -10,8 +10,7 @@ MCP server + OpenCode plugin for persistent Zettelkasten knowledge management. T
 .
 ├── src/                   # Source (see src/AGENTS.md)
 │   ├── mcp-server.ts      # MCP stdio server entry
-│   ├── opencode-plugin.ts # OpenCode plugin entry (6 hooks + LLM quality gate)
-│   ├── tool-handlers.ts   # Shared handler functions (both entries use)
+│   ├── tool-handlers.ts   # Shared handler functions
 │   ├── storage/            # NoteRepository — SQLite+FTS5+filesystem
 │   └── utils/              # Path resolution, wikilink parsing
 ├── tests/                 # Test suite (see tests/AGENTS.md)
@@ -32,18 +31,16 @@ MCP server + OpenCode plugin for persistent Zettelkasten knowledge management. T
 
 | Task | Location | Notes |
 |------|----------|-------|
-| Add/modify a tool | `src/tool-handlers.ts` | Shared by MCP + plugin |
+| Add/modify a tool | `src/tool-handlers.ts` | Shared by MCP server |
 | Register tool for MCP | `src/mcp-server.ts` | Uses @modelcontextprotocol/sdk |
-| Register tool for OpenCode | `src/opencode-plugin.ts` | Plugin hooks + LLM quality gate (~1,384 LOC) |
 | Storage/DB changes | `src/storage/NoteRepository.ts` | ~1,235 LOC, dual SQLite+filesystem |
 | Schema migrations | `src/schema.ts` | PRAGMA user_version based |
 | Data migrations | `src/data-migrations.ts` | Agent-driven content upgrades |
 | Configuration | `src/config.ts` | YAML config with defaults |
 | Types/interfaces | `src/types.ts` | NoteKind, NoteStatus, NoteMetadata |
 | Note rendering | `src/prompts.ts` | XML format for agent consumption |
-| Install/uninstall CLI | `src/setup.ts` | 5 clients: opencode, claude-code, cursor, windsurf, zed |
+| Install/uninstall CLI | `src/setup.ts` | 4 clients: opencode, claude-code, cursor, windsurf |
 | Tests | `tests/` | bun:test with harness + fixtures |
-| Plugin config | `~/.config/open-zk-kb/config.yaml` | `opencode:` section — capture, LLM gate, injection |
 
 ## Code Map
 
@@ -61,13 +58,12 @@ MCP server + OpenCode plugin for persistent Zettelkasten knowledge management. T
 | `SchemaManager` | class | `schema.ts` | DB schema versioning (v3), migrations |
 | `getConfig` | function | `config.ts` | 2-layer merge: defaults → YAML config |
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |
-| `renderNoteForAgent` | function | `prompts.ts` | XML note rendering for context injection |
+| `renderNoteForAgent` | function | `prompts.ts` | XML note rendering for agent consumption |
 | `renderNoteForSearch` | function | `prompts.ts` | XML note rendering with full content for search results |
-| `getOpenCodeConfig` | function | `config.ts` | Returns `opencode:` section from config.yaml |
 
 ## Anti-Patterns (This Project)
 
-1. **NEVER** use `console.log()`, `console.warn()`, `console.error()` in plugin/server code
+1. **NEVER** use `console.log()`, `console.warn()`, `console.error()` in server code
    - **USE** `logToFile()` from `src/logger.ts` — MCP stdio requires clean stdout
    - Exception: `src/setup.ts` and `scripts/` CLI commands (user-facing output is OK)
 2. **NEVER** skip rebuild after source changes — `dist/` is what actually runs
@@ -81,9 +77,9 @@ MCP server + OpenCode plugin for persistent Zettelkasten knowledge management. T
 - **Note IDs**: `YYYYMMDDHHmm` (12-digit timestamp) + collision counter
 - **Filenames**: `{id}-{slug}.md`
 - **XDG paths**: vault=`$XDG_DATA_HOME/open-zk-kb`, config=`$XDG_CONFIG_HOME/open-zk-kb/config.yaml`, logs=`$XDG_STATE_HOME/open-zk-kb/logs/`
-- **Single config file**: `~/.config/open-zk-kb/config.yaml` — top-level keys for core settings, `opencode:` section for plugin features
+- **Single config file**: `~/.config/open-zk-kb/config.yaml` — top-level keys for core settings and `embeddings:`
 - **Dual storage**: Filesystem is source of truth; DB is index. `rebuildFromFiles()` reconstructs DB from .md files
-- **Shared handlers**: `tool-handlers.ts` exports pure functions — both MCP server and OpenCode plugin call these
+- **Shared handlers**: `tool-handlers.ts` exports pure functions — called by MCP server
 - **ESM only**: `"type": "module"` — no CommonJS
 - **Strict TS**: `strict: true`, ES2022 target, NodeNext resolution
 - **Commit messages**: Capitalized imperative, no prefix, no trailing period (e.g. `Add feature`, `Fix bug`, `Update docs`)
@@ -107,4 +103,5 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 - **CI uses Bun** (`.github/workflows/ci.yml`)
 - **Install via CLI**: `bun run setup install --client <name>` — single mechanism via `src/setup.ts`
 - **Wiki-links**: Obsidian-compatible `[[slug|display]]` format with backlink tracking in `note_links` table
-- **LLM quality gate**: All auto-captures pass through external LLM API (OpenRouter-compatible). Direct `fetch()` calls — no session lifecycle. Config: `config.yaml` `opencode.capture` section (base_url, api_key, model). Fails closed on API errors.
+- **Knowledge capture**: Driven by `AGENTS.md` or `CLAUDE.md` instructions provided during setup. Calling models use `knowledge-store` directly.
+- **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.

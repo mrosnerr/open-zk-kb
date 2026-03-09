@@ -8,7 +8,7 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 
 > **Beta** — This project is under active development (`0.1.x`). Core functionality works but APIs may change. [Bug reports](https://github.com/mrosnerr/open-zk-kb/issues) and feedback are welcome.
 
-*Store decisions, search knowledge, auto-inject context — across every session.*
+*Store decisions, search knowledge, and maintain context — across every session.*
 
 <details>
 <summary>Demo</summary>
@@ -17,21 +17,15 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 
 </details>
 
-## Modes of Operation
-
-1. **MCP Server**
-   Works with any MCP-compatible client (OpenCode, Claude Code, Cursor, Windsurf, Zed). No configuration is required for basic use.
-
-2. **OpenCode Plugin**
-   Builds on the MCP server with auto-capture via pattern detection, LLM quality gate, and 2-layer context injection. Requires a `config.yaml` file with an API provider.
-
 ## Quick Start
+
+> **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
 
 ```bash
 bunx open-zk-kb
 ```
 
-The interactive installer lets you select which clients to set up (OpenCode, Claude Code, Cursor, Windsurf, Zed). For OpenCode plugin features like auto-capture and context injection, you'll need to add an API key — see [Configuration](#configuration).
+The interactive installer lets you select which clients to set up (OpenCode, Claude Code, Cursor, Windsurf). Knowledge capture is driven by `AGENTS.md` or `CLAUDE.md` instructions provided during setup.
 
 ## Manual Install
 
@@ -98,21 +92,6 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
 }
 ```
 
-### Zed
-
-`~/.config/zed/settings.json`
-
-```json
-{
-  "context_servers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb-server"]
-    }
-  }
-}
-```
-
 ## Development
 
 ### From source
@@ -154,25 +133,25 @@ For details on the review system, promotion, and archiving, see [Note Lifecycle]
 
 All settings live in a single file: `~/.config/open-zk-kb/config.yaml` — the installer creates this automatically.
 
-No configuration is required for basic MCP server usage. For OpenCode plugin features (auto-capture, quality gate, context injection), add your API key:
+No configuration is required for basic usage. Local embeddings (MiniLM, 23MB) are enabled by default and require no API key. To use an API provider for embeddings:
 
 ```yaml
-opencode:
-  provider:
-    base_url: https://openrouter.ai/api/v1
-    api_key: "your-api-key-here"
+vault: "~/.local/share/open-zk-kb"
+logLevel: "info"
 
-  capture:
-    auto: true
-    model: anthropic/claude-haiku-4-5
-    max_calls_per_session: 20
+embeddings:
+  provider: "api"
+  base_url: "https://openrouter.ai/api/v1"
+  api_key: "your-api-key-here"
+  model: "openai/text-embedding-3-small"
+  dimensions: 1536
 ```
 
 Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). For the full reference, see [docs/configuration.md](docs/configuration.md).
 
 ## Storage
 
-Knowledge is stored as Markdown files with YAML frontmatter. A SQLite FTS5 index provides fast searching. The filesystem remains the source of truth; the database can be reconstructed from files using `knowledge-maintain rebuild`.
+Knowledge is stored as Markdown files with YAML frontmatter. A SQLite FTS5 index provides fast searching, with vector embeddings generated locally by default via `@huggingface/transformers` (MiniLM-L6-v2, ~23MB). The filesystem remains the source of truth; the database can be reconstructed from files using `knowledge-maintain rebuild`.
 
 ## Requirements
 

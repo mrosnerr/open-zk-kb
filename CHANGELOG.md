@@ -18,7 +18,7 @@ Initial beta release.
 
 ### Features
 
-- **MCP Server**: Works with any MCP-compatible client (Claude Code, Cursor, Windsurf, Zed)
+- **MCP Server**: Works with any MCP-compatible client (Claude Code, Cursor, Windsurf)
 - **OpenCode Plugin**: Auto-capture via pattern detection, LLM quality gate, 2-layer context injection
 - **Three tools**: `knowledge-store`, `knowledge-search`, `knowledge-maintain`
 - **Six note kinds**: personalization, reference, decision, procedure, resource, observation

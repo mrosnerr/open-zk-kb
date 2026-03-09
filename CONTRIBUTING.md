@@ -1,6 +1,6 @@
 # Contributing to open-zk-kb
 
-Thank you for your interest in contributing to open-zk-kb. This project is an MCP server and OpenCode plugin for persistent Zettelkasten knowledge management.
+Thank you for your interest in contributing to open-zk-kb. This project is an MCP server for persistent Zettelkasten knowledge management.
 
 ## Prerequisites
 
@@ -47,7 +47,7 @@ bun test         # Verify everything works
 
 ## Anti-Patterns (DO NOT)
 
-- NEVER use `console.log()`, `console.warn()`, or `console.error()` in plugin/server code. MCP stdio requires clean stdout. Use `logToFile()` from `src/logger.ts`. Exception: `src/setup.ts` and `scripts/` (CLI output is OK).
+- NEVER use `console.log()`, `console.warn()`, or `console.error()` in server code. MCP stdio requires clean stdout. Use `logToFile()` from `src/logger.ts`. Exception: `src/setup.ts` and `scripts/` (CLI output is OK).
 - NEVER suppress type errors with `as any`, `@ts-ignore`, or `@ts-expect-error`.
 - NEVER add FTS5 triggers. Manual FTS management is intentional.
 - NEVER skip rebuild after source changes. `dist/` is what runs.
@@ -60,7 +60,6 @@ For more details, see `docs/architecture.md`.
 ```
 src/
 ├── mcp-server.ts       # MCP stdio server entry
-├── opencode-plugin.ts  # OpenCode plugin entry (auto-capture + injection)
 ├── tool-handlers.ts    # Shared handler functions
 ├── storage/            # NoteRepository — SQLite + FTS5 + filesystem
 ├── config.ts           # Configuration loading

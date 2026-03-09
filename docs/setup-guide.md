@@ -13,14 +13,9 @@ Run the interactive installer:
 bunx open-zk-kb
 ```
 
-This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed.
+This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf.
 
-For a specific client:
-```bash
-bunx open-zk-kb install --client opencode
-```
-
-> **Note**: The installer automatically copies `config.example.yaml` to `~/.config/open-zk-kb/config.yaml` if no config file exists yet. You only need to edit it if you're using OpenCode plugin features.
+> **Note**: The installer automatically copies `config.example.yaml` to `~/.config/open-zk-kb/config.yaml` if no config file exists yet. Local embeddings (MiniLM, 23MB) are enabled by default and require no API key.
 
 ### Manual Installation (for any MCP client)
 
@@ -33,7 +28,7 @@ Add to your client's MCP configuration — no cloning required:
   }
 }
 ```
-For Zed, use `context_servers` instead of `mcpServers`. For OpenCode, use the `mcp` key with `"type": "local"` and `"command": ["bunx", "open-zk-kb-server"]`.
+For OpenCode, use the `mcp` key with `"type": "local"` and `"command": ["bunx", "open-zk-kb-server"]`.
 
 ## Install from source (for development)
 
@@ -60,14 +55,6 @@ bun run setup install --client opencode
 | Claude Code | `~/.claude/settings.json` |
 | Cursor | `~/.cursor/mcp.json` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
-| Zed | `~/.config/zed/settings.json` |
-
-### OpenCode: additional setup
-
-If using OpenCode, edit the auto-generated config with your API key:
-```bash
-nano ~/.config/open-zk-kb/config.yaml
-```
 
 ## Verify Installation
 1. Restart your editor/client.
@@ -78,7 +65,7 @@ nano ~/.config/open-zk-kb/config.yaml
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
 
 ## Optional Configuration
-- **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and OpenCode plugin features in a single file. See [configuration.md](configuration.md).
+- **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and vector embeddings in a single file. See [configuration.md](configuration.md).
 
 ## Uninstalling
 
@@ -121,4 +108,4 @@ This section is specifically for AI coding assistants setting up open-zk-kb:
 2. Run `bunx open-zk-kb install --client <detected-client>`
 3. Instruct user to restart their editor
 4. Verify by calling `knowledge-maintain stats`
-5. If OpenCode: remind user to edit `~/.config/open-zk-kb/config.yaml` with their API key
+5. Knowledge capture is driven by `AGENTS.md` or `CLAUDE.md` instructions provided during setup. Calling models use `knowledge-store` directly.

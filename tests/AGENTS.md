@@ -15,7 +15,6 @@ tests/
 ├── integration.test.ts    # NoteRepository direct: kind defaults, frontmatter, search filters
 ├── edge-cases.test.ts     # FTS5 edge cases (operators, injection, unicode) + input validation
 ├── embeddings.test.ts     # Pure functions: cosineSimilarity, blob round-trip, buildEmbeddingText
-├── opencode-plugin.test.ts # Pattern detection, scoring, context extraction, hash dedup
 ├── config.test.ts         # Config loading: defaults, YAML override, partial, malformed
 ├── schema.test.ts         # DB schema: fresh creation, migrations v1→v3→v4
 ├── setup.test.ts          # CLI installer: install, uninstall, idempotency
