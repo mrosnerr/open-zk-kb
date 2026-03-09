@@ -169,44 +169,6 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('Notes missing summary');
   });
 
-  it('capture-stats returns statistics', async () => {
-    const captured = ctx.engine.store('Captured insight', {
-      title: 'Captured note',
-      kind: 'observation',
-      status: 'fleeting',
-      tags: ['auto-captured', 'source/agent'],
-    });
-
-    ctx.engine.recordCaptureMetric({
-      patternName: 'decision',
-      patternType: 'decision',
-      source: 'agent',
-      score: 12,
-      gateCalled: true,
-      gateWorthy: true,
-      gateConfidence: 0.92,
-      noteId: captured.id,
-    });
-
-    ctx.engine.recordCaptureMetric({
-      patternName: 'preference_statement',
-      patternType: 'preference',
-      source: 'user',
-      score: 6,
-      gateCalled: false,
-      gateWorthy: null,
-      gateConfidence: null,
-      noteId: null,
-    });
-
-    const result = await handleMaintain({ action: 'capture-stats' }, ctx.engine, ctx.config);
-    expect(result).toContain('Auto-Capture Statistics');
-    expect(result).toContain('Pipeline Metrics');
-    expect(result).toContain('Total capture attempts');
-    expect(result).toContain('By Pattern');
-    expect(result).toContain('By Source');
-  });
-
   it('should promote a note', async () => {
     const fleeting = ctx.engine.getByKind('reference');
     expect(fleeting.length).toBe(1);

@@ -117,40 +117,37 @@ describe('config.ts', () => {
     expect(cfg.lifecycle.reviewAfterDays).toBe(14);
   });
 
-  it('returns null from getOpenCodeConfig when section is missing', async () => {
+  it('returns null from getEmbeddingsConfig when section is missing', async () => {
     const isolated = createIsolatedConfigHome();
     fs.writeFileSync(isolated.configPath, 'logLevel: WARN\n', 'utf-8');
 
     const configModule = await loadFreshConfigModule();
-    const opencodeConfig = configModule.getOpenCodeConfig();
+    const embConfig = configModule.getEmbeddingsConfig();
 
-    expect(opencodeConfig).toBeNull();
+    expect(embConfig).toBeNull();
   });
 
-  it('returns opencode section from getOpenCodeConfig when present', async () => {
+  it('reads top-level embeddings config', async () => {
     const isolated = createIsolatedConfigHome();
     fs.writeFileSync(
       isolated.configPath,
       [
-        'opencode:',
-        '  capture:',
-        '    auto: true',
-        '    model: openai/gpt-4o-mini',
-        '  injection:',
-        '    enabled: true',
-        '    max_notes: 5',
+        'embeddings:',
+        '  provider: api',
+        '  model: openai/text-embedding-3-small',
+        '  dimensions: 1536',
         '',
       ].join('\n'),
       'utf-8'
     );
 
     const configModule = await loadFreshConfigModule();
-    const opencodeConfig = configModule.getOpenCodeConfig();
+    const embConfig = configModule.getEmbeddingsConfig();
 
-    expect(opencodeConfig).not.toBeNull();
-    expect(opencodeConfig?.capture?.auto).toBe(true);
-    expect(opencodeConfig?.capture?.model).toBe('openai/gpt-4o-mini');
-    expect(opencodeConfig?.injection?.enabled).toBe(true);
-    expect(opencodeConfig?.injection?.max_notes).toBe(5);
+    expect(embConfig).not.toBeNull();
+    expect(embConfig?.provider).toBe('api');
+    expect(embConfig?.model).toBe('openai/text-embedding-3-small');
+    expect(embConfig?.dimensions).toBe(1536);
   });
+
 });

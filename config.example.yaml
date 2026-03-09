@@ -6,7 +6,6 @@
 #   cp config.example.yaml ~/.config/open-zk-kb/config.yaml
 
 # ─── Core Settings ───────────────────────────────────────────────────────────
-# These apply to both MCP Server and OpenCode Plugin modes.
 
 # vault: ~/.local/share/open-zk-kb       # Where notes are stored (default shown)
 # logLevel: INFO                          # DEBUG | INFO | WARN | ERROR
@@ -17,40 +16,17 @@
 #     - personalization
 #     - decision
 
-# ─── OpenCode Plugin ─────────────────────────────────────────────────────────
-# Everything below is optional. The standalone MCP server (for Claude Code,
-# Cursor, etc.) works without any of this.
+# ─── Embeddings ──────────────────────────────────────────────────────────────
+# Local embeddings (23MB MiniLM model) are enabled by default — no config needed.
+# To use an API provider instead, uncomment below:
 
-opencode:
-  # Shared API provider — used by capture + embeddings unless overridden
-  # Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.)
-  provider:
-    base_url: https://openrouter.ai/api/v1
-    api_key: "your-api-key-here"
+# embeddings:
+#   provider: api
+#   model: openai/text-embedding-3-small  # Any embeddings model
+#   dimensions: 1536                      # Must match model's output dimensions
+#   base_url: https://openrouter.ai/api/v1
+#   api_key: "your-api-key-here"
 
-  # Auto-capture: pattern detection → LLM quality gate → store
-  capture:
-    auto: true                           # Enable pattern-based auto-capture (requires provider)
-    model: anthropic/claude-haiku-4-5    # Quality gate model (any chat model)
-    threshold: 7                         # Score 1-10 required for auto-capture
-    max_calls_per_session: 20            # Budget limit per session
-    # base_url: ...                      # Optional: override provider.base_url
-    # api_key: ...                       # Optional: override provider.api_key
-
-  # Vector embeddings for semantic search (optional — additive over FTS5)
-  embeddings:
-    enabled: true
-    model: openai/text-embedding-3-small # Any embeddings model
-    dimensions: 1536                     # Must match model's output dimensions
-    # base_url: ...                      # Optional: override provider.base_url
-    # api_key: ...                       # Optional: override provider.api_key
-
-  # Knowledge injection into prompts (read-only, no API needed)
-  injection:
-    enabled: true
-    max_notes: 10
-    context_aware: false                 # Search KB based on user's query
-    inject_capture_status: false         # Show capture status in system prompt
-
-  # Apps to exclude from capture
-  excluded_apps: []
+# To disable embeddings entirely (FTS5 keyword search only):
+# embeddings:
+#   enabled: false

@@ -811,7 +811,6 @@ export class NoteRepository {
 
   /**
    * Get the most frequently accessed notes, prioritizing permanent notes.
-   * Used for context injection at session start.
    */
   getTopAccessedNotes(limit: number = 10): NoteMetadata[] {
     const stmt = this.db.prepare(`
@@ -854,8 +853,7 @@ export class NoteRepository {
   }
 
   /**
-   * Get relevant notes for context injection.
-   * Balances recency, frequency, and importance across categories.
+   * Get relevant notes by balancing recency, frequency, and importance.
    */
   getRelevantNotesForContext(maxNotes: number = 10): NoteMetadata[] {
     const seen = new Set<string>();
@@ -1353,86 +1351,6 @@ export class NoteRepository {
       .replace(/\.md$/i, '')
       .replace(/[^a-z0-9]/g, '')
       .substring(0, 50);
-  }
-
-  recordCaptureMetric(metric: {
-    patternName: string;
-    patternType: string;
-    source: string;
-    score: number;
-    gateCalled: boolean;
-    gateWorthy: boolean | null;
-    gateConfidence: number | null;
-    noteId: string | null;
-  }): void {
-    try {
-      this.db.prepare(
-        `INSERT INTO capture_metrics (pattern_name, pattern_type, source, score, gate_called, gate_worthy, gate_confidence, note_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(
-        metric.patternName,
-        metric.patternType,
-        metric.source,
-        metric.score,
-        metric.gateCalled ? 1 : 0,
-        metric.gateWorthy === null ? null : (metric.gateWorthy ? 1 : 0),
-        metric.gateConfidence,
-        metric.noteId,
-        Date.now(),
-      );
-    } catch (error) {
-      logToFile('WARN', 'Failed to record capture metric', {
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
-  }
-
-  getCaptureStats(): {
-    totalAttempts: number;
-    gateCalledCount: number;
-    gateApprovedCount: number;
-    gateRejectedCount: number;
-    byPattern: Array<{ name: string; attempts: number; approved: number; rejected: number }>;
-    bySource: Array<{ source: string; attempts: number; approved: number }>;
-    avgConfidence: number | null;
-  } {
-    const totalAttempts = (this.db.prepare('SELECT COUNT(*) as cnt FROM capture_metrics').get() as { cnt: number }).cnt;
-    const gateCalledCount = (this.db.prepare('SELECT COUNT(*) as cnt FROM capture_metrics WHERE gate_called = 1').get() as { cnt: number }).cnt;
-    const gateApprovedCount = (this.db.prepare('SELECT COUNT(*) as cnt FROM capture_metrics WHERE gate_worthy = 1').get() as { cnt: number }).cnt;
-    const gateRejectedCount = (this.db.prepare('SELECT COUNT(*) as cnt FROM capture_metrics WHERE gate_worthy = 0').get() as { cnt: number }).cnt;
-
-    const byPattern = this.db.prepare(`
-      SELECT pattern_name as name,
-             COUNT(*) as attempts,
-             SUM(CASE WHEN gate_worthy = 1 THEN 1 ELSE 0 END) as approved,
-             SUM(CASE WHEN gate_worthy = 0 THEN 1 ELSE 0 END) as rejected
-      FROM capture_metrics
-      GROUP BY pattern_name
-      ORDER BY attempts DESC
-    `).all() as Array<{ name: string; attempts: number; approved: number; rejected: number }>;
-
-    const bySource = this.db.prepare(`
-      SELECT source,
-             COUNT(*) as attempts,
-             SUM(CASE WHEN gate_worthy = 1 THEN 1 ELSE 0 END) as approved
-      FROM capture_metrics
-      GROUP BY source
-      ORDER BY attempts DESC
-    `).all() as Array<{ source: string; attempts: number; approved: number }>;
-
-    const avgRow = this.db.prepare(
-      'SELECT AVG(gate_confidence) as avg FROM capture_metrics WHERE gate_confidence IS NOT NULL',
-    ).get() as { avg: number | null };
-
-    return {
-      totalAttempts,
-      gateCalledCount,
-      gateApprovedCount,
-      gateRejectedCount,
-      byPattern,
-      bySource,
-      avgConfidence: avgRow.avg,
-    };
   }
 
   clearAll(): void {

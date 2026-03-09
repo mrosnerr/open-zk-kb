@@ -1,0 +1,80 @@
+name: Demo GIF
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/demo-mcp.ts'
+      - 'demo.tape'
+      - 'src/**'
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build
+        run: bun run build
+
+      - name: Install VHS
+        run: |
+          curl -fsSL https://github.com/charmbracelet/vhs/releases/download/v0.10.0/vhs_0.10.0_amd64.deb -o vhs.deb
+          sudo dpkg -i vhs.deb
+          rm vhs.deb
+
+      - name: Install ttyd (VHS dependency)
+        run: sudo apt-get install -y ttyd
+
+      - name: Cache embedding model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/open-zk-kb/models/Xenova/all-MiniLM-L6-v2
+          key: embedding-model-all-MiniLM-L6-v2-q8
+
+      - name: Cache generation model
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/open-zk-kb/models/onnx-community/Qwen2.5-1.5B-Instruct
+          key: generation-model-Qwen2.5-1.5B-Instruct-q4
+
+      - name: Pre-warm models
+        run: |
+          bun -e "
+          const { pipeline, env } = await import('@huggingface/transformers');
+          env.cacheDir = process.env.HOME + '/.cache/open-zk-kb/models';
+          console.log('Loading embedding model...');
+          await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' });
+          console.log('Loading generation model...');
+          await pipeline('text-generation', 'onnx-community/Qwen2.5-1.5B-Instruct', { dtype: 'q4' });
+          console.log('Models cached.');
+          "
+
+      - name: Record demo GIF
+        run: vhs demo.tape
+
+      - name: Verify GIF exists
+        run: test -f assets/demo.gif && echo "GIF recorded successfully ($(du -h assets/demo.gif | cut -f1))"
+
+      - name: Commit updated GIF
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add assets/demo.gif
+          if git diff --cached --quiet; then
+            echo "No changes to demo GIF"
+          else
+            git commit -m "Update demo GIF"
+            git push
+          fi

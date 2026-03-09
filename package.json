@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "0.1.0-beta.4",
+  "version": "0.1.0-beta.5",
   "description": "MCP server for persistent Zettelkasten-based knowledge management",
   "type": "module",
   "main": "dist/mcp-server.js",
@@ -9,13 +9,8 @@
     ".": {
       "types": "./dist/mcp-server.d.ts",
       "import": "./dist/mcp-server.js"
-    },
-    "./opencode": {
-      "types": "./dist/opencode-plugin.d.ts",
-      "import": "./dist/opencode-plugin.js"
     }
   },
-  "opencode": "./dist/opencode-plugin.js",
   "sideEffects": false,
   "bin": {
     "open-zk-kb": "./dist/setup.js",
@@ -35,6 +30,7 @@
   "files": [
     "dist/",
     "config.example.yaml",
+    "agent-instructions.md",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -52,6 +48,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
+    "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "picocolors": "^1.1.1",
     "yaml": "^2.3.4"
@@ -72,7 +69,6 @@
     "mcp",
     "knowledge-management",
     "zettelkasten",
-    "opencode",
     "ai",
     "llm",
     "sqlite",

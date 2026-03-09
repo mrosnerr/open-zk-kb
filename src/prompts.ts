@@ -16,7 +16,7 @@ export const KIND_GUIDANCE: Record<string, string> = {
   observation: 'Unverified insight — consider but verify before relying on.',
 };
 
-// Kinds that benefit from a content preview in context injection
+// Kinds that benefit from a content preview in compact rendering
 const CONTENT_PREVIEW_KINDS = new Set(['procedure', 'reference', 'observation', 'resource']);
 const CONTENT_PREVIEW_MAX_CHARS = 150;
 
@@ -37,7 +37,7 @@ function buildNoteAttrs(note: NoteMetadata): string {
   return attrs.join(' ');
 }
 
-// ---- Note rendering for context injection (system prompt) ----
+// ---- Compact note rendering (summary + guidance) ----
 
 export function renderNoteForAgent(note: NoteMetadata): string {
   const summary = note.summary || note.title || note.id;

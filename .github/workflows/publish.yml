@@ -34,9 +34,9 @@ jobs:
           LOCAL_VERSION=$(node -p "require('./package.json').version")
           echo "local_version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
           if echo "$LOCAL_VERSION" | grep -qE '(alpha|beta|rc)'; then
-            echo "tag=beta" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           else
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "prerelease=false" >> "$GITHUB_OUTPUT"
           fi
           PUBLISHED=$(npm view open-zk-kb@"$LOCAL_VERSION" version 2>/dev/null || echo "")
           if [ "$PUBLISHED" = "$LOCAL_VERSION" ]; then
@@ -69,7 +69,7 @@ jobs:
 
       - name: Publish
         if: steps.version-check.outputs.skip == 'false'
-        run: npm publish --provenance --access public --tag ${{ steps.version-check.outputs.tag }}
+        run: npm publish --provenance --access public --tag latest
 
       - name: Create GitHub Release
         if: steps.version-check.outputs.skip == 'false'
@@ -81,7 +81,7 @@ jobs:
           git tag "$TAG"
           git push origin "$TAG"
           PRERELEASE_FLAG=""
-          if [ "${{ steps.version-check.outputs.tag }}" != "latest" ]; then
+          if [ "${{ steps.version-check.outputs.prerelease }}" = "true" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
           gh release create "$TAG" \

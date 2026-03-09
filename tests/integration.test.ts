@@ -1,4 +1,4 @@
-// tests/integration.test.ts - Integration tests for knowledge-capture plugin
+// tests/integration.test.ts - Integration tests for knowledge base
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   createTestHarness,

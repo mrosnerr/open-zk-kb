@@ -16,10 +16,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { NoteRepository } from './storage/NoteRepository.js';
-import { getConfig, getOpenCodeConfig } from './config.js';
+import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { handleStore, handleSearch, handleMaintain } from './tool-handlers.js';
-import { generateEmbedding } from './embeddings.js';
+import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
 
@@ -39,25 +39,29 @@ let cachedEmbeddingConfig: EmbeddingConfig | null | undefined;
 function getEmbeddingConfig(): EmbeddingConfig | null {
   if (cachedEmbeddingConfig !== undefined) return cachedEmbeddingConfig;
 
-  const oc = getOpenCodeConfig();
-  if (!oc?.embeddings?.enabled || !oc?.embeddings?.model) {
+  const embCfg = getEmbeddingsConfig();
+
+  if (embCfg?.enabled === false) {
     cachedEmbeddingConfig = null;
     return null;
   }
 
-  const baseUrl = oc.embeddings.base_url || oc.provider?.base_url;
-  const apiKey = oc.embeddings.api_key || oc.provider?.api_key;
-  if (!baseUrl || !apiKey) {
-    cachedEmbeddingConfig = null;
-    return null;
+  if (embCfg?.provider === 'api' && embCfg.model) {
+    const baseUrl = embCfg.base_url;
+    const apiKey = embCfg.api_key;
+    if (baseUrl && apiKey) {
+      cachedEmbeddingConfig = {
+        provider: 'api',
+        baseUrl,
+        apiKey,
+        model: embCfg.model,
+        dimensions: embCfg.dimensions || 1536,
+      };
+      return cachedEmbeddingConfig;
+    }
   }
 
-  cachedEmbeddingConfig = {
-    baseUrl,
-    apiKey,
-    model: oc.embeddings.model,
-    dimensions: oc.embeddings.dimensions || 1536,
-  };
+  cachedEmbeddingConfig = { ...DEFAULT_EMBEDDING_CONFIG };
   return cachedEmbeddingConfig;
 }
 
@@ -117,34 +121,49 @@ server.registerTool(
 
 // ---- knowledge-search ----
 
+/** Race embedding generation against a timeout. Returns null if not ready in time. */
+async function tryEmbedding(text: string, embConfig: EmbeddingConfig, timeoutMs: number): Promise<number[] | null> {
+  try {
+    const result = await Promise.race([
+      generateEmbedding(text, embConfig),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+    ]);
+    return result?.embedding || null;
+  } catch {
+    return null;
+  }
+}
+
 const searchSchema = z.object({
-  query: z.string().describe('Search query — keywords or phrases'),
+  query: z.string().describe('Search query — natural language or keywords. Supports semantic matching when embeddings are enabled.'),
   kind: z.enum(NOTE_KINDS).optional().describe('Filter by note kind'),
   status: z.enum(['fleeting', 'permanent', 'archived']).optional().describe('Filter by status'),
   project: z.string().optional().describe('Filter by project tag'),
+  tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),
   limit: z.number().optional().describe('Max results (default 10)'),
 });
 
 server.registerTool(
   'knowledge-search',
   {
-    description: 'Search the persistent knowledge base using full-text search.',
+    description: 'Search the persistent knowledge base using full-text search and semantic similarity. Accepts natural language queries, keywords, or phrases. Returns matching notes with full content.',
     inputSchema: searchSchema as any,
   },
   async (args: z.infer<typeof searchSchema>) => {
     try {
       const embConfig = getEmbeddingConfig();
-      let queryEmbedding: number[] | null = null;
-      if (embConfig) {
-        const embResult = await generateEmbedding(args.query, embConfig);
-        queryEmbedding = embResult?.embedding || null;
-      }
+
+      // Attempt embedding with 500ms timeout — returns FTS5-only results if model not ready
+      const queryEmbedding = embConfig
+        ? await tryEmbedding(args.query, embConfig, 500)
+        : null;
 
       const result = handleSearch({
         query: args.query,
         kind: args.kind as NoteKind | undefined,
         status: args.status,
         project: args.project,
+        tags: args.tags,
         limit: args.limit,
       }, getOrCreateRepo(), queryEmbedding);
       return { content: [{ type: 'text' as const, text: result }] };
@@ -163,8 +182,8 @@ server.registerTool(
 // ---- knowledge-maintain ----
 
 const maintainSchema = z.object({
-  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'capture-stats'])
-    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), capture-stats (auto-capture effectiveness)'),
+  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed'])
+    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings)'),
   noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
@@ -207,9 +226,16 @@ async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logToFile('INFO', 'MCP server: connected via stdio', {}, config);
+
+  // Warm up embedding model in background so first search gets semantic results
+  const embConfig = getEmbeddingConfig();
+  if (embConfig) {
+    generateEmbedding('warmup', embConfig).catch(() => {
+      // Non-fatal — search falls back to FTS5-only
+    });
+  }
 }
 
-// Graceful shutdown
 function shutdown() {
   logToFile('INFO', 'MCP server: shutting down', {}, config);
   if (repo) {

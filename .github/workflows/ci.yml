@@ -4,7 +4,7 @@ on:
   push:
     branches: [main, dev]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   build:
@@ -53,3 +53,33 @@ jobs:
 
       - name: Smoke tests (install, MCP protocol, KB round-trip)
         run: bash tests/docker/smoke-test.sh
+
+  model-smoke:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build
+        run: bun run build
+
+      - name: Cache local models
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/open-zk-kb/models
+          key: local-models-v1-${{ runner.os }}
+
+      - name: Local model smoke tests
+        run: LOCAL_MODELS=1 bash tests/docker/smoke-test.sh
+        env:
+          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+        timeout-minutes: 10

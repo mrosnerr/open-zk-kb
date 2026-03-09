@@ -8,7 +8,7 @@ Every note in the system exists in one of three states:
 
 1.  **Fleeting**: Temporary captures, initial thoughts, or context-specific snippets. These are the "inbox" of your knowledge base. They are surfaced for review frequently to ensure they either graduate to permanent status or are retired.
 2.  **Permanent**: Validated, high-value knowledge. These notes have proven their utility through repeated access or are foundational to your workflow (like architectural decisions).
-3.  **Archived**: Notes that are no longer active but remain valuable for historical context. They are retired from the primary review queue and baseline context injection but remain fully searchable.
+3.  **Archived**: Notes that are no longer active but remain valuable for historical context. They are retired from the primary review queue but remain fully searchable.
 
 ## Note Kinds & Defaults
 
@@ -30,7 +30,7 @@ To prevent knowledge rot, `open-zk-kb` uses a review system to surface notes tha
 ### How it Works
 The system analyzes two primary signals to generate review recommendations:
 - **Age**: How long has it been since the note was created or last reviewed? (`reviewAfterDays`)
-- **Utility**: How many times has this note been accessed or injected into a session? (`promotionThreshold`)
+- **Utility**: How many times has this note been accessed? (`promotionThreshold`)
 
 ### Review Recommendations
 - **Promote**: A fleeting note that has high utility (accessed > `promotionThreshold`) is recommended for promotion to **Permanent**.

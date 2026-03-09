@@ -1,17 +1,42 @@
 Output assets/demo.gif
 
-Set FontFamily "JetBrains Mono"
-Set FontSize 20
+Set Shell "bash"
+Set FontSize 16
 Set Width 1000
-Set Height 700
-Set Padding 15
-Set TypingSpeed 50ms
+Set Height 800
+Set Padding 20
+Set TypingSpeed 40ms
 Set Theme "Catppuccin Mocha"
-Set WindowBar "Colorful"
-Set CursorBlink false
-Set LoopOffset 50%
 
-Type "bun scripts/demo.ts"
-Sleep 400ms
+# Alias bunx to local build
+Hide
+Type "shopt -s expand_aliases && alias bunx='bun dist/setup.js #'"
 Enter
-Sleep 14s
+Sleep 200ms
+Type "clear"
+Enter
+Sleep 300ms
+Show
+
+# Part 1: Real interactive install for OpenCode
+Type "bunx open-zk-kb"
+Sleep 300ms
+Enter
+Sleep 4s
+
+# Select OpenCode (1st item — already highlighted)
+Space
+Sleep 300ms
+Enter
+Sleep 3s
+
+# Clear after install, then run demo
+Hide
+Type "clear"
+Enter
+Sleep 300ms
+Type "bun scripts/demo-mcp.ts"
+Enter
+Sleep 500ms
+Show
+Sleep 28s

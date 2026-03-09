@@ -3,18 +3,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
-import type { PluginConfig } from '../src/types.js';
+import type { AppConfig } from '../src/types.js';
 
 export interface TestContext {
   tempDir: string;
   engine: NoteRepository;
-  config: PluginConfig;
+  config: AppConfig;
 }
 
 export function createTestHarness(): TestContext {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-test-'));
 
-  const config: PluginConfig = {
+  const config: AppConfig = {
     logLevel: 'ERROR',
     vault: tempDir,
     lifecycle: {

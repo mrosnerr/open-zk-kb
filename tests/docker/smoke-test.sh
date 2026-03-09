@@ -16,7 +16,7 @@ echo ""
 # ─── 1. Build verification ───
 echo "▸ Build Verification"
 
-for FILE in dist/mcp-server.js dist/opencode-plugin.js dist/setup.js; do
+for FILE in dist/mcp-server.js dist/setup.js; do
   if [ -f "$FILE" ]; then
     pass "$FILE exists"
   else
@@ -53,7 +53,7 @@ echo ""
 # ─── 4. Install dry-run for ALL clients ───
 echo "▸ Install Dry-Run (all clients)"
 
-for CLIENT in opencode claude-code cursor windsurf zed; do
+for CLIENT in opencode claude-code cursor windsurf; do
   OUTPUT=$(bun run src/setup.ts install --client "$CLIENT" --dry-run --force 2>&1 || true)
   if echo "$OUTPUT" | grep -q "Dry run: Would add to"; then
     pass "install --client $CLIENT --dry-run"
@@ -72,7 +72,6 @@ CLIENT_CONFIG_PATHS=(
   [claude-code]="$HOME/.claude/settings.json"
   [cursor]="$HOME/.cursor/mcp.json"
   [windsurf]="$HOME/.codeium/windsurf/mcp_config.json"
-  [zed]="$HOME/.config/zed/settings.json"
 )
 
 declare -A CLIENT_NAMES
@@ -81,10 +80,9 @@ CLIENT_NAMES=(
   [claude-code]="Claude Code"
   [cursor]="Cursor"
   [windsurf]="Windsurf"
-  [zed]="Zed"
 )
 
-for CLIENT in opencode claude-code cursor windsurf zed; do
+for CLIENT in opencode claude-code cursor windsurf; do
   NAME="${CLIENT_NAMES[$CLIENT]}"
   CONFIG_PATH="${CLIENT_CONFIG_PATHS[$CLIENT]}"
 
@@ -125,7 +123,7 @@ echo ""
 # ─── 6. Idempotent install (all clients) ───
 echo "▸ Idempotent Install (all clients)"
 
-for CLIENT in opencode claude-code cursor windsurf zed; do
+for CLIENT in opencode claude-code cursor windsurf; do
   NAME="${CLIENT_NAMES[$CLIENT]}"
 
   OUTPUT=$(bun run src/setup.ts install --client "$CLIENT" 2>&1 || true)
@@ -151,12 +149,10 @@ CONFIG_YAML="$HOME/.config/open-zk-kb/config.yaml"
 EXAMPLE_CONFIG="config.example.yaml"
 if [ -f "$CONFIG_YAML" ]; then
   pass "config.yaml exists at ~/.config/open-zk-kb/"
-  if grep -q "opencode:" "$CONFIG_YAML"; then
-    pass "config.yaml contains opencode section"
-  elif grep -q "opencode:" "$EXAMPLE_CONFIG" 2>/dev/null; then
-    pass "config.yaml pre-existed (opencode section in example config verified)"
+  if grep -q "vault:" "$CONFIG_YAML" || grep -q "logLevel:" "$CONFIG_YAML"; then
+    pass "config.yaml contains expected settings"
   else
-    fail "config.yaml content" "missing opencode section in both config and example"
+    fail "config.yaml content" "missing expected settings (vault or logLevel)"
   fi
 else
   fail "config.yaml copy" "not found at $CONFIG_YAML"
@@ -185,7 +181,7 @@ echo ""
 # ─── 9. Uninstall ALL clients ───
 echo "▸ Uninstall (all clients)"
 
-for CLIENT in opencode claude-code cursor windsurf zed; do
+for CLIENT in opencode claude-code cursor windsurf; do
   NAME="${CLIENT_NAMES[$CLIENT]}"
   CONFIG_PATH="${CLIENT_CONFIG_PATHS[$CLIENT]}"
 
@@ -275,7 +271,7 @@ echo ""
 # ─── 13. Pre-existing config preservation (merge, not clobber) ───
 echo "▸ Config Merge (pre-existing servers preserved)"
 
-for CLIENT in opencode claude-code cursor windsurf zed; do
+for CLIENT in opencode claude-code cursor windsurf; do
   CONFIG_PATH="${CLIENT_CONFIG_PATHS[$CLIENT]}"
 
   bun run src/setup.ts uninstall --client "$CLIENT" >/dev/null 2>&1 || true
@@ -283,8 +279,6 @@ for CLIENT in opencode claude-code cursor windsurf zed; do
   mkdir -p "$(dirname "$CONFIG_PATH")"
   if [ "$CLIENT" = "opencode" ]; then
     echo '{"mcp":{"other-server":{"type":"local","command":["node","other.js"],"enabled":true}}}' > "$CONFIG_PATH"
-  elif [ "$CLIENT" = "zed" ]; then
-    echo '{"context_servers":{"other-server":{"command":"node","args":["other.js"]}}}' > "$CONFIG_PATH"
   else
     echo '{"mcpServers":{"other-server":{"command":"node","args":["other.js"]}}}' > "$CONFIG_PATH"
   fi
@@ -393,7 +387,7 @@ echo ""
 # ─── 17. Install with existing vault (pre-existing notes) ───
 echo "▸ Install with Existing Vault"
 
-for CLIENT in opencode claude-code cursor windsurf zed; do
+for CLIENT in opencode claude-code cursor windsurf; do
   bun run src/setup.ts uninstall --client "$CLIENT" >/dev/null 2>&1 || true
 done
 
@@ -491,7 +485,7 @@ if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
 
   PACK_FILES=$(tar tzf "$TARBALL")
 
-  for REQUIRED in package/dist/mcp-server.js package/dist/setup.js package/dist/opencode-plugin.js package/package.json package/README.md; do
+  for REQUIRED in package/dist/mcp-server.js package/dist/setup.js package/package.json package/README.md; do
     if echo "$PACK_FILES" | grep -q "$REQUIRED"; then
       pass "tarball contains $REQUIRED"
     else
@@ -547,6 +541,27 @@ else
   fail "CLI install" "$(echo "$OUTPUT" | head -1)"
 fi
 echo ""
+
+# ─── 20. Local model smoke tests (if LOCAL_MODELS=1) ───
+if [ "${LOCAL_MODELS:-}" = "1" ]; then
+  echo "▸ Local Model Quality Tests"
+
+  MODEL_OUTPUT=$(NODE_TLS_REJECT_UNAUTHORIZED=0 timeout 300 bun run tests/docker/model-smoke-test.ts 2>/dev/null || true)
+  echo "$MODEL_OUTPUT" | grep -E "^  [✅❌⏱]" || true
+
+  MODEL_RESULT=$(echo "$MODEL_OUTPUT" | grep "MODEL_SMOKE_RESULT" || echo "MODEL_SMOKE_RESULT:0:12")
+  MODEL_PASS=$(echo "$MODEL_RESULT" | cut -d: -f2)
+  MODEL_FAIL=$(echo "$MODEL_RESULT" | cut -d: -f3)
+  PASS=$((PASS + MODEL_PASS))
+  FAIL=$((FAIL + MODEL_FAIL))
+  if [ "$MODEL_FAIL" -gt 0 ]; then
+    TESTS+=("FAIL: Local model tests — $MODEL_FAIL failures")
+  fi
+  echo ""
+else
+  echo "▸ Local Model Tests (skipped — set LOCAL_MODELS=1 to enable)"
+  echo ""
+fi
 
 # ─── Summary ───
 echo "═══════════════════════════════════════════"

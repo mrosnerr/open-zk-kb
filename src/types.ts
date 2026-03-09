@@ -1,6 +1,6 @@
 /**
  * Type definitions for open-zk-kb
- * OpenCode plugin for Zettelkasten-based knowledge management
+ * MCP server for Zettelkasten-based knowledge management
  */
 
 // ============ NOTE KIND ============
@@ -18,9 +18,9 @@ export const KIND_DEFAULT_STATUS: Record<NoteKind, NoteStatus> = {
   observation: 'fleeting',
 };
 
-// ============ PLUGIN CONFIGURATION ============
+// ============ APP CONFIGURATION ============
 
-export interface PluginConfig {
+export interface AppConfig {
   logLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
   vault: string;
   lifecycle: {

@@ -13,6 +13,7 @@ if (typeof globalThis.Bun === 'undefined') {
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
@@ -20,7 +21,7 @@ import { expandPath } from './utils/path.js';
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 
-export type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf' | 'zed';
+export type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf';
 
 export interface InstallArgs {
   client: McpClient;
@@ -73,23 +74,99 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
   },
-  'zed': {
-    name: 'Zed',
-    configPath: path.join(xdgConfigHome, 'zed', 'settings.json'),
-    configFormat: 'json',
-    mcpPath: ['context_servers', 'open-zk-kb'],
-    mcpFormat: 'standard',
-  },
 };
 
-const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf', 'zed'];
+const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf'];
+
+const INSTRUCTION_MARKER_PREFIX = '<!-- OPEN-ZK-KB:START';
+const INSTRUCTION_MARKER_START = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
+const INSTRUCTION_MARKER_END = '<!-- OPEN-ZK-KB:END -->';
+
+const INSTRUCTION_FILE_PATHS: Record<McpClient, string> = {
+  'opencode': path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
+  'claude-code': path.join(expandPath('~/.claude'), 'CLAUDE.md'),
+  'cursor': path.join(expandPath('~/.cursor'), 'rules', 'open-zk-kb.mdc'),
+  'windsurf': path.join(expandPath('~/.windsurf'), 'rules', 'open-zk-kb.md'),
+};
+
+function loadCanonicalInstructions(): string {
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const templatePath = path.join(projectRoot, 'agent-instructions.md');
+  if (fs.existsSync(templatePath)) {
+    return fs.readFileSync(templatePath, 'utf-8').trim();
+  }
+  return [
+    '## Knowledge Base (open-zk-kb)',
+    '',
+    'ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.',
+    '',
+    '### Before Starting Work',
+    '- Search for relevant context: `knowledge-search` with a query describing your task',
+    '- Check for personalization notes (user preferences, coding style)',
+    '- Check for decision notes (past architectural choices)',
+    '',
+    '### While Working',
+    '- Store decisions, preferences, procedures, and insights via `knowledge-store`',
+    '- One concept per note. Include `summary` and `guidance` fields.',
+  ].join('\n');
+}
+
+function buildMarkedBlock(content: string): string {
+  return `${INSTRUCTION_MARKER_START}\n${content}\n${INSTRUCTION_MARKER_END}`;
+}
+
+function findMarkerIndices(content: string): { startIdx: number; endIdx: number } {
+  let startIdx = content.indexOf(INSTRUCTION_MARKER_START);
+  if (startIdx === -1) {
+    startIdx = content.indexOf(INSTRUCTION_MARKER_PREFIX);
+    if (startIdx !== -1 && content.indexOf('\n', startIdx) === -1) {
+      startIdx = -1;
+    }
+  }
+  const endIdx = content.indexOf(INSTRUCTION_MARKER_END);
+  return { startIdx, endIdx };
+}
+
+export function injectInstructions(filePath: string, dryRun: boolean = false): { updated: boolean; created: boolean } {
+  const instructions = loadCanonicalInstructions();
+  const markedBlock = buildMarkedBlock(instructions);
+
+  if (fs.existsSync(filePath)) {
+    const existing = fs.readFileSync(filePath, 'utf-8');
+    const { startIdx, endIdx } = findMarkerIndices(existing);
+
+    if (startIdx !== -1 && endIdx !== -1) {
+      const before = existing.substring(0, startIdx);
+      const after = existing.substring(endIdx + INSTRUCTION_MARKER_END.length);
+      const updated = before + markedBlock + after;
+      if (updated !== existing && !dryRun) {
+        fs.writeFileSync(filePath, updated);
+      }
+      return { updated: updated !== existing, created: false };
+    }
+
+    if (!dryRun) {
+      const separator = existing.endsWith('\n') ? '\n' : '\n\n';
+      fs.writeFileSync(filePath, existing + separator + markedBlock + '\n');
+    }
+    return { updated: true, created: false };
+  }
+
+  if (!dryRun) {
+    const dir = path.dirname(filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(filePath, markedBlock + '\n');
+  }
+  return { updated: false, created: true };
+}
 
 const CLIENT_PROMPT_OPTIONS: Array<{ value: McpClient; label: string; hint: string }> = [
-  { value: 'opencode', label: 'OpenCode', hint: 'Enhanced plugin with auto-capture' },
+  { value: 'opencode', label: 'OpenCode', hint: 'MCP server integration' },
   { value: 'claude-code', label: 'Claude Code', hint: 'MCP server integration' },
   { value: 'cursor', label: 'Cursor', hint: 'MCP server integration' },
   { value: 'windsurf', label: 'Windsurf', hint: 'MCP server integration' },
-  { value: 'zed', label: 'Zed', hint: 'MCP server integration' },
 ];
 
 type McpEntry =
@@ -104,7 +181,7 @@ type McpEntry =
     };
 
 function isNpmInstall(): boolean {
-  const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const projectRoot = path.resolve(scriptDir, '..');
   return !fs.existsSync(path.join(projectRoot, '.git'));
 }
@@ -144,7 +221,7 @@ function detectServerPath(): string | null {
   if (isNpmInstall()) {
     return null; // npm mode — use bunx instead of absolute path
   }
-  const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const distPath = path.resolve(scriptDir, '..', 'dist', 'mcp-server.js');
   if (fs.existsSync(distPath)) {
     return distPath;
@@ -275,7 +352,7 @@ export function install(args: InstallArgs): string {
     fs.mkdirSync(path.join(vaultPath, '.index'), { recursive: true });
   }
   
-  const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
   const configYamlDir = path.join(xdgConfigHome, 'open-zk-kb');
   const configYamlPath = path.join(configYamlDir, 'config.yaml');
@@ -288,26 +365,60 @@ export function install(args: InstallArgs): string {
     configCopied = true;
   }
   
+  const instructionFilePath = INSTRUCTION_FILE_PATHS[args.client];
+  const injectionResult = injectInstructions(instructionFilePath, args.dryRun);
+
   const serverDisplay = serverPath ?? 'bunx open-zk-kb-server';
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;
   output += `Config: ${clientConfig.configPath}\n`;
   output += `Vault: ${vaultPath}\n`;
-  output += `Server: ${serverDisplay}\n\n`;
-  output += `Next steps:\n`;
-  if (configCopied) {
-    output += `1. Edit ${configYamlPath} with your API key and preferences\n`;
-    output += `2. Restart ${clientConfig.name} to load the MCP server\n`;
-    output += `3. Add to your AGENTS.md:\n\n`;
+  output += `Server: ${serverDisplay}\n`;
+  output += `Instructions: ${instructionFilePath}\n\n`;
+
+  if (injectionResult.created) {
+    output += `Created ${instructionFilePath} with KB instructions.\n`;
+  } else if (injectionResult.updated) {
+    output += `Updated KB instructions in ${instructionFilePath}.\n`;
   } else {
-    output += `1. Restart ${clientConfig.name} to load the MCP server\n`;
-    output += `2. Add to your AGENTS.md:\n\n`;
+    output += `KB instructions in ${instructionFilePath} already up to date.\n`;
   }
-  output += `   # Knowledge Management\n`;
-  output += `   - Use knowledge-search to find context before responding\n`;
-  output += `   - Use knowledge-store to save decisions and patterns\n`;
-  output += `   - Use knowledge-maintain for KB management\n`;
+
+  output += `\nNext steps:\n`;
+  const step = { n: 1 };
+  if (configCopied) {
+    output += `${step.n++}. (Optional) Edit ${configYamlPath} to configure API embeddings\n`;
+  }
+  output += `${step.n++}. Restart ${clientConfig.name} to load the MCP server\n`;
   
   return output;
+}
+
+export function removeInstructions(filePath: string, dryRun: boolean = false): { removed: boolean } {
+  if (!fs.existsSync(filePath)) {
+    return { removed: false };
+  }
+
+  const content = fs.readFileSync(filePath, 'utf-8');
+  const { startIdx, endIdx } = findMarkerIndices(content);
+
+  if (startIdx === -1 || endIdx === -1) {
+    return { removed: false };
+  }
+
+  const before = content.substring(0, startIdx);
+  const after = content.substring(endIdx + INSTRUCTION_MARKER_END.length);
+  const joined = before + after;
+  const updated = joined.replace(/\n{3,}/g, '\n\n');
+
+  if (!dryRun) {
+    if (updated.trim().length === 0) {
+      fs.unlinkSync(filePath);
+    } else {
+      fs.writeFileSync(filePath, updated);
+    }
+  }
+
+  return { removed: true };
 }
 
 export function uninstall(args: UninstallArgs): string {
@@ -368,9 +479,16 @@ export function uninstall(args: UninstallArgs): string {
   deleteNestedValue(config, clientConfig.mcpPath);
   fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
   
+  const instructionFilePath = INSTRUCTION_FILE_PATHS[args.client];
+  const instructionResult = removeInstructions(instructionFilePath, args.dryRun);
+
   let output = `Uninstalled open-zk-kb from ${clientConfig.name}\n\n`;
   output += `Removed from: ${clientConfig.configPath}\n`;
   
+  if (instructionResult.removed) {
+    output += `Removed KB instructions from: ${instructionFilePath}\n`;
+  }
+
   if (args.removeVault && args.confirm) {
     output += `Deleted vault: ${vaultPath}\n`;
   } else {
@@ -404,7 +522,7 @@ function printHelp(): void {
 
 install:
   (no flags)           Interactive client selection
-  --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed)
+  --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf)
   --server-path <path> Path to dist/mcp-server.js (auto-detected)
   --force              Overwrite existing config
   --dry-run            Preview changes without applying
