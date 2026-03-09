@@ -1,0 +1,132 @@
+name: Version Check
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: version-check-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Fetch base branch
+        run: git fetch origin ${{ github.base_ref }}
+
+      - name: Check if version bump is required
+        id: scope
+        run: |
+          CHANGED="$(git diff --name-only origin/${{ github.base_ref }}...HEAD)"
+          echo "Changed files:"
+          echo "$CHANGED"
+
+          if echo "$CHANGED" | grep -Eq '^(src/|package\.json|bun\.lock(b)?)'; then
+            echo "needs_bump=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "needs_bump=false" >> "$GITHUB_OUTPUT"
+            echo "No release-relevant changes found"
+          fi
+
+      - name: Skip if no release-relevant changes
+        if: steps.scope.outputs.needs_bump != 'true'
+        run: echo "Only docs/CI/config changes — no version bump required"
+
+      - name: Get versions
+        if: steps.scope.outputs.needs_bump == 'true'
+        id: versions
+        run: |
+          HEAD_VERSION="$(node -p "require('./package.json').version")"
+          BASE_VERSION="$(git show origin/${{ github.base_ref }}:package.json | node -p "JSON.parse(require('fs').readFileSync(0,'utf8')).version")"
+          echo "head=$HEAD_VERSION" >> "$GITHUB_OUTPUT"
+          echo "base=$BASE_VERSION" >> "$GITHUB_OUTPUT"
+          echo "Base: $BASE_VERSION → Head: $HEAD_VERSION"
+
+      - name: Verify version increases
+        if: steps.scope.outputs.needs_bump == 'true'
+        env:
+          HEAD_VERSION: ${{ steps.versions.outputs.head }}
+          BASE_VERSION: ${{ steps.versions.outputs.base }}
+        run: |
+          node --input-type=module -e '
+            function parseSemver(v) {
+              const match = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/);
+              if (!match) { throw new Error(`Cannot parse version: ${v}`); }
+              const [, major, minor, patch, pre] = match;
+              return { major: +major, minor: +minor, patch: +patch, pre: pre || null };
+            }
+
+            function comparePre(a, b) {
+              if (!a && !b) return 0;
+              if (!a) return 1;   // 1.0.0 > 1.0.0-beta
+              if (!b) return -1;  // 1.0.0-beta < 1.0.0
+
+              const aParts = a.split(".");
+              const bParts = b.split(".");
+              for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
+                const ap = aParts[i];
+                const bp = bParts[i];
+                if (ap === undefined) return -1;
+                if (bp === undefined) return 1;
+                const aNum = /^\d+$/.test(ap);
+                const bNum = /^\d+$/.test(bp);
+                if (aNum && bNum) {
+                  const diff = +ap - +bp;
+                  if (diff !== 0) return diff;
+                } else if (aNum !== bNum) {
+                  return aNum ? -1 : 1;
+                } else {
+                  if (ap < bp) return -1;
+                  if (ap > bp) return 1;
+                }
+              }
+              return 0;
+            }
+
+            const head = parseSemver(process.env.HEAD_VERSION);
+            const base = parseSemver(process.env.BASE_VERSION);
+
+            const coreCompare = (head.major - base.major)
+              || (head.minor - base.minor)
+              || (head.patch - base.patch);
+
+            const result = coreCompare !== 0 ? coreCompare : comparePre(head.pre, base.pre);
+
+            if (result <= 0) {
+              console.error(`::error::Version must increase. base=${process.env.BASE_VERSION} head=${process.env.HEAD_VERSION}`);
+              process.exit(1);
+            }
+            console.log(`Version ${process.env.HEAD_VERSION} > ${process.env.BASE_VERSION}`);
+          '
+
+      - name: Verify version not already on npm
+        if: steps.scope.outputs.needs_bump == 'true'
+        run: |
+          VERSION="${{ steps.versions.outputs.head }}"
+          if npm view "open-zk-kb@$VERSION" version >/dev/null 2>&1; then
+            echo "::error::open-zk-kb@$VERSION is already published on npm"
+            exit 1
+          fi
+          echo "Version $VERSION is available on npm"
+
+      - name: Require CHANGELOG.md update
+        if: steps.scope.outputs.needs_bump == 'true'
+        run: |
+          if ! git diff --name-only origin/${{ github.base_ref }}...HEAD | grep -qx 'CHANGELOG.md'; then
+            echo "::error::CHANGELOG.md must be updated when bumping version"
+            exit 1
+          fi
+          echo "CHANGELOG.md has been updated"

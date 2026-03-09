@@ -63,6 +63,19 @@ embeddings:
 
 Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). See [docs/configuration.md](docs/configuration.md) for the full reference.
 
+## Note Kinds
+
+| Kind | Default Status | Use Case |
+|------|----------------|----------|
+| `personalization` | permanent | User preferences, habits, and personal style |
+| `reference` | fleeting | Technical facts, API details, and documentation snippets |
+| `decision` | permanent | Architectural choices, project commitments, and trade-offs |
+| `procedure` | fleeting | Step-by-step workflows and recurring tasks |
+| `resource` | permanent | Links, tools, libraries, and external documentation |
+| `observation` | fleeting | Insights, patterns, and temporary findings |
+
+Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
+
 <details>
 <summary><h2>Manual Install</h2></summary>
 
@@ -130,22 +143,6 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   }
 }
 ```
-
-</details>
-
-<details>
-<summary><h2>Note Kinds</h2></summary>
-
-| Kind | Default Status | Use Case |
-|------|----------------|----------|
-| `personalization` | permanent | User preferences, habits, and personal style |
-| `reference` | fleeting | Technical facts, API details, and documentation snippets |
-| `decision` | permanent | Architectural choices, project commitments, and trade-offs |
-| `procedure` | fleeting | Step-by-step workflows and recurring tasks |
-| `resource` | permanent | Links, tools, libraries, and external documentation |
-| `observation` | fleeting | Insights, patterns, and temporary findings |
-
-Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
 
 </details>
 
