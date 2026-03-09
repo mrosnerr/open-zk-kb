@@ -1,6 +1,6 @@
 // tool-handlers.ts - Handler functions for knowledge tools
 
-import type { NoteKind, NoteStatus, PluginConfig } from './types.js';
+import type { NoteKind, NoteStatus, AppConfig } from './types.js';
 import { KIND_DEFAULT_STATUS } from './types.js';
 
 const VALID_STATUSES = new Set<string>(['fleeting', 'permanent', 'archived']);
@@ -161,7 +161,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   return output;
 }
 
-export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: PluginConfig, embeddingConfig?: EmbeddingConfig | null): Promise<string> {
+export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null): Promise<string> {
   switch (args.action) {
     case 'stats': {
       const stats = repo.getStats();

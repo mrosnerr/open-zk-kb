@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import YAML from 'yaml';
 import { expandPath } from './utils/path.js';
-import type { PluginConfig, NoteKind } from './types.js';
+import type { AppConfig, NoteKind } from './types.js';
 
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
@@ -33,7 +33,7 @@ interface RawConfig {
 
 // ── Defaults ──
 
-export const DEFAULT_CONFIG: PluginConfig = {
+export const DEFAULT_CONFIG: AppConfig = {
   logLevel: 'INFO',
   vault: path.join(xdgDataHome, 'open-zk-kb'),
   lifecycle: {
@@ -68,7 +68,7 @@ function loadYamlConfig(): RawConfig | null {
 
 // ── Public API ──
 
-export function getConfig(): PluginConfig {
+export function getConfig(): AppConfig {
   const raw = loadYamlConfig();
 
   const vault = raw?.vault ? expandPath(raw.vault) : DEFAULT_CONFIG.vault;

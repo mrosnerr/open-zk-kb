@@ -54,7 +54,7 @@ MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQL
 | `NoteKind` | type | `types.ts` | 6 kinds: personalization, reference, decision, procedure, resource, observation |
 | `NoteStatus` | type | `types.ts` | 3 statuses: fleeting → permanent → archived |
 | `KIND_DEFAULT_STATUS` | const | `types.ts` | Maps kind → default status |
-| `PluginConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle |
+| `AppConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle |
 | `SchemaManager` | class | `schema.ts` | DB schema versioning (v3), migrations |
 | `getConfig` | function | `config.ts` | 2-layer merge: defaults → YAML config |
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |

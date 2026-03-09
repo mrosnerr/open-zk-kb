@@ -6,7 +6,7 @@ import { expandPath } from './utils/path.js';
 
 type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
-interface PluginConfig {
+interface AppConfig {
   logLevel?: LogLevel;
 }
 
@@ -43,7 +43,7 @@ export function getLogsDir(): string {
   return logsDir;
 }
 
-export function logToFile(level: LogLevel, message: string, data?: unknown, config?: PluginConfig): void {
+export function logToFile(level: LogLevel, message: string, data?: unknown, config?: AppConfig): void {
   const configLevel = config?.logLevel || 'INFO';
 
   if (LOG_LEVELS[level] < LOG_LEVELS[configLevel]) {

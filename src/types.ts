@@ -18,9 +18,9 @@ export const KIND_DEFAULT_STATUS: Record<NoteKind, NoteStatus> = {
   observation: 'fleeting',
 };
 
-// ============ PLUGIN CONFIGURATION ============
+// ============ APP CONFIGURATION ============
 
-export interface PluginConfig {
+export interface AppConfig {
   logLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
   vault: string;
   lifecycle: {
