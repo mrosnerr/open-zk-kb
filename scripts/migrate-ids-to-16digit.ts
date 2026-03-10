@@ -131,7 +131,7 @@ for (const file of files) {
     }
     
     // Wikilinks: [[oldId]], [[oldId|display]], [[oldId-slug]], [[oldId-slug|display]], [[oldId-slug#heading|display]]
-    const wikiPattern = new RegExp(`\\[\\[${oldRef}(-[^\\]#|]*)?(#[^\\]|]*)?(\\|[^\\]]*)?\\]\\]`, 'g');
+    const wikiPattern = new RegExp(`\\[\\[${oldRef}(-[^#|\\]]*)?(#(?:[^|\\]]*))?(\\|[^\\]]*)?\\]\\]`, 'g');
     const wikiReplaced = content.replace(wikiPattern, (_match, slug, heading, display) => {
       return `[[${newRef}${slug || ''}${heading || ''}${display || ''}]]`;
     });

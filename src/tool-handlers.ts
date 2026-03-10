@@ -106,17 +106,20 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 
   if (embeddingConfig) {
     const text = buildEmbeddingText(args.title, args.summary, args.content);
-    try {
-      const embResult = await generateEmbedding(text, embeddingConfig);
+    // Non-blocking: race embedding against timeout so store stays fast
+    Promise.race([
+      generateEmbedding(text, embeddingConfig),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+    ]).then(embResult => {
       if (embResult) {
         repo.storeEmbedding(result.id, embResult.embedding, embResult.model);
       }
-    } catch (error) {
+    }).catch(error => {
       logToFile('WARN', 'Embedding generation failed', {
         noteId: result.id,
         error: error instanceof Error ? error.message : String(error),
       });
-    }
+    });
   }
 
   let output = `Knowledge stored (${result.action})\n`;
