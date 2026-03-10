@@ -142,16 +142,18 @@ export class NoteRepository {
   }
 
   private generateId(): string {
-    const now = new Date();
-    const base = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0') +
-      String(now.getHours()).padStart(2, '0') +
-      String(now.getMinutes()).padStart(2, '0') +
-      String(now.getSeconds()).padStart(2, '0');
+    let now = new Date();
+    let base = this.formatTimestamp(now);
 
     if (base === lastIdMinute) {
       idCounter++;
+      // Cap at 99 to guarantee 16-digit IDs; spin to next second on overflow
+      if (idCounter > 99) {
+        const nextSecond = new Date(now.getTime() + 1000);
+        base = this.formatTimestamp(nextSecond);
+        lastIdMinute = base;
+        idCounter = 0;
+      }
     } else {
       lastIdMinute = base;
       idCounter = 0;
@@ -159,6 +161,15 @@ export class NoteRepository {
 
     // Always 16-digit: YYYYMMDDHHmmss + 2-digit counter
     return `${base}${String(idCounter).padStart(2, '0')}`;
+  }
+
+  private formatTimestamp(date: Date): string {
+    return date.getFullYear().toString() +
+      String(date.getMonth() + 1).padStart(2, '0') +
+      String(date.getDate()).padStart(2, '0') +
+      String(date.getHours()).padStart(2, '0') +
+      String(date.getMinutes()).padStart(2, '0') +
+      String(date.getSeconds()).padStart(2, '0');
   }
 
   private slugify(text: string): string {
@@ -1012,7 +1023,7 @@ export class NoteRepository {
         const rawContent = fs.readFileSync(filePath, 'utf-8');
         const { frontmatter, body } = this.parseFrontmatter(rawContent);
 
-        const id = (frontmatter.id as string) || file.match(/^(\d{12})/)?.[1] || '';
+        const id = (frontmatter.id as string) || file.match(/^(\d{12,16})/)?.[1] || '';
         if (!id) {
           errors++;
           continue;

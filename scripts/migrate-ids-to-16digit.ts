@@ -46,10 +46,14 @@ for (const [id, fileList] of idToFiles) {
     if (fileList.length === 1) {
       idMap.set(id, `${id}0000`);
     } else {
-      // Collision: assign incrementing seconds
+      // Collision: assign incrementing counter (ss=00, counter=00..99)
+      if (fileList.length > 100) {
+        console.error(`Too many collisions for ID ${id} (${fileList.length} notes). Max 100.`);
+        process.exit(1);
+      }
       for (let i = 0; i < fileList.length; i++) {
-        const seconds = String(i).padStart(2, '0');
-        idMap.set(`${id}:${fileList[i]}`, `${id}${seconds}00`);
+        const counter = String(i).padStart(2, '0');
+        idMap.set(`${id}:${fileList[i]}`, `${id}00${counter}`);
       }
       // Also set the base mapping for wikilink/related_notes references
       // These point to the first note (best effort)
@@ -124,10 +128,10 @@ for (const file of files) {
       changed = true;
     }
     
-    // Wikilinks: [[oldId|display]] or [[oldId]]
-    const wikiPattern = new RegExp(`\\[\\[${oldRef}(\\|[^\\]]*)?\\]\\]`, 'g');
-    const wikiReplaced = content.replace(wikiPattern, (match, display) => {
-      return `[[${newRef}${display || ''}]]`;
+    // Wikilinks: [[oldId]], [[oldId|display]], [[oldId-slug]], [[oldId-slug|display]], [[oldId-slug#heading|display]]
+    const wikiPattern = new RegExp(`\\[\\[${oldRef}(-[^\\]#|]*)?(#[^\\]|]*)?(\\|[^\\]]*)?\\]\\]`, 'g');
+    const wikiReplaced = content.replace(wikiPattern, (_match, slug, heading, display) => {
+      return `[[${newRef}${slug || ''}${heading || ''}${display || ''}]]`;
     });
     if (wikiReplaced !== content) {
       content = wikiReplaced;
