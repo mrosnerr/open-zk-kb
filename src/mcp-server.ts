@@ -22,6 +22,10 @@ import { handleStore, handleSearch, handleMaintain } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const { version: PKG_VERSION } = require('../package.json');
 
 const config = getConfig();
 let repo: NoteRepository | null = null;
@@ -68,7 +72,7 @@ function getEmbeddingConfig(): EmbeddingConfig | null {
 
 const server = new McpServer({
   name: 'open-zk-kb',
-  version: '0.1.0',
+  version: PKG_VERSION,
 });
 
 // ---- knowledge-store ----
@@ -129,7 +133,8 @@ async function tryEmbedding(text: string, embConfig: EmbeddingConfig, timeoutMs:
       new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
     ]);
     return result?.embedding || null;
-  } catch {
+  } catch (err) {
+    logToFile('DEBUG', 'Embedding generation failed', { error: String(err) });
     return null;
   }
 }
