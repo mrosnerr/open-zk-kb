@@ -1,0 +1,22 @@
+title: open-zk-kb
+description: Persistent knowledge base for AI coding assistants
+url: https://mrosnerr.github.io
+baseurl: /open-zk-kb
+theme: minima
+
+header_pages:
+  - blog.md
+
+plugins:
+  - jekyll-feed
+  - jekyll-seo-tag
+
+defaults:
+  - scope:
+      path: ""
+      type: "posts"
+    values:
+      layout: "post"
+
+github:
+  repository_url: https://github.com/mrosnerr/open-zk-kb
