@@ -60,9 +60,9 @@ export interface StoreOptions {
   related?: string[];
 }
 
-// Counter to avoid same-second ID collisions within a process
+// Monotonic timestamp tracking to avoid ID collisions within a process
 let idCounter = 0;
-let lastIdMinute = '';
+let lastIdTimestamp = '';
 
 export class NoteRepository {
   protected db: Database;
@@ -145,22 +145,44 @@ export class NoteRepository {
     const now = new Date();
     let base = this.formatTimestamp(now);
 
-    if (base === lastIdMinute) {
+    // Ensure monotonic: if wall-clock is behind our last-used timestamp
+    // (e.g. after overflow advanced it), reuse the last-used timestamp
+    if (base < lastIdTimestamp) {
+      base = lastIdTimestamp;
+    }
+
+    if (base === lastIdTimestamp) {
       idCounter++;
-      // Cap at 99 to guarantee 16-digit IDs; spin to next second on overflow
+      // Cap at 99 to guarantee 16-digit IDs; advance to next second on overflow
       if (idCounter > 99) {
         const nextSecond = new Date(now.getTime() + 1000);
         base = this.formatTimestamp(nextSecond);
-        lastIdMinute = base;
+        if (base <= lastIdTimestamp) {
+          // Wall-clock still behind; increment last-used timestamp
+          base = this.incrementTimestamp(lastIdTimestamp);
+        }
+        lastIdTimestamp = base;
         idCounter = 0;
       }
     } else {
-      lastIdMinute = base;
+      lastIdTimestamp = base;
       idCounter = 0;
     }
 
     // Always 16-digit: YYYYMMDDHHmmss + 2-digit counter
     return `${base}${String(idCounter).padStart(2, '0')}`;
+  }
+
+  private incrementTimestamp(ts: string): string {
+    // Parse YYYYMMDDHHmmss, add 1 second, reformat
+    const year = parseInt(ts.slice(0, 4));
+    const month = parseInt(ts.slice(4, 6)) - 1;
+    const day = parseInt(ts.slice(6, 8));
+    const hours = parseInt(ts.slice(8, 10));
+    const minutes = parseInt(ts.slice(10, 12));
+    const seconds = parseInt(ts.slice(12, 14));
+    const date = new Date(year, month, day, hours, minutes, seconds + 1);
+    return this.formatTimestamp(date);
   }
 
   private formatTimestamp(date: Date): string {

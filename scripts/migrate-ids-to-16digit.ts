@@ -9,14 +9,16 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-const vaultPath = (process.argv[2] || '~/.local/share/open-zk-kb').replace(/^~/, process.env.HOME || '~');
+const args = process.argv.slice(2);
+const DRY_RUN = args.includes('--dry-run');
+const vaultArg = args.find(arg => !arg.startsWith('-'));
+const vaultPath = (vaultArg || '~/.local/share/open-zk-kb').replace(/^~/, process.env.HOME || '~');
 
 if (!fs.existsSync(vaultPath)) {
   console.error(`Vault not found: ${vaultPath}`);
   process.exit(1);
 }
 
-const DRY_RUN = process.argv.includes('--dry-run');
 if (DRY_RUN) console.log('=== DRY RUN (no changes will be made) ===\n');
 
 // 1. Scan all .md files and collect IDs
