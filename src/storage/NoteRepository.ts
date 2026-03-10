@@ -60,9 +60,9 @@ export interface StoreOptions {
   related?: string[];
 }
 
-// Counter to avoid same-minute ID collisions within a process
+// Monotonic timestamp tracking to avoid ID collisions within a process
 let idCounter = 0;
-let lastIdMinute = '';
+let lastIdTimestamp = '';
 
 export class NoteRepository {
   protected db: Database;
@@ -143,22 +143,55 @@ export class NoteRepository {
 
   private generateId(): string {
     const now = new Date();
-    const minute = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0') +
-      String(now.getHours()).padStart(2, '0') +
-      String(now.getMinutes()).padStart(2, '0');
+    let base = this.formatTimestamp(now);
 
-    if (minute === lastIdMinute) {
+    // Ensure monotonic: if wall-clock is behind our last-used timestamp
+    // (e.g. after overflow advanced it), reuse the last-used timestamp
+    if (base < lastIdTimestamp) {
+      base = lastIdTimestamp;
+    }
+
+    if (base === lastIdTimestamp) {
       idCounter++;
+      // Cap at 99 to guarantee 16-digit IDs; advance to next second on overflow
+      if (idCounter > 99) {
+        const nextSecond = new Date(now.getTime() + 1000);
+        base = this.formatTimestamp(nextSecond);
+        if (base <= lastIdTimestamp) {
+          // Wall-clock still behind; increment last-used timestamp
+          base = this.incrementTimestamp(lastIdTimestamp);
+        }
+        lastIdTimestamp = base;
+        idCounter = 0;
+      }
     } else {
-      lastIdMinute = minute;
+      lastIdTimestamp = base;
       idCounter = 0;
     }
 
-    // Append seconds + counter suffix for uniqueness within the same minute
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    return idCounter === 0 ? minute : `${minute}${seconds}${idCounter > 0 ? String(idCounter).padStart(2, '0') : ''}`;
+    // Always 16-digit: YYYYMMDDHHmmss + 2-digit counter
+    return `${base}${String(idCounter).padStart(2, '0')}`;
+  }
+
+  private incrementTimestamp(ts: string): string {
+    // Parse YYYYMMDDHHmmss, add 1 second, reformat
+    const year = parseInt(ts.slice(0, 4));
+    const month = parseInt(ts.slice(4, 6)) - 1;
+    const day = parseInt(ts.slice(6, 8));
+    const hours = parseInt(ts.slice(8, 10));
+    const minutes = parseInt(ts.slice(10, 12));
+    const seconds = parseInt(ts.slice(12, 14));
+    const date = new Date(year, month, day, hours, minutes, seconds + 1);
+    return this.formatTimestamp(date);
+  }
+
+  private formatTimestamp(date: Date): string {
+    return date.getFullYear().toString() +
+      String(date.getMonth() + 1).padStart(2, '0') +
+      String(date.getDate()).padStart(2, '0') +
+      String(date.getHours()).padStart(2, '0') +
+      String(date.getMinutes()).padStart(2, '0') +
+      String(date.getSeconds()).padStart(2, '0');
   }
 
   private slugify(text: string): string {
@@ -1012,7 +1045,7 @@ export class NoteRepository {
         const rawContent = fs.readFileSync(filePath, 'utf-8');
         const { frontmatter, body } = this.parseFrontmatter(rawContent);
 
-        const id = (frontmatter.id as string) || file.match(/^(\d{12})/)?.[1] || '';
+        const id = (frontmatter.id as string) || file.match(/^(\d{12,16})/)?.[1] || '';
         if (!id) {
           errors++;
           continue;

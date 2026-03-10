@@ -54,8 +54,8 @@ describe('FTS5 Edge Cases', () => {
     expect(verifyIntact.length).toBe(1);
   });
 
-  it('should handle SQL injection attempt in store content', () => {
-    const output = handleStore({
+  it('should handle SQL injection attempt in store content', async () => {
+    const output = await handleStore({
       title: "Robert'; DROP TABLE notes;--",
       content: "Content with '; DELETE FROM notes WHERE '1'='1",
       kind: 'observation',
@@ -68,8 +68,8 @@ describe('FTS5 Edge Cases', () => {
     expect(notes.length).toBeGreaterThan(0);
   });
 
-  it('should handle unicode and emoji in content and search', () => {
-    handleStore({
+  it('should handle unicode and emoji in content and search', async () => {
+    await handleStore({
       title: 'Unicode Test',
       content: 'Supports CJK characters and emoji: cafe, resume, naive',
       kind: 'reference',
@@ -81,8 +81,8 @@ describe('FTS5 Edge Cases', () => {
     expect(output).toContain('Unicode content test');
   });
 
-  it('should handle CJK characters in content', () => {
-    handleStore({
+  it('should handle CJK characters in content', async () => {
+    await handleStore({
       title: 'CJK Note',
       content: 'This note contains CJK: hello world testing',
       kind: 'reference',
@@ -133,8 +133,8 @@ describe('Input Validation', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should store a note with empty content', () => {
-    const output = handleStore({
+  it('should store a note with empty content', async () => {
+    const output = await handleStore({
       title: 'Empty Content Note',
       content: '',
       kind: 'observation',
@@ -145,9 +145,9 @@ describe('Input Validation', () => {
     expect(output).toContain('Knowledge stored');
   });
 
-  it('should store a note with very long title', () => {
+  it('should store a note with very long title', async () => {
     const longTitle = 'A'.repeat(500);
-    const output = handleStore({
+    const output = await handleStore({
       title: longTitle,
       content: 'Some content',
       kind: 'reference',
@@ -158,8 +158,8 @@ describe('Input Validation', () => {
     expect(output).toContain('Knowledge stored');
   });
 
-  it('should store a note with special characters in title', () => {
-    const output = handleStore({
+  it('should store a note with special characters in title', async () => {
+    const output = await handleStore({
       title: 'Test / with < special > & "characters"',
       content: 'Content here',
       kind: 'observation',
@@ -170,8 +170,8 @@ describe('Input Validation', () => {
     expect(output).toContain('Knowledge stored');
   });
 
-  it('should handle search with kind filter that has no matches', () => {
-    handleStore({
+  it('should handle search with kind filter that has no matches', async () => {
+    await handleStore({
       title: 'Only Observation',
       content: 'This is an observation',
       kind: 'observation',
@@ -183,8 +183,8 @@ describe('Input Validation', () => {
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
   });
 
-  it('should handle store with all optional fields', () => {
-    const output = handleStore({
+  it('should handle store with all optional fields', async () => {
+    const output = await handleStore({
       title: 'Full Note',
       content: 'Content with all fields',
       kind: 'decision',
@@ -206,8 +206,8 @@ describe('Input Validation', () => {
     expect(output).toContain('Unknown action: nonexistent');
   });
 
-  it('should handle store with duplicate tags', () => {
-    handleStore({
+  it('should handle store with duplicate tags', async () => {
+    await handleStore({
       title: 'Dup Tags',
       content: 'Note with duplicate tags',
       kind: 'reference',
@@ -222,8 +222,8 @@ describe('Input Validation', () => {
     expect(notes[0].tags).toContain('unique');
   });
 
-  it('should handle store with empty tags array', () => {
-    const output = handleStore({
+  it('should handle store with empty tags array', async () => {
+    const output = await handleStore({
       title: 'No Tags',
       content: 'Note without tags',
       kind: 'observation',
@@ -235,8 +235,8 @@ describe('Input Validation', () => {
     expect(output).toContain('Knowledge stored');
   });
 
-  it('should handle search with limit of 0', () => {
-    handleStore({
+  it('should handle search with limit of 0', async () => {
+    await handleStore({
       title: 'Test Note',
       content: 'Searchable content',
       kind: 'reference',
@@ -248,8 +248,8 @@ describe('Input Validation', () => {
     expect(output).toMatch(/Found \d+ note|No matching notes found/);
   });
 
-  it('should handle search with very large limit', () => {
-    handleStore({
+  it('should handle search with very large limit', async () => {
+    await handleStore({
       title: 'Test Note',
       content: 'Searchable content',
       kind: 'reference',
