@@ -980,7 +980,7 @@ export class NoteRepository {
 
       fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
     } catch (err) {
-      logToFile('DEBUG', 'Failed to update frontmatter status', { noteId: note.id, error: String(err) });
+      logToFile('WARN', 'Failed to update frontmatter status', { noteId: note.id, error: String(err) });
     }
   }
 
@@ -1239,7 +1239,7 @@ export class NoteRepository {
 
       fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
     } catch (err) {
-      logToFile('DEBUG', 'Failed to update frontmatter fields', { noteId: note.id, error: String(err) });
+      logToFile('WARN', 'Failed to update frontmatter fields', { noteId: note.id, error: String(err) });
     }
   }
 

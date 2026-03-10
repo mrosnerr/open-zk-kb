@@ -134,7 +134,7 @@ async function tryEmbedding(text: string, embConfig: EmbeddingConfig, timeoutMs:
     ]);
     return result?.embedding || null;
   } catch (err) {
-    logToFile('DEBUG', 'Embedding generation failed', { error: String(err) });
+    logToFile('DEBUG', 'Embedding generation failed', { error: String(err) }, config);
     return null;
   }
 }
