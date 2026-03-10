@@ -2,20 +2,39 @@
 
 [![CI](https://github.com/mrosnerr/open-zk-kb/actions/workflows/ci.yml/badge.svg)](https://github.com/mrosnerr/open-zk-kb/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/open-zk-kb)](https://www.npmjs.com/package/open-zk-kb)
+[![npm downloads](https://img.shields.io/npm/dm/open-zk-kb)](https://www.npmjs.com/package/open-zk-kb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as Markdown notes indexed with SQLite FTS5 — so your assistant remembers across sessions.
+Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as searchable Markdown notes — so your assistant remembers across sessions.
 
 > **Beta** — This project is under active development (`0.1.x`). Core functionality works but APIs may change. [Bug reports](https://github.com/mrosnerr/open-zk-kb/issues) and feedback are welcome.
 
-<details>
-<summary>Demo</summary>
-<br>
-<img src="assets/demo.gif" alt="Demo" width="600">
+<p align="center">
+  <img src="assets/demo.gif" alt="open-zk-kb demo" width="640">
+</p>
 
-> The GIF shows the installer and a scripted API harness exercising all three MCP tools. In real usage, your AI assistant calls the tools automatically based on the injected AGENTS.md instructions — no manual tool calls needed.
+## Why open-zk-kb?
 
-</details>
+AI coding assistants forget everything between sessions. You re-explain your preferences, re-justify past decisions, and re-describe your architecture — every single time.
+
+open-zk-kb gives your assistant a **structured, persistent memory** it queries automatically. Unlike flat-file approaches (CLAUDE.md, rules files) that dump everything into context, open-zk-kb uses **full-text search + semantic embeddings** so only relevant knowledge surfaces — and it scales to thousands of notes without bloating your prompt.
+
+### One concept per note
+
+Each note captures a single idea — a decision, a preference, a procedure. This matters for AI agents because it means search results are **precise and self-contained**. The assistant gets exactly the context it needs, not a wall of loosely related text. Notes are typed (6 kinds) and follow a lifecycle (fleeting, permanent, archived), so knowledge naturally matures and stale information fades.
+
+| Feature | open-zk-kb | Claude Code memory | basic-memory | Mem0 MCP |
+|---------|------------|-------------------|--------------|----------|
+| **Search** | Full-text + local embeddings | None (loads full file) | Full-text + vector | Cloud API |
+| **Requires API key** | No | No | No | Yes |
+| **Works offline** | Yes | Yes | Yes | No |
+| **Note structure** | Typed, atomic notes with lifecycle | Flat markdown | Knowledge graph | Flat memories |
+| **Human-readable files** | Markdown + YAML frontmatter | Markdown | Markdown | Cloud-only |
+| **Rebuild from files** | Yes | N/A | Yes | N/A |
+| **Multi-client** | Claude Code, Cursor, Windsurf, OpenCode | Claude Code only | Claude Desktop, VS Code | Any MCP client |
+| **License** | MIT | Proprietary | AGPL-3.0 | Apache-2.0 |
+
+**In short**: local-first, no API keys, atomic notes with lifecycle management, hybrid search that scales, and MIT-licensed.
 
 ## Quick Start
 
@@ -44,7 +63,7 @@ Your AI assistant gets three MCP tools:
 
 The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
 
-Notes are stored as Markdown files with YAML frontmatter. A SQLite FTS5 index provides fast full-text search, with local vector embeddings (MiniLM, 23MB) for semantic matching. No API key needed.
+Notes are stored as Markdown files with YAML frontmatter. A SQLite index provides fast full-text search, with local vector embeddings for semantic matching. No API key needed.
 
 ## Configuration
 
@@ -158,6 +177,7 @@ bun run setup            # interactive installer
 ## Links
 
 - [Setup Guide](docs/setup-guide.md) — installation, instruction injection, verification
+- [Tools Reference](docs/tools-reference.md) — all 3 MCP tools, parameters, examples
 - [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
 - [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
 - [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection

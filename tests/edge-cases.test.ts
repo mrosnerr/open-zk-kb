@@ -5,6 +5,7 @@ import {
 } from './harness.js';
 import type { TestContext } from './harness.js';
 import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
+import { parseWikiLink } from '../src/utils/wikilink.js';
 
 describe('FTS5 Edge Cases', () => {
   let ctx: TestContext;
@@ -259,5 +260,249 @@ describe('Input Validation', () => {
 
     const output = handleSearch({ query: 'Searchable', limit: 99999 }, ctx.engine);
     expect(output).toContain('Searchable content');
+  });
+});
+
+describe('16-digit ID generation', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestHarness();
+  });
+
+  afterEach(() => {
+    cleanupTestHarness(ctx);
+  });
+
+  it('should generate 16-digit IDs', () => {
+    const result = ctx.engine.store('Test content', {
+      title: 'Test Note',
+      kind: 'reference',
+      status: 'fleeting',
+      summary: 'Test',
+      guidance: 'Test',
+    });
+
+    expect(result.id).toMatch(/^\d{16}$/);
+  });
+
+  it('should generate unique IDs for rapid successive stores', () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      const result = ctx.engine.store(`Content ${i}`, {
+        title: `Note ${i}`,
+        kind: 'reference',
+        status: 'fleeting',
+        summary: `Summary ${i}`,
+        guidance: `Guidance ${i}`,
+      });
+      expect(result.id).toMatch(/^\d{16}$/);
+      ids.add(result.id);
+    }
+    expect(ids.size).toBe(10);
+  });
+
+  it('should generate monotonically increasing IDs', () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const result = ctx.engine.store(`Content ${i}`, {
+        title: `Note ${i}`,
+        kind: 'reference',
+        status: 'fleeting',
+        summary: `Summary ${i}`,
+        guidance: `Guidance ${i}`,
+      });
+      ids.push(result.id);
+    }
+    for (let i = 1; i < ids.length; i++) {
+      expect(ids[i] > ids[i - 1]).toBe(true);
+    }
+  });
+
+  it('should handle 100+ rapid stores without duplicate IDs', () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 110; i++) {
+      const result = ctx.engine.store(`Content ${i}`, {
+        title: `Note ${i}`,
+        kind: 'observation',
+        status: 'fleeting',
+        summary: `Summary ${i}`,
+        guidance: `Guidance ${i}`,
+      });
+      expect(result.id).toMatch(/^\d{16}$/);
+      expect(ids.has(result.id)).toBe(false);
+      ids.add(result.id);
+    }
+    expect(ids.size).toBe(110);
+
+    // Verify all IDs are monotonically increasing
+    const sorted = [...ids].sort();
+    const original = [...ids];
+    expect(original).toEqual(sorted);
+  });
+});
+
+describe('Wikilink parsing with ID formats', () => {
+  it('should extract 16-digit IDs from wikilinks', () => {
+    const result = parseWikiLink('2026030919130100-my-note|My Note');
+    expect(result.id).toBe('2026030919130100');
+    expect(result.slug).toBe('2026030919130100-my-note');
+    expect(result.display).toBe('My Note');
+  });
+
+  it('should extract 12-digit legacy IDs from wikilinks', () => {
+    const result = parseWikiLink('202602081000-old-note');
+    expect(result.id).toBe('202602081000');
+    expect(result.slug).toBe('202602081000-old-note');
+  });
+
+  it('should extract first 12 digits from 13-15 digit prefixed slugs', () => {
+    // The regex ^(\d{16}|\d{12}) tries 16-digit first, then falls back to 12-digit.
+    // A 13-digit prefix like "1234567890123" matches the first 12 digits.
+    const result13 = parseWikiLink('1234567890123-some-note');
+    expect(result13.id).toBe('123456789012');
+    expect(result13.slug).toBe('1234567890123-some-note');
+
+    const result14 = parseWikiLink('12345678901234-some-note');
+    expect(result14.id).toBe('123456789012');
+
+    const result15 = parseWikiLink('123456789012345-some-note');
+    expect(result15.id).toBe('123456789012');
+  });
+
+  it('should parse 16-digit ID wikilinks with headings', () => {
+    const result = parseWikiLink('2026030919130100-architecture#Auth|Authentication');
+    expect(result.id).toBe('2026030919130100');
+    expect(result.heading).toBe('Auth');
+    expect(result.display).toBe('Authentication');
+  });
+
+  it('should handle plain 16-digit IDs without slug', () => {
+    const result = parseWikiLink('2026030919130100');
+    expect(result.id).toBe('2026030919130100');
+    expect(result.slug).toBe('2026030919130100');
+  });
+});
+
+describe('Rebuild with mixed ID formats', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestHarness();
+  });
+
+  afterEach(() => {
+    cleanupTestHarness(ctx);
+  });
+
+  it('should rebuild index from 16-digit ID files', () => {
+    // Store notes (generates 16-digit IDs)
+    ctx.engine.store('First content', { title: 'First', kind: 'reference' });
+    ctx.engine.store('Second content', { title: 'Second', kind: 'decision', status: 'permanent' });
+
+    const result = ctx.engine.rebuildFromFiles();
+    expect(result.indexed).toBe(2);
+    expect(result.errors).toBe(0);
+
+    const stats = ctx.engine.getStats();
+    expect(stats.total).toBe(2);
+  });
+
+  it('should rebuild index from legacy 12-digit ID files', () => {
+    // Create a legacy 12-digit note file manually
+    // Note: no quotes around id value — matches buildFrontmatter() output
+    const fs = require('fs');
+    const path = require('path');
+    const legacyContent = `---
+id: 202602081000
+title: Legacy Note
+kind: reference
+status: fleeting
+---
+
+Legacy content here`;
+    fs.writeFileSync(
+      path.join(ctx.tempDir, '202602081000-legacy-note.md'),
+      legacyContent
+    );
+
+    const result = ctx.engine.rebuildFromFiles();
+    expect(result.indexed).toBeGreaterThanOrEqual(1);
+    expect(result.errors).toBe(0);
+
+    // Verify the note is searchable
+    const note = ctx.engine.getById('202602081000');
+    expect(note).not.toBeNull();
+    expect(note!.title).toBe('Legacy Note');
+  });
+
+  it('should rebuild with mixed 12 and 16-digit ID files', () => {
+    const fs = require('fs');
+    const path = require('path');
+
+    // Create a legacy 12-digit note (no quotes around id — matches buildFrontmatter output)
+    const legacyContent = `---
+id: 202602081000
+title: Legacy Note
+kind: reference
+status: fleeting
+---
+
+Legacy content`;
+    fs.writeFileSync(
+      path.join(ctx.tempDir, '202602081000-legacy-note.md'),
+      legacyContent
+    );
+
+    // Store a new note (16-digit ID)
+    ctx.engine.store('New content', { title: 'New Note', kind: 'observation' });
+
+    const result = ctx.engine.rebuildFromFiles();
+    expect(result.indexed).toBe(2);
+    expect(result.errors).toBe(0);
+  });
+});
+
+describe('handleStore non-blocking embedding', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestHarness();
+  });
+
+  afterEach(() => {
+    cleanupTestHarness(ctx);
+  });
+
+  it('should return synchronously without embedding config', () => {
+    const result = handleStore({
+      title: 'Quick Note',
+      content: 'This should return immediately',
+      kind: 'observation',
+      summary: 'Quick note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    // handleStore returns string directly (not a Promise)
+    expect(typeof result).toBe('string');
+    expect(result).toContain('Knowledge stored');
+    expect(result).toContain('Kind: observation');
+  });
+
+  it('should store note successfully even with embedding config', () => {
+    // Pass a dummy embedding config — embedding will fail but store should succeed
+    const result = handleStore({
+      title: 'Note with embedding',
+      content: 'Content that triggers embedding path',
+      kind: 'reference',
+      summary: 'Test',
+      guidance: 'Test',
+    }, ctx.engine, { provider: 'local', model: 'nonexistent-model', dimensions: 384 });
+
+    expect(result).toContain('Knowledge stored');
+
+    // Verify note exists in DB regardless of embedding outcome
+    const stats = ctx.engine.getStats();
+    expect(stats.total).toBeGreaterThanOrEqual(1);
   });
 });

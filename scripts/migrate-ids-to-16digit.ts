@@ -21,8 +21,8 @@ if (!fs.existsSync(vaultPath)) {
 
 if (DRY_RUN) console.log('=== DRY RUN (no changes will be made) ===\n');
 
-// 1. Scan all .md files and collect IDs
-const files = fs.readdirSync(vaultPath).filter(f => f.endsWith('.md'));
+// 1. Scan all .md files and collect IDs (sorted for deterministic ordering)
+const files = fs.readdirSync(vaultPath).filter(f => f.endsWith('.md')).sort();
 const idMap = new Map<string, string>(); // old -> new
 
 // Track collisions: group 12-digit IDs that appear in multiple files
@@ -30,7 +30,11 @@ const idToFiles = new Map<string, string[]>();
 
 for (const file of files) {
   const content = fs.readFileSync(path.join(vaultPath, file), 'utf-8');
-  const idMatch = content.match(/^id:\s*(\d+)\s*$/m);
+  // Restrict ID detection to YAML frontmatter at the top of the file
+  const frontmatterMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*/);
+  if (!frontmatterMatch) continue;
+  const frontmatter = frontmatterMatch[1];
+  const idMatch = frontmatter.match(/^id:\s*(\d+)\s*$/m);
   if (!idMatch) continue;
   
   const id = idMatch[1];
@@ -48,14 +52,15 @@ for (const [id, fileList] of idToFiles) {
     if (fileList.length === 1) {
       idMap.set(id, `${id}0000`);
     } else {
-      // Collision: assign incrementing counter (ss=00, counter=00..99)
-      if (fileList.length > 100) {
-        console.error(`Too many collisions for ID ${id} (${fileList.length} notes). Max 100.`);
+      // Collision: sort for deterministic assignment, then assign incrementing counter
+      const sortedFileList = [...fileList].sort();
+      if (sortedFileList.length > 100) {
+        console.error(`Too many collisions for ID ${id} (${sortedFileList.length} notes). Max 100.`);
         process.exit(1);
       }
-      for (let i = 0; i < fileList.length; i++) {
+      for (let i = 0; i < sortedFileList.length; i++) {
         const counter = String(i).padStart(2, '0');
-        idMap.set(`${id}:${fileList[i]}`, `${id}00${counter}`);
+        idMap.set(`${id}:${sortedFileList[i]}`, `${id}00${counter}`);
       }
       // Also set the base mapping for wikilink/related_notes references
       // These point to the first note (best effort)
@@ -97,8 +102,10 @@ for (const file of files) {
   let content = fs.readFileSync(filePath, 'utf-8');
   let changed = false;
   
-  // Get this file's ID
-  const idMatch = content.match(/^id:\s*(\d+)\s*$/m);
+  // Get this file's ID from YAML frontmatter
+  const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---\s*/);
+  if (!fmMatch) continue;
+  const idMatch = fmMatch[1].match(/^id:\s*(\d+)\s*$/m);
   if (!idMatch) continue;
   const currentId = idMatch[1];
   
@@ -131,7 +138,7 @@ for (const file of files) {
     }
     
     // Wikilinks: [[oldId]], [[oldId|display]], [[oldId-slug]], [[oldId-slug|display]], [[oldId-slug#heading|display]]
-    const wikiPattern = new RegExp(`\\[\\[${oldRef}(-[^\\]#|]*)?(#[^\\]|]*)?(\\|[^\\]]*)?\\]\\]`, 'g');
+    const wikiPattern = new RegExp(`\\[\\[${oldRef}(-[^#|\\]]*)?(#(?:[^|\\]]*))?(\\|[^\\]]*)?\\]\\]`, 'g');
     const wikiReplaced = content.replace(wikiPattern, (_match, slug, heading, display) => {
       return `[[${newRef}${slug || ''}${heading || ''}${display || ''}]]`;
     });
