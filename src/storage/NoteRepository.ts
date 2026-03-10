@@ -946,8 +946,8 @@ export class NoteRepository {
       });
 
       fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
-    } catch {
-      // Non-fatal: DB is source for status, frontmatter is best-effort
+    } catch (err) {
+      logToFile('DEBUG', 'Failed to update frontmatter status', { noteId: note.id, error: String(err) });
     }
   }
 
@@ -1045,7 +1045,8 @@ export class NoteRepository {
         this.ftsInsert(id, title, body, tagsJson, context);
         this.syncLinks(id, body);
         uniqueIds.add(id);
-      } catch {
+      } catch (err) {
+        logToFile('WARN', 'Failed to index file during rebuild', { file, error: String(err) });
         errors++;
       }
     }
@@ -1204,8 +1205,8 @@ export class NoteRepository {
       });
 
       fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
-    } catch {
-      // Non-fatal: DB is source of truth, frontmatter is best-effort
+    } catch (err) {
+      logToFile('DEBUG', 'Failed to update frontmatter fields', { noteId: note.id, error: String(err) });
     }
   }
 
