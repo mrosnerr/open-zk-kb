@@ -142,7 +142,7 @@ export class NoteRepository {
   }
 
   private generateId(): string {
-    let now = new Date();
+    const now = new Date();
     let base = this.formatTimestamp(now);
 
     if (base === lastIdMinute) {
