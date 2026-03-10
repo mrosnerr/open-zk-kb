@@ -1024,7 +1024,7 @@ export class NoteRepository {
         const rawContent = fs.readFileSync(filePath, 'utf-8');
         const { frontmatter, body } = this.parseFrontmatter(rawContent);
 
-        const id = (frontmatter.id as string) || file.match(/^(\d{12,16})/)?.[1] || '';
+        const id = (frontmatter.id as string) || file.match(/^(\d{16}|\d{12})/)?.[1] || '';
         if (!id) {
           errors++;
           continue;

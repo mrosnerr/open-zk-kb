@@ -291,7 +291,7 @@ function getVaultStats(vaultPath: string): { noteCount: number; projectCount: nu
     
     const projects = new Set<string>();
     for (const file of mdFiles) {
-      const projectMatch = file.match(/^(\d{12,16})-([^-]+)-/);
+      const projectMatch = file.match(/^(\d{16}|\d{12})-([^-]+)-/);
       if (projectMatch) {
         const slug = projectMatch[2];
         if (slug.startsWith('project-')) {

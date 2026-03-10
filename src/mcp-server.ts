@@ -99,7 +99,7 @@ server.registerTool(
   },
   async (args: z.infer<typeof storeSchema>) => {
     try {
-      const result = await handleStore({
+      const result = handleStore({
         title: args.title,
         content: args.content,
         kind: args.kind as NoteKind,

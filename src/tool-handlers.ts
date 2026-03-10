@@ -67,7 +67,7 @@ export interface MaintainArgs {
 
 // ---- Handlers ----
 
-export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null): Promise<string> {
+export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null): string {
   const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
   const tags = [...(args.tags || [])];
 

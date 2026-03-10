@@ -261,3 +261,60 @@ describe('Input Validation', () => {
     expect(output).toContain('Searchable content');
   });
 });
+
+describe('16-digit ID generation', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestHarness();
+  });
+
+  afterEach(() => {
+    cleanupTestHarness(ctx);
+  });
+
+  it('should generate 16-digit IDs', () => {
+    const result = ctx.engine.store('Test content', {
+      title: 'Test Note',
+      kind: 'reference',
+      status: 'fleeting',
+      summary: 'Test',
+      guidance: 'Test',
+    });
+
+    expect(result.id).toMatch(/^\d{16}$/);
+  });
+
+  it('should generate unique IDs for rapid successive stores', () => {
+    const ids = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      const result = ctx.engine.store(`Content ${i}`, {
+        title: `Note ${i}`,
+        kind: 'reference',
+        status: 'fleeting',
+        summary: `Summary ${i}`,
+        guidance: `Guidance ${i}`,
+      });
+      expect(result.id).toMatch(/^\d{16}$/);
+      ids.add(result.id);
+    }
+    expect(ids.size).toBe(10);
+  });
+
+  it('should generate monotonically increasing IDs', () => {
+    const ids: string[] = [];
+    for (let i = 0; i < 5; i++) {
+      const result = ctx.engine.store(`Content ${i}`, {
+        title: `Note ${i}`,
+        kind: 'reference',
+        status: 'fleeting',
+        summary: `Summary ${i}`,
+        guidance: `Guidance ${i}`,
+      });
+      ids.push(result.id);
+    }
+    for (let i = 1; i < ids.length; i++) {
+      expect(ids[i] > ids[i - 1]).toBe(true);
+    }
+  });
+});
