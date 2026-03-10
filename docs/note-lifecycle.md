@@ -1,6 +1,15 @@
 # Note Lifecycle
 
-In `open-zk-kb`, notes are not static documents. They follow a dynamic lifecycle inspired by the Zettelkasten method, evolving from temporary captures to validated knowledge, and eventually to a searchable archive.
+In `open-zk-kb`, notes are not static documents. They follow a dynamic lifecycle — evolving from temporary captures to validated knowledge, and eventually to a searchable archive.
+
+## Why one concept per note?
+
+Each note in open-zk-kb captures a single idea. This "atomic note" approach (inspired by the [Zettelkasten method](https://en.wikipedia.org/wiki/Zettelkasten)) is particularly effective for AI agents:
+
+- **Precise retrieval** — search returns exactly what's relevant, not a wall of loosely related text
+- **Context window efficiency** — 10 focused notes cost far fewer tokens than a 500-line rules file where 90% is irrelevant
+- **Independent aging** — one note can be promoted or archived without affecting others
+- **Composability** — small typed notes combine naturally across searches to build a complete picture
 
 ## The Three Statuses
 
