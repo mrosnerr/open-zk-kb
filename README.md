@@ -23,8 +23,8 @@ open-zk-kb gives your assistant a **structured, persistent memory** it queries a
 
 Each note captures a single idea — a decision, a preference, a procedure. This matters for AI agents because it means search results are **precise and self-contained**. The assistant gets exactly the context it needs, not a wall of loosely related text. Notes are typed (6 kinds) and follow a lifecycle (fleeting, permanent, archived), so knowledge naturally matures and stale information fades.
 
-| | open-zk-kb | Claude Code memory | basic-memory | Mem0 MCP |
-|---|---|---|---|---|
+| Feature | open-zk-kb | Claude Code memory | basic-memory | Mem0 MCP |
+|---------|------------|-------------------|--------------|----------|
 | **Search** | Full-text + local embeddings | None (loads full file) | Full-text + vector | Cloud API |
 | **Requires API key** | No | No | No | Yes |
 | **Works offline** | Yes | Yes | Yes | No |
