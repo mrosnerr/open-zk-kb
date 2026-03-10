@@ -1,7 +1,7 @@
 {
   "name": "open-zk-kb",
   "version": "0.1.0-beta.5",
-  "description": "MCP server for persistent Zettelkasten-based knowledge management",
+  "description": "Persistent knowledge base for AI coding assistants — searchable Markdown notes with full-text and semantic search",
   "type": "module",
   "main": "dist/mcp-server.js",
   "types": "dist/mcp-server.d.ts",
@@ -20,7 +20,7 @@
     "type": "git",
     "url": "git+https://github.com/mrosnerr/open-zk-kb.git"
   },
-  "homepage": "https://github.com/mrosnerr/open-zk-kb#readme",
+  "homepage": "https://mrosnerr.github.io/open-zk-kb",
   "bugs": {
     "url": "https://github.com/mrosnerr/open-zk-kb/issues"
   },

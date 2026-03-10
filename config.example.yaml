@@ -27,6 +27,6 @@
 #   base_url: https://openrouter.ai/api/v1
 #   api_key: "your-api-key-here"
 
-# To disable embeddings entirely (FTS5 keyword search only):
+# To disable embeddings entirely (keyword search only):
 # embeddings:
 #   enabled: false
