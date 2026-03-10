@@ -77,7 +77,7 @@ MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQL
 
 - **Factory pattern**: Classes export `createXxx()` factory (e.g., `createNoteRepository`)
 - **Lazy singletons**: Repository initialized on first tool call, not at startup
-- **Note IDs**: `YYYYMMDDHHmm` (12-digit timestamp) + collision counter
+- **Note IDs**: `YYYYMMDDHHmmss00` (16-digit: timestamp + 2-digit counter for same-second collisions)
 - **Filenames**: `{id}-{slug}.md`
 - **XDG paths**: vault=`$XDG_DATA_HOME/open-zk-kb`, config=`$XDG_CONFIG_HOME/open-zk-kb/config.yaml`, logs=`$XDG_STATE_HOME/open-zk-kb/logs/`
 - **Single config file**: `~/.config/open-zk-kb/config.yaml` — top-level keys for core settings and `embeddings:`

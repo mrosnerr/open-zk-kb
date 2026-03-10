@@ -60,7 +60,7 @@ export interface StoreOptions {
   related?: string[];
 }
 
-// Counter to avoid same-minute ID collisions within a process
+// Counter to avoid same-second ID collisions within a process
 let idCounter = 0;
 let lastIdMinute = '';
 
@@ -143,22 +143,22 @@ export class NoteRepository {
 
   private generateId(): string {
     const now = new Date();
-    const minute = now.getFullYear().toString() +
+    const base = now.getFullYear().toString() +
       String(now.getMonth() + 1).padStart(2, '0') +
       String(now.getDate()).padStart(2, '0') +
       String(now.getHours()).padStart(2, '0') +
-      String(now.getMinutes()).padStart(2, '0');
+      String(now.getMinutes()).padStart(2, '0') +
+      String(now.getSeconds()).padStart(2, '0');
 
-    if (minute === lastIdMinute) {
+    if (base === lastIdMinute) {
       idCounter++;
     } else {
-      lastIdMinute = minute;
+      lastIdMinute = base;
       idCounter = 0;
     }
 
-    // Append seconds + counter suffix for uniqueness within the same minute
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    return idCounter === 0 ? minute : `${minute}${seconds}${idCounter > 0 ? String(idCounter).padStart(2, '0') : ''}`;
+    // Always 16-digit: YYYYMMDDHHmmss + 2-digit counter
+    return `${base}${String(idCounter).padStart(2, '0')}`;
   }
 
   private slugify(text: string): string {

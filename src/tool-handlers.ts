@@ -67,7 +67,7 @@ export interface MaintainArgs {
 
 // ---- Handlers ----
 
-export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null): string {
+export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null): Promise<string> {
   const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
   const tags = [...(args.tags || [])];
 
@@ -106,16 +106,17 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
 
   if (embeddingConfig) {
     const text = buildEmbeddingText(args.title, args.summary, args.content);
-    generateEmbedding(text, embeddingConfig).then(embResult => {
+    try {
+      const embResult = await generateEmbedding(text, embeddingConfig);
       if (embResult) {
         repo.storeEmbedding(result.id, embResult.embedding, embResult.model);
       }
-    }).catch((error) => {
+    } catch (error) {
       logToFile('WARN', 'Embedding generation failed', {
         noteId: result.id,
         error: error instanceof Error ? error.message : String(error),
       });
-    });
+    }
   }
 
   let output = `Knowledge stored (${result.action})\n`;

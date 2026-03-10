@@ -15,8 +15,8 @@ describe('MCP Tool: knowledge-store', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should store a note with kind-based default status', () => {
-    const output = handleStore({
+  it('should store a note with kind-based default status', async () => {
+    const output = await handleStore({
       title: 'Test Preference',
       content: 'I prefer dark mode',
       kind: 'personalization',
@@ -29,8 +29,8 @@ describe('MCP Tool: knowledge-store', () => {
     expect(output).toContain('Status: permanent');
   });
 
-  it('should store with explicit status override', () => {
-    const output = handleStore({
+  it('should store with explicit status override', async () => {
+    const output = await handleStore({
       title: 'Fleeting Pref',
       content: 'Maybe I like light mode',
       kind: 'personalization',
@@ -42,8 +42,8 @@ describe('MCP Tool: knowledge-store', () => {
     expect(output).toContain('Status: fleeting');
   });
 
-  it('should auto-add project tag', () => {
-    handleStore({
+  it('should auto-add project tag', async () => {
+    await handleStore({
       title: 'Project Decision',
       content: 'Use PostgreSQL for this project',
       kind: 'decision',
@@ -57,7 +57,7 @@ describe('MCP Tool: knowledge-store', () => {
     expect(notes[0].tags).toContain('project:myapp');
   });
 
-  it('should append related notes as wikilinks', () => {
+  it('should append related notes as wikilinks', async () => {
     // Store a first note
     const result1 = ctx.engine.store('Base concept', {
       title: 'Base Note',
@@ -65,7 +65,7 @@ describe('MCP Tool: knowledge-store', () => {
       existingId: '202602081000',
     });
 
-    const output = handleStore({
+    const output = await handleStore({
       title: 'Follow-up',
       content: 'This builds on the base',
       kind: 'reference',
@@ -80,8 +80,8 @@ describe('MCP Tool: knowledge-store', () => {
     expect(notes.length).toBeGreaterThan(0);
   });
 
-  it('should store with summary and guidance', () => {
-    const output = handleStore({
+  it('should store with summary and guidance', async () => {
+    const output = await handleStore({
       title: 'Prefers Tailwind',
       content: 'The user prefers Tailwind CSS utility classes over Bootstrap for styling.',
       kind: 'personalization',

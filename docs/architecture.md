@@ -51,7 +51,7 @@ The system employs a hybrid storage strategy to balance portability with perform
 * **Filesystem is source of truth**: Notes are stored as individual Markdown files with YAML frontmatter. Filenames follow the pattern `{id}-{slug}.md`.
 * **SQLite is the index**: A SQLite database provides fast metadata queries, bidirectional link tracking, and full-text search via the FTS5 extension.
 * **Rebuildability**: The database can be fully reconstructed from the Markdown files at any time using the `knowledge-maintain rebuild` tool.
-* **Note IDs**: 12-digit timestamps (`YYYYMMDDHHmm`) with a collision counter ensure unique, chronologically sortable identifiers.
+* **Note IDs**: 16-digit timestamps (`YYYYMMDDHHmmss00`) with a 2-digit counter for same-second collisions ensure unique, chronologically sortable identifiers.
 * **Manual FTS5 Management**: To ensure reliability with TEXT primary keys, the system manually manages the FTS5 index using `ftsInsert`, `ftsDelete`, and `ftsUpdate` methods rather than database triggers.
 
 **Rationale**: Markdown files are portable, human-readable, and git-friendly. SQLite provides the indexing required for efficient search and relationship tracking.
