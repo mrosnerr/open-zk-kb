@@ -15,26 +15,14 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 
 ## Why open-zk-kb?
 
-AI coding assistants forget everything between sessions. You re-explain your preferences, re-justify past decisions, and re-describe your architecture — every single time.
+AI coding assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
 
-open-zk-kb gives your assistant a **structured, persistent memory** it queries automatically. Unlike flat-file approaches (CLAUDE.md, rules files) that dump everything into context, open-zk-kb uses **full-text search + semantic embeddings** so only relevant knowledge surfaces — and it scales to thousands of notes without bloating your prompt.
-
-### One concept per note
-
-Each note captures a single idea — a decision, a preference, a procedure. This matters for AI agents because it means search results are **precise and self-contained**. The assistant gets exactly the context it needs, not a wall of loosely related text. Notes are typed (6 kinds) and follow a lifecycle (fleeting, permanent, archived), so knowledge naturally matures and stale information fades.
-
-| Feature | open-zk-kb | Claude Code memory | basic-memory | Mem0 MCP |
-|---------|------------|-------------------|--------------|----------|
-| **Search** | Full-text + local embeddings | None (loads full file) | Full-text + vector | Cloud API |
-| **Requires API key** | No | No | No | Yes |
-| **Works offline** | Yes | Yes | Yes | No |
-| **Note structure** | Typed, atomic notes with lifecycle | Flat markdown | Knowledge graph | Flat memories |
-| **Human-readable files** | Markdown + YAML frontmatter | Markdown | Markdown | Cloud-only |
-| **Rebuild from files** | Yes | N/A | Yes | N/A |
-| **Multi-client** | Claude Code, Cursor, Windsurf, OpenCode | Claude Code only | Claude Desktop, VS Code | Any MCP client |
-| **License** | MIT | Proprietary | AGPL-3.0 | Apache-2.0 |
-
-**In short**: local-first, no API keys, atomic notes with lifecycle management, hybrid search that scales, and MIT-licensed.
+- **Hybrid search** — full-text + local embeddings, so only relevant notes surface
+- **Atomic notes** — one concept per note (6 kinds, lifecycle management) keeps results precise
+- **Local-first** — no API keys, works offline, scales to thousands of notes
+- **Human-readable** — Markdown + YAML frontmatter, rebuildable from files
+- **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, and Windsurf
+- **MIT-licensed**
 
 ## Quick Start
 
