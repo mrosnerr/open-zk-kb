@@ -5,6 +5,7 @@ import * as p from '@clack/prompts';
 import color from 'picocolors';
 
 type CmdResult = { code: number; stdout: string; stderr: string };
+type PullRequestSummary = { number: number; url: string; title: string };
 
 function run(cmd: string[], label: string): CmdResult {
   let proc;
@@ -63,6 +64,15 @@ function buildPrBody(version: string, commits: string[]): string {
   return `## Summary\n\n- Release ${version}\n\n## Changes\n\n${bullets}`;
 }
 
+function getExistingReleasePr(base: string, head: string): PullRequestSummary | null {
+  const output = mustRun(
+    ['gh', 'pr', 'list', '--state', 'open', '--base', base, '--head', head, '--json', 'number,url,title'],
+    'gh pr list'
+  );
+  const prs = JSON.parse(output || '[]') as PullRequestSummary[];
+  return prs[0] || null;
+}
+
 async function main(): Promise<void> {
   p.intro(color.cyan('open-zk-kb — Release'));
 
@@ -101,6 +111,7 @@ async function main(): Promise<void> {
 
   const requestedVersion = process.argv[2];
   const nextVersion = requestedVersion ?? getNextBetaVersion(pkg.version);
+  const existingPr = getExistingReleasePr('main', 'dev');
   if (nextVersion === pkg.version) {
     p.log.error(`Version ${nextVersion} is already current`);
     process.exit(1);
@@ -139,7 +150,9 @@ async function main(): Promise<void> {
   }
 
   const confirm = await p.confirm({
-    message: `Apply release changes, commit, push dev, and open PR for ${nextVersion}?`,
+    message: existingPr
+      ? `Apply release changes, commit, push dev, and update PR #${existingPr.number} for ${nextVersion}?`
+      : `Apply release changes, commit, push dev, and open PR for ${nextVersion}?`,
     initialValue: true,
   });
 
@@ -157,10 +170,15 @@ async function main(): Promise<void> {
 
   const prTitle = `Bump to ${nextVersion}`;
   const prBody = buildPrBody(nextVersion, commitMessages);
-  mustRun(
-    ['gh', 'pr', 'create', '--base', 'main', '--head', 'dev', '--title', prTitle, '--body', prBody],
-    'gh pr create'
-  );
+  if (existingPr) {
+    mustRun(['gh', 'pr', 'edit', String(existingPr.number), '--title', prTitle, '--body', prBody], 'gh pr edit');
+    p.log.step(`Updated PR #${existingPr.number}: ${existingPr.url}`);
+  } else {
+    mustRun(
+      ['gh', 'pr', 'create', '--base', 'main', '--head', 'dev', '--title', prTitle, '--body', prBody],
+      'gh pr create'
+    );
+  }
 
   p.outro(color.green(`Release complete: ${nextVersion}`));
 }

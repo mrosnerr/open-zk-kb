@@ -18,6 +18,41 @@ export async function getLatestVersion(packageName: string): Promise<string | nu
   }
 }
 
+function comparePrerelease(current?: string, latest?: string): number {
+  if (!current && !latest) return 0;
+  if (!current) return 1;
+  if (!latest) return -1;
+
+  const currentParts = current.split('.');
+  const latestParts = latest.split('.');
+
+  for (let i = 0; i < Math.max(currentParts.length, latestParts.length); i++) {
+    const currentPart = currentParts[i];
+    const latestPart = latestParts[i];
+
+    if (currentPart === undefined) return -1;
+    if (latestPart === undefined) return 1;
+
+    const currentIsNumeric = /^\d+$/.test(currentPart);
+    const latestIsNumeric = /^\d+$/.test(latestPart);
+
+    if (currentIsNumeric && latestIsNumeric) {
+      const diff = Number(currentPart) - Number(latestPart);
+      if (diff !== 0) return diff;
+      continue;
+    }
+
+    if (currentIsNumeric !== latestIsNumeric) {
+      return currentIsNumeric ? -1 : 1;
+    }
+
+    if (currentPart < latestPart) return -1;
+    if (currentPart > latestPart) return 1;
+  }
+
+  return 0;
+}
+
 /**
  * Compare two semver strings. Returns true if `latest` is newer than `current`.
  * Handles pre-release tags (e.g. 0.1.0-beta.6 < 0.1.0).
@@ -37,12 +72,5 @@ export function isNewerVersion(current: string, latest: string): boolean {
   if (l.minor !== c.minor) return l.minor > c.minor;
   if (l.patch !== c.patch) return l.patch > c.patch;
 
-  // Same core version: stable (no pre) is newer than pre-release
-  if (c.pre && !l.pre) return true;
-  if (!c.pre && l.pre) return false;
-
-  // Both have pre-release: compare lexicographically
-  if (c.pre && l.pre) return l.pre > c.pre;
-
-  return false;
+  return comparePrerelease(c.pre, l.pre) < 0;
 }

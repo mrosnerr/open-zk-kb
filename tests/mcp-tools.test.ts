@@ -717,6 +717,14 @@ describe('isNewerVersion', () => {
   it('should detect newer pre-release', () => {
     expect(isNewerVersion('0.1.0-beta.5', '0.1.0-beta.6')).toBe(true);
   });
+
+  it('should detect newer multi-digit pre-release', () => {
+    expect(isNewerVersion('0.1.0-beta.9', '0.1.0-beta.10')).toBe(true);
+  });
+
+  it('should not flag older multi-digit pre-release as newer', () => {
+    expect(isNewerVersion('0.1.0-beta.10', '0.1.0-beta.9')).toBe(false);
+  });
 });
 
 // ---- Version check in stats output ----

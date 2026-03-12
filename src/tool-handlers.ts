@@ -107,12 +107,7 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
 
   if (embeddingConfig) {
     const text = buildEmbeddingText(args.title, args.summary, args.content);
-    // Non-blocking: race embedding against timeout so store stays fast
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    Promise.race([
-      generateEmbedding(text, embeddingConfig),
-      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2000); }),
-    ]).then(embResult => {
+    void generateEmbedding(text, embeddingConfig).then(embResult => {
       if (embResult) {
         repo.storeEmbedding(result.id, embResult.embedding, embResult.model);
       }
@@ -121,8 +116,6 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
         noteId: result.id,
         error: error instanceof Error ? error.message : String(error),
       });
-    }).finally(() => {
-      if (timer) clearTimeout(timer);
     });
   }
 

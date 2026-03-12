@@ -15,22 +15,23 @@ if (typeof globalThis.Bun === 'undefined') {
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { NoteRepository } from './storage/NoteRepository.js';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { handleStore, handleSearch, handleMaintain } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
+import type { NoteRepository as NoteRepositoryType } from './storage/NoteRepository.js';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const { version: PKG_VERSION } = require('../package.json');
+const { NoteRepository } = await import('./storage/NoteRepository.js');
 
 const config = getConfig();
-let repo: NoteRepository | null = null;
+let repo: NoteRepositoryType | null = null;
 
-function getOrCreateRepo(): NoteRepository {
+function getOrCreateRepo(): NoteRepositoryType {
   if (!repo) {
     repo = new NoteRepository(config.vault);
     logToFile('INFO', 'MCP server: repository opened', { vault: config.vault }, config);
