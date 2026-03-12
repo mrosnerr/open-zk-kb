@@ -17,6 +17,7 @@ import { logToFile } from './logger.js';
 import { computeSimHash } from './utils/simhash.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
+import { getLatestVersion } from './utils/version-check.js';
 
 // ---- Helper functions ----
 
@@ -165,7 +166,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   return output;
 }
 
-export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null): Promise<string> {
+export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string): Promise<string> {
   switch (args.action) {
     case 'stats': {
       const stats = repo.getStats();
@@ -205,6 +206,14 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         if (stats.total > 5) {
           output += `\nShowing 5 of ${stats.total}. Use \`knowledge-search\` to find specific notes.\n`;
+        }
+      }
+      if (currentVersion) {
+        const latest = await getLatestVersion('open-zk-kb');
+        if (latest && latest !== currentVersion) {
+          output += `\n## Update Available\n`;
+          output += `- Current: ${currentVersion} | Latest: ${latest}\n`;
+          output += `- Run \`bunx open-zk-kb@latest install --client <name> --force\` to update\n`;
         }
       }
       return output;

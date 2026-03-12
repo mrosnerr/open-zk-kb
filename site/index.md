@@ -11,7 +11,7 @@ It gives your assistant a **structured, searchable knowledge base** it queries a
 
 ## How it works
 
-1. **Install in one command** — `bunx open-zk-kb`
+1. **Install in one command** — `bunx open-zk-kb@latest`
 2. **Your assistant stores knowledge** — decisions, preferences, patterns, procedures
 3. **Next session, it searches first** — relevant context surfaces automatically
 
@@ -30,7 +30,7 @@ Notes are Markdown files with YAML frontmatter. A SQLite index provides full-tex
 ## Quick start
 
 ```bash
-bunx open-zk-kb
+bunx open-zk-kb@latest
 ```
 
 The interactive installer adds the MCP server to your client and injects instructions that teach your assistant when and how to use the knowledge base.

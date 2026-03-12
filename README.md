@@ -29,7 +29,7 @@ AI coding assistants forget everything between sessions. open-zk-kb gives your a
 > **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
 
 ```bash
-bunx open-zk-kb
+bunx open-zk-kb@latest
 ```
 
 That's it. The interactive installer:
@@ -88,7 +88,7 @@ Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [
 
 If you prefer manual configuration, add open-zk-kb to your client's MCP config file. No cloning required — the npm package includes everything.
 
-> **Note**: Manual install only adds the MCP server. To also inject the agent instructions, run `bunx open-zk-kb install --client <name>` or add the contents of `agent-instructions.md` to your client's instruction file.
+> **Note**: Manual install only adds the MCP server. To also inject the agent instructions, run `bunx open-zk-kb@latest install --client <name>` or add the contents of `agent-instructions.md` to your client's instruction file.
 
 ### OpenCode
 

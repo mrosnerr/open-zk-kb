@@ -8,6 +8,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
+import { getLatestVersion } from '../src/utils/version-check.js';
 
 describe('MCP Tool: knowledge-store', () => {
   let ctx: TestContext;
@@ -631,5 +632,110 @@ describe('Data Migrations: NoteRepository.getByIds', () => {
     });
     const results = ctx.engine.getByIds([r1.id]);
     expect(results[0].tags).toEqual(['tag-a', 'tag-b']);
+  });
+});
+
+// ---- Version check utility tests ----
+
+describe('getLatestVersion', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  it('should return version string from npm registry', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '1.2.3' }),
+      { status: 200 },
+    )) as any;
+
+    const version = await getLatestVersion('open-zk-kb');
+    expect(version).toBe('1.2.3');
+  });
+
+  it('should return null on non-OK response', async () => {
+    globalThis.fetch = (async () => new Response('Not Found', { status: 404 })) as any;
+
+    const version = await getLatestVersion('nonexistent-package-xyz');
+    expect(version).toBeNull();
+  });
+
+  it('should return null on network error', async () => {
+    globalThis.fetch = (async () => { throw new Error('Network error'); }) as any;
+
+    const version = await getLatestVersion('open-zk-kb');
+    expect(version).toBeNull();
+  });
+
+  it('should return null when response has no version field', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ name: 'open-zk-kb' }),
+      { status: 200 },
+    )) as any;
+
+    const version = await getLatestVersion('open-zk-kb');
+    expect(version).toBeNull();
+  });
+});
+
+// ---- Version check in stats output ----
+
+describe('MCP Tool: knowledge-maintain stats version check', () => {
+  let ctx: TestContext;
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => {
+    cleanupTestHarness(ctx);
+    globalThis.fetch = originalFetch;
+  });
+
+  it('should show update notice when a newer version exists', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '9.9.9' }),
+      { status: 200 },
+    )) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    );
+    expect(output).toContain('## Update Available');
+    expect(output).toContain('Current: 0.1.0');
+    expect(output).toContain('Latest: 9.9.9');
+    expect(output).toContain('bunx open-zk-kb@latest install');
+  });
+
+  it('should not show update notice when versions match', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '0.1.0' }),
+      { status: 200 },
+    )) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    );
+    expect(output).not.toContain('Update Available');
+  });
+
+  it('should not show update notice when registry check fails', async () => {
+    globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    );
+    expect(output).not.toContain('Update Available');
+  });
+
+  it('should not show update notice when currentVersion is not provided', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '9.9.9' }),
+      { status: 200 },
+    )) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config,
+    );
+    expect(output).not.toContain('Update Available');
   });
 });

@@ -10,7 +10,7 @@ This guide covers installation for all supported clients. For configuration deta
 
 Run the interactive installer:
 ```bash
-bunx open-zk-kb
+bunx open-zk-kb@latest
 ```
 
 This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf.
@@ -84,9 +84,9 @@ The injected block is wrapped in managed markers:
 
 **Safe to edit**: You can freely add your own content outside the managed markers. Re-running the installer updates only the content between markers.
 
-**Upgrade**: Running `bunx open-zk-kb install --client <name> --force` updates the instructions to the latest version without touching your other content.
+**Upgrade**: Running `bunx open-zk-kb@latest install --client <name> --force` updates the instructions to the latest version without touching your other content.
 
-**Uninstall**: Running `bunx open-zk-kb uninstall --client <name>` removes the managed block from the instruction file.
+**Uninstall**: Running `bunx open-zk-kb@latest uninstall --client <name>` removes the managed block from the instruction file.
 
 ## Optional Configuration
 - **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and vector embeddings in a single file. See [configuration.md](configuration.md).
@@ -95,12 +95,12 @@ The injected block is wrapped in managed markers:
 
 Interactive (npm):
 ```bash
-bunx open-zk-kb uninstall
+bunx open-zk-kb@latest uninstall
 ```
 
 Or for a specific client:
 ```bash
-bunx open-zk-kb uninstall --client opencode
+bunx open-zk-kb@latest uninstall --client opencode
 ```
 
 From source:
@@ -112,7 +112,7 @@ This removes the MCP server entry from the client config. Your notes in the vaul
 
 To also remove the vault (irreversible):
 ```bash
-bunx open-zk-kb uninstall --client opencode --remove-vault --confirm
+bunx open-zk-kb@latest uninstall --client opencode --remove-vault --confirm
 ```
 
 ## Troubleshooting
@@ -129,7 +129,7 @@ bunx open-zk-kb uninstall --client opencode --remove-vault --confirm
 ## For AI Agents -- Integration Checklist
 This section is specifically for AI coding assistants setting up open-zk-kb:
 1. Run `bun --version` -- confirm >= 1.0.0 (if missing: `curl -fsSL https://bun.sh/install | bash`)
-2. Run `bunx open-zk-kb install --client <detected-client>`
+2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor
 4. Verify by calling `knowledge-maintain stats`
 5. Knowledge capture is driven by `AGENTS.md` or `CLAUDE.md` instructions provided during setup. Calling models use `knowledge-store` directly.

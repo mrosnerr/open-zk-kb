@@ -7,7 +7,7 @@ if (typeof globalThis.Bun === 'undefined') {
   console.error(
     'open-zk-kb requires the Bun runtime (uses bun:sqlite).\n' +
     'Install Bun: https://bun.sh\n' +
-    'Then run: bunx open-zk-kb-server'
+    'Then run: bunx open-zk-kb-server@latest'
   );
   process.exit(1);
 }
@@ -211,7 +211,7 @@ server.registerTool(
         days: args.days,
         limit: args.limit,
         dryRun: args.dryRun,
-      }, getOrCreateRepo(), config, getEmbeddingConfig());
+      }, getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-maintain failed', {

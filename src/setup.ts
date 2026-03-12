@@ -364,7 +364,7 @@ export function uninstall(args: UninstallArgs): string {
     output += `Deleted vault: ${vaultPath}\n`;
   } else {
     output += `Vault preserved at: ${vaultPath}\n`;
-    output += `Reinstall anytime with: bunx open-zk-kb setup install --client ${args.client}\n`;
+    output += `Reinstall anytime with: bunx open-zk-kb@latest install --client ${args.client}\n`;
   }
   
   return output;
