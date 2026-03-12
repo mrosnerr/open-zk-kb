@@ -1,21 +1,52 @@
 // Fetch latest version from npm registry with a short timeout.
 // Returns null on any failure — never blocks or throws.
+const CACHE_TTL_MS = 60 * 60 * 1000;
+
+const versionCache = new Map<string, { value: string | null; expiresAt: number }>();
+const inFlightRequests = new Map<string, Promise<string | null>>();
+
+export function clearVersionCheckCache(): void {
+  versionCache.clear();
+  inFlightRequests.clear();
+}
+
 export async function getLatestVersion(packageName: string): Promise<string | null> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 3000);
-  try {
-    const res = await fetch(
-      `https://registry.npmjs.org/${packageName}/latest`,
-      { signal: controller.signal }
-    );
-    if (!res.ok) return null;
-    const data = (await res.json()) as { version?: string };
-    return data.version ?? null;
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(timeout);
+  const cached = versionCache.get(packageName);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
   }
+
+  const inFlight = inFlightRequests.get(packageName);
+  if (inFlight) {
+    return inFlight;
+  }
+
+  const request = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3000);
+    try {
+      const encodedName = encodeURIComponent(packageName);
+      const res = await fetch(
+        `https://registry.npmjs.org/${encodedName}/latest`,
+        { signal: controller.signal }
+      );
+      if (!res.ok) return null;
+      const data = (await res.json()) as { version?: string };
+      const version = data.version ?? null;
+      versionCache.set(packageName, { value: version, expiresAt: Date.now() + CACHE_TTL_MS });
+      return version;
+    } catch {
+      versionCache.set(packageName, { value: null, expiresAt: Date.now() + CACHE_TTL_MS });
+      return null;
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+      inFlightRequests.delete(packageName);
+    }
+  })();
+
+  inFlightRequests.set(packageName, request);
+  return request;
 }
 
 function comparePrerelease(current?: string, latest?: string): number {

@@ -231,7 +231,7 @@ server.registerTool(
 
 // ---- Startup ----
 
-async function main() {
+export async function startServer() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logToFile('INFO', 'MCP server: connected via stdio', {}, config);
@@ -259,12 +259,14 @@ function shutdown() {
   process.exit(0);
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+if (import.meta.main) {
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 
-main().catch((error) => {
-  logToFile('ERROR', 'MCP server: startup failed', {
-    error: error instanceof Error ? error.message : String(error),
-  }, config);
-  process.exit(1);
-});
+  startServer().catch((error) => {
+    logToFile('ERROR', 'MCP server: startup failed', {
+      error: error instanceof Error ? error.message : String(error),
+    }, config);
+    process.exit(1);
+  });
+}

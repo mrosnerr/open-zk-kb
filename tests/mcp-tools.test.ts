@@ -8,7 +8,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
-import { getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
+import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
 describe('MCP Tool: knowledge-store', () => {
   let ctx: TestContext;
@@ -642,6 +642,7 @@ describe('getLatestVersion', () => {
 
   afterEach(() => {
     globalThis.fetch = originalFetch;
+    clearVersionCheckCache();
   });
 
   it('should return version string from npm registry', async () => {
@@ -676,6 +677,29 @@ describe('getLatestVersion', () => {
 
     const version = await getLatestVersion('open-zk-kb');
     expect(version).toBeNull();
+  });
+
+  it('should encode scoped package names', async () => {
+    let requestedUrl = '';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({ version: '1.2.3' }), { status: 200 });
+    }) as any;
+
+    await getLatestVersion('@scope/open-zk-kb');
+    expect(requestedUrl).toContain('%40scope%2Fopen-zk-kb');
+  });
+
+  it('should cache repeated version checks', async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(JSON.stringify({ version: '1.2.3' }), { status: 200 });
+    }) as any;
+
+    expect(await getLatestVersion('open-zk-kb')).toBe('1.2.3');
+    expect(await getLatestVersion('open-zk-kb')).toBe('1.2.3');
+    expect(calls).toBe(1);
   });
 });
 
@@ -737,6 +761,7 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
   afterEach(() => {
     cleanupTestHarness(ctx);
     globalThis.fetch = originalFetch;
+    clearVersionCheckCache();
   });
 
   it('should show update notice when a newer version exists', async () => {

@@ -13,7 +13,7 @@ Run the interactive installer:
 bunx open-zk-kb@latest
 ```
 
-This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf.
+This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed.
 
 > **Note**: The installer automatically copies `config.example.yaml` to `~/.config/open-zk-kb/config.yaml` if no config file exists yet. Local embeddings (MiniLM, 23MB) are enabled by default and require no API key.
 
@@ -24,11 +24,11 @@ Add to your client's MCP configuration — no cloning required:
 {
   "open-zk-kb": {
     "command": "bunx",
-    "args": ["open-zk-kb-server"]
+    "args": ["open-zk-kb@latest", "server"]
   }
 }
 ```
-For OpenCode, use the `mcp` key with `"type": "local"` and `"command": ["bunx", "open-zk-kb-server"]`.
+For OpenCode, use the `mcp` key with `"type": "local"` and `"command": ["bunx", "open-zk-kb@latest", "server"]`.
 
 ## Install from source (for development)
 
@@ -55,6 +55,7 @@ bun run setup install --client opencode
 | Claude Code | `~/.claude/settings.json` |
 | Cursor | `~/.cursor/mcp.json` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
+| Zed | `~/.config/zed/settings.json` |
 
 ## Verify Installation
 1. Restart your editor/client.
@@ -66,14 +67,15 @@ bun run setup install --client opencode
 
 ## Instruction Injection
 
-During installation, open-zk-kb automatically injects knowledge base instructions into your client's global instruction file:
+During installation, open-zk-kb automatically injects knowledge base instructions for clients that support a shared global rules file:
 
 | Client | Instruction File |
 |--------|-----------------|
 | OpenCode | `~/.config/opencode/AGENTS.md` |
 | Claude Code | `~/.claude/CLAUDE.md` |
-| Cursor | `~/.cursor/rules/open-zk-kb.mdc` |
-| Windsurf | `~/.windsurf/rules/open-zk-kb.md` |
+| Windsurf | `~/.codeium/windsurf/memories/global_rules.md` |
+
+Cursor and Zed get the MCP server config automatically, but do not currently receive a managed instruction file.
 
 The injected block is wrapped in managed markers:
 ```

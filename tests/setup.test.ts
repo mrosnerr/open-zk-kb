@@ -164,6 +164,10 @@ describe('setup.ts', () => {
     return import(`../src/setup.js?test=${Date.now()}-${Math.random()}`);
   }
 
+  async function loadFreshAgentDocsModule() {
+    return import(`../src/agent-docs.js?test=${Date.now()}-${Math.random()}`);
+  }
+
   it('produces correct dry-run output format for all 5 clients', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
@@ -400,6 +404,37 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:START');
     // Windsurf defaults to compact — no "Capture Checkpoints"
     expect(content).not.toContain('Capture Checkpoints');
+  });
+
+  it('inject repairs a partial managed block instead of appending another one', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, '# Existing\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nbroken', 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+    expect(content.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
+    expect(content).toContain('# Existing');
+  });
+
+  it('remove cleans up partial managed block without trimming user content', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\npartial', 'utf-8');
+
+    const result = agentDocsModule.removeAgentDocs(agentDocsPath);
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+
+    expect(result.action).toBe('removed');
+    expect(content).toBe('Intro\n');
   });
 
   it('creates vault directory and index directory on install', async () => {

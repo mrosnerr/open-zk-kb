@@ -21,7 +21,7 @@ AI coding assistants forget everything between sessions. open-zk-kb gives your a
 - **Atomic notes** — one concept per note (6 kinds, lifecycle management) keeps results precise
 - **Local-first** — no API keys, works offline, scales to thousands of notes
 - **Human-readable** — Markdown + YAML frontmatter, rebuildable from files
-- **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, and Windsurf
+- **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, Windsurf, and Zed
 - **MIT-licensed**
 
 ## Quick Start
@@ -37,7 +37,7 @@ That's it. The interactive installer:
 2. Injects knowledge base instructions into your client's instruction file (`AGENTS.md`, `CLAUDE.md`, or rules file)
 3. Creates a local vault at `~/.local/share/open-zk-kb`
 
-Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**
+Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**
 
 ## How It Works
 
@@ -99,7 +99,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   "mcp": {
     "open-zk-kb": {
       "type": "local",
-      "command": ["bunx", "open-zk-kb-server"],
+      "command": ["bunx", "open-zk-kb@latest", "server"],
       "enabled": true
     }
   }
@@ -115,7 +115,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   "mcpServers": {
     "open-zk-kb": {
       "command": "bunx",
-      "args": ["open-zk-kb-server"]
+      "args": ["open-zk-kb@latest", "server"]
     }
   }
 }
@@ -130,7 +130,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   "mcpServers": {
     "open-zk-kb": {
       "command": "bunx",
-      "args": ["open-zk-kb-server"]
+      "args": ["open-zk-kb@latest", "server"]
     }
   }
 }
@@ -145,7 +145,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   "mcpServers": {
     "open-zk-kb": {
       "command": "bunx",
-      "args": ["open-zk-kb-server"]
+      "args": ["open-zk-kb@latest", "server"]
     }
   }
 }

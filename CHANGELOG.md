@@ -5,7 +5,7 @@
 - **Remove OpenCode plugin** — knowledge capture now fully agent-driven via MCP tools + injected AGENTS.md/CLAUDE.md instructions
 - **Local embeddings default** — `@huggingface/transformers` MiniLM-L6-v2 (~23MB, no API key required); optional API override
 - **Instruction injection** — installer auto-injects KB instructions into client global instruction files; upgrade-safe marker-based system
-- **Drop Zed client** — 4 supported clients: OpenCode, Claude Code, Cursor, Windsurf
+- **Restore Zed client** — 5 supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed
 - **Non-blocking search** — embedding generation races against 500ms timeout; full-text fallback if model not warmed up
 - **Embedding warm-up** — model loads at server startup so first search gets semantic results
 - **Tags filter** — `knowledge-search` now accepts `tags` parameter for filtering

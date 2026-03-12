@@ -13,8 +13,7 @@
   },
   "sideEffects": false,
   "bin": {
-    "open-zk-kb": "./dist/setup.js",
-    "open-zk-kb-server": "./dist/mcp-server.js"
+    "open-zk-kb": "./dist/cli.js"
   },
   "repository": {
     "type": "git",

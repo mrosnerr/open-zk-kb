@@ -21,6 +21,34 @@ function loadAgentDocsTemplate(size: InstructionSize = 'full'): string {
   return `${START_MARKER}\n${content}\n${END_MARKER}`;
 }
 
+function spliceManagedBlock(content: string, replacement: string): string {
+  const startIdx = content.indexOf(START_MARKER);
+  const endIdx = content.indexOf(END_MARKER);
+
+  if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+    return content.slice(0, startIdx) + replacement + content.slice(endIdx + END_MARKER.length);
+  }
+
+  if (startIdx !== -1) {
+    return content.slice(0, startIdx) + replacement;
+  }
+
+  if (endIdx !== -1) {
+    return replacement + content.slice(endIdx + END_MARKER.length);
+  }
+
+  const separator = content.length > 0 && !content.endsWith('\n') ? '\n\n' : content.length > 0 ? '\n' : '';
+  return content + separator + replacement + '\n';
+}
+
+function joinRemainingContent(before: string, after: string): string {
+  const left = before.replace(/\s*$/, '');
+  const right = after.replace(/^\s*/, '');
+
+  if (left && right) return `${left}\n\n${right}`;
+  return left || right;
+}
+
 /**
  * Inject the managed agent docs block into a file.
  * If the file already contains the block, it is replaced (updated).
@@ -35,17 +63,12 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
     existing = fs.readFileSync(filePath, 'utf-8');
   }
 
-  const startIdx = existing.indexOf(START_MARKER);
-  const endIdx = existing.indexOf(END_MARKER);
-
   let newContent: string;
   let action: 'created' | 'updated' | 'unchanged';
+  const template = loadAgentDocsTemplate(size);
 
-  if (startIdx !== -1 && endIdx !== -1) {
-    // Replace existing block
-    const before = existing.slice(0, startIdx);
-    const after = existing.slice(endIdx + END_MARKER.length);
-    const candidate = before + loadAgentDocsTemplate(size) + after;
+  if (existing.includes(START_MARKER) || existing.includes(END_MARKER)) {
+    const candidate = spliceManagedBlock(existing, template);
 
     if (candidate === existing) {
       return { action: 'unchanged', filePath };
@@ -54,13 +77,10 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
     newContent = candidate;
     action = 'updated';
   } else if (fileExists) {
-    // Append to existing file
-    const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n\n' : existing.length > 0 ? '\n' : '';
-    newContent = existing + separator + loadAgentDocsTemplate(size) + '\n';
+    newContent = spliceManagedBlock(existing, template);
     action = 'updated';
   } else {
-    // Create new file
-    newContent = loadAgentDocsTemplate(size) + '\n';
+    newContent = template + '\n';
     action = 'created';
   }
 
@@ -89,23 +109,34 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
   const startIdx = content.indexOf(START_MARKER);
   const endIdx = content.indexOf(END_MARKER);
 
-  if (startIdx === -1 || endIdx === -1) {
+  if (startIdx === -1 && endIdx === -1) {
     return { action: 'not-found', filePath };
   }
 
-  const before = content.slice(0, startIdx);
-  const after = content.slice(endIdx + END_MARKER.length);
+  let removeStart = 0;
+  let removeEnd = content.length;
 
-  // Clean up: collapse excessive whitespace at the join point
-  let newContent = (before + after).replace(/\n{3,}/g, '\n\n').trim();
+  if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
+    removeStart = startIdx;
+    removeEnd = endIdx + END_MARKER.length;
+  } else if (startIdx !== -1) {
+    removeStart = startIdx;
+  } else if (endIdx !== -1) {
+    removeEnd = endIdx + END_MARKER.length;
+  }
+
+  const before = content.slice(0, removeStart);
+  const after = content.slice(removeEnd);
+
+  const newContent = joinRemainingContent(before, after);
 
   if (!dryRun) {
-    if (newContent.length === 0) {
+    if (newContent.trim().length === 0) {
       fs.unlinkSync(filePath);
       return { action: 'file-deleted', filePath };
     }
     fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
-  } else if (newContent.length === 0) {
+  } else if (newContent.trim().length === 0) {
     return { action: 'file-deleted', filePath };
   }
 
