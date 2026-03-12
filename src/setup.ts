@@ -587,7 +587,7 @@ if (import.meta.main) {
 
       p.intro(color.cyan('open-zk-kb — Knowledge Base Setup'));
       const selected = await p.multiselect<McpClient>({
-        message: 'Select clients to install:',
+        message: `Select clients to install:\n${color.dim('space to select, enter to confirm')}`,
         options: CLIENT_PROMPT_OPTIONS,
       });
 
@@ -646,7 +646,7 @@ if (import.meta.main) {
 
     p.intro(color.yellow('open-zk-kb — Uninstall'));
     const selected = await p.multiselect<McpClient>({
-      message: 'Select clients to uninstall from:',
+      message: `Select clients to uninstall from:\n${color.dim('space to select, enter to confirm')}`,
       options: CLIENT_PROMPT_OPTIONS,
     });
 
