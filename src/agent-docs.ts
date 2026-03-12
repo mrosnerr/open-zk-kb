@@ -6,13 +6,17 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
+
+export type InstructionSize = 'compact' | 'full';
 
 const START_MARKER = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
 const END_MARKER = '<!-- OPEN-ZK-KB:END -->';
 
-function loadAgentDocsTemplate(): string {
-  const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
-  const instructionsPath = path.join(projectRoot, 'agent-instructions.md');
+function loadAgentDocsTemplate(size: InstructionSize = 'full'): string {
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const filename = size === 'compact' ? 'agent-instructions-compact.md' : 'agent-instructions-full.md';
+  const instructionsPath = path.join(projectRoot, filename);
   const content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
   return `${START_MARKER}\n${content}\n${END_MARKER}`;
 }
@@ -23,7 +27,7 @@ function loadAgentDocsTemplate(): string {
  * If the file doesn't exist, it is created.
  * Content outside the managed block is preserved.
  */
-export function injectAgentDocs(filePath: string, dryRun?: boolean): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
+export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
   let existing = '';
   const fileExists = fs.existsSync(filePath);
 
@@ -41,7 +45,7 @@ export function injectAgentDocs(filePath: string, dryRun?: boolean): { action: '
     // Replace existing block
     const before = existing.slice(0, startIdx);
     const after = existing.slice(endIdx + END_MARKER.length);
-    const candidate = before + loadAgentDocsTemplate() + after;
+    const candidate = before + loadAgentDocsTemplate(size) + after;
 
     if (candidate === existing) {
       return { action: 'unchanged', filePath };
@@ -52,11 +56,11 @@ export function injectAgentDocs(filePath: string, dryRun?: boolean): { action: '
   } else if (fileExists) {
     // Append to existing file
     const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n\n' : existing.length > 0 ? '\n' : '';
-    newContent = existing + separator + loadAgentDocsTemplate() + '\n';
+    newContent = existing + separator + loadAgentDocsTemplate(size) + '\n';
     action = 'updated';
   } else {
     // Create new file
-    newContent = loadAgentDocsTemplate() + '\n';
+    newContent = loadAgentDocsTemplate(size) + '\n';
     action = 'created';
   }
 

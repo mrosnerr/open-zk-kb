@@ -8,7 +8,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
-import { getLatestVersion } from '../src/utils/version-check.js';
+import { getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
 describe('MCP Tool: knowledge-store', () => {
   let ctx: TestContext;
@@ -679,6 +679,46 @@ describe('getLatestVersion', () => {
   });
 });
 
+// ---- Semver comparison tests ----
+
+describe('isNewerVersion', () => {
+  it('should detect newer major version', () => {
+    expect(isNewerVersion('0.1.0', '1.0.0')).toBe(true);
+  });
+
+  it('should detect newer minor version', () => {
+    expect(isNewerVersion('0.1.0', '0.2.0')).toBe(true);
+  });
+
+  it('should detect newer patch version', () => {
+    expect(isNewerVersion('0.1.0', '0.1.1')).toBe(true);
+  });
+
+  it('should return false for same version', () => {
+    expect(isNewerVersion('0.1.0', '0.1.0')).toBe(false);
+  });
+
+  it('should return false when running newer version', () => {
+    expect(isNewerVersion('0.2.0', '0.1.0')).toBe(false);
+  });
+
+  it('should detect stable as newer than pre-release of same version', () => {
+    expect(isNewerVersion('0.1.0-beta.6', '0.1.0')).toBe(true);
+  });
+
+  it('should not flag pre-release as newer than stable of same version', () => {
+    expect(isNewerVersion('0.1.0', '0.1.0-beta.6')).toBe(false);
+  });
+
+  it('should not flag older pre-release as newer', () => {
+    expect(isNewerVersion('0.1.0-beta.6', '0.1.0-beta.5')).toBe(false);
+  });
+
+  it('should detect newer pre-release', () => {
+    expect(isNewerVersion('0.1.0-beta.5', '0.1.0-beta.6')).toBe(true);
+  });
+});
+
 // ---- Version check in stats output ----
 
 describe('MCP Tool: knowledge-maintain stats version check', () => {
@@ -723,6 +763,18 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
 
     const output = await handleMaintain(
       { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    );
+    expect(output).not.toContain('Update Available');
+  });
+
+  it('should not show update notice when running newer version than registry', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '0.1.0-beta.5' }),
+      { status: 200 },
+    )) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config, null, '0.2.0',
     );
     expect(output).not.toContain('Update Available');
   });

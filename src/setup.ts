@@ -4,10 +4,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
 import { injectAgentDocs, removeAgentDocs } from './agent-docs.js';
+import type { InstructionSize } from './agent-docs.js';
 
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
@@ -19,6 +21,7 @@ export interface InstallArgs {
   serverPath?: string;
   force?: boolean;
   dryRun?: boolean;
+  instructionSize?: InstructionSize;
 }
 
 export interface UninstallArgs {
@@ -35,6 +38,7 @@ export interface ClientConfig {
   mcpPath: string[];
   mcpFormat: 'opencode' | 'standard';
   agentDocsPath?: string;
+  instructionSize?: InstructionSize;
 }
 
 const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
@@ -45,6 +49,7 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['mcp', 'open-zk-kb'],
     mcpFormat: 'opencode',
     agentDocsPath: path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
+    instructionSize: 'full',
   },
   'claude-code': {
     name: 'Claude Code',
@@ -53,6 +58,7 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
     agentDocsPath: path.join(expandPath('~/.claude'), 'CLAUDE.md'),
+    instructionSize: 'full',
   },
   'cursor': {
     name: 'Cursor',
@@ -67,6 +73,8 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
+    agentDocsPath: path.join(expandPath('~/.codeium'), 'windsurf', 'memories', 'global_rules.md'),
+    instructionSize: 'compact',
   },
   'zed': {
     name: 'Zed',
@@ -114,7 +122,7 @@ function buildMcpEntry(clientConfig: ClientConfig, serverPath: string): McpEntry
 }
 
 function detectServerPath(): string {
-  const scriptDir = path.dirname(new URL(import.meta.url).pathname);
+  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const distPath = path.resolve(scriptDir, '..', 'dist', 'mcp-server.js');
   if (fs.existsSync(distPath)) {
     return distPath;
@@ -250,7 +258,7 @@ export function install(args: InstallArgs): string {
   }
   
   // Copy config.example.yaml → ~/.config/open-zk-kb/config.yaml if no config exists yet
-  const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
   const configYamlDir = path.join(xdgConfigHome, 'open-zk-kb');
   const configYamlPath = path.join(configYamlDir, 'config.yaml');
@@ -266,7 +274,8 @@ export function install(args: InstallArgs): string {
   // Inject agent docs (instructions for the AI agent) into the client's docs file
   let agentDocsResult: { action: string; filePath: string } | null = null;
   if (clientConfig.agentDocsPath) {
-    agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, args.dryRun);
+    const size = args.instructionSize || clientConfig.instructionSize || 'full';
+    agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun);
   }
 
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;
@@ -395,6 +404,7 @@ install:
   (no flags)           Interactive client selection
   --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed)
   --server-path <path> Path to dist/mcp-server.js (auto-detected)
+  --instructions <size> Agent instruction size: compact (~140 tokens) or full (~420 tokens)
   --force              Overwrite existing config
   --dry-run            Preview changes without applying
   --yes                Non-interactive, accept defaults
@@ -433,6 +443,12 @@ if (import.meta.main) {
       const yes = args.includes('--yes');
       const serverPath = parseFlagValue(args, '--server-path');
       const clientArg = parseFlagValue(args, '--client');
+      const instructionsArg = parseFlagValue(args, '--instructions');
+      const instructionSize: InstructionSize | undefined =
+        instructionsArg === 'compact' || instructionsArg === 'full' ? instructionsArg : undefined;
+      if (instructionsArg && !instructionSize) {
+        throw new Error(`Invalid --instructions value: ${instructionsArg}. Use 'compact' or 'full'.`);
+      }
       let client: McpClient | undefined;
 
       if (clientArg !== undefined) {
@@ -443,14 +459,14 @@ if (import.meta.main) {
       }
 
       if (client) {
-        const result = install({ client, serverPath, force, dryRun });
+        const result = install({ client, serverPath, force, dryRun, instructionSize });
         console.log(result);
         return;
       }
 
       if (yes) {
         for (const client of ALL_CLIENTS) {
-          const result = install({ client, serverPath, force, dryRun });
+          const result = install({ client, serverPath, force, dryRun, instructionSize });
           console.log(result);
         }
         return;
@@ -474,7 +490,7 @@ if (import.meta.main) {
 
       for (const client of selected) {
         try {
-          install({ client, serverPath, force, dryRun });
+          install({ client, serverPath, force, dryRun, instructionSize });
           p.log.success(`Installed for ${CLIENT_CONFIGS[client].name}`);
         } catch (e) {
           p.log.error(`${CLIENT_CONFIGS[client].name}: ${e instanceof Error ? e.message : e}`);

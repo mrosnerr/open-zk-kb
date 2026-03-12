@@ -17,7 +17,7 @@ import { logToFile } from './logger.js';
 import { computeSimHash } from './utils/simhash.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
-import { getLatestVersion } from './utils/version-check.js';
+import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
 
 // ---- Helper functions ----
 
@@ -108,9 +108,10 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
   if (embeddingConfig) {
     const text = buildEmbeddingText(args.title, args.summary, args.content);
     // Non-blocking: race embedding against timeout so store stays fast
+    let timer: ReturnType<typeof setTimeout> | undefined;
     Promise.race([
       generateEmbedding(text, embeddingConfig),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 2000)),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 2000); }),
     ]).then(embResult => {
       if (embResult) {
         repo.storeEmbedding(result.id, embResult.embedding, embResult.model);
@@ -120,6 +121,8 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
         noteId: result.id,
         error: error instanceof Error ? error.message : String(error),
       });
+    }).finally(() => {
+      if (timer) clearTimeout(timer);
     });
   }
 
@@ -210,7 +213,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
       if (currentVersion) {
         const latest = await getLatestVersion('open-zk-kb');
-        if (latest && latest !== currentVersion) {
+        if (latest && isNewerVersion(currentVersion, latest)) {
           output += `\n## Update Available\n`;
           output += `- Current: ${currentVersion} | Latest: ${latest}\n`;
           output += `- Run \`bunx open-zk-kb@latest install --client <name> --force\` to update\n`;

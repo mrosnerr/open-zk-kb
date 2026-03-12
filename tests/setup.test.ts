@@ -351,6 +351,57 @@ describe('setup.ts', () => {
     expect(content).not.toContain('OPEN-ZK-KB:END');
   });
 
+  it('install uses compact instructions when instructionSize override is compact', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      instructionSize: 'compact',
+    });
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('OPEN-ZK-KB:START');
+    // Compact version has the triggers line but no "Capture Checkpoints" section
+    expect(content).toContain('Triggers');
+    expect(content).not.toContain('Capture Checkpoints');
+  });
+
+  it('install uses full instructions by default for opencode', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('OPEN-ZK-KB:START');
+    // Full version has the "Capture Checkpoints" section
+    expect(content).toContain('Capture Checkpoints');
+  });
+
+  it('install injects agent docs for windsurf with compact default', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'windsurf',
+      serverPath: env.fakeServerPath,
+    });
+
+    const agentDocsPath = path.join(env.homeDir, '.codeium', 'windsurf', 'memories', 'global_rules.md');
+    expect(fs.existsSync(agentDocsPath)).toBe(true);
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('OPEN-ZK-KB:START');
+    // Windsurf defaults to compact — no "Capture Checkpoints"
+    expect(content).not.toContain('Capture Checkpoints');
+  });
+
   it('creates vault directory and index directory on install', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();

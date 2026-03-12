@@ -72,10 +72,10 @@ The MCP server provides a reactive interface to the knowledge base:
 
 During setup, open-zk-kb automatically injects knowledge base instructions into each client's global instruction file. This guides the AI to proactively search and store knowledge without requiring manual configuration.
 
-* **Canonical source**: Instructions are shipped with the npm package in `agent-instructions.md`.
+* **Canonical source**: Instructions ship with the npm package in two variants: `agent-instructions-full.md` (~420 tokens, detailed) and `agent-instructions-compact.md` (~140 tokens, minimal). Each client has a default size configured in `CLIENT_CONFIGS`; users can override with `--instructions compact|full`.
 * **Managed markers**: Injected blocks are wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` and `<!-- OPEN-ZK-KB:END -->`), allowing safe upgrades and removal.
-* **Lifecycle management**: The `injectInstructions()` function (in `src/setup.ts`) handles installation; `removeInstructions()` handles uninstall. Re-running the installer updates only the content between markers, preserving user-added content outside the block.
-* **Client-specific paths**: Each client has a dedicated instruction file (e.g., `~/.config/opencode/AGENTS.md` for OpenCode, `~/.claude/CLAUDE.md` for Claude Code).
+* **Lifecycle management**: The `injectAgentDocs()` function (in `src/agent-docs.ts`) handles installation; `removeAgentDocs()` handles uninstall. Re-running the installer updates only the content between markers, preserving user-added content outside the block.
+* **Client-specific paths**: Each client has a dedicated instruction file (e.g., `~/.config/opencode/AGENTS.md` for OpenCode, `~/.claude/CLAUDE.md` for Claude Code, `~/.codeium/windsurf/memories/global_rules.md` for Windsurf).
 
 ## Configuration Architecture
 

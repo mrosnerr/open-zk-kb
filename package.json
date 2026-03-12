@@ -30,7 +30,8 @@
   "files": [
     "dist/",
     "config.example.yaml",
-    "agent-instructions.md",
+    "agent-instructions-full.md",
+    "agent-instructions-compact.md",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"

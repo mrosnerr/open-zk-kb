@@ -7,7 +7,7 @@ if (typeof globalThis.Bun === 'undefined') {
   console.error(
     'open-zk-kb requires the Bun runtime (uses bun:sqlite).\n' +
     'Install Bun: https://bun.sh\n' +
-    'Then run: bunx open-zk-kb-server@latest'
+    'Then run: bunx open-zk-kb@latest'
   );
   process.exit(1);
 }
@@ -127,15 +127,18 @@ server.registerTool(
 
 /** Race embedding generation against a timeout. Returns null if not ready in time. */
 async function tryEmbedding(text: string, embConfig: EmbeddingConfig, timeoutMs: number): Promise<number[] | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = await Promise.race([
       generateEmbedding(text, embConfig),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); }),
     ]);
     return result?.embedding || null;
   } catch (err) {
     logToFile('DEBUG', 'Embedding generation failed', { error: String(err) }, config);
     return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
