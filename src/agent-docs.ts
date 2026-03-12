@@ -10,41 +10,12 @@ import * as path from 'path';
 const START_MARKER = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
 const END_MARKER = '<!-- OPEN-ZK-KB:END -->';
 
-const AGENT_DOCS_TEMPLATE = `${START_MARKER}
-## Knowledge Base (open-zk-kb)
-
-ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.
-
-### Before Work
-- \`knowledge-search\` for relevant context (preferences, decisions, patterns)
-
-### Storing Knowledge
-Use \`knowledge-store\` with one concept per note. Include \`summary\` (one-line takeaway) and \`guidance\` (imperative instruction for future agents).
-
-**Kinds** (with example notes):
-- **personalization** — "User prefers Bun over Node.js for all runtime tasks"
-- **decision** — "Chose FTS5 over trigram search because..."
-- **observation** — "Bun's globalThis.fetch includes \`preconnect\` — use \`as any\` cast"
-- **reference** — "getStaleNotes filters on \`created_at\`, not \`updated_at\`"
-- **procedure** — "Release: \`bun run release\` → bumps version, changelog, PR"
-- **resource** — "Bun SQLite docs: https://bun.sh/docs/api/sqlite"
-
-### When to Store (immediately, not deferred)
-- User corrects you or says "always/never/I prefer" → **personalization**
-- You look something up twice in one session → **reference**
-- You hit a non-obvious error or gotcha → **observation**
-- You and user weigh options and pick one → **decision**
-- You discover a multi-step workflow by doing it → **procedure**
-- A useful URL comes up → **resource**
-
-### Capture Checkpoints
-- Every task plan with 3+ todos: add a final **"Capture learnings → knowledge base"** todo.
-- At natural breakpoints (complex debug, architecture choice, topic change): ask *"Anything worth saving?"*
-- Before ending a session: review for uncaptured preferences, decisions, gotchas, or workflows.
-
-### Maintenance
-- \`knowledge-maintain stats\` — KB health | \`knowledge-maintain review\` — stale notes
-${END_MARKER}`;
+function loadAgentDocsTemplate(): string {
+  const projectRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
+  const instructionsPath = path.join(projectRoot, 'agent-instructions.md');
+  const content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
+  return `${START_MARKER}\n${content}\n${END_MARKER}`;
+}
 
 /**
  * Inject the managed agent docs block into a file.
@@ -70,7 +41,7 @@ export function injectAgentDocs(filePath: string, dryRun?: boolean): { action: '
     // Replace existing block
     const before = existing.slice(0, startIdx);
     const after = existing.slice(endIdx + END_MARKER.length);
-    const candidate = before + AGENT_DOCS_TEMPLATE + after;
+    const candidate = before + loadAgentDocsTemplate() + after;
 
     if (candidate === existing) {
       return { action: 'unchanged', filePath };
@@ -81,11 +52,11 @@ export function injectAgentDocs(filePath: string, dryRun?: boolean): { action: '
   } else if (fileExists) {
     // Append to existing file
     const separator = existing.length > 0 && !existing.endsWith('\n') ? '\n\n' : existing.length > 0 ? '\n' : '';
-    newContent = existing + separator + AGENT_DOCS_TEMPLATE + '\n';
+    newContent = existing + separator + loadAgentDocsTemplate() + '\n';
     action = 'updated';
   } else {
     // Create new file
-    newContent = AGENT_DOCS_TEMPLATE + '\n';
+    newContent = loadAgentDocsTemplate() + '\n';
     action = 'created';
   }
 
