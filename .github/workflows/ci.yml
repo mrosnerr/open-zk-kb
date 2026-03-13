@@ -72,11 +72,11 @@ jobs:
       - name: Build
         run: bun run build
 
-      - name: Cache local models
+      - name: Cache embedding model
         uses: actions/cache@v5
         with:
-          path: ~/.cache/open-zk-kb/models
-          key: local-models-v1-${{ runner.os }}
+          path: ~/.cache/open-zk-kb/models/Xenova/all-MiniLM-L6-v2
+          key: embedding-model-all-MiniLM-L6-v2-${{ runner.os }}
 
       - name: Local model smoke tests
         run: LOCAL_MODELS=1 bash tests/docker/smoke-test.sh
