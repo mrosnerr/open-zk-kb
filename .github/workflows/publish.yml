@@ -65,7 +65,7 @@ jobs:
 
       - name: Prepare bin scripts
         if: steps.version-check.outputs.skip == 'false'
-        run: chmod +x dist/setup.js dist/mcp-server.js
+        run: chmod +x dist/cli.js dist/setup.js dist/mcp-server.js
 
       - name: Publish
         if: steps.version-check.outputs.skip == 'false'

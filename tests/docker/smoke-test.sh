@@ -16,7 +16,7 @@ echo ""
 # ─── 1. Build verification ───
 echo "▸ Build Verification"
 
-for FILE in dist/mcp-server.js dist/setup.js; do
+for FILE in dist/mcp-server.js dist/setup.js dist/cli.js; do
   if [ -f "$FILE" ]; then
     pass "$FILE exists"
   else
@@ -485,7 +485,7 @@ if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
 
   PACK_FILES=$(tar tzf "$TARBALL")
 
-  for REQUIRED in package/dist/mcp-server.js package/dist/setup.js package/package.json package/README.md; do
+  for REQUIRED in package/dist/mcp-server.js package/dist/setup.js package/dist/cli.js package/package.json package/README.md; do
     if echo "$PACK_FILES" | grep -q "$REQUIRED"; then
       pass "tarball contains $REQUIRED"
     else
@@ -502,13 +502,6 @@ if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
     echo '{"dependencies":{"open-zk-kb":"file:./'"$TARBALL"'"}}' > package.json
     bun install 2>&1 >/dev/null
   )
-
-  BIN_PATH="$PACK_DIR/test-install/node_modules/.bin/open-zk-kb-server"
-  if [ -f "$BIN_PATH" ] || [ -L "$BIN_PATH" ]; then
-    pass "open-zk-kb-server bin symlink created"
-  else
-    fail "bin symlink" "open-zk-kb-server not found in node_modules/.bin/"
-  fi
 
   BIN_SETUP="$PACK_DIR/test-install/node_modules/.bin/open-zk-kb"
   if [ -f "$BIN_SETUP" ] || [ -L "$BIN_SETUP" ]; then
@@ -527,16 +520,16 @@ echo ""
 # ─── 19. CLI entry points respond ───
 echo "▸ CLI Entry Points"
 
-OUTPUT=$(timeout 5 bun dist/setup.js --help 2>&1 || true)
+OUTPUT=$(timeout 5 bun dist/cli.js --help 2>&1 || true)
 if echo "$OUTPUT" | grep -qi "install\|uninstall\|usage"; then
   pass "open-zk-kb --help works"
 else
   fail "open-zk-kb --help" "no help output: $(echo "$OUTPUT" | head -1)"
 fi
 
-OUTPUT=$(timeout 5 bun dist/setup.js install --client cursor --dry-run 2>&1 || true)
+OUTPUT=$(timeout 5 bun dist/cli.js install --client cursor --dry-run 2>&1 || true)
 if echo "$OUTPUT" | grep -q "Dry run"; then
-  pass "open-zk-kb install via dist/setup.js"
+  pass "open-zk-kb install via dist/cli.js"
 else
   fail "CLI install" "$(echo "$OUTPUT" | head -1)"
 fi
