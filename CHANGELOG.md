@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.0-beta.8
+
+- **Revamp demo** — curated cooking-metaphor Q&A, no more local generation model dependency
+- **Move demo workflow to dev** — GIF generated on push to dev, flows to main via release PR
+- **Remove generation model from CI** — drop Qwen2.5-1.5B from smoke tests and cache, faster CI
+- **Demo header + attribution** — added ## Demo section and subtext in README
+
 ## 0.1.0-beta.7
 
 - Fix doctor indentation and document cache-busting import pattern

@@ -1,14 +1,12 @@
 #!/usr/bin/env bun
-// demo-mcp.ts — API harness that exercises all three MCP tools in sequence.
-// This is a scripted integration example, not a simulation of agent behavior.
-// In real usage, AI assistants call these tools automatically via AGENTS.md instructions.
+// demo-mcp.ts — Exercises all three MCP tools in sequence with curated output.
+// The store, search, and stats calls are real MCP calls against a live server.
+// The "generation" step uses pre-written answers to ensure consistent demo quality.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import color from 'picocolors';
 import * as fs from 'fs';
 import * as path from 'path';
-
-const GENERATION_MODEL = 'onnx-community/Qwen2.5-1.5B-Instruct';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const clear = () => process.stdout.write('\x1B[2J\x1B[H');
@@ -27,32 +25,17 @@ function tool(name: string, args: Record<string, unknown>): void {
     .filter(([k]) => k === 'title' || k === 'query' || k === 'action')
     .map(([, v]) => v)
     .join(' ');
-  console.log(color.dim(`⚙ ${name}`) + color.dim(brief ? ` ${brief}` : ''));
+  console.log(color.dim(`  ⚙ ${name}`) + color.dim(brief ? ` ${brief}` : ''));
 }
 
-function extractCode(response: string): string {
-  const fenced = response.match(/```\w*\n([\s\S]*?)```/);
-  if (fenced) return fenced[1].trimEnd();
-  return response.trim();
-}
-
-async function generateResponse(systemPrompt: string, userPrompt: string): Promise<string> {
-  const { pipeline, env } = await import('@huggingface/transformers');
-  const cacheDir = process.env.XDG_CACHE_HOME
-    ? `${process.env.XDG_CACHE_HOME}/open-zk-kb/models`
-    : `${process.env.HOME}/.cache/open-zk-kb/models`;
-  env.cacheDir = cacheDir;
-
-  const generator = await pipeline('text-generation', GENERATION_MODEL, { dtype: 'q4' });
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
-  ];
-  const output = await generator(messages, { max_new_tokens: 120, temperature: 0.1 });
-  const result = output as Array<{ generated_text: Array<{ role: string; content: string }> }>;
-  const genMessages = result[0]?.generated_text;
-  return genMessages?.[genMessages.length - 1]?.content || '';
-}
+// Curated answers — what a capable model would produce with the cooking preference
+const ANSWERS: Array<{ label: string; metaphor: string }> = [
+  { label: 'Deadlock', metaphor: 'Two chefs blocking the kitchen door, each waiting for the other to move' },
+  { label: 'Race condition', metaphor: 'Two cooks grabbing the last egg at the same time' },
+  { label: 'Cache', metaphor: 'Keeping your most-used spices on the counter instead of the pantry' },
+  { label: 'Recursion', metaphor: 'A recipe that says "follow this recipe again" as step one' },
+  { label: 'Garbage collection', metaphor: 'Clearing plates while the dinner party is still going' },
+];
 
 async function main() {
   const tmpDir = '/tmp/kb-demo';
@@ -75,45 +58,46 @@ async function main() {
   try {
     // ── Store ──
     console.log(color.cyan('\n─── knowledge-store ───────────────────────────────────\n'));
-    console.log(color.dim('Storing a user preference note...\n'));
-    await sleep(500);
 
-    const storeArgs = {
-      title: 'Prefer Elixir for backend development',
-      content: 'Use Elixir and Phoenix for backend services. Elixir offers fault-tolerant concurrency via the BEAM VM, pattern matching, and excellent tooling with Mix.',
+    const pref = {
+      title: 'Explain technical concepts using cooking metaphors',
+      content: 'When explaining technical concepts, always use cooking and kitchen metaphors. Functions are recipes, variables are ingredients, loops are repeated stirring, conditionals are taste-testing, caches are spice racks, and errors are burnt dishes.',
       kind: 'personalization',
-      summary: 'Prefer Elixir/Phoenix for backend projects.',
-      guidance: 'Default to Elixir when writing backend code unless otherwise specified.',
+      summary: 'Explain technical concepts with cooking metaphors.',
+      guidance: 'Always explain technical concepts using cooking and kitchen metaphors.',
     };
-    tool('knowledge-store', storeArgs);
-    await client.callTool({ name: 'knowledge-store', arguments: storeArgs });
-    await sleep(800);
 
-    console.log(color.green('✓ Stored as personalization'));
+    console.log(color.white('  > "Always explain technical concepts using cooking metaphors"\n'));
+    await sleep(500);
+    tool('knowledge-store', pref);
+    await client.callTool({ name: 'knowledge-store', arguments: pref });
+    console.log(color.green('  ✓ Stored as personalization'));
     await sleep(5000);
 
-    // ── Search + code generation ──
+    // ── Search + answers ──
     clear();
     console.log(color.cyan('\n─── knowledge-search ──────────────────────────────────\n'));
-    console.log(color.dim('Searching KB before generating code...\n'));
+    console.log(color.white('  > "Explain these: deadlock, race condition, cache, recursion, GC"\n'));
     await sleep(500);
 
-    const searchArgs = { query: 'language preference', limit: 3 };
+    const searchArgs = { query: 'explanation preferences', limit: 3 };
     tool('knowledge-search', searchArgs);
     const searchResult = await client.callTool({ name: 'knowledge-search', arguments: searchArgs });
     const context = text(searchResult);
     await sleep(300);
 
     const guidanceMatch = context.match(/<guidance>([\s\S]*?)<\/guidance>/);
-    const summaryMatch = context.match(/<summary>([\s\S]*?)<\/summary>/);
-    const preference = guidanceMatch?.[1] || summaryMatch?.[1] || '';
-    const systemPrompt = `You are a helpful coding assistant. User preference: ${preference} Write concise code without explanation.`;
-    const response = await generateResponse(systemPrompt, 'Write a function to reverse a string');
-    const code = extractCode(response);
+    const preference = guidanceMatch?.[1]?.trim() || '';
+    if (preference) {
+      console.log(color.green(`  ✓ Found preference: ${preference}`));
+    }
 
-    console.log(color.green('Here\'s a string reversal function:\n'));
-    for (const line of code.split('\n')) {
-      console.log(color.dim(`  ${line}`));
+    await sleep(2000);
+    console.log('');
+
+    for (const { label, metaphor } of ANSWERS) {
+      console.log(`  ${color.white(label)} ${color.dim('—')} ${color.dim(`"${metaphor}"`)}`);
+      await sleep(800);
     }
     await sleep(5000);
 
