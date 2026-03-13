@@ -1,5 +1,8 @@
 // tests/mcp-tools.test.ts - Test MCP tool handlers directly against NoteRepository
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   createTestHarness,
   cleanupTestHarness,
@@ -220,6 +223,77 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('Upgrade Status');
     expect(output).toContain('missing summary');
     expect(output).toContain('missing guidance');
+  });
+
+  it('should audit agent docs in dry-run mode without modifying files', async () => {
+    const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-agent-docs-'));
+
+    try {
+      process.env.XDG_CONFIG_HOME = tempRoot;
+      const agentDocsPath = path.join(tempRoot, 'opencode', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      const original = 'Intro\n\n<!-- OPEN-ZK-KB:END -->\nTail\n';
+      fs.writeFileSync(agentDocsPath, original, 'utf-8');
+
+      const output = await handleMaintain({ action: 'agent-docs', dryRun: true }, ctx.engine, ctx.config);
+      expect(output).toContain('Agent Docs Maintenance');
+      expect(output).toContain('OpenCode');
+      expect(output).toContain('malformed (end marker only)');
+      expect(output).toContain('would repair markers and append a fresh managed block');
+      expect(fs.readFileSync(agentDocsPath, 'utf-8')).toBe(original);
+    } finally {
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('should conservatively repair malformed agent docs while preserving user content', async () => {
+    const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-agent-docs-'));
+
+    try {
+      process.env.XDG_CONFIG_HOME = tempRoot;
+      const agentDocsPath = path.join(tempRoot, 'opencode', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:END -->\nTail\n', 'utf-8');
+
+      const output = await handleMaintain({ action: 'agent-docs', dryRun: false }, ctx.engine, ctx.config);
+      const content = fs.readFileSync(agentDocsPath, 'utf-8');
+
+      expect(output).toContain('OpenCode');
+      expect(output).toContain('Result: updated');
+      expect(content).toContain('Intro');
+      expect(content).toContain('Tail');
+      expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
+      expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+    } finally {
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('should skip ambiguous multiple-marker agent docs files during repair', async () => {
+    const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-agent-docs-'));
+
+    try {
+      process.env.XDG_CONFIG_HOME = tempRoot;
+      const agentDocsPath = path.join(tempRoot, 'opencode', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      const original = 'Intro\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld A\n<!-- OPEN-ZK-KB:END -->\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld B\n<!-- OPEN-ZK-KB:END -->\n';
+      fs.writeFileSync(agentDocsPath, original, 'utf-8');
+
+      const output = await handleMaintain({ action: 'agent-docs', dryRun: false }, ctx.engine, ctx.config);
+      expect(output).toContain('manual review recommended; skipped');
+      expect(fs.readFileSync(agentDocsPath, 'utf-8')).toBe(original);
+    } finally {
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it('should report all upgraded when fields are present', async () => {
@@ -699,6 +773,18 @@ describe('getLatestVersion', () => {
 
     expect(await getLatestVersion('open-zk-kb')).toBe('1.2.3');
     expect(await getLatestVersion('open-zk-kb')).toBe('1.2.3');
+    expect(calls).toBe(1);
+  });
+
+  it('should cache non-OK responses', async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response('Not Found', { status: 404 });
+    }) as any;
+
+    expect(await getLatestVersion('missing-package')).toBeNull();
+    expect(await getLatestVersion('missing-package')).toBeNull();
     expect(calls).toBe(1);
   });
 });

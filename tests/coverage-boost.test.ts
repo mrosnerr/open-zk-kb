@@ -113,9 +113,9 @@ describe('Logger', () => {
       expect(isSensitiveFile('token-store.json')).toBe(true);
     });
 
-    it('should not flag .env (no extension match, no name match)', () => {
-      // path.extname('.env') returns '' and basename '.env' doesn't match sensitiveNames
-      expect(isSensitiveFile('.env')).toBe(false);
+    it('should flag .env files as sensitive', () => {
+      expect(isSensitiveFile('.env')).toBe(true);
+      expect(isSensitiveFile('.env.local')).toBe(true);
     });
 
     it('should not flag normal files', () => {

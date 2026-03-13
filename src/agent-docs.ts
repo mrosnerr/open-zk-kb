@@ -9,6 +9,15 @@ import * as path from 'path';
 import { fileURLToPath } from 'url';
 
 export type InstructionSize = 'compact' | 'full';
+export type AgentDocsStatus = 'missing' | 'healthy' | 'start-only' | 'end-only' | 'out-of-order' | 'multiple-markers';
+
+export interface AgentDocsInspection {
+  filePath: string;
+  exists: boolean;
+  status: AgentDocsStatus;
+  startCount: number;
+  endCount: number;
+}
 
 const START_MARKER = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
 const END_MARKER = '<!-- OPEN-ZK-KB:END -->';
@@ -19,6 +28,60 @@ function loadAgentDocsTemplate(size: InstructionSize = 'full'): string {
   const instructionsPath = path.join(projectRoot, filename);
   const content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
   return `${START_MARKER}\n${content}\n${END_MARKER}`;
+}
+
+function countOccurrences(content: string, marker: string): number {
+  return content.split(marker).length - 1;
+}
+
+function inspectAgentDocsContent(content: string): Omit<AgentDocsInspection, 'filePath' | 'exists'> {
+  const startCount = countOccurrences(content, START_MARKER);
+  const endCount = countOccurrences(content, END_MARKER);
+  const startIdx = content.indexOf(START_MARKER);
+  const endIdx = content.indexOf(END_MARKER);
+
+  let status: AgentDocsStatus = 'missing';
+  if (startCount === 0 && endCount === 0) {
+    status = 'missing';
+  } else if (startCount === 1 && endCount === 1 && startIdx < endIdx) {
+    status = 'healthy';
+  } else if (startCount === 1 && endCount === 0) {
+    status = 'start-only';
+  } else if (startCount === 0 && endCount === 1) {
+    status = 'end-only';
+  } else if (startCount === 1 && endCount === 1) {
+    status = 'out-of-order';
+  } else {
+    status = 'multiple-markers';
+  }
+
+  return { status, startCount, endCount };
+}
+
+function stripManagedMarkers(content: string): string {
+  return content
+    .split(START_MARKER).join('')
+    .split(END_MARKER).join('')
+    .replace(/\n{3,}/g, '\n\n');
+}
+
+export function inspectAgentDocs(filePath: string): AgentDocsInspection {
+  if (!fs.existsSync(filePath)) {
+    return {
+      filePath,
+      exists: false,
+      status: 'missing',
+      startCount: 0,
+      endCount: 0,
+    };
+  }
+
+  const content = fs.readFileSync(filePath, 'utf-8');
+  return {
+    filePath,
+    exists: true,
+    ...inspectAgentDocsContent(content),
+  };
 }
 
 function spliceManagedBlock(content: string, replacement: string): string {
@@ -34,7 +97,11 @@ function spliceManagedBlock(content: string, replacement: string): string {
   }
 
   if (endIdx !== -1) {
-    return replacement + content.slice(endIdx + END_MARKER.length);
+    const cleaned = joinRemainingContent(
+      content.slice(0, endIdx),
+      content.slice(endIdx + END_MARKER.length)
+    );
+    return appendManagedBlock(cleaned, replacement);
   }
 
   const separator = content.length > 0 && !content.endsWith('\n') ? '\n\n' : content.length > 0 ? '\n' : '';
@@ -47,6 +114,11 @@ function joinRemainingContent(before: string, after: string): string {
 
   if (left && right) return `${left}\n\n${right}`;
   return left || right;
+}
+
+function appendManagedBlock(content: string, replacement: string): string {
+  const separator = content.length > 0 ? '\n\n' : '';
+  return `${content}${separator}${replacement}\n`;
 }
 
 /**
@@ -66,10 +138,19 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
   let newContent: string;
   let action: 'created' | 'updated' | 'unchanged';
   const template = loadAgentDocsTemplate(size);
+  const inspection = inspectAgentDocsContent(existing);
 
-  if (existing.includes(START_MARKER) || existing.includes(END_MARKER)) {
+  if (inspection.status === 'healthy') {
     const candidate = spliceManagedBlock(existing, template);
 
+    if (candidate === existing) {
+      return { action: 'unchanged', filePath };
+    }
+
+    newContent = candidate;
+    action = 'updated';
+  } else if (inspection.status !== 'missing') {
+    const candidate = appendManagedBlock(stripManagedMarkers(existing).trimEnd(), template);
     if (candidate === existing) {
       return { action: 'unchanged', filePath };
     }
@@ -108,9 +189,26 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
   const content = fs.readFileSync(filePath, 'utf-8');
   const startIdx = content.indexOf(START_MARKER);
   const endIdx = content.indexOf(END_MARKER);
+  const inspection = inspectAgentDocsContent(content);
 
-  if (startIdx === -1 && endIdx === -1) {
+  if (inspection.status === 'missing') {
     return { action: 'not-found', filePath };
+  }
+
+  if (inspection.status !== 'healthy') {
+    const newContent = stripManagedMarkers(content).replace(/\n{3,}/g, '\n\n').trimEnd();
+
+    if (!dryRun) {
+      if (newContent.trim().length === 0) {
+        fs.unlinkSync(filePath);
+        return { action: 'file-deleted', filePath };
+      }
+      fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
+    } else if (newContent.trim().length === 0) {
+      return { action: 'file-deleted', filePath };
+    }
+
+    return { action: 'removed', filePath };
   }
 
   let removeStart = 0;
@@ -122,6 +220,7 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
   } else if (startIdx !== -1) {
     removeStart = startIdx;
   } else if (endIdx !== -1) {
+    removeStart = endIdx;
     removeEnd = endIdx + END_MARKER.length;
   }
 

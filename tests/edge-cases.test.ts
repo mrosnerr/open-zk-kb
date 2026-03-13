@@ -340,6 +340,45 @@ describe('16-digit ID generation', () => {
     const original = [...ids];
     expect(original).toEqual(sorted);
   });
+
+  it('should roll over to a valid next second after 100 ids in one second', () => {
+    const RealDate = Date;
+    const fixedTime = '2099-12-31T23:59:59';
+
+    class MockDate extends RealDate {
+      constructor(...args: any[]) {
+        super(args.length === 0 ? fixedTime : args[0]);
+      }
+
+      static now(): number {
+        return new RealDate(fixedTime).getTime();
+      }
+    }
+
+    globalThis.Date = MockDate as unknown as DateConstructor;
+
+    try {
+      const ids: string[] = [];
+      for (let i = 0; i < 110; i++) {
+        const result = ctx.engine.store(`Content ${i}`, {
+          title: `Note ${i}`,
+          kind: 'reference',
+          status: 'fleeting',
+          summary: `Summary ${i}`,
+          guidance: `Guidance ${i}`,
+        });
+        ids.push(result.id);
+      }
+
+      for (const id of ids) {
+        const seconds = Number(id.slice(12, 14));
+        expect(seconds).toBeGreaterThanOrEqual(0);
+        expect(seconds).toBeLessThanOrEqual(59);
+      }
+    } finally {
+      globalThis.Date = RealDate;
+    }
+  });
 });
 
 describe('Wikilink parsing with ID formats', () => {
