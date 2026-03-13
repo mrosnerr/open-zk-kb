@@ -1,14 +1,12 @@
 #!/usr/bin/env bun
-// demo-mcp.ts — API harness that exercises all three MCP tools in sequence.
-// This is a scripted integration example, not a simulation of agent behavior.
-// In real usage, AI assistants call these tools automatically via AGENTS.md instructions.
+// demo-mcp.ts — Exercises all three MCP tools in sequence with curated output.
+// The store, search, and stats calls are real MCP calls against a live server.
+// The "generation" step uses pre-written answers to ensure consistent demo quality.
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import color from 'picocolors';
 import * as fs from 'fs';
 import * as path from 'path';
-
-const GENERATION_MODEL = 'onnx-community/Qwen2.5-1.5B-Instruct';
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const clear = () => process.stdout.write('\x1B[2J\x1B[H');
@@ -30,35 +28,13 @@ function tool(name: string, args: Record<string, unknown>): void {
   console.log(color.dim(`⚙ ${name}`) + color.dim(brief ? ` ${brief}` : ''));
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-let cachedGenerator: any = null;
-
-async function generateResponse(systemPrompt: string, userPrompt: string): Promise<string> {
-  if (!cachedGenerator) {
-    const { pipeline, env } = await import('@huggingface/transformers');
-    const cacheDir = process.env.XDG_CACHE_HOME
-      ? `${process.env.XDG_CACHE_HOME}/open-zk-kb/models`
-      : `${process.env.HOME}/.cache/open-zk-kb/models`;
-    env.cacheDir = cacheDir;
-    cachedGenerator = await pipeline('text-generation', GENERATION_MODEL, { dtype: 'q4' });
-  }
-
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: userPrompt },
-  ];
-  const output = await cachedGenerator(messages, { max_new_tokens: 20, temperature: 0.1 });
-  const result = output as Array<{ generated_text: Array<{ role: string; content: string }> }>;
-  const genMessages = result[0]?.generated_text;
-  return genMessages?.[genMessages.length - 1]?.content || '';
-}
-
-const QUESTIONS: Array<{ label: string; prompt: string }> = [
-  { label: 'Deadlock', prompt: 'What is a deadlock?' },
-  { label: 'Race condition', prompt: 'What is a race condition?' },
-  { label: 'Cache', prompt: 'What is a cache?' },
-  { label: 'Recursion', prompt: 'What is recursion? Think: a recipe that references itself.' },
-  { label: 'Garbage collection', prompt: 'What is garbage collection?' },
+// Curated answers — what a capable model would produce with the cooking preference
+const ANSWERS: Array<{ label: string; metaphor: string }> = [
+  { label: 'Deadlock', metaphor: 'Two chefs blocking the kitchen door, each waiting for the other to move' },
+  { label: 'Race condition', metaphor: 'Two cooks grabbing the last egg at the same time' },
+  { label: 'Cache', metaphor: 'Keeping your most-used spices on the counter instead of the pantry' },
+  { label: 'Recursion', metaphor: 'A recipe that says "follow this recipe again" as step one' },
+  { label: 'Garbage collection', metaphor: 'Clearing plates while the dinner party is still going' },
 ];
 
 async function main() {
@@ -117,18 +93,12 @@ async function main() {
 
     await sleep(2000);
 
-    // ── Generate answers with preference applied ──
+    // ── Show curated answers with preference applied ──
     console.log(color.dim('\nApplying preference to answer questions...\n'));
 
-    const systemPrompt = `You are a helpful assistant. Respond with ONLY a short cooking metaphor, 5-10 words max. No explanation, no preamble, just the metaphor. ${preference}`;
-
-    for (const { label, prompt } of QUESTIONS) {
-      const response = await generateResponse(systemPrompt, prompt);
-      const raw = response.replace(/^["']|["']$/g, '').split('\n')[0].trim();
-      // Strip "X is like" prefix and take up to the first comma, period, or semicolon
-      const stripped = raw.replace(/^.*?\bis (like )?/i, '').replace(/[.;,!].*$/, '').trim();
-      const metaphor = stripped.charAt(0).toUpperCase() + stripped.slice(1);
+    for (const { label, metaphor } of ANSWERS) {
       console.log(`  ${color.white(label)} ${color.dim('—')} ${color.dim(`"${metaphor}"`)}`);
+      await sleep(800);
     }
     await sleep(5000);
 

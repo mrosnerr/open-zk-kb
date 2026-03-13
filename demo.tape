@@ -39,4 +39,4 @@ Type "bun scripts/demo-mcp.ts"
 Enter
 Sleep 500ms
 Show
-Sleep 35s
+Sleep 25s

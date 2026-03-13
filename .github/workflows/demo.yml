@@ -7,7 +7,6 @@ on:
     paths:
       - 'scripts/demo-mcp.ts'
       - 'demo.tape'
-      - 'src/**'
 
 permissions:
   contents: write
@@ -15,7 +14,7 @@ permissions:
 jobs:
   record:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v4
@@ -41,30 +40,6 @@ jobs:
           curl -fsSL https://github.com/charmbracelet/vhs/releases/download/v0.10.0/vhs_0.10.0_amd64.deb -o vhs.deb
           sudo apt-get install -y ./vhs.deb
           rm vhs.deb
-
-      - name: Cache embedding model
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/open-zk-kb/models/Xenova/all-MiniLM-L6-v2
-          key: embedding-model-all-MiniLM-L6-v2-q8
-
-      - name: Cache generation model
-        uses: actions/cache@v5
-        with:
-          path: ~/.cache/open-zk-kb/models/onnx-community/Qwen2.5-1.5B-Instruct
-          key: generation-model-Qwen2.5-1.5B-Instruct-q4
-
-      - name: Pre-warm models
-        run: |
-          bun -e "
-          const { pipeline, env } = await import('@huggingface/transformers');
-          env.cacheDir = process.env.HOME + '/.cache/open-zk-kb/models';
-          console.log('Loading embedding model...');
-          await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', { dtype: 'q8' });
-          console.log('Loading generation model...');
-          await pipeline('text-generation', 'onnx-community/Qwen2.5-1.5B-Instruct', { dtype: 'q4' });
-          console.log('Models cached.');
-          "
 
       - name: Record demo GIF
         run: vhs demo.tape
