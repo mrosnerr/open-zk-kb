@@ -30,7 +30,10 @@ export async function getLatestVersion(packageName: string): Promise<string | nu
         `https://registry.npmjs.org/${encodedName}/latest`,
         { signal: controller.signal }
       );
-      if (!res.ok) return null;
+      if (!res.ok) {
+        versionCache.set(packageName, { value: null, expiresAt: Date.now() + CACHE_TTL_MS });
+        return null;
+      }
       const data = (await res.json()) as { version?: string };
       const version = data.version ?? null;
       versionCache.set(packageName, { value: version, expiresAt: Date.now() + CACHE_TTL_MS });

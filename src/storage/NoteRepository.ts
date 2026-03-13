@@ -150,8 +150,7 @@ export class NoteRepository {
       base = lastIdTimestamp;
       idCounter++;
       if (idCounter > 99) {
-        // Advance to next second numerically to guarantee unique 14-char base
-        base = String(BigInt(base) + 1n).padStart(14, '0');
+        base = this.incrementTimestamp(base);
         lastIdTimestamp = base;
         idCounter = 0;
       }
@@ -162,6 +161,19 @@ export class NoteRepository {
 
     // Always 16-digit: YYYYMMDDHHmmss + 2-digit counter
     return `${base}${String(idCounter).padStart(2, '0')}`;
+  }
+
+  private incrementTimestamp(timestamp: string): string {
+    const year = Number(timestamp.slice(0, 4));
+    const month = Number(timestamp.slice(4, 6)) - 1;
+    const day = Number(timestamp.slice(6, 8));
+    const hour = Number(timestamp.slice(8, 10));
+    const minute = Number(timestamp.slice(10, 12));
+    const second = Number(timestamp.slice(12, 14));
+
+    const next = new Date(year, month, day, hour, minute, second);
+    next.setSeconds(next.getSeconds() + 1);
+    return this.formatTimestamp(next);
   }
 
   private formatTimestamp(date: Date): string {

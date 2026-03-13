@@ -191,8 +191,8 @@ server.registerTool(
 // ---- knowledge-maintain ----
 
 const maintainSchema = z.object({
-  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed'])
-    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings)'),
+  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs'])
+    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files)'),
   noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
@@ -203,7 +203,7 @@ const maintainSchema = z.object({
 server.registerTool(
   'knowledge-maintain',
   {
-    description: 'Maintain the knowledge base: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade.',
+    description: 'Maintain the knowledge base: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, and managed agent docs repair.',
     inputSchema: maintainSchema as any,
   },
   async (args: z.infer<typeof maintainSchema>) => {
@@ -232,6 +232,7 @@ server.registerTool(
 // ---- Startup ----
 
 export async function startServer() {
+  ensureShutdownHandlers();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logToFile('INFO', 'MCP server: connected via stdio', {}, config);
@@ -259,10 +260,16 @@ function shutdown() {
   process.exit(0);
 }
 
-if (import.meta.main) {
+let shutdownHandlersRegistered = false;
+
+function ensureShutdownHandlers() {
+  if (shutdownHandlersRegistered) return;
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  shutdownHandlersRegistered = true;
+}
 
+if (import.meta.main) {
   startServer().catch((error) => {
     logToFile('ERROR', 'MCP server: startup failed', {
       error: error instanceof Error ? error.message : String(error),

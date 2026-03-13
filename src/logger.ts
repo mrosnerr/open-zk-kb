@@ -130,5 +130,6 @@ export function isSensitiveFile(filePath: string): boolean {
   if (sensitiveExtensions.includes(ext)) return true;
 
   const baseName = path.basename(filePath).toLowerCase();
+  if (baseName === '.env' || baseName.startsWith('.env.')) return true;
   return sensitiveNames.some(name => baseName.includes(name));
 }
