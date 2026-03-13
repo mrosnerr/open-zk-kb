@@ -111,27 +111,31 @@ async function main() {
     console.log(color.dim('Searching KB for preferences before answering...\n'));
     await sleep(500);
 
-    const searchArgs = { query: 'code explanation style and language preference', limit: 5 };
+    const searchArgs = { query: 'code explanation preferences', limit: 5 };
     tool('knowledge-search', searchArgs);
     const searchResult = await client.callTool({ name: 'knowledge-search', arguments: searchArgs });
     const context = text(searchResult);
     await sleep(300);
 
-    // Extract guidance from KB results
+    // Show that both preferences were found
     const guidances: string[] = [];
     for (const match of context.matchAll(/<guidance>([\s\S]*?)<\/guidance>/g)) {
       guidances.push(match[1].trim());
+    }
+    for (const g of guidances) {
+      console.log(color.green(`  ✓ ${g}`));
     }
     const preferenceBlock = guidances.length > 0
       ? guidances.join(' ')
       : 'Explain code with cooking metaphors and show examples in Python.';
 
+    await sleep(2000);
+    console.log(color.dim('\nApplying preferences to explain Brainfuck snippet...\n'));
+    console.log(color.yellow(`  ${BRAINFUCK_SNIPPET.slice(0, 60)}...`));
+    console.log('');
+
     const systemPrompt = `You are a helpful coding assistant. Follow these user preferences exactly: ${preferenceBlock}`;
     const userPrompt = `Explain what this Brainfuck program does and show the Python equivalent:\n\n${BRAINFUCK_SNIPPET}`;
-
-    console.log(color.dim('\nBrainfuck snippet:\n'));
-    console.log(color.yellow(`  ${BRAINFUCK_SNIPPET.slice(0, 60)}...`));
-    console.log(color.dim('\nGenerating explanation with KB preferences applied...\n'));
 
     const response = await generateResponse(systemPrompt, userPrompt);
 
