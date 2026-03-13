@@ -18,6 +18,8 @@ import { computeSimHash } from './utils/simhash.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
 import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
+import { getAgentDocsTargets } from './agent-docs-targets.js';
+import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 
 // ---- Helper functions ----
 
@@ -64,6 +66,17 @@ export interface MaintainArgs {
   days?: number;
   limit?: number;
   dryRun?: boolean;
+}
+
+function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['status']): string {
+  switch (status) {
+    case 'healthy': return 'healthy';
+    case 'start-only': return 'malformed (start marker only)';
+    case 'end-only': return 'malformed (end marker only)';
+    case 'out-of-order': return 'malformed (markers out of order)';
+    case 'multiple-markers': return 'malformed (multiple markers)';
+    default: return 'no managed block';
+  }
 }
 
 // ---- Handlers ----
@@ -479,6 +492,51 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       } catch (err) {
         return `Embedding failed: ${err instanceof Error ? err.message : String(err)}`;
       }
+    }
+    case 'agent-docs': {
+      const dryRun = args.dryRun !== false;
+      const targets = getAgentDocsTargets();
+      let output = '## Agent Docs Maintenance\n\n';
+      output += dryRun
+        ? 'Dry run only. No files were modified.\n\n'
+        : 'Repaired eligible agent docs files while preserving non-marker content.\n\n';
+
+      for (const target of targets) {
+        const inspection = inspectAgentDocs(target.filePath);
+        output += `### ${target.name}\n`;
+        output += `- Path: ${target.filePath}\n`;
+        output += `- Status: ${describeAgentDocsStatus(inspection.status)}\n`;
+
+        if (!inspection.exists) {
+          output += '- Result: file not found\n\n';
+          continue;
+        }
+
+        if (inspection.status === 'healthy') {
+          if (dryRun) {
+            output += '- Result: would refresh managed instructions to current template\n\n';
+          } else {
+            const result = injectAgentDocs(target.filePath, target.instructionSize, false);
+            output += `- Result: ${result.action}\n\n`;
+          }
+          continue;
+        }
+
+        if (inspection.status === 'multiple-markers') {
+          output += '- Result: manual review recommended; skipped to avoid touching ambiguous content\n\n';
+          continue;
+        }
+
+        if (dryRun) {
+          output += '- Result: would repair markers and append a fresh managed block while preserving other content\n\n';
+        } else {
+          const result = injectAgentDocs(target.filePath, target.instructionSize, false);
+          output += `- Result: ${result.action}\n\n`;
+        }
+      }
+
+      output += 'Use `dryRun: false` to apply conservative repairs.';
+      return output;
     }
     default:
       return `Unknown action: ${args.action}`;

@@ -422,7 +422,7 @@ describe('setup.ts', () => {
     expect(content).toContain('# Existing');
   });
 
-  it('remove cleans up partial managed block without trimming user content', async () => {
+  it('remove strips a lone start marker without deleting trailing content', async () => {
     const env = createIsolatedInstallEnv();
     const agentDocsModule = await loadFreshAgentDocsModule();
 
@@ -434,7 +434,9 @@ describe('setup.ts', () => {
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
 
     expect(result.action).toBe('removed');
-    expect(content).toBe('Intro\n');
+    expect(content).toContain('Intro');
+    expect(content).toContain('partial');
+    expect(content).not.toContain('OPEN-ZK-KB:START');
   });
 
   it('inject preserves user content before an orphaned end marker', async () => {
@@ -467,6 +469,122 @@ describe('setup.ts', () => {
 
     expect(result.action).toBe('removed');
     expect(content).toBe('Intro\n\nTail\n');
+  });
+
+  it('uninstall preserves user content on both sides of a managed block', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n', 'utf-8');
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    const installedContent = fs.readFileSync(agentDocsPath, 'utf-8');
+    const managedBlock = installedContent.match(/<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->[\s\S]*?<!-- OPEN-ZK-KB:END -->/)?.[0];
+    expect(managedBlock).toBeDefined();
+
+    fs.writeFileSync(agentDocsPath, `Intro\n\n${managedBlock}\n\nTail\n`, 'utf-8');
+    setupModule.uninstall({ client: 'opencode' });
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content).toContain('Tail');
+    expect(content).not.toContain('OPEN-ZK-KB:START');
+    expect(content).not.toContain('OPEN-ZK-KB:END');
+  });
+
+  it('inject preserves lookalike non-managed markers', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:START custom -->\nUser text\n<!-- OPEN-ZK-KB:END custom -->\n', 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('<!-- OPEN-ZK-KB:START custom -->');
+    expect(content).toContain('<!-- OPEN-ZK-KB:END custom -->');
+    expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
+    expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+  });
+
+  it('inject repairs out-of-order markers without dropping surrounding content', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:END -->\nMiddle\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nTail\n', 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content).toContain('Middle');
+    expect(content).toContain('Tail');
+    expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
+    expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+  });
+
+  it('remove strips malformed markers without deleting unrelated content', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:END -->\nMiddle\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nTail\n', 'utf-8');
+
+    const result = agentDocsModule.removeAgentDocs(agentDocsPath);
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+
+    expect(result.action).toBe('removed');
+    expect(content).toContain('Intro');
+    expect(content).toContain('Middle');
+    expect(content).toContain('Tail');
+    expect(content).not.toContain('OPEN-ZK-KB:START -- managed by open-zk-kb');
+    expect(content).not.toContain('<!-- OPEN-ZK-KB:END -->');
+  });
+
+  it('inject leaves multiply-marked files intact apart from marker cleanup and fresh block', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld A\n<!-- OPEN-ZK-KB:END -->\n\nBetween\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld B\n<!-- OPEN-ZK-KB:END -->\n', 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content).toContain('Between');
+    expect(content).toContain('Old A');
+    expect(content).toContain('Old B');
+    expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
+    expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+  });
+
+  it('dry-run inject and remove do not modify malformed files', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    const original = 'Intro\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nTail\n';
+    fs.writeFileSync(agentDocsPath, original, 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full', true);
+    expect(fs.readFileSync(agentDocsPath, 'utf-8')).toBe(original);
+
+    agentDocsModule.removeAgentDocs(agentDocsPath, true);
+    expect(fs.readFileSync(agentDocsPath, 'utf-8')).toBe(original);
   });
 
   it('creates vault directory and index directory on install', async () => {
