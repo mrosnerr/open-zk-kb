@@ -107,6 +107,7 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 | `delete` | Permanently delete a note (file + DB + FTS + links) | Yes |
 | `rebuild` | Reconstruct the SQLite database from Markdown files on disk | No |
 | `embed` | Backfill missing embedding vectors for existing notes | No |
+| `agent-docs` | Audit or repair managed agent instruction files | No |
 | `upgrade` | List pending data migrations | No |
 | `upgrade-read` | Read a specific migration's instructions | Yes (migration ID) |
 | `upgrade-apply` | Apply a data migration | Yes (migration ID) |

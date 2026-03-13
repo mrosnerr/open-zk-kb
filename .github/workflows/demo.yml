@@ -28,23 +28,25 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Install ffmpeg and ttyd
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg ttyd
+
       - name: Install VHS
         run: |
           curl -fsSL https://github.com/charmbracelet/vhs/releases/download/v0.10.0/vhs_0.10.0_amd64.deb -o vhs.deb
-          sudo dpkg -i vhs.deb
+          sudo apt-get install -y ./vhs.deb
           rm vhs.deb
 
-      - name: Install ttyd (VHS dependency)
-        run: sudo apt-get install -y ttyd
-
       - name: Cache embedding model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/open-zk-kb/models/Xenova/all-MiniLM-L6-v2
           key: embedding-model-all-MiniLM-L6-v2-q8
 
       - name: Cache generation model
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/open-zk-kb/models/onnx-community/Qwen2.5-1.5B-Instruct
           key: generation-model-Qwen2.5-1.5B-Instruct-q4

@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "0.1.0-beta.6",
+  "version": "0.1.0-beta.7",
   "description": "Persistent knowledge base for AI coding assistants — searchable Markdown notes with full-text and semantic search",
   "type": "module",
   "main": "dist/mcp-server.js",
@@ -55,10 +55,11 @@
     "yaml": "^2.3.4"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@typescript-eslint/eslint-plugin": "^8.26.0",
     "@typescript-eslint/parser": "^8.26.0",
     "bun-types": "^1.2.2",
-    "eslint": "^9.21.0",
+    "eslint": "^10.0.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1"
   },

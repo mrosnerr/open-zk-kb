@@ -77,7 +77,7 @@ You don't interact with the knowledge base directly (though you can). The assist
 - **TypeScript + Bun** — fast startup, native SQLite
 - **SQLite full-text search** — keyword matching with query sanitization
 - **Local embeddings** via `@huggingface/transformers` — semantic search, ~23MB download on first use
-- **MCP protocol** — works with any MCP-compatible client (Claude Code, Cursor, Windsurf, OpenCode)
+- **MCP protocol** — works with any MCP-compatible client (Claude Code, Cursor, Windsurf, OpenCode, Zed)
 - **Zero configuration** — `bunx open-zk-kb@latest` handles everything
 
 The approach is inspired by the [Zettelkasten method](https://en.wikipedia.org/wiki/Zettelkasten) — a note-taking system built around atomic, linked notes that was originally designed for human researchers. It turns out the same principles (small notes, typed categories, links between ideas) work even better for AI agents, where context window limits make precision essential.

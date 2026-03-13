@@ -39,7 +39,7 @@ MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQL
 | Configuration | `src/config.ts` | YAML config with defaults |
 | Types/interfaces | `src/types.ts` | NoteKind, NoteStatus, AppConfig |
 | Note rendering | `src/prompts.ts` | XML format for agent consumption |
-| Install/uninstall CLI | `src/setup.ts` | 4 clients: opencode, claude-code, cursor, windsurf |
+| Install/uninstall CLI | `src/setup.ts` | 5 clients: opencode, claude-code, cursor, windsurf, zed |
 | Tests | `tests/` | bun:test with harness + fixtures |
 
 ## Code Map

@@ -5,6 +5,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: write
+
 jobs:
   sync-dev:
     runs-on: ubuntu-latest
@@ -17,6 +20,7 @@ jobs:
 
       - name: Fast-forward dev to main
         run: |
+          git fetch origin main dev
           git checkout dev
-          git merge main
+          git merge --ff-only origin/main
           git push origin dev

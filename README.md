@@ -8,6 +8,11 @@
 Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as searchable Markdown notes — so your assistant remembers across sessions.
 
 > **Beta** — This project is under active development (`0.1.x`). Core functionality works but APIs may change. [Bug reports](https://github.com/mrosnerr/open-zk-kb/issues) and feedback are welcome.
+>
+> Still in beta while we:
+> - [ ] Get more real-world usage across supported MCP clients
+> - [ ] Smooth out setup and instruction injection edge cases
+> - [ ] Lock down the MCP tool/API surface for a 1.0 release
 
 <p align="center">
   <img src="assets/demo.gif" alt="open-zk-kb demo" width="640">
@@ -143,6 +148,21 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
 ```json
 {
   "mcpServers": {
+    "open-zk-kb": {
+      "command": "bunx",
+      "args": ["open-zk-kb@latest", "server"]
+    }
+  }
+}
+```
+
+### Zed
+
+`~/.config/zed/settings.json`
+
+```json
+{
+  "context_servers": {
     "open-zk-kb": {
       "command": "bunx",
       "args": ["open-zk-kb@latest", "server"]

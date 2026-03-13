@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.0-beta.7
+
+- Fix doctor indentation and document cache-busting import pattern
+- **Launch readiness** — add doctor command with `--fix`, beta checklist, Zed docs
+- **Workflow reliability** — fix CI workflows, unblock ESLint 10
+- Bump actions/upload-pages-artifact from 3 to 4
+- Bump actions/github-script from 7 to 8
+- Bump actions/cache from 4 to 5
+
 ## 0.1.0-beta.5
 
 - **Remove OpenCode plugin** — knowledge capture now fully agent-driven via MCP tools + injected AGENTS.md/CLAUDE.md instructions

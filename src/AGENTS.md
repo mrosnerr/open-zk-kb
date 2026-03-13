@@ -22,7 +22,7 @@ src/
 ├── logger.ts              # logToFile() — file-based, never stdout
 ├── prompts.ts             # renderNoteForAgent() — XML <note> format
 ├── schema.ts              # SchemaManager — PRAGMA user_version (v5)
-├── setup.ts               # CLI install/uninstall for 4 clients (bun run setup)
+├── setup.ts               # CLI install/uninstall for 5 clients (bun run setup)
 └── types.ts               # NoteKind, NoteStatus, AppConfig
 ```
 
