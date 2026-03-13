@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 
+// Bun caches ESM imports by URL — appending a unique query string forces a
+// fresh module instance per call so tests don't share mutable state.
 async function loadFreshCliModule() {
   return import(`../src/cli.js?test=${Date.now()}-${Math.random()}`);
 }

@@ -346,7 +346,7 @@ export function doctor(args: DoctorArgs = {}): string {
       fs.mkdirSync(indexPath, { recursive: true });
       pushCheck('FIXED', `Created missing index directory at ${indexPath}`);
     } else {
-    pushCheck('INFO', `Index directory not created yet at ${indexPath}`);
+      pushCheck('INFO', `Index directory not created yet at ${indexPath}`);
     }
   }
 
