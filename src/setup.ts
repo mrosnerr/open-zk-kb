@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
-import { injectAgentDocs, removeAgentDocs } from './agent-docs.js';
+import { injectAgentDocs, inspectAgentDocs, removeAgentDocs } from './agent-docs.js';
 import type { InstructionSize } from './agent-docs.js';
 
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
@@ -29,6 +29,11 @@ export interface UninstallArgs {
   removeVault?: boolean;
   confirm?: boolean;
   dryRun?: boolean;
+}
+
+export interface DoctorArgs {
+  client?: McpClient;
+  fix?: boolean;
 }
 
 export interface ClientConfig {
@@ -88,7 +93,7 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
 const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf', 'zed'];
 
 const CLIENT_PROMPT_OPTIONS: Array<{ value: McpClient; label: string; hint: string }> = [
-  { value: 'opencode', label: 'OpenCode', hint: 'Enhanced plugin with auto-capture' },
+  { value: 'opencode', label: 'OpenCode', hint: 'MCP server + managed instructions' },
   { value: 'claude-code', label: 'Claude Code', hint: 'MCP server integration' },
   { value: 'cursor', label: 'Cursor', hint: 'MCP server integration' },
   { value: 'windsurf', label: 'Windsurf', hint: 'MCP server integration' },
@@ -196,6 +201,27 @@ function getVaultPath(): string {
   return path.join(xdgDataHome, 'open-zk-kb');
 }
 
+function getConfigYamlPath(): string {
+  return path.join(xdgConfigHome, 'open-zk-kb', 'config.yaml');
+}
+
+function ensureDefaultConfigYaml(): boolean {
+  const configYamlPath = getConfigYamlPath();
+  if (fs.existsSync(configYamlPath)) {
+    return false;
+  }
+
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
+  if (!fs.existsSync(exampleConfigPath)) {
+    return false;
+  }
+
+  fs.mkdirSync(path.dirname(configYamlPath), { recursive: true });
+  fs.copyFileSync(exampleConfigPath, configYamlPath);
+  return true;
+}
+
 function getVaultStats(vaultPath: string): { noteCount: number; projectCount: number; sizeMB: number } | null {
   const indexPath = path.join(vaultPath, '.index', 'knowledge.db');
   if (!fs.existsSync(indexPath)) {
@@ -229,6 +255,189 @@ function getVaultStats(vaultPath: string): { noteCount: number; projectCount: nu
   }
   
   return { noteCount, projectCount, sizeMB };
+}
+
+function validateMcpEntry(clientConfig: ClientConfig, entry: unknown): string[] {
+  if (!entry || typeof entry !== 'object') {
+    return ['entry is not an object'];
+  }
+
+  const record = entry as Record<string, unknown>;
+  const issues: string[] = [];
+
+  if (clientConfig.mcpFormat === 'opencode') {
+    if (record.type !== 'local') issues.push('expected type "local"');
+    if (!Array.isArray(record.command) || record.command.length === 0) issues.push('missing command array');
+    if (record.enabled !== true) issues.push('expected enabled: true');
+    return issues;
+  }
+
+  if (typeof record.command !== 'string' || record.command.length === 0) issues.push('missing command');
+  if (!Array.isArray(record.args) || record.args.length === 0) issues.push('missing args array');
+  return issues;
+}
+
+function inferServerPathFromEntry(clientConfig: ClientConfig, entry: unknown): string | undefined {
+  if (!entry || typeof entry !== 'object') {
+    return undefined;
+  }
+
+  const record = entry as Record<string, unknown>;
+
+  if (clientConfig.mcpFormat === 'opencode') {
+    if (!Array.isArray(record.command)) return undefined;
+    const [runtime, action, serverPath] = record.command;
+    return runtime === 'bun' && action === 'run' && typeof serverPath === 'string'
+      ? serverPath
+      : undefined;
+  }
+
+  if (record.command !== 'bun' || !Array.isArray(record.args)) {
+    return undefined;
+  }
+
+  const [action, serverPath] = record.args;
+  return action === 'run' && typeof serverPath === 'string'
+    ? serverPath
+    : undefined;
+}
+
+function repairClientConfig(clientConfig: ClientConfig, config: Record<string, unknown>, existingEntry: unknown): void {
+  const inferredServerPath = inferServerPathFromEntry(clientConfig, existingEntry);
+  const repairedEntry = buildMcpEntry(clientConfig, inferredServerPath);
+  setNestedValue(config, clientConfig.mcpPath, repairedEntry);
+  fs.mkdirSync(path.dirname(clientConfig.configPath), { recursive: true });
+  fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
+}
+
+export function doctor(args: DoctorArgs = {}): string {
+  const clients = args.client ? [args.client] : ALL_CLIENTS;
+  const vaultPath = getVaultPath();
+  const configYamlPath = getConfigYamlPath();
+  const checks: string[] = [];
+  let okCount = 0;
+  let fixedCount = 0;
+  let infoCount = 0;
+  let warnCount = 0;
+  let errorCount = 0;
+
+  const pushCheck = (level: 'OK' | 'FIXED' | 'INFO' | 'WARN' | 'ERROR', message: string) => {
+    checks.push(`- ${level} ${message}`);
+    if (level === 'OK') okCount++;
+    else if (level === 'FIXED') fixedCount++;
+    else if (level === 'INFO') infoCount++;
+    else if (level === 'WARN') warnCount++;
+    else errorCount++;
+  };
+
+  const vaultStats = getVaultStats(vaultPath);
+  if (fs.existsSync(vaultPath)) {
+    const noteCount = vaultStats?.noteCount ?? fs.readdirSync(vaultPath).filter((name) => name.endsWith('.md')).length;
+    pushCheck('OK', `Vault exists at ${vaultPath} (${noteCount} notes)`);
+  } else {
+    pushCheck('INFO', `Vault not created yet at ${vaultPath}`);
+  }
+
+  const indexPath = path.join(vaultPath, '.index');
+  if (fs.existsSync(indexPath)) {
+    pushCheck('OK', `Index directory exists at ${indexPath}`);
+  } else {
+    if (args.fix && fs.existsSync(vaultPath)) {
+      fs.mkdirSync(indexPath, { recursive: true });
+      pushCheck('FIXED', `Created missing index directory at ${indexPath}`);
+    } else {
+      pushCheck('INFO', `Index directory not created yet at ${indexPath}`);
+    }
+  }
+
+  if (fs.existsSync(configYamlPath)) {
+    pushCheck('OK', `Config file exists at ${configYamlPath}`);
+  } else {
+    if (args.fix && ensureDefaultConfigYaml()) {
+      pushCheck('FIXED', `Copied default config file to ${configYamlPath}`);
+    } else {
+      pushCheck('INFO', `Config file not created yet at ${configYamlPath}`);
+    }
+  }
+
+  for (const client of clients) {
+    const clientConfig = CLIENT_CONFIGS[client];
+    let configured = false;
+
+    if (!fs.existsSync(clientConfig.configPath)) {
+      pushCheck('INFO', `${clientConfig.name}: config file not found at ${clientConfig.configPath}`);
+    } else {
+      try {
+        const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
+        const config = JSON.parse(content) as Record<string, unknown>;
+        const entry = getNestedValue(config, clientConfig.mcpPath);
+
+        if (!entry) {
+          pushCheck('INFO', `${clientConfig.name}: open-zk-kb is not configured in ${clientConfig.configPath}`);
+        } else {
+          const issues = validateMcpEntry(clientConfig, entry);
+          if (issues.length === 0) {
+            configured = true;
+            pushCheck('OK', `${clientConfig.name}: MCP config looks healthy in ${clientConfig.configPath}`);
+          } else if (args.fix) {
+            repairClientConfig(clientConfig, config, entry);
+            configured = true;
+            pushCheck('FIXED', `${clientConfig.name}: repaired MCP config in ${clientConfig.configPath}`);
+          } else {
+            pushCheck('ERROR', `${clientConfig.name}: MCP config is invalid (${issues.join(', ')})`);
+          }
+        }
+      } catch (error) {
+        pushCheck('ERROR', `${clientConfig.name}: failed to parse ${clientConfig.configPath} (${error instanceof Error ? error.message : String(error)})`);
+      }
+    }
+
+    if (clientConfig.agentDocsPath) {
+      if (!configured) {
+        if (fs.existsSync(clientConfig.agentDocsPath)) {
+          pushCheck('INFO', `${clientConfig.name}: instruction file exists at ${clientConfig.agentDocsPath}, but open-zk-kb is not installed for this client`);
+        } else {
+          pushCheck('INFO', `${clientConfig.name}: managed instructions are not installed`);
+        }
+      } else {
+        const inspection = inspectAgentDocs(clientConfig.agentDocsPath);
+        if (!inspection.exists) {
+          if (args.fix) {
+            const size = clientConfig.instructionSize || 'full';
+            injectAgentDocs(clientConfig.agentDocsPath, size, false);
+            pushCheck('FIXED', `${clientConfig.name}: restored managed instructions in ${clientConfig.agentDocsPath}`);
+          } else {
+            pushCheck('WARN', `${clientConfig.name}: managed instructions missing at ${clientConfig.agentDocsPath}`);
+          }
+        } else if (inspection.status === 'healthy') {
+          pushCheck('OK', `${clientConfig.name}: managed instructions are healthy in ${clientConfig.agentDocsPath}`);
+        } else if (args.fix) {
+          const size = clientConfig.instructionSize || 'full';
+          injectAgentDocs(clientConfig.agentDocsPath, size, false);
+          pushCheck('FIXED', `${clientConfig.name}: repaired managed instructions in ${clientConfig.agentDocsPath}`);
+        } else if (inspection.status === 'missing') {
+          pushCheck('WARN', `${clientConfig.name}: instruction file exists but has no managed block at ${clientConfig.agentDocsPath}`);
+        } else {
+          pushCheck('WARN', `${clientConfig.name}: managed instructions need repair (${inspection.status}) in ${clientConfig.agentDocsPath}`);
+        }
+      }
+    } else {
+      pushCheck('INFO', `${clientConfig.name}: managed instructions are not currently supported`);
+    }
+  }
+
+  return [
+    'open-zk-kb doctor',
+    '',
+    ...checks,
+    '',
+    'Summary',
+    `- OK: ${okCount}`,
+    `- FIXED: ${fixedCount}`,
+    `- INFO: ${infoCount}`,
+    `- WARN: ${warnCount}`,
+    `- ERROR: ${errorCount}`,
+  ].join('\n');
 }
 
 export function install(args: InstallArgs): string {
@@ -283,13 +492,10 @@ export function install(args: InstallArgs): string {
   // Copy config.example.yaml → ~/.config/open-zk-kb/config.yaml if no config exists yet
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
-  const configYamlDir = path.join(xdgConfigHome, 'open-zk-kb');
-  const configYamlPath = path.join(configYamlDir, 'config.yaml');
+  const configYamlPath = getConfigYamlPath();
   let configCopied = false;
   if (!fs.existsSync(configYamlPath) && fs.existsSync(exampleConfigPath)) {
-    if (!fs.existsSync(configYamlDir)) {
-      fs.mkdirSync(configYamlDir, { recursive: true });
-    }
+    fs.mkdirSync(path.dirname(configYamlPath), { recursive: true });
     fs.copyFileSync(exampleConfigPath, configYamlPath);
     configCopied = true;
   }
@@ -310,7 +516,7 @@ export function install(args: InstallArgs): string {
   }
   output += `\nNext steps:\n`;
   if (configCopied) {
-    output += `1. Edit ${configYamlPath} with your API key and preferences\n`;
+    output += `1. Review ${configYamlPath} if you want to customize settings or use API embeddings\n`;
     output += `2. Restart ${clientConfig.name} to load the MCP server\n`;
   } else {
     output += `1. Restart ${clientConfig.name} to load the MCP server\n`;
@@ -421,7 +627,15 @@ function parseFlagValue(args: string[], flag: string): string | undefined {
 }
 
 function printHelp(): void {
-  console.log(`Usage: open-zk-kb <install|uninstall> [options]
+  console.log(`Usage: open-zk-kb <install|uninstall|doctor|server> [options]
+
+server:
+  Start the MCP stdio server directly
+
+doctor:
+  Check install health for one client or all clients
+  --client <name>      Check a specific client (opencode, claude-code, cursor, windsurf, zed)
+  --fix                Repair safe doctor findings when possible
 
 install:
   (no flags)           Interactive client selection
@@ -443,8 +657,8 @@ uninstall:
 
 export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Promise<void> {
   const firstArg = rawArgs[0];
-  const hasSubcommand = firstArg === 'install' || firstArg === 'uninstall';
-  const command: 'install' | 'uninstall' = hasSubcommand ? firstArg : 'install';
+  const hasSubcommand = firstArg === 'install' || firstArg === 'uninstall' || firstArg === 'doctor';
+  const command: 'install' | 'uninstall' | 'doctor' = hasSubcommand ? firstArg : 'install';
   const args = hasSubcommand ? rawArgs.slice(1) : rawArgs;
 
   if (firstArg === '--help' || firstArg === '-h') {
@@ -455,6 +669,22 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
   if (firstArg && !hasSubcommand && !firstArg.startsWith('--')) {
     printHelp();
     process.exit(1);
+  }
+
+  if (command === 'doctor') {
+    const clientArg = parseFlagValue(args, '--client');
+    const fix = args.includes('--fix');
+    let client: McpClient | undefined;
+
+    if (clientArg !== undefined) {
+      if (!isMcpClient(clientArg)) {
+        throw new Error(`Invalid client: ${clientArg}`);
+      }
+      client = clientArg;
+    }
+
+    console.log(doctor({ client, fix }));
+    return;
   }
 
   if (command === 'install') {

@@ -587,6 +587,111 @@ describe('setup.ts', () => {
     expect(fs.readFileSync(agentDocsPath, 'utf-8')).toBe(original);
   });
 
+  it('doctor reports a healthy opencode install', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    const output = setupModule.doctor({ client: 'opencode' });
+
+    expect(output).toContain('open-zk-kb doctor');
+    expect(output).toContain(`OK Vault exists at ${path.join(env.xdgDataHome, 'open-zk-kb')}`);
+    expect(output).toContain(`OK Config file exists at ${path.join(env.xdgConfigHome, 'open-zk-kb', 'config.yaml')}`);
+    expect(output).toContain(`OK OpenCode: MCP config looks healthy in ${path.join(env.xdgConfigHome, 'opencode', 'opencode.json')}`);
+    expect(output).toContain(`OK OpenCode: managed instructions are healthy in ${path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md')}`);
+    expect(output).toContain('- ERROR: 0');
+  });
+
+  it('doctor reports config-only status for zed', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'zed',
+      serverPath: env.fakeServerPath,
+    });
+
+    const output = setupModule.doctor({ client: 'zed' });
+
+    expect(output).toContain(`OK Zed: MCP config looks healthy in ${path.join(env.xdgConfigHome, 'zed', 'settings.json')}`);
+    expect(output).toContain('INFO Zed: managed instructions are not currently supported');
+    expect(output).toContain('- ERROR: 0');
+  });
+
+  it('doctor does not warn about unmanaged instruction files when client is not installed', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, '# Personal OpenCode rules\n', 'utf-8');
+
+    const output = setupModule.doctor({ client: 'opencode' });
+
+    expect(output).toContain(`INFO OpenCode: config file not found at ${path.join(env.xdgConfigHome, 'opencode', 'opencode.json')}`);
+    expect(output).toContain(`INFO OpenCode: instruction file exists at ${agentDocsPath}, but open-zk-kb is not installed for this client`);
+    expect(output).toContain('- WARN: 0');
+    expect(output).toContain('- ERROR: 0');
+  });
+
+  it('doctor --fix repairs a malformed opencode MCP entry', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcp: {
+        'open-zk-kb': {
+          command: ['bun', 'run', env.fakeServerPath],
+        },
+      },
+    }, null, 2));
+
+    const output = setupModule.doctor({ client: 'opencode', fix: true });
+    const repaired = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      mcp: Record<string, unknown>;
+    };
+
+    expect(output).toContain(`FIXED OpenCode: repaired MCP config in ${configPath}`);
+    expect(output).toContain('- FIXED: 1');
+    expect(repaired.mcp['open-zk-kb']).toEqual({
+      type: 'local',
+      command: ['bun', 'run', env.fakeServerPath],
+      enabled: true,
+    });
+  });
+
+  it('doctor --fix repairs missing managed instructions for configured clients', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.writeFileSync(agentDocsPath, '# Custom rules only\n', 'utf-8');
+
+    const output = setupModule.doctor({ client: 'opencode', fix: true });
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+
+    expect(output).toContain(`FIXED OpenCode: repaired managed instructions in ${agentDocsPath}`);
+    expect(output).toContain('- FIXED: 1');
+    expect(content).toContain('# Custom rules only');
+    expect(content).toContain('OPEN-ZK-KB:START');
+    expect(content).toContain('OPEN-ZK-KB:END');
+  });
+
   it('creates vault directory and index directory on install', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
