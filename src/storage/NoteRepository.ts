@@ -60,9 +60,9 @@ export interface StoreOptions {
   related?: string[];
 }
 
-// Counter to avoid same-minute ID collisions within a process
+// Monotonic timestamp tracking to avoid ID collisions within a process
 let idCounter = 0;
-let lastIdMinute = '';
+let lastIdTimestamp = '';
 
 export class NoteRepository {
   protected db: Database;
@@ -143,22 +143,46 @@ export class NoteRepository {
 
   private generateId(): string {
     const now = new Date();
-    const minute = now.getFullYear().toString() +
-      String(now.getMonth() + 1).padStart(2, '0') +
-      String(now.getDate()).padStart(2, '0') +
-      String(now.getHours()).padStart(2, '0') +
-      String(now.getMinutes()).padStart(2, '0');
+    let base = this.formatTimestamp(now);
 
-    if (minute === lastIdMinute) {
+    // If wall clock hasn't caught up to a previous spin-ahead, keep using the advanced timestamp
+    if (base <= lastIdTimestamp) {
+      base = lastIdTimestamp;
       idCounter++;
+      if (idCounter > 99) {
+        base = this.incrementTimestamp(base);
+        lastIdTimestamp = base;
+        idCounter = 0;
+      }
     } else {
-      lastIdMinute = minute;
+      lastIdTimestamp = base;
       idCounter = 0;
     }
 
-    // Append seconds + counter suffix for uniqueness within the same minute
-    const seconds = String(now.getSeconds()).padStart(2, '0');
-    return idCounter === 0 ? minute : `${minute}${seconds}${idCounter > 0 ? String(idCounter).padStart(2, '0') : ''}`;
+    // Always 16-digit: YYYYMMDDHHmmss + 2-digit counter
+    return `${base}${String(idCounter).padStart(2, '0')}`;
+  }
+
+  private incrementTimestamp(timestamp: string): string {
+    const year = Number(timestamp.slice(0, 4));
+    const month = Number(timestamp.slice(4, 6)) - 1;
+    const day = Number(timestamp.slice(6, 8));
+    const hour = Number(timestamp.slice(8, 10));
+    const minute = Number(timestamp.slice(10, 12));
+    const second = Number(timestamp.slice(12, 14));
+
+    const next = new Date(year, month, day, hour, minute, second);
+    next.setSeconds(next.getSeconds() + 1);
+    return this.formatTimestamp(next);
+  }
+
+  private formatTimestamp(date: Date): string {
+    return date.getFullYear().toString() +
+      String(date.getMonth() + 1).padStart(2, '0') +
+      String(date.getDate()).padStart(2, '0') +
+      String(date.getHours()).padStart(2, '0') +
+      String(date.getMinutes()).padStart(2, '0') +
+      String(date.getSeconds()).padStart(2, '0');
   }
 
   private slugify(text: string): string {
@@ -946,8 +970,8 @@ export class NoteRepository {
       });
 
       fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
-    } catch {
-      // Non-fatal: DB is source for status, frontmatter is best-effort
+    } catch (err) {
+      logToFile('WARN', 'Failed to update frontmatter status', { noteId: note.id, error: String(err) });
     }
   }
 
@@ -1012,7 +1036,7 @@ export class NoteRepository {
         const rawContent = fs.readFileSync(filePath, 'utf-8');
         const { frontmatter, body } = this.parseFrontmatter(rawContent);
 
-        const id = (frontmatter.id as string) || file.match(/^(\d{12})/)?.[1] || '';
+        const id = (frontmatter.id as string) || file.match(/^(\d{16}|\d{12})/)?.[1] || '';
         if (!id) {
           errors++;
           continue;
@@ -1045,7 +1069,8 @@ export class NoteRepository {
         this.ftsInsert(id, title, body, tagsJson, context);
         this.syncLinks(id, body);
         uniqueIds.add(id);
-      } catch {
+      } catch (err) {
+        logToFile('WARN', 'Failed to index file during rebuild', { file, error: String(err) });
         errors++;
       }
     }
@@ -1204,8 +1229,8 @@ export class NoteRepository {
       });
 
       fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
-    } catch {
-      // Non-fatal: DB is source of truth, frontmatter is best-effort
+    } catch (err) {
+      logToFile('WARN', 'Failed to update frontmatter fields', { noteId: note.id, error: String(err) });
     }
   }
 

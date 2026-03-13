@@ -42,7 +42,7 @@ bun test         # Verify everything works
 - ESM only (`"type": "module"`) — no CommonJS.
 - ESLint with TypeScript plugin.
 - Factory pattern: classes export `createXxx()` factories.
-- Note IDs: `YYYYMMDDHHmm` (12-digit timestamp) + collision counter.
+- Note IDs: `YYYYMMDDHHmmss00` (16-digit: timestamp + 2-digit counter for same-second collisions).
 - XDG paths for data, config, and logs.
 
 ## Anti-Patterns (DO NOT)

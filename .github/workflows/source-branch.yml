@@ -1,0 +1,19 @@
+name: Source branch check
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check-source:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify source branch
+        run: |
+          HEAD="${{ github.head_ref }}"
+          if [[ "$HEAD" == "dev" || "$HEAD" == hotfix/* ]]; then
+            echo "Allowed source branch: $HEAD"
+          else
+            echo "::error::PRs to main must come from 'dev' or 'hotfix/*' branches. Got: $HEAD"
+            exit 1
+          fi

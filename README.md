@@ -2,27 +2,34 @@
 
 [![CI](https://github.com/mrosnerr/open-zk-kb/actions/workflows/ci.yml/badge.svg)](https://github.com/mrosnerr/open-zk-kb/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/open-zk-kb)](https://www.npmjs.com/package/open-zk-kb)
+[![npm downloads](https://img.shields.io/npm/dm/open-zk-kb)](https://www.npmjs.com/package/open-zk-kb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as Markdown notes indexed with SQLite FTS5 — so your assistant remembers across sessions.
+Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as searchable Markdown notes — so your assistant remembers across sessions.
 
 > **Beta** — This project is under active development (`0.1.x`). Core functionality works but APIs may change. [Bug reports](https://github.com/mrosnerr/open-zk-kb/issues) and feedback are welcome.
 
-<details>
-<summary>Demo</summary>
-<br>
-<img src="assets/demo.gif" alt="Demo" width="600">
+<p align="center">
+  <img src="assets/demo.gif" alt="open-zk-kb demo" width="640">
+</p>
 
-> The GIF shows the installer and a scripted API harness exercising all three MCP tools. In real usage, your AI assistant calls the tools automatically based on the injected AGENTS.md instructions — no manual tool calls needed.
+## Why open-zk-kb?
 
-</details>
+AI coding assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
+
+- **Hybrid search** — full-text + local embeddings, so only relevant notes surface
+- **Atomic notes** — one concept per note (6 kinds, lifecycle management) keeps results precise
+- **Local-first** — no API keys, works offline, scales to thousands of notes
+- **Human-readable** — Markdown + YAML frontmatter, rebuildable from files
+- **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, Windsurf, and Zed
+- **MIT-licensed**
 
 ## Quick Start
 
 > **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
 
 ```bash
-bunx open-zk-kb
+bunx open-zk-kb@latest
 ```
 
 That's it. The interactive installer:
@@ -30,7 +37,7 @@ That's it. The interactive installer:
 2. Injects knowledge base instructions into your client's instruction file (`AGENTS.md`, `CLAUDE.md`, or rules file)
 3. Creates a local vault at `~/.local/share/open-zk-kb`
 
-Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**
+Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**
 
 ## How It Works
 
@@ -44,7 +51,7 @@ Your AI assistant gets three MCP tools:
 
 The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
 
-Notes are stored as Markdown files with YAML frontmatter. A SQLite FTS5 index provides fast full-text search, with local vector embeddings (MiniLM, 23MB) for semantic matching. No API key needed.
+Notes are stored as Markdown files with YAML frontmatter. A SQLite index provides fast full-text search, with local vector embeddings for semantic matching. No API key needed.
 
 ## Configuration
 
@@ -81,7 +88,7 @@ Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [
 
 If you prefer manual configuration, add open-zk-kb to your client's MCP config file. No cloning required — the npm package includes everything.
 
-> **Note**: Manual install only adds the MCP server. To also inject the agent instructions, run `bunx open-zk-kb install --client <name>` or add the contents of `agent-instructions.md` to your client's instruction file.
+> **Note**: Manual install only adds the MCP server. To also inject the agent instructions, run `bunx open-zk-kb@latest install --client <name>` or add the contents of `agent-instructions-full.md` (or `agent-instructions-compact.md` for token-constrained clients) to your client's instruction file.
 
 ### OpenCode
 
@@ -92,7 +99,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   "mcp": {
     "open-zk-kb": {
       "type": "local",
-      "command": ["bunx", "open-zk-kb-server"],
+      "command": ["bunx", "open-zk-kb@latest", "server"],
       "enabled": true
     }
   }
@@ -108,7 +115,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   "mcpServers": {
     "open-zk-kb": {
       "command": "bunx",
-      "args": ["open-zk-kb-server"]
+      "args": ["open-zk-kb@latest", "server"]
     }
   }
 }
@@ -123,7 +130,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   "mcpServers": {
     "open-zk-kb": {
       "command": "bunx",
-      "args": ["open-zk-kb-server"]
+      "args": ["open-zk-kb@latest", "server"]
     }
   }
 }
@@ -138,7 +145,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
   "mcpServers": {
     "open-zk-kb": {
       "command": "bunx",
-      "args": ["open-zk-kb-server"]
+      "args": ["open-zk-kb@latest", "server"]
     }
   }
 }
@@ -158,6 +165,7 @@ bun run setup            # interactive installer
 ## Links
 
 - [Setup Guide](docs/setup-guide.md) — installation, instruction injection, verification
+- [Tools Reference](docs/tools-reference.md) — all 3 MCP tools, parameters, examples
 - [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
 - [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
 - [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection

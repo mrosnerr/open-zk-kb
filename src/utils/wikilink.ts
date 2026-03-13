@@ -111,8 +111,8 @@ export function parseWikiLink(inner: string): WikiLink {
     slug = target;
   }
 
-  // Extract numeric ID from slug (first 12-digit timestamp)
-  const idMatch = slug.match(/^(\d{12})/);
+  // Extract numeric ID from slug (16-digit new format or 12-digit legacy)
+  const idMatch = slug.match(/^(\d{16}|\d{12})/);
   const id = idMatch ? idMatch[1] : slug;
 
   return { slug, id, heading, display };

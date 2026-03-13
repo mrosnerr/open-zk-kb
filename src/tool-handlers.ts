@@ -17,6 +17,9 @@ import { logToFile } from './logger.js';
 import { computeSimHash } from './utils/simhash.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
+import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
+import { getAgentDocsTargets } from './agent-docs-targets.js';
+import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 
 // ---- Helper functions ----
 
@@ -65,6 +68,17 @@ export interface MaintainArgs {
   dryRun?: boolean;
 }
 
+function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['status']): string {
+  switch (status) {
+    case 'healthy': return 'healthy';
+    case 'start-only': return 'malformed (start marker only)';
+    case 'end-only': return 'malformed (end marker only)';
+    case 'out-of-order': return 'malformed (markers out of order)';
+    case 'multiple-markers': return 'malformed (multiple markers)';
+    default: return 'no managed block';
+  }
+}
+
 // ---- Handlers ----
 
 export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null): string {
@@ -106,11 +120,11 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
 
   if (embeddingConfig) {
     const text = buildEmbeddingText(args.title, args.summary, args.content);
-    generateEmbedding(text, embeddingConfig).then(embResult => {
+    void generateEmbedding(text, embeddingConfig).then(embResult => {
       if (embResult) {
         repo.storeEmbedding(result.id, embResult.embedding, embResult.model);
       }
-    }).catch((error) => {
+    }).catch(error => {
       logToFile('WARN', 'Embedding generation failed', {
         noteId: result.id,
         error: error instanceof Error ? error.message : String(error),
@@ -161,7 +175,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   return output;
 }
 
-export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null): Promise<string> {
+export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string): Promise<string> {
   switch (args.action) {
     case 'stats': {
       const stats = repo.getStats();
@@ -201,6 +215,14 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         if (stats.total > 5) {
           output += `\nShowing 5 of ${stats.total}. Use \`knowledge-search\` to find specific notes.\n`;
+        }
+      }
+      if (currentVersion) {
+        const latest = await getLatestVersion('open-zk-kb');
+        if (latest && isNewerVersion(currentVersion, latest)) {
+          output += `\n## Update Available\n`;
+          output += `- Current: ${currentVersion} | Latest: ${latest}\n`;
+          output += `- Run \`bunx open-zk-kb@latest install --client <name> --force\` to update\n`;
         }
       }
       return output;
@@ -470,6 +492,51 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       } catch (err) {
         return `Embedding failed: ${err instanceof Error ? err.message : String(err)}`;
       }
+    }
+    case 'agent-docs': {
+      const dryRun = args.dryRun !== false;
+      const targets = getAgentDocsTargets();
+      let output = '## Agent Docs Maintenance\n\n';
+      output += dryRun
+        ? 'Dry run only. No files were modified.\n\n'
+        : 'Repaired eligible agent docs files while preserving non-marker content.\n\n';
+
+      for (const target of targets) {
+        const inspection = inspectAgentDocs(target.filePath);
+        output += `### ${target.name}\n`;
+        output += `- Path: ${target.filePath}\n`;
+        output += `- Status: ${describeAgentDocsStatus(inspection.status)}\n`;
+
+        if (!inspection.exists) {
+          output += '- Result: file not found\n\n';
+          continue;
+        }
+
+        if (inspection.status === 'healthy') {
+          if (dryRun) {
+            output += '- Result: would refresh managed instructions to current template\n\n';
+          } else {
+            const result = injectAgentDocs(target.filePath, target.instructionSize, false);
+            output += `- Result: ${result.action}\n\n`;
+          }
+          continue;
+        }
+
+        if (inspection.status === 'multiple-markers') {
+          output += '- Result: manual review recommended; skipped to avoid touching ambiguous content\n\n';
+          continue;
+        }
+
+        if (dryRun) {
+          output += '- Result: would repair markers and append a fresh managed block while preserving other content\n\n';
+        } else {
+          const result = injectAgentDocs(target.filePath, target.instructionSize, false);
+          output += `- Result: ${result.action}\n\n`;
+        }
+      }
+
+      output += 'Use `dryRun: false` to apply conservative repairs.';
+      return output;
     }
     default:
       return `Unknown action: ${args.action}`;

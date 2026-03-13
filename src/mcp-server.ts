@@ -7,7 +7,7 @@ if (typeof globalThis.Bun === 'undefined') {
   console.error(
     'open-zk-kb requires the Bun runtime (uses bun:sqlite).\n' +
     'Install Bun: https://bun.sh\n' +
-    'Then run: bunx open-zk-kb-server'
+    'Then run: bunx open-zk-kb@latest'
   );
   process.exit(1);
 }
@@ -15,18 +15,23 @@ if (typeof globalThis.Bun === 'undefined') {
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
-import { NoteRepository } from './storage/NoteRepository.js';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { handleStore, handleSearch, handleMaintain } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
+import type { NoteRepository as NoteRepositoryType } from './storage/NoteRepository.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const { version: PKG_VERSION } = require('../package.json');
+const { NoteRepository } = await import('./storage/NoteRepository.js');
 
 const config = getConfig();
-let repo: NoteRepository | null = null;
+let repo: NoteRepositoryType | null = null;
 
-function getOrCreateRepo(): NoteRepository {
+function getOrCreateRepo(): NoteRepositoryType {
   if (!repo) {
     repo = new NoteRepository(config.vault);
     logToFile('INFO', 'MCP server: repository opened', { vault: config.vault }, config);
@@ -68,7 +73,7 @@ function getEmbeddingConfig(): EmbeddingConfig | null {
 
 const server = new McpServer({
   name: 'open-zk-kb',
-  version: '0.1.0',
+  version: PKG_VERSION,
 });
 
 // ---- knowledge-store ----
@@ -123,14 +128,18 @@ server.registerTool(
 
 /** Race embedding generation against a timeout. Returns null if not ready in time. */
 async function tryEmbedding(text: string, embConfig: EmbeddingConfig, timeoutMs: number): Promise<number[] | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = await Promise.race([
       generateEmbedding(text, embConfig),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), timeoutMs)),
+      new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); }),
     ]);
     return result?.embedding || null;
-  } catch {
+  } catch (err) {
+    logToFile('DEBUG', 'Embedding generation failed', { error: String(err) }, config);
     return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
@@ -182,8 +191,8 @@ server.registerTool(
 // ---- knowledge-maintain ----
 
 const maintainSchema = z.object({
-  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed'])
-    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings)'),
+  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs'])
+    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files)'),
   noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
@@ -194,7 +203,7 @@ const maintainSchema = z.object({
 server.registerTool(
   'knowledge-maintain',
   {
-    description: 'Maintain the knowledge base: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade.',
+    description: 'Maintain the knowledge base: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, and managed agent docs repair.',
     inputSchema: maintainSchema as any,
   },
   async (args: z.infer<typeof maintainSchema>) => {
@@ -206,7 +215,7 @@ server.registerTool(
         days: args.days,
         limit: args.limit,
         dryRun: args.dryRun,
-      }, getOrCreateRepo(), config, getEmbeddingConfig());
+      }, getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-maintain failed', {
@@ -222,7 +231,8 @@ server.registerTool(
 
 // ---- Startup ----
 
-async function main() {
+export async function startServer() {
+  ensureShutdownHandlers();
   const transport = new StdioServerTransport();
   await server.connect(transport);
   logToFile('INFO', 'MCP server: connected via stdio', {}, config);
@@ -250,12 +260,20 @@ function shutdown() {
   process.exit(0);
 }
 
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+let shutdownHandlersRegistered = false;
 
-main().catch((error) => {
-  logToFile('ERROR', 'MCP server: startup failed', {
-    error: error instanceof Error ? error.message : String(error),
-  }, config);
-  process.exit(1);
-});
+function ensureShutdownHandlers() {
+  if (shutdownHandlersRegistered) return;
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+  shutdownHandlersRegistered = true;
+}
+
+if (import.meta.main) {
+  startServer().catch((error) => {
+    logToFile('ERROR', 'MCP server: startup failed', {
+      error: error instanceof Error ? error.message : String(error),
+    }, config);
+    process.exit(1);
+  });
+}

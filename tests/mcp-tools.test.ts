@@ -1,5 +1,8 @@
 // tests/mcp-tools.test.ts - Test MCP tool handlers directly against NoteRepository
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   createTestHarness,
   cleanupTestHarness,
@@ -8,6 +11,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
+import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
 describe('MCP Tool: knowledge-store', () => {
   let ctx: TestContext;
@@ -15,8 +19,8 @@ describe('MCP Tool: knowledge-store', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should store a note with kind-based default status', () => {
-    const output = handleStore({
+  it('should store a note with kind-based default status', async () => {
+    const output = await handleStore({
       title: 'Test Preference',
       content: 'I prefer dark mode',
       kind: 'personalization',
@@ -29,8 +33,8 @@ describe('MCP Tool: knowledge-store', () => {
     expect(output).toContain('Status: permanent');
   });
 
-  it('should store with explicit status override', () => {
-    const output = handleStore({
+  it('should store with explicit status override', async () => {
+    const output = await handleStore({
       title: 'Fleeting Pref',
       content: 'Maybe I like light mode',
       kind: 'personalization',
@@ -42,8 +46,8 @@ describe('MCP Tool: knowledge-store', () => {
     expect(output).toContain('Status: fleeting');
   });
 
-  it('should auto-add project tag', () => {
-    handleStore({
+  it('should auto-add project tag', async () => {
+    await handleStore({
       title: 'Project Decision',
       content: 'Use PostgreSQL for this project',
       kind: 'decision',
@@ -57,7 +61,7 @@ describe('MCP Tool: knowledge-store', () => {
     expect(notes[0].tags).toContain('project:myapp');
   });
 
-  it('should append related notes as wikilinks', () => {
+  it('should append related notes as wikilinks', async () => {
     // Store a first note
     const result1 = ctx.engine.store('Base concept', {
       title: 'Base Note',
@@ -65,7 +69,7 @@ describe('MCP Tool: knowledge-store', () => {
       existingId: '202602081000',
     });
 
-    const output = handleStore({
+    const output = await handleStore({
       title: 'Follow-up',
       content: 'This builds on the base',
       kind: 'reference',
@@ -80,8 +84,8 @@ describe('MCP Tool: knowledge-store', () => {
     expect(notes.length).toBeGreaterThan(0);
   });
 
-  it('should store with summary and guidance', () => {
-    const output = handleStore({
+  it('should store with summary and guidance', async () => {
+    const output = await handleStore({
       title: 'Prefers Tailwind',
       content: 'The user prefers Tailwind CSS utility classes over Bootstrap for styling.',
       kind: 'personalization',
@@ -219,6 +223,77 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('Upgrade Status');
     expect(output).toContain('missing summary');
     expect(output).toContain('missing guidance');
+  });
+
+  it('should audit agent docs in dry-run mode without modifying files', async () => {
+    const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-agent-docs-'));
+
+    try {
+      process.env.XDG_CONFIG_HOME = tempRoot;
+      const agentDocsPath = path.join(tempRoot, 'opencode', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      const original = 'Intro\n\n<!-- OPEN-ZK-KB:END -->\nTail\n';
+      fs.writeFileSync(agentDocsPath, original, 'utf-8');
+
+      const output = await handleMaintain({ action: 'agent-docs', dryRun: true }, ctx.engine, ctx.config);
+      expect(output).toContain('Agent Docs Maintenance');
+      expect(output).toContain('OpenCode');
+      expect(output).toContain('malformed (end marker only)');
+      expect(output).toContain('would repair markers and append a fresh managed block');
+      expect(fs.readFileSync(agentDocsPath, 'utf-8')).toBe(original);
+    } finally {
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('should conservatively repair malformed agent docs while preserving user content', async () => {
+    const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-agent-docs-'));
+
+    try {
+      process.env.XDG_CONFIG_HOME = tempRoot;
+      const agentDocsPath = path.join(tempRoot, 'opencode', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:END -->\nTail\n', 'utf-8');
+
+      const output = await handleMaintain({ action: 'agent-docs', dryRun: false }, ctx.engine, ctx.config);
+      const content = fs.readFileSync(agentDocsPath, 'utf-8');
+
+      expect(output).toContain('OpenCode');
+      expect(output).toContain('Result: updated');
+      expect(content).toContain('Intro');
+      expect(content).toContain('Tail');
+      expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
+      expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+    } finally {
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('should skip ambiguous multiple-marker agent docs files during repair', async () => {
+    const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-agent-docs-'));
+
+    try {
+      process.env.XDG_CONFIG_HOME = tempRoot;
+      const agentDocsPath = path.join(tempRoot, 'opencode', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      const original = 'Intro\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld A\n<!-- OPEN-ZK-KB:END -->\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld B\n<!-- OPEN-ZK-KB:END -->\n';
+      fs.writeFileSync(agentDocsPath, original, 'utf-8');
+
+      const output = await handleMaintain({ action: 'agent-docs', dryRun: false }, ctx.engine, ctx.config);
+      expect(output).toContain('manual review recommended; skipped');
+      expect(fs.readFileSync(agentDocsPath, 'utf-8')).toBe(original);
+    } finally {
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
   });
 
   it('should report all upgraded when fields are present', async () => {
@@ -631,5 +706,207 @@ describe('Data Migrations: NoteRepository.getByIds', () => {
     });
     const results = ctx.engine.getByIds([r1.id]);
     expect(results[0].tags).toEqual(['tag-a', 'tag-b']);
+  });
+});
+
+// ---- Version check utility tests ----
+
+describe('getLatestVersion', () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    clearVersionCheckCache();
+  });
+
+  it('should return version string from npm registry', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '1.2.3' }),
+      { status: 200 },
+    )) as any;
+
+    const version = await getLatestVersion('open-zk-kb');
+    expect(version).toBe('1.2.3');
+  });
+
+  it('should return null on non-OK response', async () => {
+    globalThis.fetch = (async () => new Response('Not Found', { status: 404 })) as any;
+
+    const version = await getLatestVersion('nonexistent-package-xyz');
+    expect(version).toBeNull();
+  });
+
+  it('should return null on network error', async () => {
+    globalThis.fetch = (async () => { throw new Error('Network error'); }) as any;
+
+    const version = await getLatestVersion('open-zk-kb');
+    expect(version).toBeNull();
+  });
+
+  it('should return null when response has no version field', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ name: 'open-zk-kb' }),
+      { status: 200 },
+    )) as any;
+
+    const version = await getLatestVersion('open-zk-kb');
+    expect(version).toBeNull();
+  });
+
+  it('should encode scoped package names', async () => {
+    let requestedUrl = '';
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      requestedUrl = String(input);
+      return new Response(JSON.stringify({ version: '1.2.3' }), { status: 200 });
+    }) as any;
+
+    await getLatestVersion('@scope/open-zk-kb');
+    expect(requestedUrl).toContain('%40scope%2Fopen-zk-kb');
+  });
+
+  it('should cache repeated version checks', async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response(JSON.stringify({ version: '1.2.3' }), { status: 200 });
+    }) as any;
+
+    expect(await getLatestVersion('open-zk-kb')).toBe('1.2.3');
+    expect(await getLatestVersion('open-zk-kb')).toBe('1.2.3');
+    expect(calls).toBe(1);
+  });
+
+  it('should cache non-OK responses', async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response('Not Found', { status: 404 });
+    }) as any;
+
+    expect(await getLatestVersion('missing-package')).toBeNull();
+    expect(await getLatestVersion('missing-package')).toBeNull();
+    expect(calls).toBe(1);
+  });
+});
+
+// ---- Semver comparison tests ----
+
+describe('isNewerVersion', () => {
+  it('should detect newer major version', () => {
+    expect(isNewerVersion('0.1.0', '1.0.0')).toBe(true);
+  });
+
+  it('should detect newer minor version', () => {
+    expect(isNewerVersion('0.1.0', '0.2.0')).toBe(true);
+  });
+
+  it('should detect newer patch version', () => {
+    expect(isNewerVersion('0.1.0', '0.1.1')).toBe(true);
+  });
+
+  it('should return false for same version', () => {
+    expect(isNewerVersion('0.1.0', '0.1.0')).toBe(false);
+  });
+
+  it('should return false when running newer version', () => {
+    expect(isNewerVersion('0.2.0', '0.1.0')).toBe(false);
+  });
+
+  it('should detect stable as newer than pre-release of same version', () => {
+    expect(isNewerVersion('0.1.0-beta.6', '0.1.0')).toBe(true);
+  });
+
+  it('should not flag pre-release as newer than stable of same version', () => {
+    expect(isNewerVersion('0.1.0', '0.1.0-beta.6')).toBe(false);
+  });
+
+  it('should not flag older pre-release as newer', () => {
+    expect(isNewerVersion('0.1.0-beta.6', '0.1.0-beta.5')).toBe(false);
+  });
+
+  it('should detect newer pre-release', () => {
+    expect(isNewerVersion('0.1.0-beta.5', '0.1.0-beta.6')).toBe(true);
+  });
+
+  it('should detect newer multi-digit pre-release', () => {
+    expect(isNewerVersion('0.1.0-beta.9', '0.1.0-beta.10')).toBe(true);
+  });
+
+  it('should not flag older multi-digit pre-release as newer', () => {
+    expect(isNewerVersion('0.1.0-beta.10', '0.1.0-beta.9')).toBe(false);
+  });
+});
+
+// ---- Version check in stats output ----
+
+describe('MCP Tool: knowledge-maintain stats version check', () => {
+  let ctx: TestContext;
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => {
+    cleanupTestHarness(ctx);
+    globalThis.fetch = originalFetch;
+    clearVersionCheckCache();
+  });
+
+  it('should show update notice when a newer version exists', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '9.9.9' }),
+      { status: 200 },
+    )) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    );
+    expect(output).toContain('## Update Available');
+    expect(output).toContain('Current: 0.1.0');
+    expect(output).toContain('Latest: 9.9.9');
+    expect(output).toContain('bunx open-zk-kb@latest install');
+  });
+
+  it('should not show update notice when versions match', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '0.1.0' }),
+      { status: 200 },
+    )) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    );
+    expect(output).not.toContain('Update Available');
+  });
+
+  it('should not show update notice when registry check fails', async () => {
+    globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    );
+    expect(output).not.toContain('Update Available');
+  });
+
+  it('should not show update notice when running newer version than registry', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '0.1.0-beta.5' }),
+      { status: 200 },
+    )) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config, null, '0.2.0',
+    );
+    expect(output).not.toContain('Update Available');
+  });
+
+  it('should not show update notice when currentVersion is not provided', async () => {
+    globalThis.fetch = (async () => new Response(
+      JSON.stringify({ version: '9.9.9' }),
+      { status: 200 },
+    )) as any;
+
+    const output = await handleMaintain(
+      { action: 'stats' }, ctx.engine, ctx.config,
+    );
+    expect(output).not.toContain('Update Available');
   });
 });

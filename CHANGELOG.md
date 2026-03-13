@@ -5,8 +5,8 @@
 - **Remove OpenCode plugin** — knowledge capture now fully agent-driven via MCP tools + injected AGENTS.md/CLAUDE.md instructions
 - **Local embeddings default** — `@huggingface/transformers` MiniLM-L6-v2 (~23MB, no API key required); optional API override
 - **Instruction injection** — installer auto-injects KB instructions into client global instruction files; upgrade-safe marker-based system
-- **Drop Zed client** — 4 supported clients: OpenCode, Claude Code, Cursor, Windsurf
-- **Non-blocking search** — embedding generation races against 500ms timeout; FTS5 fallback if model not warmed up
+- **Restore Zed client** — 5 supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed
+- **Non-blocking search** — embedding generation races against 500ms timeout; full-text fallback if model not warmed up
 - **Embedding warm-up** — model loads at server startup so first search gets semantic results
 - **Tags filter** — `knowledge-search` now accepts `tags` parameter for filtering
 - **Schema v5** — drops `capture_metrics` table, adds `content_hash` column for SimHash deduplication
@@ -37,7 +37,7 @@ Initial beta release.
 - **Three tools**: `knowledge-store`, `knowledge-search`, `knowledge-maintain`
 - **Six note kinds**: personalization, reference, decision, procedure, resource, observation
 - **Note lifecycle**: fleeting → permanent → archived
-- **Dual storage**: Markdown files (source of truth) + SQLite FTS5 index
+- **Dual storage**: Markdown files (source of truth) + SQLite full-text search index
 - **Wiki-links**: Obsidian-compatible `[[slug|display]]` format with backlink tracking
 - **Vector search**: Optional embedding support via OpenAI-compatible API
 - **CLI installer**: `bunx open-zk-kb` (npm) or `bun run setup` (source) for 4 clients

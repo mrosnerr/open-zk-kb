@@ -51,7 +51,7 @@ The system employs a hybrid storage strategy to balance portability with perform
 * **Filesystem is source of truth**: Notes are stored as individual Markdown files with YAML frontmatter. Filenames follow the pattern `{id}-{slug}.md`.
 * **SQLite is the index**: A SQLite database provides fast metadata queries, bidirectional link tracking, and full-text search via the FTS5 extension.
 * **Rebuildability**: The database can be fully reconstructed from the Markdown files at any time using the `knowledge-maintain rebuild` tool.
-* **Note IDs**: 12-digit timestamps (`YYYYMMDDHHmm`) with a collision counter ensure unique, chronologically sortable identifiers.
+* **Note IDs**: 16-digit timestamps (`YYYYMMDDHHmmss00`) with a 2-digit counter for same-second collisions ensure unique, chronologically sortable identifiers.
 * **Manual FTS5 Management**: To ensure reliability with TEXT primary keys, the system manually manages the FTS5 index using `ftsInsert`, `ftsDelete`, and `ftsUpdate` methods rather than database triggers.
 
 **Rationale**: Markdown files are portable, human-readable, and git-friendly. SQLite provides the indexing required for efficient search and relationship tracking.
@@ -72,10 +72,10 @@ The MCP server provides a reactive interface to the knowledge base:
 
 During setup, open-zk-kb automatically injects knowledge base instructions into each client's global instruction file. This guides the AI to proactively search and store knowledge without requiring manual configuration.
 
-* **Canonical source**: Instructions are shipped with the npm package in `agent-instructions.md`.
+* **Canonical source**: Instructions ship with the npm package in two variants: `agent-instructions-full.md` (~420 tokens, detailed) and `agent-instructions-compact.md` (~140 tokens, minimal). Each client has a default size configured in `CLIENT_CONFIGS`; users can override with `--instructions compact|full`.
 * **Managed markers**: Injected blocks are wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` and `<!-- OPEN-ZK-KB:END -->`), allowing safe upgrades and removal.
-* **Lifecycle management**: The `injectInstructions()` function (in `src/setup.ts`) handles installation; `removeInstructions()` handles uninstall. Re-running the installer updates only the content between markers, preserving user-added content outside the block.
-* **Client-specific paths**: Each client has a dedicated instruction file (e.g., `~/.config/opencode/AGENTS.md` for OpenCode, `~/.claude/CLAUDE.md` for Claude Code).
+* **Lifecycle management**: The `injectAgentDocs()` function (in `src/agent-docs.ts`) handles installation; `removeAgentDocs()` handles uninstall. Re-running the installer updates only the content between markers, preserving user-added content outside the block.
+* **Client-specific paths**: Each client has a dedicated instruction file (e.g., `~/.config/opencode/AGENTS.md` for OpenCode, `~/.claude/CLAUDE.md` for Claude Code, `~/.codeium/windsurf/memories/global_rules.md` for Windsurf).
 
 ## Configuration Architecture
 

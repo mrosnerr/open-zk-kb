@@ -2,32 +2,26 @@
 // setup.ts - Install/uninstall open-zk-kb MCP server to client configs
 // Can be run as CLI or used as module by MCP tools
 
-if (typeof globalThis.Bun === 'undefined') {
-  console.error(
-    'open-zk-kb requires the Bun runtime (uses bun:sqlite).\n' +
-    'Install Bun: https://bun.sh\n' +
-    'Then run: bunx open-zk-kb'
-  );
-  process.exit(1);
-}
-
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
+import { injectAgentDocs, removeAgentDocs } from './agent-docs.js';
+import type { InstructionSize } from './agent-docs.js';
 
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 
-export type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf';
+export type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf' | 'zed';
 
 export interface InstallArgs {
   client: McpClient;
   serverPath?: string;
   force?: boolean;
   dryRun?: boolean;
+  instructionSize?: InstructionSize;
 }
 
 export interface UninstallArgs {
@@ -43,6 +37,8 @@ export interface ClientConfig {
   configFormat: 'json' | 'jsonc';
   mcpPath: string[];
   mcpFormat: 'opencode' | 'standard';
+  agentDocsPath?: string;
+  instructionSize?: InstructionSize;
 }
 
 const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
@@ -52,6 +48,8 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcp', 'open-zk-kb'],
     mcpFormat: 'opencode',
+    agentDocsPath: path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
+    instructionSize: 'full',
   },
   'claude-code': {
     name: 'Claude Code',
@@ -59,6 +57,8 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
+    agentDocsPath: path.join(expandPath('~/.claude'), 'CLAUDE.md'),
+    instructionSize: 'full',
   },
   'cursor': {
     name: 'Cursor',
@@ -73,136 +73,55 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
+    agentDocsPath: path.join(expandPath('~/.codeium'), 'windsurf', 'memories', 'global_rules.md'),
+    instructionSize: 'compact',
+  },
+  'zed': {
+    name: 'Zed',
+    configPath: path.join(xdgConfigHome, 'zed', 'settings.json'),
+    configFormat: 'json',
+    mcpPath: ['context_servers', 'open-zk-kb'],
+    mcpFormat: 'standard',
   },
 };
 
-const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf'];
-
-const INSTRUCTION_MARKER_PREFIX = '<!-- OPEN-ZK-KB:START';
-const INSTRUCTION_MARKER_START = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
-const INSTRUCTION_MARKER_END = '<!-- OPEN-ZK-KB:END -->';
-
-const INSTRUCTION_FILE_PATHS: Record<McpClient, string> = {
-  'opencode': path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
-  'claude-code': path.join(expandPath('~/.claude'), 'CLAUDE.md'),
-  'cursor': path.join(expandPath('~/.cursor'), 'rules', 'open-zk-kb.mdc'),
-  'windsurf': path.join(expandPath('~/.windsurf'), 'rules', 'open-zk-kb.md'),
-};
-
-function loadCanonicalInstructions(): string {
-  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const templatePath = path.join(projectRoot, 'agent-instructions.md');
-  if (fs.existsSync(templatePath)) {
-    return fs.readFileSync(templatePath, 'utf-8').trim();
-  }
-  return [
-    '## Knowledge Base (open-zk-kb)',
-    '',
-    'ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.',
-    '',
-    '### Before Starting Work',
-    '- Search for relevant context: `knowledge-search` with a query describing your task',
-    '- Check for personalization notes (user preferences, coding style)',
-    '- Check for decision notes (past architectural choices)',
-    '',
-    '### While Working',
-    '- Store decisions, preferences, procedures, and insights via `knowledge-store`',
-    '- One concept per note. Include `summary` and `guidance` fields.',
-  ].join('\n');
-}
-
-function buildMarkedBlock(content: string): string {
-  return `${INSTRUCTION_MARKER_START}\n${content}\n${INSTRUCTION_MARKER_END}`;
-}
-
-function findMarkerIndices(content: string): { startIdx: number; endIdx: number } {
-  let startIdx = content.indexOf(INSTRUCTION_MARKER_START);
-  if (startIdx === -1) {
-    startIdx = content.indexOf(INSTRUCTION_MARKER_PREFIX);
-    if (startIdx !== -1 && content.indexOf('\n', startIdx) === -1) {
-      startIdx = -1;
-    }
-  }
-  const endIdx = content.indexOf(INSTRUCTION_MARKER_END);
-  return { startIdx, endIdx };
-}
-
-export function injectInstructions(filePath: string, dryRun: boolean = false): { updated: boolean; created: boolean } {
-  const instructions = loadCanonicalInstructions();
-  const markedBlock = buildMarkedBlock(instructions);
-
-  if (fs.existsSync(filePath)) {
-    const existing = fs.readFileSync(filePath, 'utf-8');
-    const { startIdx, endIdx } = findMarkerIndices(existing);
-
-    if (startIdx !== -1 && endIdx !== -1) {
-      const before = existing.substring(0, startIdx);
-      const after = existing.substring(endIdx + INSTRUCTION_MARKER_END.length);
-      const updated = before + markedBlock + after;
-      if (updated !== existing && !dryRun) {
-        fs.writeFileSync(filePath, updated);
-      }
-      return { updated: updated !== existing, created: false };
-    }
-
-    if (!dryRun) {
-      const separator = existing.endsWith('\n') ? '\n' : '\n\n';
-      fs.writeFileSync(filePath, existing + separator + markedBlock + '\n');
-    }
-    return { updated: true, created: false };
-  }
-
-  if (!dryRun) {
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(filePath, markedBlock + '\n');
-  }
-  return { updated: false, created: true };
-}
+const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf', 'zed'];
 
 const CLIENT_PROMPT_OPTIONS: Array<{ value: McpClient; label: string; hint: string }> = [
-  { value: 'opencode', label: 'OpenCode', hint: 'MCP server integration' },
+  { value: 'opencode', label: 'OpenCode', hint: 'Enhanced plugin with auto-capture' },
   { value: 'claude-code', label: 'Claude Code', hint: 'MCP server integration' },
   { value: 'cursor', label: 'Cursor', hint: 'MCP server integration' },
   { value: 'windsurf', label: 'Windsurf', hint: 'MCP server integration' },
+  { value: 'zed', label: 'Zed', hint: 'MCP server integration' },
 ];
 
 type McpEntry =
   | {
       type: 'local';
-      command: string[];
+      command: [string, ...string[]];
       enabled: true;
     }
   | {
-      command: string;
-      args: string[];
+      command: 'bun' | 'bunx';
+      args: [string, ...string[]];
     };
 
-function isNpmInstall(): boolean {
-  const scriptDir = path.dirname(fileURLToPath(import.meta.url));
-  const projectRoot = path.resolve(scriptDir, '..');
-  return !fs.existsSync(path.join(projectRoot, '.git'));
-}
-
-function buildMcpEntry(clientConfig: ClientConfig, serverPath: string | null): McpEntry {
-  // null serverPath = npm mode → use bunx
-  if (serverPath === null) {
+function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string): McpEntry {
+  if (!serverPath) {
     if (clientConfig.mcpFormat === 'opencode') {
       return {
         type: 'local',
-        command: ['bunx', 'open-zk-kb-server'],
+        command: ['bunx', 'open-zk-kb@latest', 'server'],
         enabled: true,
       };
     }
+
     return {
       command: 'bunx',
-      args: ['open-zk-kb-server'],
+      args: ['open-zk-kb@latest', 'server'],
     };
   }
 
-  // Explicit server path = local dev mode
   if (clientConfig.mcpFormat === 'opencode') {
     return {
       type: 'local',
@@ -217,16 +136,21 @@ function buildMcpEntry(clientConfig: ClientConfig, serverPath: string | null): M
   };
 }
 
-function detectServerPath(): string | null {
-  if (isNpmInstall()) {
-    return null; // npm mode — use bunx instead of absolute path
-  }
+function detectServerPath(): string | undefined {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
+  const projectRoot = path.resolve(scriptDir, '..');
+  if (!fs.existsSync(path.join(projectRoot, '.git'))) {
+    return undefined;
+  }
   const distPath = path.resolve(scriptDir, '..', 'dist', 'mcp-server.js');
   if (fs.existsSync(distPath)) {
     return distPath;
   }
   throw new Error('Could not detect server path. Please provide --server-path');
+}
+
+function formatServerCommand(serverPath?: string): string {
+  return serverPath ? `bun run ${serverPath}` : 'bunx open-zk-kb@latest server';
 }
 
 function getNestedValue(obj: any, path: string[]): any {
@@ -309,10 +233,10 @@ function getVaultStats(vaultPath: string): { noteCount: number; projectCount: nu
 
 export function install(args: InstallArgs): string {
   const clientConfig = CLIENT_CONFIGS[args.client];
-  const serverPath = args.serverPath ?? detectServerPath();
+  const serverPath = args.serverPath || detectServerPath();
   const vaultPath = getVaultPath();
   
-  if (serverPath !== null && !fs.existsSync(serverPath)) {
+  if (serverPath && !fs.existsSync(serverPath)) {
     throw new Error(`Server not found at: ${serverPath}`);
   }
   
@@ -335,7 +259,11 @@ export function install(args: InstallArgs): string {
   const mcpEntry = buildMcpEntry(clientConfig, serverPath);
   
   if (args.dryRun) {
-    return `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
+    let output = `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
+    if (clientConfig.agentDocsPath) {
+      output += `\nWould inject agent docs into ${clientConfig.agentDocsPath}`;
+    }
+    return output;
   }
   
   setNestedValue(config, clientConfig.mcpPath, mcpEntry);
@@ -352,6 +280,7 @@ export function install(args: InstallArgs): string {
     fs.mkdirSync(path.join(vaultPath, '.index'), { recursive: true });
   }
   
+  // Copy config.example.yaml → ~/.config/open-zk-kb/config.yaml if no config exists yet
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
   const configYamlDir = path.join(xdgConfigHome, 'open-zk-kb');
@@ -365,60 +294,29 @@ export function install(args: InstallArgs): string {
     configCopied = true;
   }
   
-  const instructionFilePath = INSTRUCTION_FILE_PATHS[args.client];
-  const injectionResult = injectInstructions(instructionFilePath, args.dryRun);
+  // Inject agent docs (instructions for the AI agent) into the client's docs file
+  let agentDocsResult: { action: string; filePath: string } | null = null;
+  if (clientConfig.agentDocsPath) {
+    const size = args.instructionSize || clientConfig.instructionSize || 'full';
+    agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun);
+  }
 
-  const serverDisplay = serverPath ?? 'bunx open-zk-kb-server';
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;
   output += `Config: ${clientConfig.configPath}\n`;
   output += `Vault: ${vaultPath}\n`;
-  output += `Server: ${serverDisplay}\n`;
-  output += `Instructions: ${instructionFilePath}\n\n`;
-
-  if (injectionResult.created) {
-    output += `Created ${instructionFilePath} with KB instructions.\n`;
-  } else if (injectionResult.updated) {
-    output += `Updated KB instructions in ${instructionFilePath}.\n`;
-  } else {
-    output += `KB instructions in ${instructionFilePath} already up to date.\n`;
+  output += `Server: ${formatServerCommand(serverPath)}\n`;
+  if (agentDocsResult) {
+    output += `Agent docs: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
   }
-
   output += `\nNext steps:\n`;
-  const step = { n: 1 };
   if (configCopied) {
-    output += `${step.n++}. (Optional) Edit ${configYamlPath} to configure API embeddings\n`;
+    output += `1. Edit ${configYamlPath} with your API key and preferences\n`;
+    output += `2. Restart ${clientConfig.name} to load the MCP server\n`;
+  } else {
+    output += `1. Restart ${clientConfig.name} to load the MCP server\n`;
   }
-  output += `${step.n++}. Restart ${clientConfig.name} to load the MCP server\n`;
   
   return output;
-}
-
-export function removeInstructions(filePath: string, dryRun: boolean = false): { removed: boolean } {
-  if (!fs.existsSync(filePath)) {
-    return { removed: false };
-  }
-
-  const content = fs.readFileSync(filePath, 'utf-8');
-  const { startIdx, endIdx } = findMarkerIndices(content);
-
-  if (startIdx === -1 || endIdx === -1) {
-    return { removed: false };
-  }
-
-  const before = content.substring(0, startIdx);
-  const after = content.substring(endIdx + INSTRUCTION_MARKER_END.length);
-  const joined = before + after;
-  const updated = joined.replace(/\n{3,}/g, '\n\n');
-
-  if (!dryRun) {
-    if (updated.trim().length === 0) {
-      fs.unlinkSync(filePath);
-    } else {
-      fs.writeFileSync(filePath, updated);
-    }
-  }
-
-  return { removed: true };
 }
 
 export function uninstall(args: UninstallArgs): string {
@@ -444,6 +342,9 @@ export function uninstall(args: UninstallArgs): string {
   
   if (args.dryRun) {
     let output = `Dry run: Would remove from ${clientConfig.configPath}\n`;
+    if (clientConfig.agentDocsPath) {
+      output += `Would remove agent docs from ${clientConfig.agentDocsPath}\n`;
+    }
     if (args.removeVault) {
       output += `\nWould also delete vault at ${vaultPath}`;
       const stats = getVaultStats(vaultPath);
@@ -478,22 +379,24 @@ export function uninstall(args: UninstallArgs): string {
   
   deleteNestedValue(config, clientConfig.mcpPath);
   fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
-  
-  const instructionFilePath = INSTRUCTION_FILE_PATHS[args.client];
-  const instructionResult = removeInstructions(instructionFilePath, args.dryRun);
+
+  // Remove agent docs (managed instruction block) from the client's docs file
+  let agentDocsResult: { action: string; filePath: string } | null = null;
+  if (clientConfig.agentDocsPath) {
+    agentDocsResult = removeAgentDocs(clientConfig.agentDocsPath, args.dryRun);
+  }
 
   let output = `Uninstalled open-zk-kb from ${clientConfig.name}\n\n`;
   output += `Removed from: ${clientConfig.configPath}\n`;
-  
-  if (instructionResult.removed) {
-    output += `Removed KB instructions from: ${instructionFilePath}\n`;
+  if (agentDocsResult && agentDocsResult.action !== 'not-found') {
+    output += `Agent docs: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
   }
 
   if (args.removeVault && args.confirm) {
     output += `Deleted vault: ${vaultPath}\n`;
   } else {
     output += `Vault preserved at: ${vaultPath}\n`;
-    output += `Reinstall anytime with: bunx open-zk-kb install --client ${args.client}\n`;
+    output += `Reinstall anytime with: bunx open-zk-kb@latest install --client ${args.client}\n`;
   }
   
   return output;
@@ -522,8 +425,9 @@ function printHelp(): void {
 
 install:
   (no flags)           Interactive client selection
-  --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf)
+  --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed)
   --server-path <path> Path to dist/mcp-server.js (auto-detected)
+  --instructions <size> Agent instruction size: compact (~140 tokens) or full (~420 tokens)
   --force              Overwrite existing config
   --dry-run            Preview changes without applying
   --yes                Non-interactive, accept defaults
@@ -537,88 +441,34 @@ uninstall:
   --yes                Non-interactive, accept defaults`);
 }
 
-// CLI entry point
-if (import.meta.main) {
-  const run = async (): Promise<void> => {
-    const rawArgs = process.argv.slice(2);
-    const firstArg = rawArgs[0];
-    const hasSubcommand = firstArg === 'install' || firstArg === 'uninstall';
-    const command: 'install' | 'uninstall' = hasSubcommand ? firstArg : 'install';
-    const args = hasSubcommand ? rawArgs.slice(1) : rawArgs;
+export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Promise<void> {
+  const firstArg = rawArgs[0];
+  const hasSubcommand = firstArg === 'install' || firstArg === 'uninstall';
+  const command: 'install' | 'uninstall' = hasSubcommand ? firstArg : 'install';
+  const args = hasSubcommand ? rawArgs.slice(1) : rawArgs;
 
-    if (firstArg === '--help' || firstArg === '-h') {
-      printHelp();
-      process.exit(0);
-    }
+  if (firstArg === '--help' || firstArg === '-h') {
+    printHelp();
+    process.exit(0);
+  }
 
-    if (firstArg && !hasSubcommand && !firstArg.startsWith('--')) {
-      printHelp();
-      process.exit(1);
-    }
+  if (firstArg && !hasSubcommand && !firstArg.startsWith('--')) {
+    printHelp();
+    process.exit(1);
+  }
 
-    if (command === 'install') {
-      const force = args.includes('--force');
-      const dryRun = args.includes('--dry-run');
-      const yes = args.includes('--yes');
-      const serverPath = parseFlagValue(args, '--server-path');
-      const clientArg = parseFlagValue(args, '--client');
-      let client: McpClient | undefined;
-
-      if (clientArg !== undefined) {
-        if (!isMcpClient(clientArg)) {
-          throw new Error(`Invalid client: ${clientArg}`);
-        }
-        client = clientArg;
-      }
-
-      if (client) {
-        const result = install({ client, serverPath, force, dryRun });
-        console.log(result);
-        return;
-      }
-
-      if (yes) {
-        for (const client of ALL_CLIENTS) {
-          const result = install({ client, serverPath, force, dryRun });
-          console.log(result);
-        }
-        return;
-      }
-
-      p.intro(color.cyan('open-zk-kb — Knowledge Base Setup'));
-      const selected = await p.multiselect<McpClient>({
-        message: 'Select clients to install:',
-        options: CLIENT_PROMPT_OPTIONS,
-      });
-
-      if (p.isCancel(selected)) {
-        p.cancel('Setup cancelled.');
-        process.exit(0);
-      }
-
-      if (selected.length === 0) {
-        p.cancel('Setup cancelled.');
-        process.exit(0);
-      }
-
-      for (const client of selected) {
-        try {
-          install({ client, serverPath, force, dryRun });
-          p.log.success(`Installed for ${CLIENT_CONFIGS[client].name}`);
-        } catch (e) {
-          p.log.error(`${CLIENT_CONFIGS[client].name}: ${e instanceof Error ? e.message : e}`);
-          process.exitCode = 1;
-        }
-      }
-
-      p.outro('Done! Restart your editor to load the MCP server.');
-      return;
-    }
-
-    const removeVault = args.includes('--remove-vault');
+  if (command === 'install') {
+    const force = args.includes('--force');
     const dryRun = args.includes('--dry-run');
     const yes = args.includes('--yes');
+    const serverPath = parseFlagValue(args, '--server-path');
     const clientArg = parseFlagValue(args, '--client');
+    const instructionsArg = parseFlagValue(args, '--instructions');
+    const instructionSize: InstructionSize | undefined =
+      instructionsArg === 'compact' || instructionsArg === 'full' ? instructionsArg : undefined;
+    if (instructionsArg && !instructionSize) {
+      throw new Error(`Invalid --instructions value: ${instructionsArg}. Use 'compact' or 'full'.`);
+    }
     let client: McpClient | undefined;
 
     if (clientArg !== undefined) {
@@ -629,24 +479,22 @@ if (import.meta.main) {
     }
 
     if (client) {
-      const confirm = args.includes('--confirm') || (yes && removeVault);
-      const result = uninstall({ client, removeVault, confirm, dryRun });
+      const result = install({ client, serverPath, force, dryRun, instructionSize });
       console.log(result);
       return;
     }
 
     if (yes) {
-      const confirm = removeVault;
       for (const client of ALL_CLIENTS) {
-        const result = uninstall({ client, removeVault, confirm, dryRun });
+        const result = install({ client, serverPath, force, dryRun, instructionSize });
         console.log(result);
       }
       return;
     }
 
-    p.intro(color.yellow('open-zk-kb — Uninstall'));
+    p.intro(color.cyan('open-zk-kb — Knowledge Base Setup'));
     const selected = await p.multiselect<McpClient>({
-      message: 'Select clients to uninstall from:',
+      message: `Select clients to install:\n${color.dim('space to select, enter to confirm')}`,
       options: CLIENT_PROMPT_OPTIONS,
     });
 
@@ -660,50 +508,110 @@ if (import.meta.main) {
       process.exit(0);
     }
 
-    const removeVaultPrompt = await p.confirm({
-      message: 'Also remove the knowledge vault? (irreversible)',
-      initialValue: false,
-    });
-
-    if (p.isCancel(removeVaultPrompt)) {
-      p.cancel('Setup cancelled.');
-      process.exit(0);
-    }
-
-    let confirm = false;
-    if (removeVaultPrompt) {
-      const secondConfirm = await p.confirm({
-        message: color.red('This will permanently delete your vault. Continue?'),
-        initialValue: false,
-      });
-
-      if (p.isCancel(secondConfirm)) {
-        p.cancel('Setup cancelled.');
-        process.exit(0);
-      }
-
-      if (!secondConfirm) {
-        p.cancel('Setup cancelled.');
-        process.exit(0);
-      }
-
-      confirm = true;
-    }
-
     for (const client of selected) {
       try {
-        uninstall({ client, removeVault: removeVaultPrompt, confirm, dryRun });
-        p.log.success(`Uninstalled from ${CLIENT_CONFIGS[client].name}`);
+        install({ client, serverPath, force, dryRun, instructionSize });
+        p.log.success(`Installed for ${CLIENT_CONFIGS[client].name}`);
       } catch (e) {
         p.log.error(`${CLIENT_CONFIGS[client].name}: ${e instanceof Error ? e.message : e}`);
         process.exitCode = 1;
       }
     }
 
-    p.outro('Done!');
-  };
+    p.outro('Done! Restart your editor to load the MCP server.');
+    return;
+  }
 
-  run().catch((e) => {
+  const removeVault = args.includes('--remove-vault');
+  const dryRun = args.includes('--dry-run');
+  const yes = args.includes('--yes');
+  const clientArg = parseFlagValue(args, '--client');
+  let client: McpClient | undefined;
+
+  if (clientArg !== undefined) {
+    if (!isMcpClient(clientArg)) {
+      throw new Error(`Invalid client: ${clientArg}`);
+    }
+    client = clientArg;
+  }
+
+  if (client) {
+    const confirm = args.includes('--confirm') || (yes && removeVault);
+    const result = uninstall({ client, removeVault, confirm, dryRun });
+    console.log(result);
+    return;
+  }
+
+  if (yes) {
+    const confirm = removeVault;
+    for (const client of ALL_CLIENTS) {
+      const result = uninstall({ client, removeVault, confirm, dryRun });
+      console.log(result);
+    }
+    return;
+  }
+
+  p.intro(color.yellow('open-zk-kb — Uninstall'));
+  const selected = await p.multiselect<McpClient>({
+    message: `Select clients to uninstall from:\n${color.dim('space to select, enter to confirm')}`,
+    options: CLIENT_PROMPT_OPTIONS,
+  });
+
+  if (p.isCancel(selected)) {
+    p.cancel('Setup cancelled.');
+    process.exit(0);
+  }
+
+  if (selected.length === 0) {
+    p.cancel('Setup cancelled.');
+    process.exit(0);
+  }
+
+  const removeVaultPrompt = await p.confirm({
+    message: 'Also remove the knowledge vault? (irreversible)',
+    initialValue: false,
+  });
+
+  if (p.isCancel(removeVaultPrompt)) {
+    p.cancel('Setup cancelled.');
+    process.exit(0);
+  }
+
+  let confirm = false;
+  if (removeVaultPrompt) {
+    const secondConfirm = await p.confirm({
+      message: color.red('This will permanently delete your vault. Continue?'),
+      initialValue: false,
+    });
+
+    if (p.isCancel(secondConfirm)) {
+      p.cancel('Setup cancelled.');
+      process.exit(0);
+    }
+
+    if (!secondConfirm) {
+      p.cancel('Setup cancelled.');
+      process.exit(0);
+    }
+
+    confirm = true;
+  }
+
+  for (const client of selected) {
+    try {
+      uninstall({ client, removeVault: removeVaultPrompt, confirm, dryRun });
+      p.log.success(`Uninstalled from ${CLIENT_CONFIGS[client].name}`);
+    } catch (e) {
+      p.log.error(`${CLIENT_CONFIGS[client].name}: ${e instanceof Error ? e.message : e}`);
+      process.exitCode = 1;
+    }
+  }
+
+  p.outro('Done!');
+}
+
+if (import.meta.main) {
+  runSetupCli().catch((e) => {
     console.error(`Error: ${e instanceof Error ? e.message : e}`);
     process.exit(1);
   });
