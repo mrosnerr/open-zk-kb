@@ -25,16 +25,16 @@ function tool(name: string, args: Record<string, unknown>): void {
     .filter(([k]) => k === 'title' || k === 'query' || k === 'action')
     .map(([, v]) => v)
     .join(' ');
-  console.log(color.dim(`⚙ ${name}`) + color.dim(brief ? ` ${brief}` : ''));
+  console.log(color.dim(`  ⚙ ${name}`) + color.dim(brief ? ` ${brief}` : ''));
 }
 
 // Curated answers — what a capable model would produce with the cooking preference
-const ANSWERS: Array<{ prompt: string; label: string; metaphor: string }> = [
-  { prompt: 'What is a deadlock?', label: 'Deadlock', metaphor: 'Two chefs blocking the kitchen door, each waiting for the other to move' },
-  { prompt: 'What is a race condition?', label: 'Race condition', metaphor: 'Two cooks grabbing the last egg at the same time' },
-  { prompt: 'What is a cache?', label: 'Cache', metaphor: 'Keeping your most-used spices on the counter instead of the pantry' },
-  { prompt: 'What is recursion?', label: 'Recursion', metaphor: 'A recipe that says "follow this recipe again" as step one' },
-  { prompt: 'What is garbage collection?', label: 'Garbage collection', metaphor: 'Clearing plates while the dinner party is still going' },
+const ANSWERS: Array<{ label: string; metaphor: string }> = [
+  { label: 'Deadlock', metaphor: 'Two chefs blocking the kitchen door, each waiting for the other to move' },
+  { label: 'Race condition', metaphor: 'Two cooks grabbing the last egg at the same time' },
+  { label: 'Cache', metaphor: 'Keeping your most-used spices on the counter instead of the pantry' },
+  { label: 'Recursion', metaphor: 'A recipe that says "follow this recipe again" as step one' },
+  { label: 'Garbage collection', metaphor: 'Clearing plates while the dinner party is still going' },
 ];
 
 async function main() {
@@ -58,8 +58,6 @@ async function main() {
   try {
     // ── Store ──
     console.log(color.cyan('\n─── knowledge-store ───────────────────────────────────\n'));
-    console.log(color.dim('Storing a user preference...\n'));
-    await sleep(500);
 
     const pref = {
       title: 'Explain technical concepts using cooking metaphors',
@@ -68,15 +66,18 @@ async function main() {
       summary: 'Explain technical concepts with cooking metaphors.',
       guidance: 'Always explain technical concepts using cooking and kitchen metaphors.',
     };
+
+    console.log(color.white('  > "Always explain technical concepts using cooking metaphors"\n'));
+    await sleep(500);
     tool('knowledge-store', pref);
     await client.callTool({ name: 'knowledge-store', arguments: pref });
-    console.log(color.green('✓ Stored as personalization'));
+    console.log(color.green('  ✓ Stored as personalization'));
     await sleep(5000);
 
-    // ── Search KB ──
+    // ── Search + answers ──
     clear();
     console.log(color.cyan('\n─── knowledge-search ──────────────────────────────────\n'));
-    console.log(color.dim('Searching KB for preferences before answering...\n'));
+    console.log(color.white('  > "Explain these: deadlock, race condition, cache, recursion, GC"\n'));
     await sleep(500);
 
     const searchArgs = { query: 'explanation preferences', limit: 3 };
@@ -88,19 +89,14 @@ async function main() {
     const guidanceMatch = context.match(/<guidance>([\s\S]*?)<\/guidance>/);
     const preference = guidanceMatch?.[1]?.trim() || '';
     if (preference) {
-      console.log(color.green(`  ✓ ${preference}`));
+      console.log(color.green(`  ✓ Found preference: ${preference}`));
     }
 
     await sleep(2000);
+    console.log('');
 
-    // ── Show curated answers with preference applied ──
-    console.log(color.dim('\nApplying preference to answer questions...\n'));
-
-    for (const { prompt, label, metaphor } of ANSWERS) {
-      console.log(color.dim(`  > ${prompt}`));
-      await sleep(400);
+    for (const { label, metaphor } of ANSWERS) {
       console.log(`  ${color.white(label)} ${color.dim('—')} ${color.dim(`"${metaphor}"`)}`);
-      console.log('');
       await sleep(800);
     }
     await sleep(5000);
