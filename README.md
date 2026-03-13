@@ -18,6 +18,8 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 
 <p align="center">
   <img src="assets/demo.gif" alt="open-zk-kb demo" width="640">
+  <br>
+  <sub>Generated live with <a href="https://huggingface.co/onnx-community/Qwen2.5-1.5B-Instruct">Qwen2.5-1.5B</a> running locally — no API keys, no cloud.</sub>
 </p>
 
 ## Why open-zk-kb?

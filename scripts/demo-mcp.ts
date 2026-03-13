@@ -30,32 +30,36 @@ function tool(name: string, args: Record<string, unknown>): void {
   console.log(color.dim(`⚙ ${name}`) + color.dim(brief ? ` ${brief}` : ''));
 }
 
-function extractCode(response: string): string {
-  const fenced = response.match(/```\w*\n([\s\S]*?)```/);
-  if (fenced) return fenced[1].trimEnd();
-  return response.trim();
-}
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let cachedGenerator: any = null;
 
 async function generateResponse(systemPrompt: string, userPrompt: string): Promise<string> {
-  const { pipeline, env } = await import('@huggingface/transformers');
-  const cacheDir = process.env.XDG_CACHE_HOME
-    ? `${process.env.XDG_CACHE_HOME}/open-zk-kb/models`
-    : `${process.env.HOME}/.cache/open-zk-kb/models`;
-  env.cacheDir = cacheDir;
+  if (!cachedGenerator) {
+    const { pipeline, env } = await import('@huggingface/transformers');
+    const cacheDir = process.env.XDG_CACHE_HOME
+      ? `${process.env.XDG_CACHE_HOME}/open-zk-kb/models`
+      : `${process.env.HOME}/.cache/open-zk-kb/models`;
+    env.cacheDir = cacheDir;
+    cachedGenerator = await pipeline('text-generation', GENERATION_MODEL, { dtype: 'q4' });
+  }
 
-  const generator = await pipeline('text-generation', GENERATION_MODEL, { dtype: 'q4' });
   const messages = [
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
   ];
-  const output = await generator(messages, { max_new_tokens: 200, temperature: 0.1 });
+  const output = await cachedGenerator(messages, { max_new_tokens: 20, temperature: 0.1 });
   const result = output as Array<{ generated_text: Array<{ role: string; content: string }> }>;
   const genMessages = result[0]?.generated_text;
   return genMessages?.[genMessages.length - 1]?.content || '';
 }
 
-// Classic Brainfuck "Hello World" — the prompt asks the model to explain it
-const BRAINFUCK_SNIPPET = `++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.`;
+const QUESTIONS: Array<{ label: string; prompt: string }> = [
+  { label: 'Deadlock', prompt: 'What is a deadlock?' },
+  { label: 'Race condition', prompt: 'What is a race condition?' },
+  { label: 'Cache', prompt: 'What is a cache?' },
+  { label: 'Recursion', prompt: 'What is recursion? Think: a recipe that references itself.' },
+  { label: 'Garbage collection', prompt: 'What is garbage collection?' },
+];
 
 async function main() {
   const tmpDir = '/tmp/kb-demo';
@@ -76,71 +80,55 @@ async function main() {
   await client.connect(transport);
 
   try {
-    // ── Store two preferences ──
+    // ── Store ──
     console.log(color.cyan('\n─── knowledge-store ───────────────────────────────────\n'));
-    console.log(color.dim('Storing user preferences...\n'));
+    console.log(color.dim('Storing a user preference...\n'));
     await sleep(500);
 
-    const pref1 = {
-      title: 'Explain code using cooking metaphors',
-      content: 'When explaining code, use cooking metaphors. Describe functions as recipes, variables as ingredients, loops as repeated stirring, and conditionals as taste-testing. Make technical concepts feel like a kitchen walkthrough.',
+    const pref = {
+      title: 'Explain technical concepts using cooking metaphors',
+      content: 'When explaining technical concepts, always use cooking and kitchen metaphors. Functions are recipes, variables are ingredients, loops are repeated stirring, conditionals are taste-testing, caches are spice racks, and errors are burnt dishes.',
       kind: 'personalization',
-      summary: 'Explain code with cooking metaphors.',
-      guidance: 'Always explain code using cooking and kitchen metaphors — functions are recipes, variables are ingredients, loops are stirring, conditionals are taste tests.',
+      summary: 'Explain technical concepts with cooking metaphors.',
+      guidance: 'Always explain technical concepts using cooking and kitchen metaphors.',
     };
-    tool('knowledge-store', pref1);
-    await client.callTool({ name: 'knowledge-store', arguments: pref1 });
-    console.log(color.green('✓ Stored: cooking metaphors preference'));
-    await sleep(1000);
-
-    const pref2 = {
-      title: 'Show code examples in Python',
-      content: 'When showing code examples or translations, always use Python. User is most comfortable reading Python and prefers it for illustrating concepts.',
-      kind: 'personalization',
-      summary: 'Show code examples in Python.',
-      guidance: 'When showing equivalent code or examples, always use Python.',
-    };
-    tool('knowledge-store', pref2);
-    await client.callTool({ name: 'knowledge-store', arguments: pref2 });
-    console.log(color.green('✓ Stored: Python examples preference'));
+    tool('knowledge-store', pref);
+    await client.callTool({ name: 'knowledge-store', arguments: pref });
+    console.log(color.green('✓ Stored as personalization'));
     await sleep(5000);
 
-    // ── Search KB + explain esoteric code ──
+    // ── Search KB ──
     clear();
     console.log(color.cyan('\n─── knowledge-search ──────────────────────────────────\n'));
     console.log(color.dim('Searching KB for preferences before answering...\n'));
     await sleep(500);
 
-    const searchArgs = { query: 'code explanation preferences', limit: 5 };
+    const searchArgs = { query: 'explanation preferences', limit: 3 };
     tool('knowledge-search', searchArgs);
     const searchResult = await client.callTool({ name: 'knowledge-search', arguments: searchArgs });
     const context = text(searchResult);
     await sleep(300);
 
-    // Show that both preferences were found
-    const guidances: string[] = [];
-    for (const match of context.matchAll(/<guidance>([\s\S]*?)<\/guidance>/g)) {
-      guidances.push(match[1].trim());
+    const guidanceMatch = context.match(/<guidance>([\s\S]*?)<\/guidance>/);
+    const preference = guidanceMatch?.[1]?.trim() || '';
+    if (preference) {
+      console.log(color.green(`  ✓ ${preference}`));
     }
-    for (const g of guidances) {
-      console.log(color.green(`  ✓ ${g}`));
-    }
-    const preferenceBlock = guidances.length > 0
-      ? guidances.join(' ')
-      : 'Explain code with cooking metaphors and show examples in Python.';
 
     await sleep(2000);
-    console.log(color.dim('\nApplying preferences to explain Brainfuck snippet...\n'));
-    console.log(color.yellow(`  ${BRAINFUCK_SNIPPET.slice(0, 60)}...`));
-    console.log('');
 
-    const systemPrompt = `You are a helpful coding assistant. Follow these user preferences exactly: ${preferenceBlock}`;
-    const userPrompt = `Explain what this Brainfuck program does and show the Python equivalent:\n\n${BRAINFUCK_SNIPPET}`;
+    // ── Generate answers with preference applied ──
+    console.log(color.dim('\nApplying preference to answer questions...\n'));
 
-    const response = await generateResponse(systemPrompt, userPrompt);
+    const systemPrompt = `You are a helpful assistant. Respond with ONLY a short cooking metaphor, 5-10 words max. No explanation, no preamble, just the metaphor. ${preference}`;
 
-    for (const line of response.split('\n')) {
-      console.log(`  ${line}`);
+    for (const { label, prompt } of QUESTIONS) {
+      const response = await generateResponse(systemPrompt, prompt);
+      const raw = response.replace(/^["']|["']$/g, '').split('\n')[0].trim();
+      // Strip "X is like" prefix and take up to the first comma, period, or semicolon
+      const stripped = raw.replace(/^.*?\bis (like )?/i, '').replace(/[.;,!].*$/, '').trim();
+      const metaphor = stripped.charAt(0).toUpperCase() + stripped.slice(1);
+      console.log(`  ${color.white(label)} ${color.dim('—')} ${color.dim(`"${metaphor}"`)}`);
     }
     await sleep(5000);
 
