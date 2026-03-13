@@ -701,6 +701,18 @@ describe('getLatestVersion', () => {
     expect(await getLatestVersion('open-zk-kb')).toBe('1.2.3');
     expect(calls).toBe(1);
   });
+
+  it('should cache non-OK responses', async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls++;
+      return new Response('Not Found', { status: 404 });
+    }) as any;
+
+    expect(await getLatestVersion('missing-package')).toBeNull();
+    expect(await getLatestVersion('missing-package')).toBeNull();
+    expect(calls).toBe(1);
+  });
 });
 
 // ---- Semver comparison tests ----

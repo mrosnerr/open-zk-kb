@@ -34,7 +34,11 @@ function spliceManagedBlock(content: string, replacement: string): string {
   }
 
   if (endIdx !== -1) {
-    return replacement + content.slice(endIdx + END_MARKER.length);
+    const cleaned = joinRemainingContent(
+      content.slice(0, endIdx),
+      content.slice(endIdx + END_MARKER.length)
+    );
+    return appendManagedBlock(cleaned, replacement);
   }
 
   const separator = content.length > 0 && !content.endsWith('\n') ? '\n\n' : content.length > 0 ? '\n' : '';
@@ -47,6 +51,11 @@ function joinRemainingContent(before: string, after: string): string {
 
   if (left && right) return `${left}\n\n${right}`;
   return left || right;
+}
+
+function appendManagedBlock(content: string, replacement: string): string {
+  const separator = content.length > 0 ? '\n\n' : '';
+  return `${content}${separator}${replacement}\n`;
 }
 
 /**
@@ -122,6 +131,7 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
   } else if (startIdx !== -1) {
     removeStart = startIdx;
   } else if (endIdx !== -1) {
+    removeStart = endIdx;
     removeEnd = endIdx + END_MARKER.length;
   }
 
