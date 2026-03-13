@@ -48,11 +48,14 @@ async function generateResponse(systemPrompt: string, userPrompt: string): Promi
     { role: 'system', content: systemPrompt },
     { role: 'user', content: userPrompt },
   ];
-  const output = await generator(messages, { max_new_tokens: 120, temperature: 0.1 });
+  const output = await generator(messages, { max_new_tokens: 200, temperature: 0.1 });
   const result = output as Array<{ generated_text: Array<{ role: string; content: string }> }>;
   const genMessages = result[0]?.generated_text;
   return genMessages?.[genMessages.length - 1]?.content || '';
 }
+
+// Classic Brainfuck "Hello World" — the prompt asks the model to explain it
+const BRAINFUCK_SNIPPET = `++++++++[>++++[>++>+++>+++>+<<<<-]>+>+>->>+[<]<-]>>.>---.+++++++..+++.>>.<-.<.+++.------.--------.>>+.>++.`;
 
 async function main() {
   const tmpDir = '/tmp/kb-demo';
@@ -73,47 +76,67 @@ async function main() {
   await client.connect(transport);
 
   try {
-    // ── Store ──
+    // ── Store two preferences ──
     console.log(color.cyan('\n─── knowledge-store ───────────────────────────────────\n'));
-    console.log(color.dim('Storing a user preference note...\n'));
+    console.log(color.dim('Storing user preferences...\n'));
     await sleep(500);
 
-    const storeArgs = {
-      title: 'Prefer Elixir for backend development',
-      content: 'Use Elixir and Phoenix for backend services. Elixir offers fault-tolerant concurrency via the BEAM VM, pattern matching, and excellent tooling with Mix.',
+    const pref1 = {
+      title: 'Explain code using cooking metaphors',
+      content: 'When explaining code, use cooking metaphors. Describe functions as recipes, variables as ingredients, loops as repeated stirring, and conditionals as taste-testing. Make technical concepts feel like a kitchen walkthrough.',
       kind: 'personalization',
-      summary: 'Prefer Elixir/Phoenix for backend projects.',
-      guidance: 'Default to Elixir when writing backend code unless otherwise specified.',
+      summary: 'Explain code with cooking metaphors.',
+      guidance: 'Always explain code using cooking and kitchen metaphors — functions are recipes, variables are ingredients, loops are stirring, conditionals are taste tests.',
     };
-    tool('knowledge-store', storeArgs);
-    await client.callTool({ name: 'knowledge-store', arguments: storeArgs });
-    await sleep(800);
+    tool('knowledge-store', pref1);
+    await client.callTool({ name: 'knowledge-store', arguments: pref1 });
+    console.log(color.green('✓ Stored: cooking metaphors preference'));
+    await sleep(1000);
 
-    console.log(color.green('✓ Stored as personalization'));
+    const pref2 = {
+      title: 'Show code examples in Python',
+      content: 'When showing code examples or translations, always use Python. User is most comfortable reading Python and prefers it for illustrating concepts.',
+      kind: 'personalization',
+      summary: 'Show code examples in Python.',
+      guidance: 'When showing equivalent code or examples, always use Python.',
+    };
+    tool('knowledge-store', pref2);
+    await client.callTool({ name: 'knowledge-store', arguments: pref2 });
+    console.log(color.green('✓ Stored: Python examples preference'));
     await sleep(5000);
 
-    // ── Search + code generation ──
+    // ── Search KB + explain esoteric code ──
     clear();
     console.log(color.cyan('\n─── knowledge-search ──────────────────────────────────\n'));
-    console.log(color.dim('Searching KB before generating code...\n'));
+    console.log(color.dim('Searching KB for preferences before answering...\n'));
     await sleep(500);
 
-    const searchArgs = { query: 'language preference', limit: 3 };
+    const searchArgs = { query: 'code explanation style and language preference', limit: 5 };
     tool('knowledge-search', searchArgs);
     const searchResult = await client.callTool({ name: 'knowledge-search', arguments: searchArgs });
     const context = text(searchResult);
     await sleep(300);
 
-    const guidanceMatch = context.match(/<guidance>([\s\S]*?)<\/guidance>/);
-    const summaryMatch = context.match(/<summary>([\s\S]*?)<\/summary>/);
-    const preference = guidanceMatch?.[1] || summaryMatch?.[1] || '';
-    const systemPrompt = `You are a helpful coding assistant. User preference: ${preference} Write concise code without explanation.`;
-    const response = await generateResponse(systemPrompt, 'Write a function to reverse a string');
-    const code = extractCode(response);
+    // Extract guidance from KB results
+    const guidances: string[] = [];
+    for (const match of context.matchAll(/<guidance>([\s\S]*?)<\/guidance>/g)) {
+      guidances.push(match[1].trim());
+    }
+    const preferenceBlock = guidances.length > 0
+      ? guidances.join(' ')
+      : 'Explain code with cooking metaphors and show examples in Python.';
 
-    console.log(color.green('Here\'s a string reversal function:\n'));
-    for (const line of code.split('\n')) {
-      console.log(color.dim(`  ${line}`));
+    const systemPrompt = `You are a helpful coding assistant. Follow these user preferences exactly: ${preferenceBlock}`;
+    const userPrompt = `Explain what this Brainfuck program does and show the Python equivalent:\n\n${BRAINFUCK_SNIPPET}`;
+
+    console.log(color.dim('\nBrainfuck snippet:\n'));
+    console.log(color.yellow(`  ${BRAINFUCK_SNIPPET.slice(0, 60)}...`));
+    console.log(color.dim('\nGenerating explanation with KB preferences applied...\n'));
+
+    const response = await generateResponse(systemPrompt, userPrompt);
+
+    for (const line of response.split('\n')) {
+      console.log(`  ${line}`);
     }
     await sleep(5000);
 
