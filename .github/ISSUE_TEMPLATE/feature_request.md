@@ -14,4 +14,4 @@ How you'd like it to work.
 Any other approaches you've thought about.
 
 **Context**
-Which mode are you using? (MCP server, OpenCode plugin, or both)
+Which client are you using? (OpenCode, Claude Code, Cursor, Windsurf, Zed, or another MCP client)

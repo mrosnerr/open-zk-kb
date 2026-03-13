@@ -17,7 +17,7 @@ What should happen instead.
 **Environment**
 - OS: [e.g., macOS 15, Ubuntu 24.04]
 - Bun version: [output of `bun --version`]
-- Client: [e.g., Claude Code, Cursor, OpenCode]
+- Client: [e.g., OpenCode, Claude Code, Cursor, Windsurf, Zed]
 - open-zk-kb version: [e.g., 2.0.0]
 
 **Logs**

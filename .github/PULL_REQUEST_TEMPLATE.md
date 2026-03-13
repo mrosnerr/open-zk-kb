@@ -18,6 +18,6 @@
 - [ ] `bun test` passes
 - [ ] `bun run lint` passes
 - [ ] New features include tests
-- [ ] No `console.log` in server/plugin code (use `logToFile()`)
+- [ ] No `console.log` in server code (use `logToFile()`)
 - [ ] No `as any`, `@ts-ignore`, or `@ts-expect-error`
 - [ ] Documentation updated if applicable
