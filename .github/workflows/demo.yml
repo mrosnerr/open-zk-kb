@@ -28,14 +28,16 @@ jobs:
       - name: Build
         run: bun run build
 
+      - name: Install ffmpeg and ttyd
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg ttyd
+
       - name: Install VHS
         run: |
           curl -fsSL https://github.com/charmbracelet/vhs/releases/download/v0.10.0/vhs_0.10.0_amd64.deb -o vhs.deb
-          sudo dpkg -i vhs.deb
+          sudo apt-get install -y ./vhs.deb
           rm vhs.deb
-
-      - name: Install ttyd (VHS dependency)
-        run: sudo apt-get install -y ttyd
 
       - name: Cache embedding model
         uses: actions/cache@v5

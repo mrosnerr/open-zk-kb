@@ -94,7 +94,10 @@ export class NoteRepository {
           path: dbDir,
           error: error instanceof Error ? error.message : String(error),
         });
-        throw new Error(`Failed to create database directory at ${dbDir}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `Failed to create database directory at ${dbDir}: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error }
+        );
       }
 
       try {
@@ -106,7 +109,10 @@ export class NoteRepository {
           path: this.docsPath,
           error: error instanceof Error ? error.message : String(error),
         });
-        throw new Error(`Failed to create docs directory at ${this.docsPath}: ${error instanceof Error ? error.message : String(error)}`);
+        throw new Error(
+          `Failed to create docs directory at ${this.docsPath}: ${error instanceof Error ? error.message : String(error)}`,
+          { cause: error }
+        );
       }
 
       this.db = new Database(this.dbPath);
