@@ -14,8 +14,12 @@ Persistent knowledge base for AI coding assistants. Stores decisions, preference
 > - [ ] Smooth out setup and instruction injection edge cases
 > - [ ] Lock down the MCP tool/API surface for a 1.0 release
 
+## Demo
+
 <p align="center">
   <img src="assets/demo.gif" alt="open-zk-kb demo" width="640">
+  <br>
+  <sub>Real MCP calls — store, search, and stats run against a live knowledge base.</sub>
 </p>
 
 ## Why open-zk-kb?

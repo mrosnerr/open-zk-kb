@@ -24,7 +24,7 @@ tests/
 ├── docker/                # Docker-based integration tests
 │   ├── smoke-test.sh      # Full install/uninstall + MCP protocol + KB round-trip
 │   ├── mcp-protocol-test.ts   # MCP protocol compliance
-│   ├── model-smoke-test.ts    # Local model quality validation
+│   ├── model-smoke-test.ts    # Local embedding model validation
 │   └── Dockerfile
 └── eval/                  # Agent evaluation suite (EVAL=1 to enable)
     ├── eval.test.ts       # Entry — describe.skipIf(!process.env.EVAL)

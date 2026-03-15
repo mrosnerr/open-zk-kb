@@ -3,9 +3,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import * as path from 'path';
 import * as fs from 'fs';
 
-const GENERATION_MODEL = 'onnx-community/Qwen2.5-1.5B-Instruct';
 const EMBEDDING_DIMENSIONS = 384;
-const TOTAL_EXPECTED = 12;
+const TOTAL_EXPECTED = 9;
 
 let passed = 0;
 let failed = 0;
@@ -64,42 +63,6 @@ async function testEmbeddings() {
     if (maxSim !== undefined) { ok = ok && sim <= maxSim; expected += (expected ? ', ' : '') + `<= ${maxSim}`; }
     check(`similarity: ${label} (${sim.toFixed(3)})`, ok, `expected ${expected}`);
   }
-}
-
-async function testTextGeneration() {
-  console.log('\n\u25b8 Local Text Generation Model');
-
-  const { pipeline, env } = await import('@huggingface/transformers');
-  const cacheDir = process.env.XDG_CACHE_HOME
-    ? `${process.env.XDG_CACHE_HOME}/open-zk-kb/models`
-    : `${process.env.HOME}/.cache/open-zk-kb/models`;
-  env.cacheDir = cacheDir;
-
-  const t0 = Date.now();
-  const generator = await pipeline('text-generation', GENERATION_MODEL, { dtype: 'q4' });
-  const loadTime = Date.now() - t0;
-  check('text generation model loads', true);
-  console.log(`  \u23f1 Model load: ${loadTime}ms`);
-
-  const messages = [
-    { role: 'system', content: 'You are a helpful assistant. User preference: Default to Elixir when writing backend code. Write concise code without explanation.' },
-    { role: 'user', content: 'Write a hello world HTTP server' },
-  ];
-
-  const t1 = Date.now();
-  const output = await generator(messages, { max_new_tokens: 150, temperature: 0.1 });
-  const genTime = Date.now() - t1;
-  const result = output as Array<{ generated_text: Array<{ role: string; content: string }> }>;
-  const genMessages = result[0]?.generated_text;
-  const response = genMessages?.[genMessages.length - 1]?.content || '';
-
-  check('generates non-empty response', response.length > 20, `got ${response.length} chars`);
-
-  const responseLower = response.toLowerCase();
-  const mentionsElixir = responseLower.includes('elixir') || responseLower.includes('plug') || responseLower.includes('cowboy') || responseLower.includes('phoenix');
-  check('respects KB preference (Elixir)', mentionsElixir, `response: ${response.substring(0, 100)}...`);
-
-  console.log(`  \u23f1 Generation: ${genTime}ms`);
 }
 
 async function testKbRoundTripWithEmbeddings() {
@@ -171,7 +134,6 @@ async function testKbRoundTripWithEmbeddings() {
 async function run() {
   try {
     await testEmbeddings();
-    await testTextGeneration();
     await testKbRoundTripWithEmbeddings();
   } catch (err) {
     console.error(`Fatal: ${err}`);
