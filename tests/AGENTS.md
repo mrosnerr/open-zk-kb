@@ -18,7 +18,7 @@ tests/
 ├── simhash.test.ts        # SimHash duplicate detection
 ├── config.test.ts         # Config loading: defaults, YAML override, partial, malformed
 ├── schema.test.ts         # DB schema: fresh creation, migrations v1→v5
-├── setup.test.ts          # CLI installer: install, uninstall, instruction injection
+├── setup.test.ts          # CLI installer: install, uninstall, skill + instruction injection
 ├── knowledge-quality-assessment.test.ts  # Content quality scoring
 ├── injection-quality-test.ts  # Agent self-search quality via MCP
 ├── docker/                # Docker-based integration tests

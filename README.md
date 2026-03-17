@@ -43,7 +43,7 @@ bunx open-zk-kb@latest
 
 That's it. The interactive installer:
 1. Adds the MCP server to your client config
-2. Injects knowledge base instructions into your client's instruction file (`AGENTS.md`, `CLAUDE.md`, or rules file)
+2. Installs knowledge base instructions (skill for Claude Code, managed block for OpenCode/Windsurf)
 3. Creates a local vault at `~/.local/share/open-zk-kb`
 
 Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**

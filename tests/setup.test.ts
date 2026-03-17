@@ -140,6 +140,7 @@ describe('setup.ts', () => {
 
     const homeConfigPaths = [
       path.join(homeDir, '.claude', 'settings.json'),
+      path.join(homeDir, '.claude', 'CLAUDE.md'),
       path.join(homeDir, '.cursor', 'mcp.json'),
       path.join(homeDir, '.codeium', 'windsurf', 'mcp_config.json'),
     ];
@@ -153,6 +154,13 @@ describe('setup.ts', () => {
       } else {
         fileSnapshots.push({ filePath, existed: false });
       }
+    }
+
+    // Track skill directory for cleanup (claude-code installs here)
+    const skillDir = path.join(homeDir, '.claude', 'skills', 'open-zk-kb');
+    if (!fs.existsSync(skillDir)) {
+      // Skill dir didn't exist before — register for cleanup via tempDirs
+      tempDirs.push(skillDir);
     }
 
     tempDirs.push(rootDir);
@@ -704,5 +712,191 @@ describe('setup.ts', () => {
     const vaultPath = path.join(env.xdgDataHome, 'open-zk-kb');
     expect(fs.existsSync(vaultPath)).toBe(true);
     expect(fs.existsSync(path.join(vaultPath, '.index'))).toBe(true);
+  });
+
+  // --- Claude Code skill installation tests ---
+
+  it('install creates skill directory with SKILL.md for claude-code', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    expect(fs.existsSync(skillPath)).toBe(true);
+    expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(path.join(skillPath, 'kinds-reference.md'))).toBe(true);
+
+    const skillContent = fs.readFileSync(path.join(skillPath, 'SKILL.md'), 'utf-8');
+    expect(skillContent).toContain('name: open-zk-kb');
+    expect(skillContent).toContain('description:');
+    expect(skillContent).toContain('knowledge-search');
+    expect(skillContent).toContain('knowledge-store');
+  });
+
+  it('install does not inject CLAUDE.md managed block for claude-code', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const claudeMdPath = path.join(env.homeDir, '.claude', 'CLAUDE.md');
+    if (fs.existsSync(claudeMdPath)) {
+      const content = fs.readFileSync(claudeMdPath, 'utf-8');
+      expect(content).not.toContain('OPEN-ZK-KB:START');
+      expect(content).not.toContain('OPEN-ZK-KB:END');
+    }
+  });
+
+  it('install migrates old CLAUDE.md managed block when installing skill', async () => {
+    const env = createIsolatedInstallEnv();
+
+    // Pre-create a CLAUDE.md with the old managed block
+    const claudeMdPath = path.join(env.homeDir, '.claude', 'CLAUDE.md');
+    fs.mkdirSync(path.dirname(claudeMdPath), { recursive: true });
+    fs.writeFileSync(
+      claudeMdPath,
+      '# My Rules\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld instructions\n<!-- OPEN-ZK-KB:END -->\n\n# Other stuff\n',
+      'utf-8',
+    );
+
+    const setupModule = await loadFreshSetupModule();
+    const output = setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Skill should be installed
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
+
+    // Old managed block should be removed
+    const content = fs.readFileSync(claudeMdPath, 'utf-8');
+    expect(content).toContain('# My Rules');
+    expect(content).toContain('# Other stuff');
+    expect(content).not.toContain('OPEN-ZK-KB:START');
+    expect(content).not.toContain('OPEN-ZK-KB:END');
+    expect(output).toContain('Migration');
+  });
+
+  it('skill install is idempotent with --force', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    const firstContent = fs.readFileSync(path.join(skillPath, 'SKILL.md'), 'utf-8');
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const secondContent = fs.readFileSync(path.join(skillPath, 'SKILL.md'), 'utf-8');
+    expect(secondContent).toBe(firstContent);
+  });
+
+  it('uninstall removes skill directory for claude-code', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    expect(fs.existsSync(skillPath)).toBe(true);
+
+    setupModule.uninstall({ client: 'claude-code' });
+    expect(fs.existsSync(skillPath)).toBe(false);
+  });
+
+  it('dry-run install does not create skill files for claude-code', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const output = setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      dryRun: true,
+      force: true,
+    });
+
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    expect(fs.existsSync(skillPath)).toBe(false);
+    expect(output).toContain('Would install skill');
+  });
+
+  it('doctor reports healthy skill for claude-code', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const output = setupModule.doctor({ client: 'claude-code' });
+    expect(output).toContain('OK Claude Code: skill is healthy');
+    expect(output).toContain('- ERROR: 0');
+  });
+
+  it('doctor --fix restores missing skill for claude-code', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Remove the skill directory
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    fs.rmSync(skillPath, { recursive: true });
+
+    const output = setupModule.doctor({ client: 'claude-code', fix: true });
+    expect(output).toContain('FIXED Claude Code: restored skill');
+    expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
+  });
+
+  it('doctor detects stale CLAUDE.md managed block and fixes it', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Manually create a stale CLAUDE.md block (simulating upgrade from old version)
+    const claudeMdPath = path.join(env.homeDir, '.claude', 'CLAUDE.md');
+    fs.writeFileSync(
+      claudeMdPath,
+      '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nStale\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+
+    const output = setupModule.doctor({ client: 'claude-code', fix: true });
+    expect(output).toContain('FIXED Claude Code: removed stale CLAUDE.md managed block');
   });
 });
