@@ -48,7 +48,7 @@ export interface ClientConfig {
   skillPath?: string;
 }
 
-const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
+export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
   'opencode': {
     name: 'OpenCode',
     configPath: path.join(xdgConfigHome, 'opencode', 'opencode.json'),
@@ -208,8 +208,18 @@ function getConfigYamlPath(): string {
 
 // --- Skill installation helpers (Claude Code) ---
 
+/**
+ * Returns the path to the skill template directory in the package.
+ * Works from both src/ (development) and dist/ (production) because skills/
+ * is at the project root, one level up from either location.
+ */
 function getSkillTemplateDir(): string {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'open-zk-kb');
+}
+
+/** Returns the path to ~/.claude/CLAUDE.md for migration checks. */
+function getLegacyClaudeMdPath(): string {
+  return path.join(expandPath('~/.claude'), 'CLAUDE.md');
 }
 
 /**
@@ -508,7 +518,7 @@ export function doctor(args: DoctorArgs = {}): string {
         }
 
         // Check for stale CLAUDE.md managed block (pre-skill migration)
-        const oldAgentDocsPath = path.join(path.dirname(clientConfig.skillPath), '..', 'CLAUDE.md');
+        const oldAgentDocsPath = getLegacyClaudeMdPath();
         const oldInspection = inspectAgentDocs(oldAgentDocsPath);
         if (oldInspection.exists && oldInspection.status !== 'missing') {
           if (args.fix) {
@@ -638,8 +648,7 @@ export function install(args: InstallArgs): string {
     skillResult = installSkill(clientConfig.skillPath, args.dryRun);
 
     // Migrate away from old CLAUDE.md managed block if present
-    const oldAgentDocsPath = path.join(path.dirname(clientConfig.skillPath), '..', 'CLAUDE.md');
-    migrationResult = migrateFromAgentDocs(oldAgentDocsPath, args.dryRun);
+    migrationResult = migrateFromAgentDocs(getLegacyClaudeMdPath(), args.dryRun);
   } else if (clientConfig.agentDocsPath) {
     const size = args.instructionSize || clientConfig.instructionSize || 'full';
     agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun);

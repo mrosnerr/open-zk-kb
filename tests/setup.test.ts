@@ -157,11 +157,9 @@ describe('setup.ts', () => {
     }
 
     // Track skill directory for cleanup (claude-code installs here)
+    // Always register for cleanup — tests should leave no trace
     const skillDir = path.join(homeDir, '.claude', 'skills', 'open-zk-kb');
-    if (!fs.existsSync(skillDir)) {
-      // Skill dir didn't exist before — register for cleanup via tempDirs
-      tempDirs.push(skillDir);
-    }
+    tempDirs.push(skillDir);
 
     tempDirs.push(rootDir);
 
