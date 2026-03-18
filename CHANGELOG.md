@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.0-beta.9
+
+- Improve skill installation code clarity and test cleanup
+- Add E2E MCP protocol tests for JSON-RPC tool calls
+- Replace CLAUDE.md injection with Claude Code skill for claude-code client
+
 ## 0.1.0-beta.8
 
 - **Revamp demo** — curated cooking-metaphor Q&A, no more local generation model dependency

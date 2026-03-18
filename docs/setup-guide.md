@@ -66,19 +66,29 @@ bun run setup install --client opencode
    - `knowledge-search` -- full-text search across notes
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
 
-## Instruction Injection
+## Agent Instructions
 
-During installation, open-zk-kb automatically injects knowledge base instructions for clients that support a shared global rules file:
+During installation, open-zk-kb delivers knowledge base instructions to clients that support it. The delivery mechanism varies by client:
 
-| Client | Instruction File |
-|--------|-----------------|
-| OpenCode | `~/.config/opencode/AGENTS.md` |
-| Claude Code | `~/.claude/CLAUDE.md` |
-| Windsurf | `~/.codeium/windsurf/memories/global_rules.md` |
+| Client | Mechanism | Location |
+|--------|-----------|----------|
+| Claude Code | [Skill](https://code.claude.com/docs/en/skills) | `~/.claude/skills/open-zk-kb/SKILL.md` |
+| OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
+| Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
 
-Cursor and Zed get the MCP server config automatically, but do not currently receive a managed instruction file.
+Cursor and Zed get the MCP server config automatically, but do not currently receive agent instructions.
 
-The injected block is wrapped in managed markers:
+### Claude Code (Skill)
+
+Claude Code uses a native [skill](https://code.claude.com/docs/en/skills) for instruction delivery. Claude auto-discovers the skill based on its description and loads it when relevant. You can also invoke it manually with `/open-zk-kb` or ask "What skills are available?" to confirm it's registered.
+
+**Upgrade**: Running `install --force` re-copies the skill files to the latest version.
+
+**Migration**: If upgrading from a previous version that used `CLAUDE.md` injection, the installer automatically removes the old managed block and installs the skill instead.
+
+### OpenCode & Windsurf (Managed block)
+
+Instructions are injected as a managed block wrapped in markers:
 ```
 <!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->
 ...instructions...
@@ -89,7 +99,7 @@ The injected block is wrapped in managed markers:
 
 **Upgrade**: Running `bunx open-zk-kb@latest install --client <name> --force` updates the instructions to the latest version without touching your other content.
 
-**Uninstall**: Running `bunx open-zk-kb@latest uninstall --client <name>` removes the managed block from the instruction file.
+**Uninstall**: Running `bunx open-zk-kb@latest uninstall --client <name>` removes the managed block (or skill directory) from the instruction file.
 
 ## Optional Configuration
 - **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and vector embeddings in a single file. See [configuration.md](configuration.md).
@@ -135,4 +145,4 @@ This section is specifically for AI coding assistants setting up open-zk-kb:
 2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor
 4. Verify by calling `knowledge-maintain stats`
-5. Knowledge capture is driven by `AGENTS.md` or `CLAUDE.md` instructions provided during setup. Calling models use `knowledge-store` directly.
+5. Knowledge capture is driven by agent instructions (skill for Claude Code, managed block for OpenCode/Windsurf) provided during setup. Calling models use `knowledge-store` directly.

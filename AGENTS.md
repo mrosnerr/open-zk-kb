@@ -13,6 +13,10 @@ MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQL
 │   ├── tool-handlers.ts   # Shared handler functions
 │   ├── storage/            # NoteRepository — SQLite+FTS5+filesystem
 │   └── utils/              # Path resolution, wikilink parsing
+├── skills/                # Skill templates for Claude Code
+│   └── open-zk-kb/        # Copied to ~/.claude/skills/open-zk-kb/ on install
+│       ├── SKILL.md        # Main skill (frontmatter + instructions)
+│       └── kinds-reference.md  # Supporting reference (loaded on-demand)
 ├── tests/                 # Test suite (see tests/AGENTS.md)
 ├── docs/                  # User-facing documentation
 │   ├── architecture.md    # System design, dual storage, design decisions
@@ -60,9 +64,10 @@ MCP server for persistent Zettelkasten knowledge management. TypeScript/Bun, SQL
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |
 | `renderNoteForAgent` | function | `prompts.ts` | XML note rendering for agent consumption |
 | `renderNoteForSearch` | function | `prompts.ts` | XML note rendering with full content for search results |
-| `injectInstructions` | function | `setup.ts` | Injects KB instructions into client instruction files |
-| `removeInstructions` | function | `setup.ts` | Removes injected KB instructions on uninstall |
-| `INSTRUCTION_FILE_PATHS` | const | `setup.ts` | Maps client → global instruction file path |
+| `injectAgentDocs` | function | `agent-docs.ts` | Injects KB instructions into client instruction files |
+| `removeAgentDocs` | function | `agent-docs.ts` | Removes injected KB instructions on uninstall |
+| `installSkill` | function | `setup.ts` | Copies skill files to `~/.claude/skills/open-zk-kb/` |
+| `CLIENT_CONFIGS` | const | `setup.ts` | Maps client → config paths, MCP format, skill/agentDocs paths |
 
 ## Anti-Patterns (This Project)
 
@@ -107,4 +112,5 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 - **Install via CLI**: `bun run setup install --client <name>` — single mechanism via `src/setup.ts`
 - **Wiki-links**: Obsidian-compatible `[[slug|display]]` format with backlink tracking in `note_links` table
 - **Knowledge capture**: Driven by `AGENTS.md` or `CLAUDE.md` instructions provided during setup. Calling models use `knowledge-store` directly.
+- **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
