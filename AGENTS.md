@@ -111,6 +111,6 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 - **CI uses Bun** (`.github/workflows/ci.yml`)
 - **Install via CLI**: `bun run setup install --client <name>` — single mechanism via `src/setup.ts`
 - **Wiki-links**: Obsidian-compatible `[[slug|display]]` format with backlink tracking in `note_links` table
-- **Knowledge capture**: Driven by `AGENTS.md` or `CLAUDE.md` instructions provided during setup. Calling models use `knowledge-store` directly.
+- **Knowledge capture**: Claude Code uses skills (`~/.claude/skills/open-zk-kb/`); other clients use injected `AGENTS.md` instructions. Calling models use `knowledge-store` directly.
 - **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
