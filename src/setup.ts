@@ -44,9 +44,11 @@ export interface ClientConfig {
   mcpFormat: 'opencode' | 'standard';
   agentDocsPath?: string;
   instructionSize?: InstructionSize;
+  /** Path where a Claude Code skill directory should be installed (e.g. ~/.claude/skills/open-zk-kb) */
+  skillPath?: string;
 }
 
-const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
+export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
   'opencode': {
     name: 'OpenCode',
     configPath: path.join(xdgConfigHome, 'opencode', 'opencode.json'),
@@ -62,8 +64,7 @@ const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
-    agentDocsPath: path.join(expandPath('~/.claude'), 'CLAUDE.md'),
-    instructionSize: 'full',
+    skillPath: path.join(expandPath('~/.claude'), 'skills', 'open-zk-kb'),
   },
   'cursor': {
     name: 'Cursor',
@@ -94,7 +95,7 @@ const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf
 
 const CLIENT_PROMPT_OPTIONS: Array<{ value: McpClient; label: string; hint: string }> = [
   { value: 'opencode', label: 'OpenCode', hint: 'MCP server + managed instructions' },
-  { value: 'claude-code', label: 'Claude Code', hint: 'MCP server integration' },
+  { value: 'claude-code', label: 'Claude Code', hint: 'MCP server + skill' },
   { value: 'cursor', label: 'Cursor', hint: 'MCP server integration' },
   { value: 'windsurf', label: 'Windsurf', hint: 'MCP server integration' },
   { value: 'zed', label: 'Zed', hint: 'MCP server integration' },
@@ -203,6 +204,95 @@ function getVaultPath(): string {
 
 function getConfigYamlPath(): string {
   return path.join(xdgConfigHome, 'open-zk-kb', 'config.yaml');
+}
+
+// --- Skill installation helpers (Claude Code) ---
+
+/**
+ * Returns the path to the skill template directory in the package.
+ * Works from both src/ (development) and dist/ (production) because skills/
+ * is at the project root, one level up from either location.
+ */
+function getSkillTemplateDir(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'open-zk-kb');
+}
+
+/** Returns the path to ~/.claude/CLAUDE.md for migration checks. */
+function getLegacyClaudeMdPath(): string {
+  return path.join(expandPath('~/.claude'), 'CLAUDE.md');
+}
+
+/**
+ * Install a Claude Code skill by copying template files to the target directory.
+ * Also migrates away from the old CLAUDE.md managed block if present.
+ */
+function installSkill(skillPath: string, dryRun?: boolean): { action: 'created' | 'updated'; skillPath: string } {
+  const templateDir = getSkillTemplateDir();
+  if (!fs.existsSync(templateDir)) {
+    throw new Error(`Skill template not found at: ${templateDir}`);
+  }
+
+  const existed = fs.existsSync(skillPath);
+
+  if (!dryRun) {
+    fs.mkdirSync(skillPath, { recursive: true });
+
+    // Copy all files from the template directory
+    for (const file of fs.readdirSync(templateDir)) {
+      fs.copyFileSync(path.join(templateDir, file), path.join(skillPath, file));
+    }
+  }
+
+  return { action: existed ? 'updated' : 'created', skillPath };
+}
+
+/**
+ * Remove an installed Claude Code skill directory.
+ */
+function removeSkill(skillPath: string, dryRun?: boolean): { action: 'removed' | 'not-found'; skillPath: string } {
+  if (!fs.existsSync(skillPath)) {
+    return { action: 'not-found', skillPath };
+  }
+
+  if (!dryRun) {
+    fs.rmSync(skillPath, { recursive: true });
+  }
+
+  return { action: 'removed', skillPath };
+}
+
+/**
+ * Inspect a Claude Code skill installation for health.
+ */
+function inspectSkill(skillPath: string): { exists: boolean; hasSkillMd: boolean; hasFrontmatter: boolean } {
+  if (!fs.existsSync(skillPath)) {
+    return { exists: false, hasSkillMd: false, hasFrontmatter: false };
+  }
+
+  const skillMdPath = path.join(skillPath, 'SKILL.md');
+  if (!fs.existsSync(skillMdPath)) {
+    return { exists: true, hasSkillMd: false, hasFrontmatter: false };
+  }
+
+  const content = fs.readFileSync(skillMdPath, 'utf-8');
+  const hasFrontmatter = content.startsWith('---') && content.includes('name:') && content.includes('description:');
+
+  return { exists: true, hasSkillMd: true, hasFrontmatter };
+}
+
+/**
+ * Remove the old CLAUDE.md managed block if present (migration from pre-skill install).
+ */
+function migrateFromAgentDocs(agentDocsPath: string, dryRun?: boolean): { migrated: boolean; fileDeleted: boolean } {
+  if (!fs.existsSync(agentDocsPath)) {
+    return { migrated: false, fileDeleted: false };
+  }
+
+  const result = removeAgentDocs(agentDocsPath, dryRun);
+  return {
+    migrated: result.action === 'removed' || result.action === 'file-deleted',
+    fileDeleted: result.action === 'file-deleted',
+  };
 }
 
 function ensureDefaultConfigYaml(): boolean {
@@ -392,7 +482,54 @@ export function doctor(args: DoctorArgs = {}): string {
       }
     }
 
-    if (clientConfig.agentDocsPath) {
+    if (clientConfig.skillPath) {
+      // Skill-based client (Claude Code)
+      if (!configured) {
+        if (fs.existsSync(clientConfig.skillPath)) {
+          pushCheck('INFO', `${clientConfig.name}: skill exists at ${clientConfig.skillPath}, but open-zk-kb is not installed for this client`);
+        } else {
+          pushCheck('INFO', `${clientConfig.name}: skill is not installed`);
+        }
+      } else {
+        const inspection = inspectSkill(clientConfig.skillPath);
+        if (!inspection.exists) {
+          if (args.fix) {
+            installSkill(clientConfig.skillPath, false);
+            pushCheck('FIXED', `${clientConfig.name}: restored skill in ${clientConfig.skillPath}`);
+          } else {
+            pushCheck('WARN', `${clientConfig.name}: skill missing at ${clientConfig.skillPath}`);
+          }
+        } else if (!inspection.hasSkillMd) {
+          if (args.fix) {
+            installSkill(clientConfig.skillPath, false);
+            pushCheck('FIXED', `${clientConfig.name}: restored SKILL.md in ${clientConfig.skillPath}`);
+          } else {
+            pushCheck('WARN', `${clientConfig.name}: SKILL.md missing in ${clientConfig.skillPath}`);
+          }
+        } else if (!inspection.hasFrontmatter) {
+          if (args.fix) {
+            installSkill(clientConfig.skillPath, false);
+            pushCheck('FIXED', `${clientConfig.name}: repaired SKILL.md frontmatter in ${clientConfig.skillPath}`);
+          } else {
+            pushCheck('WARN', `${clientConfig.name}: SKILL.md has invalid frontmatter in ${clientConfig.skillPath}`);
+          }
+        } else {
+          pushCheck('OK', `${clientConfig.name}: skill is healthy in ${clientConfig.skillPath}`);
+        }
+
+        // Check for stale CLAUDE.md managed block (pre-skill migration)
+        const oldAgentDocsPath = getLegacyClaudeMdPath();
+        const oldInspection = inspectAgentDocs(oldAgentDocsPath);
+        if (oldInspection.exists && oldInspection.status !== 'missing') {
+          if (args.fix) {
+            migrateFromAgentDocs(oldAgentDocsPath, false);
+            pushCheck('FIXED', `${clientConfig.name}: removed stale CLAUDE.md managed block`);
+          } else {
+            pushCheck('WARN', `${clientConfig.name}: stale CLAUDE.md managed block found — run with --fix to remove`);
+          }
+        }
+      }
+    } else if (clientConfig.agentDocsPath) {
       if (!configured) {
         if (fs.existsSync(clientConfig.agentDocsPath)) {
           pushCheck('INFO', `${clientConfig.name}: instruction file exists at ${clientConfig.agentDocsPath}, but open-zk-kb is not installed for this client`);
@@ -469,7 +606,9 @@ export function install(args: InstallArgs): string {
   
   if (args.dryRun) {
     let output = `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
-    if (clientConfig.agentDocsPath) {
+    if (clientConfig.skillPath) {
+      output += `\nWould install skill to ${clientConfig.skillPath}`;
+    } else if (clientConfig.agentDocsPath) {
       output += `\nWould inject agent docs into ${clientConfig.agentDocsPath}`;
     }
     return output;
@@ -500,9 +639,17 @@ export function install(args: InstallArgs): string {
     configCopied = true;
   }
   
-  // Inject agent docs (instructions for the AI agent) into the client's docs file
+  // Install skill or inject agent docs depending on client
+  let skillResult: { action: string; skillPath: string } | null = null;
   let agentDocsResult: { action: string; filePath: string } | null = null;
-  if (clientConfig.agentDocsPath) {
+  let migrationResult: { migrated: boolean; fileDeleted: boolean } | null = null;
+
+  if (clientConfig.skillPath) {
+    skillResult = installSkill(clientConfig.skillPath, args.dryRun);
+
+    // Migrate away from old CLAUDE.md managed block if present
+    migrationResult = migrateFromAgentDocs(getLegacyClaudeMdPath(), args.dryRun);
+  } else if (clientConfig.agentDocsPath) {
     const size = args.instructionSize || clientConfig.instructionSize || 'full';
     agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun);
   }
@@ -511,8 +658,14 @@ export function install(args: InstallArgs): string {
   output += `Config: ${clientConfig.configPath}\n`;
   output += `Vault: ${vaultPath}\n`;
   output += `Server: ${formatServerCommand(serverPath)}\n`;
+  if (skillResult) {
+    output += `Skill: ${skillResult.skillPath} (${skillResult.action})\n`;
+  }
   if (agentDocsResult) {
     output += `Agent docs: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
+  }
+  if (migrationResult?.migrated) {
+    output += `Migration: removed old CLAUDE.md managed block${migrationResult.fileDeleted ? ' (file deleted — was empty)' : ''}\n`;
   }
   output += `\nNext steps:\n`;
   if (configCopied) {
@@ -548,7 +701,9 @@ export function uninstall(args: UninstallArgs): string {
   
   if (args.dryRun) {
     let output = `Dry run: Would remove from ${clientConfig.configPath}\n`;
-    if (clientConfig.agentDocsPath) {
+    if (clientConfig.skillPath) {
+      output += `Would remove skill from ${clientConfig.skillPath}\n`;
+    } else if (clientConfig.agentDocsPath) {
       output += `Would remove agent docs from ${clientConfig.agentDocsPath}\n`;
     }
     if (args.removeVault) {
@@ -586,14 +741,21 @@ export function uninstall(args: UninstallArgs): string {
   deleteNestedValue(config, clientConfig.mcpPath);
   fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
 
-  // Remove agent docs (managed instruction block) from the client's docs file
+  // Remove skill or agent docs depending on client
+  let skillResult: { action: string; skillPath: string } | null = null;
   let agentDocsResult: { action: string; filePath: string } | null = null;
-  if (clientConfig.agentDocsPath) {
+
+  if (clientConfig.skillPath) {
+    skillResult = removeSkill(clientConfig.skillPath, args.dryRun);
+  } else if (clientConfig.agentDocsPath) {
     agentDocsResult = removeAgentDocs(clientConfig.agentDocsPath, args.dryRun);
   }
 
   let output = `Uninstalled open-zk-kb from ${clientConfig.name}\n\n`;
   output += `Removed from: ${clientConfig.configPath}\n`;
+  if (skillResult && skillResult.action !== 'not-found') {
+    output += `Skill: ${skillResult.skillPath} (${skillResult.action})\n`;
+  }
   if (agentDocsResult && agentDocsResult.action !== 'not-found') {
     output += `Agent docs: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
   }

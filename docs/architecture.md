@@ -4,7 +4,7 @@
 
 open-zk-kb is a persistent knowledge management system implemented as a Model Context Protocol (MCP) server. It allows any MCP-compatible client (OpenCode, Claude Code, Cursor, Windsurf, Zed) to interact with a Zettelkasten-style knowledge base.
 
-Knowledge capture is driven by the calling agent's instructions (e.g., `AGENTS.md` or `CLAUDE.md`), which guide the model to use the `knowledge-store` tool when relevant information is encountered.
+Knowledge capture is driven by the calling agent's instructions (e.g., a Claude Code skill, `AGENTS.md`, or global rules), which guide the model to use the `knowledge-store` tool when relevant information is encountered.
 
 ## Architecture Diagram
 
@@ -68,14 +68,14 @@ The MCP server provides a reactive interface to the knowledge base:
     * **Cache**: Stored at `~/.cache/open-zk-kb/models/`.
     * **Override**: Supports optional vector embeddings via an OpenAI-compatible API if configured in `config.yaml`.
 
-### Instruction Injection
+### Agent Instructions
 
-During setup, open-zk-kb automatically injects knowledge base instructions into each client's global instruction file. This guides the AI to proactively search and store knowledge without requiring manual configuration.
+During setup, open-zk-kb delivers knowledge base instructions to guide the AI to proactively search and store knowledge. The delivery mechanism varies by client:
 
-* **Canonical source**: Instructions ship with the npm package in two variants: `agent-instructions-full.md` (~420 tokens, detailed) and `agent-instructions-compact.md` (~140 tokens, minimal). Each client has a default size configured in `CLIENT_CONFIGS`; users can override with `--instructions compact|full`.
-* **Managed markers**: Injected blocks are wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` and `<!-- OPEN-ZK-KB:END -->`), allowing safe upgrades and removal.
-* **Lifecycle management**: The `injectAgentDocs()` function (in `src/agent-docs.ts`) handles installation; `removeAgentDocs()` handles uninstall. Re-running the installer updates only the content between markers, preserving user-added content outside the block.
-* **Client-specific paths**: OpenCode, Claude Code, and Windsurf get managed instruction files (for example, `~/.config/opencode/AGENTS.md`, `~/.claude/CLAUDE.md`, and `~/.codeium/windsurf/memories/global_rules.md`). Cursor and Zed currently receive MCP config only.
+* **Claude Code** uses a native [Claude Code skill](https://code.claude.com/docs/en/skills) installed to `~/.claude/skills/open-zk-kb/`. Claude auto-loads the instructions when it detects KB-related intent (preferences, decisions, lookups). The skill description is always in context (~80 tokens); full instructions load on-demand. See `installSkill()` in `src/setup.ts`.
+* **OpenCode and Windsurf** use managed markdown blocks injected into their instruction files (`~/.config/opencode/AGENTS.md` and `~/.codeium/windsurf/memories/global_rules.md`). Blocks are wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` / `<!-- OPEN-ZK-KB:END -->`). See `injectAgentDocs()` in `src/agent-docs.ts`.
+* **Cursor and Zed** currently receive MCP config only.
+* **Instruction templates**: `agent-instructions-full.md` (~420 tokens) and `agent-instructions-compact.md` (~140 tokens) ship with the package for OpenCode/Windsurf. The skill uses its own `SKILL.md` + supporting files in `skills/open-zk-kb/`.
 
 ## Configuration Architecture
 
