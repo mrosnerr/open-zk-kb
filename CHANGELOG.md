@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.0-beta.10
+
+- Add `skills/` to npm package files (fixes claude-code skill install from npm)
+- Fix `removeSkill()` to use `force: true` for robustness
+- Fix test isolation for skill directory snapshots
+- Rewrite MCP protocol tests using proper SDK client
+- Fix unknown tool test to assert `isError` flag correctly
+
 ## 0.1.0-beta.9
 
 - Improve skill installation code clarity and test cleanup
