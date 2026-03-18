@@ -17,6 +17,12 @@ interface FileSnapshot {
   content?: string;
 }
 
+interface DirSnapshot {
+  dirPath: string;
+  existed: boolean;
+  files?: Map<string, string>; // relativePath -> content
+}
+
 type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf' | 'zed';
 
 interface ClientCase {
@@ -80,6 +86,7 @@ describe('setup.ts', () => {
   let envSnapshot: EnvSnapshot;
   const tempDirs: string[] = [];
   const fileSnapshots: FileSnapshot[] = [];
+  const dirSnapshots: DirSnapshot[] = [];
 
   beforeEach(() => {
     ctx = createTestHarness();
@@ -107,6 +114,22 @@ describe('setup.ts', () => {
         fs.writeFileSync(snapshot.filePath, snapshot.content ?? '', 'utf-8');
       } else if (fs.existsSync(snapshot.filePath)) {
         fs.rmSync(snapshot.filePath, { force: true });
+      }
+    }
+
+    // Restore snapshotted directories
+    for (const snapshot of dirSnapshots.splice(0, dirSnapshots.length)) {
+      if (snapshot.existed && snapshot.files) {
+        // Restore the directory and its contents
+        fs.mkdirSync(snapshot.dirPath, { recursive: true });
+        for (const [relativePath, content] of snapshot.files) {
+          const fullPath = path.join(snapshot.dirPath, relativePath);
+          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
+          fs.writeFileSync(fullPath, content, 'utf-8');
+        }
+      } else if (!snapshot.existed && fs.existsSync(snapshot.dirPath)) {
+        // Directory didn't exist before, remove it
+        fs.rmSync(snapshot.dirPath, { recursive: true, force: true });
       }
     }
 
@@ -156,10 +179,27 @@ describe('setup.ts', () => {
       }
     }
 
-    // Track skill directory for cleanup (claude-code installs here)
-    // Always register for cleanup — tests should leave no trace
+    // Snapshot skill directory state (claude-code installs here)
+    // This ensures we restore it to pre-test state, not just delete it
     const skillDir = path.join(homeDir, '.claude', 'skills', 'open-zk-kb');
-    tempDirs.push(skillDir);
+    if (fs.existsSync(skillDir)) {
+      const files = new Map<string, string>();
+      const walkDir = (dir: string, base: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+          const fullPath = path.join(dir, entry.name);
+          const relativePath = path.join(base, entry.name);
+          if (entry.isDirectory()) {
+            walkDir(fullPath, relativePath);
+          } else {
+            files.set(relativePath, fs.readFileSync(fullPath, 'utf-8'));
+          }
+        }
+      };
+      walkDir(skillDir, '');
+      dirSnapshots.push({ dirPath: skillDir, existed: true, files });
+    } else {
+      dirSnapshots.push({ dirPath: skillDir, existed: false });
+    }
 
     tempDirs.push(rootDir);
 

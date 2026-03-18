@@ -28,6 +28,7 @@
   },
   "files": [
     "dist/",
+    "skills/",
     "config.example.yaml",
     "agent-instructions-full.md",
     "agent-instructions-compact.md",
