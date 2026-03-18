@@ -120,6 +120,10 @@ describe('setup.ts', () => {
     // Restore snapshotted directories
     for (const snapshot of dirSnapshots.splice(0, dirSnapshots.length)) {
       if (snapshot.existed && snapshot.files) {
+        // Clean directory first to remove any stale files created during test
+        if (fs.existsSync(snapshot.dirPath)) {
+          fs.rmSync(snapshot.dirPath, { recursive: true, force: true });
+        }
         // Restore the directory and its contents
         fs.mkdirSync(snapshot.dirPath, { recursive: true });
         for (const [relativePath, content] of snapshot.files) {

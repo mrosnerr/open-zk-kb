@@ -10,14 +10,8 @@ describe('MCP Protocol E2E', () => {
   let serverPath: string;
   let client: Client | null = null;
   let transport: StdioClientTransport | null = null;
-  let originalXdgData: string | undefined;
-  let originalXdgConfig: string | undefined;
 
   beforeAll(async () => {
-    // Save original env vars
-    originalXdgData = process.env.XDG_DATA_HOME;
-    originalXdgConfig = process.env.XDG_CONFIG_HOME;
-
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-e2e-'));
 
     // Try dist/ first (production), fall back to src/ (development with bun)
@@ -32,7 +26,7 @@ describe('MCP Protocol E2E', () => {
       throw new Error('MCP server not found at dist/ or src/');
     }
 
-    // Create transport with isolated env
+    // Create transport with isolated env (env vars are only passed to subprocess)
     transport = new StdioClientTransport({
       command: 'bun',
       args: ['run', serverPath],
@@ -52,18 +46,6 @@ describe('MCP Protocol E2E', () => {
     if (client) {
       await client.close();
       client = null;
-    }
-
-    // Restore original env vars
-    if (originalXdgData !== undefined) {
-      process.env.XDG_DATA_HOME = originalXdgData;
-    } else {
-      delete process.env.XDG_DATA_HOME;
-    }
-    if (originalXdgConfig !== undefined) {
-      process.env.XDG_CONFIG_HOME = originalXdgConfig;
-    } else {
-      delete process.env.XDG_CONFIG_HOME;
     }
 
     // Cleanup temp directory
@@ -128,16 +110,12 @@ describe('MCP Protocol E2E', () => {
   });
 
   it('handles unknown tool gracefully', async () => {
-    try {
-      await client!.callTool({
-        name: 'nonexistent-tool',
-        arguments: {},
-      });
-      // If it doesn't throw, check for isError flag
-      expect(true).toBe(false); // Should have thrown
-    } catch {
-      // Expected - MCP SDK throws for unknown tools
-      expect(true).toBe(true);
-    }
+    const result = await client!.callTool({
+      name: 'nonexistent-tool',
+      arguments: {},
+    });
+
+    // MCP SDK returns a result with isError flag for unknown tools
+    expect(result.isError).toBe(true);
   });
 });
