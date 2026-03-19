@@ -11,17 +11,7 @@ interface EnvSnapshot {
   HOME?: string;
 }
 
-interface FileSnapshot {
-  filePath: string;
-  existed: boolean;
-  content?: string;
-}
 
-interface DirSnapshot {
-  dirPath: string;
-  existed: boolean;
-  files?: Map<string, string>; // relativePath -> content
-}
 
 type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf' | 'zed';
 
@@ -85,8 +75,6 @@ describe('setup.ts', () => {
   let ctx: TestContext;
   let envSnapshot: EnvSnapshot;
   const tempDirs: string[] = [];
-  const fileSnapshots: FileSnapshot[] = [];
-  const dirSnapshots: DirSnapshot[] = [];
 
   beforeEach(() => {
     ctx = createTestHarness();
@@ -100,6 +88,7 @@ describe('setup.ts', () => {
   afterEach(() => {
     cleanupTestHarness(ctx);
 
+    // Restore env vars
     if (envSnapshot.XDG_CONFIG_HOME === undefined) delete process.env.XDG_CONFIG_HOME;
     else process.env.XDG_CONFIG_HOME = envSnapshot.XDG_CONFIG_HOME;
     if (envSnapshot.XDG_DATA_HOME === undefined) delete process.env.XDG_DATA_HOME;
@@ -107,36 +96,7 @@ describe('setup.ts', () => {
     if (envSnapshot.HOME === undefined) delete process.env.HOME;
     else process.env.HOME = envSnapshot.HOME;
 
-    for (const snapshot of fileSnapshots.splice(0, fileSnapshots.length)) {
-      const parentDir = path.dirname(snapshot.filePath);
-      if (snapshot.existed) {
-        fs.mkdirSync(parentDir, { recursive: true });
-        fs.writeFileSync(snapshot.filePath, snapshot.content ?? '', 'utf-8');
-      } else if (fs.existsSync(snapshot.filePath)) {
-        fs.rmSync(snapshot.filePath, { force: true });
-      }
-    }
-
-    // Restore snapshotted directories
-    for (const snapshot of dirSnapshots.splice(0, dirSnapshots.length)) {
-      if (snapshot.existed && snapshot.files) {
-        // Clean directory first to remove any stale files created during test
-        if (fs.existsSync(snapshot.dirPath)) {
-          fs.rmSync(snapshot.dirPath, { recursive: true, force: true });
-        }
-        // Restore the directory and its contents
-        fs.mkdirSync(snapshot.dirPath, { recursive: true });
-        for (const [relativePath, content] of snapshot.files) {
-          const fullPath = path.join(snapshot.dirPath, relativePath);
-          fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-          fs.writeFileSync(fullPath, content, 'utf-8');
-        }
-      } else if (!snapshot.existed && fs.existsSync(snapshot.dirPath)) {
-        // Directory didn't exist before, remove it
-        fs.rmSync(snapshot.dirPath, { recursive: true, force: true });
-      }
-    }
-
+    // Clean up temp directories (includes all test artifacts)
     for (const dir of tempDirs.splice(0, tempDirs.length)) {
       if (fs.existsSync(dir)) {
         fs.rmSync(dir, { recursive: true, force: true });
@@ -151,59 +111,23 @@ describe('setup.ts', () => {
     homeDir: string;
     fakeServerPath: string;
   } {
+    // Create a fully isolated environment — no real user directories are touched
     const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-setup-test-'));
     const xdgConfigHome = path.join(rootDir, 'xdg-config');
     const xdgDataHome = path.join(rootDir, 'xdg-data');
-    const homeDir = os.homedir();
+    const homeDir = path.join(rootDir, 'home'); // Use temp home, not real home
     const fakeServerPath = path.join(rootDir, 'dist', 'mcp-server.js');
 
     fs.mkdirSync(path.dirname(fakeServerPath), { recursive: true });
     fs.writeFileSync(fakeServerPath, 'export {};\n', 'utf-8');
     fs.mkdirSync(xdgConfigHome, { recursive: true });
     fs.mkdirSync(xdgDataHome, { recursive: true });
+    fs.mkdirSync(homeDir, { recursive: true });
 
+    // Set all env vars to use temp directories
     process.env.XDG_CONFIG_HOME = xdgConfigHome;
     process.env.XDG_DATA_HOME = xdgDataHome;
-
-    const homeConfigPaths = [
-      path.join(homeDir, '.claude', 'settings.json'),
-      path.join(homeDir, '.claude', 'CLAUDE.md'),
-      path.join(homeDir, '.cursor', 'mcp.json'),
-      path.join(homeDir, '.codeium', 'windsurf', 'mcp_config.json'),
-    ];
-    for (const filePath of homeConfigPaths) {
-      if (fs.existsSync(filePath)) {
-        fileSnapshots.push({
-          filePath,
-          existed: true,
-          content: fs.readFileSync(filePath, 'utf-8'),
-        });
-      } else {
-        fileSnapshots.push({ filePath, existed: false });
-      }
-    }
-
-    // Snapshot skill directory state (claude-code installs here)
-    // This ensures we restore it to pre-test state, not just delete it
-    const skillDir = path.join(homeDir, '.claude', 'skills', 'open-zk-kb');
-    if (fs.existsSync(skillDir)) {
-      const files = new Map<string, string>();
-      const walkDir = (dir: string, base: string) => {
-        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-          const fullPath = path.join(dir, entry.name);
-          const relativePath = path.join(base, entry.name);
-          if (entry.isDirectory()) {
-            walkDir(fullPath, relativePath);
-          } else {
-            files.set(relativePath, fs.readFileSync(fullPath, 'utf-8'));
-          }
-        }
-      };
-      walkDir(skillDir, '');
-      dirSnapshots.push({ dirPath: skillDir, existed: true, files });
-    } else {
-      dirSnapshots.push({ dirPath: skillDir, existed: false });
-    }
+    process.env.HOME = homeDir;
 
     tempDirs.push(rootDir);
 
