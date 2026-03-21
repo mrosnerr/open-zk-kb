@@ -224,7 +224,6 @@ function getLegacyClaudeMdPath(): string {
 
 /**
  * Install a Claude Code skill by copying template files to the target directory.
- * Also migrates away from the old CLAUDE.md managed block if present.
  */
 function installSkill(skillPath: string, dryRun?: boolean): { action: 'created' | 'updated'; skillPath: string } {
   const templateDir = getSkillTemplateDir();
@@ -255,7 +254,7 @@ function removeSkill(skillPath: string, dryRun?: boolean): { action: 'removed' |
   }
 
   if (!dryRun) {
-    fs.rmSync(skillPath, { recursive: true });
+    fs.rmSync(skillPath, { recursive: true, force: true });
   }
 
   return { action: 'removed', skillPath };

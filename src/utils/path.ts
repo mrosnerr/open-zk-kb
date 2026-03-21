@@ -12,10 +12,11 @@ export function expandPath(inputPath: string | unknown): string {
   }
   
   // Expand ~ to home directory
+  // Check process.env.HOME first to support test isolation (os.homedir() is cached)
   if (inputPath.startsWith('~')) {
-    const home = os.homedir() || process.env.HOME;
+    const home = process.env.HOME || os.homedir();
     if (!home) {
-      throw new Error(`expandPath: cannot expand '~' — neither os.homedir() nor $HOME are set`);
+      throw new Error(`expandPath: cannot expand '~' — neither $HOME nor os.homedir() are set`);
     }
     return path.join(home, inputPath.slice(1));
   }
@@ -35,7 +36,8 @@ export function expandPath(inputPath: string | unknown): string {
 export function contractPath(absolutePath: string): string {
   if (!absolutePath) return '';
   
-  const home = os.homedir() || process.env.HOME || '';
+  // Check process.env.HOME first to support test isolation (os.homedir() is cached)
+  const home = process.env.HOME || os.homedir() || '';
   if (home && absolutePath.startsWith(home)) {
     return '~' + absolutePath.slice(home.length);
   }
