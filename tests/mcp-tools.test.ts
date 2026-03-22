@@ -146,6 +146,66 @@ describe('MCP Tool: knowledge-store', () => {
     expect(output).toContain('Knowledge stored (created)');
     expect(output).not.toContain('⚠');
   });
+
+  it('should not warn at exactly the warn threshold', async () => {
+    // personalization warn threshold is 80 words — exactly 80 should NOT warn
+    const exactContent = Array(80).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Boundary Personalization',
+      content: exactContent,
+      kind: 'personalization',
+      summary: 'Test boundary',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).not.toContain('⚠');
+  });
+
+  it('should use kind-level message below absolute threshold', async () => {
+    // 210 words for reference (warn: 200, absolute: 300) — kind-level warning
+    const content = Array(210).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Long Reference',
+      content,
+      kind: 'reference',
+      summary: 'Test kind-level warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('Consider whether it captures more than one concept');
+    expect(output).not.toContain('splitting into separate atomic notes');
+  });
+
+  it('should use absolute-level message above absolute threshold', async () => {
+    // 310 words for reference — absolute-level warning
+    const content = Array(310).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Huge Reference',
+      content,
+      kind: 'reference',
+      summary: 'Test absolute-level warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('splitting into separate atomic notes');
+  });
+
+  it('should warn for resource kind at its lower threshold', async () => {
+    // resource warn threshold: 100
+    const content = Array(110).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Long Resource',
+      content,
+      kind: 'resource',
+      summary: 'Test resource warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('target for resource: ~50');
+  });
 });
 
 describe('MCP Tool: knowledge-search', () => {
@@ -380,6 +440,7 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('"Review Fleeting"');
     expect(output).toContain('"Review Permanent"');
     expect(output).toContain('## Next Steps:');
+    expect(output).not.toContain('Oversized Notes');
   });
 
   it('should include archive/review recommendations and exclude promote-threshold notes', async () => {
