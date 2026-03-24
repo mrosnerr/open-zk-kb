@@ -122,7 +122,7 @@ async function run() {
       arguments: { query: 'claude exclusive smoke verification', client: 'claude-code' },
     });
     const claudeText = JSON.stringify(claudeSearch);
-    check('client-scoped note visible to matching client', claudeText.includes('Claude Exclusive Smoke Note'));
+    check('client-scoped note visible to matching client', claudeText.includes('Claude only smoke test note'));
 
     // Search as opencode — should NOT find it
     const openCodeSearch = await client.callTool({
@@ -130,7 +130,7 @@ async function run() {
       arguments: { query: 'claude exclusive smoke verification', client: 'opencode' },
     });
     const openCodeText = JSON.stringify(openCodeSearch);
-    const hidden = !openCodeText.includes('Claude Exclusive Smoke Note');
+    const hidden = !openCodeText.includes('Claude only smoke test note');
     const emptyResult = openCodeText.includes('No matching notes');
     check('client-scoped note hidden from other client', hidden || emptyResult);
 
@@ -140,7 +140,7 @@ async function run() {
       arguments: { query: 'claude exclusive smoke verification' },
     });
     const allText = JSON.stringify(allSearch);
-    check('client-scoped note visible without client filter (backward compat)', allText.includes('Claude Exclusive Smoke Note'));
+    check('client-scoped note visible without client filter (backward compat)', allText.includes('Claude only smoke test note'));
   } catch (err) {
     check('client filtering round-trip', false, String(err));
   }
