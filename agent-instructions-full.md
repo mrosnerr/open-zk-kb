@@ -6,8 +6,9 @@ ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across session
 
 ALWAYS do both of these **before any other work**:
 
-1. **Search** — `knowledge-search` for relevant context (preferences, decisions, patterns) that may inform your response.
-2. **Scan for storage triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding with the task.
+1. **Search** — `knowledge-search` for relevant context. Use filters (`kind`, `project`, `tags`) to narrow results. If no results, try broader keywords before proceeding without context.
+2. **Apply results** — each note has a `<guidance>` tag: follow it. Personalization shapes your style, decisions are binding unless overridden, procedures are step-by-step instructions, observations are verified gotchas.
+3. **Scan for storage triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding with the task.
 
 - User says "remember", "always", "never", "I prefer", "don't do X", or corrects you → **personalization**
 - You and user weigh options and pick one → **decision**
