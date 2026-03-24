@@ -107,11 +107,11 @@ async function run() {
     await client.callTool({
       name: 'knowledge-store',
       arguments: {
-        title: 'Client-scoped smoke note',
-        content: 'This note is scoped to claude-code only.',
+        title: 'Claude Exclusive Smoke Note',
+        content: 'This note is scoped to claude code only for verification.',
         kind: 'reference',
         client: 'claude-code',
-        summary: 'Claude-only smoke test note',
+        summary: 'Claude only smoke test note',
         guidance: 'Used for smoke test verification',
       },
     });
@@ -119,28 +119,28 @@ async function run() {
     // Search as claude-code — should find it
     const claudeSearch = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'Client-scoped smoke note', client: 'claude-code' },
+      arguments: { query: 'claude exclusive smoke verification', client: 'claude-code' },
     });
     const claudeText = JSON.stringify(claudeSearch);
-    check('client-scoped note visible to matching client', claudeText.includes('Client-scoped smoke note'));
+    check('client-scoped note visible to matching client', claudeText.includes('Claude Exclusive Smoke Note'));
 
     // Search as opencode — should NOT find it
     const openCodeSearch = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'Client-scoped smoke note', client: 'opencode' },
+      arguments: { query: 'claude exclusive smoke verification', client: 'opencode' },
     });
     const openCodeText = JSON.stringify(openCodeSearch);
-    const hidden = !openCodeText.includes('Client-scoped smoke note');
+    const hidden = !openCodeText.includes('Claude Exclusive Smoke Note');
     const emptyResult = openCodeText.includes('No matching notes');
     check('client-scoped note hidden from other client', hidden || emptyResult);
 
     // Search without client — should find it (backward compat)
     const allSearch = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'Client-scoped smoke note' },
+      arguments: { query: 'claude exclusive smoke verification' },
     });
     const allText = JSON.stringify(allSearch);
-    check('client-scoped note visible without client filter (backward compat)', allText.includes('Client-scoped smoke note'));
+    check('client-scoped note visible without client filter (backward compat)', allText.includes('Claude Exclusive Smoke Note'));
   } catch (err) {
     check('client filtering round-trip', false, String(err));
   }
