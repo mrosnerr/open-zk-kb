@@ -2,30 +2,32 @@
 name: open-zk-kb
 description: >
   Persistent knowledge base for cross-session memory. BEFORE responding to any
-  user message, scan for storage triggers (remember, always, never, I prefer,
-  don't do X, corrections). If found, call knowledge-store FIRST, then proceed
-  with the task. Also search before starting work for relevant context.
+  user message: (1) knowledge-search for relevant context, (2) scan for storage
+  triggers (remember, always, never, I prefer, corrections) and call
+  knowledge-store FIRST. Then proceed with the task.
 ---
 
 ## Knowledge Base (open-zk-kb)
 
 ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.
 
-### Pre-Flight: Scan Every Message Before Responding
+### Pre-Flight: Before Responding to Any Message
 
-ALWAYS scan the user's message for these triggers **before doing any other work**. If a trigger matches, call `knowledge-store` FIRST — then continue with the task.
+ALWAYS do both of these **before any other work**:
 
-- User says "remember", "always", "never", "I prefer", "don't do X", or corrects you → **personalization**
-- You and user weigh options and pick one → **decision**
-- You hit a non-obvious error or gotcha → **observation**
-- You look something up twice in one session → **reference**
-- You discover a multi-step workflow by doing it → **procedure**
-- A useful URL comes up → **resource**
+1. **Search** — `knowledge-search` for relevant context (preferences, decisions, patterns) that may inform your response.
+2. **Scan for storage triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding with the task.
+
+| Trigger | Kind |
+|---------|------|
+| User says "remember", "always", "never", "I prefer", "don't do X", or corrects you | **personalization** |
+| You and user weigh options and pick one | **decision** |
+| You hit a non-obvious error or gotcha | **observation** |
+| You look something up twice in one session | **reference** |
+| You discover a multi-step workflow by doing it | **procedure** |
+| A useful URL comes up | **resource** |
 
 NEVER defer storage to "after I finish the task." Store first, then work.
-
-### Before Work
-- `knowledge-search` for relevant context (preferences, decisions, patterns)
 
 ### Storing Knowledge
 Use `knowledge-store` with **one concept per note**. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents). If you learn multiple things, make multiple store calls — don't bundle.

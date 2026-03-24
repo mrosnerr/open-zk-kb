@@ -2,9 +2,12 @@
 
 ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.
 
-### Pre-Flight: Scan Every Message Before Responding
+### Pre-Flight: Before Responding to Any Message
 
-ALWAYS scan the user's message for these triggers **before doing any other work**. If a trigger matches, call `knowledge-store` FIRST — then continue with the task.
+ALWAYS do both of these **before any other work**:
+
+1. **Search** — `knowledge-search` for relevant context (preferences, decisions, patterns) that may inform your response.
+2. **Scan for storage triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding with the task.
 
 - User says "remember", "always", "never", "I prefer", "don't do X", or corrects you → **personalization**
 - You and user weigh options and pick one → **decision**
@@ -14,9 +17,6 @@ ALWAYS scan the user's message for these triggers **before doing any other work*
 - A useful URL comes up → **resource**
 
 NEVER defer storage to "after I finish the task." Store first, then work.
-
-### Before Work
-- `knowledge-search` for relevant context (preferences, decisions, patterns)
 
 ### Storing Knowledge
 Use `knowledge-store` with **one concept per note**. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents). If you learn multiple things, make multiple store calls — don't bundle.
