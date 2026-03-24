@@ -21,7 +21,37 @@ import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
 import { getAgentDocsTargets } from './agent-docs-targets.js';
 import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 
+// ---- Constants ----
+
+/** Soft word-count guidelines per note kind (not hard limits). */
+export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: number }> = {
+  personalization: { target: 50, warn: 80 },
+  decision:        { target: 150, warn: 250 },
+  procedure:       { target: 150, warn: 250 },
+  reference:       { target: 120, warn: 200 },
+  observation:     { target: 100, warn: 200 },
+  resource:        { target: 50, warn: 100 },
+};
+
+/** Absolute word-count ceiling — warns regardless of kind. */
+export const ABSOLUTE_WARN_THRESHOLD = 300;
+
 // ---- Helper functions ----
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
+  const guide = KIND_WORD_GUIDELINES[kind];
+  if (wordCount > ABSOLUTE_WARN_THRESHOLD) {
+    return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider splitting into separate atomic notes — each note should capture one concept.`;
+  }
+  if (wordCount > guide.warn) {
+    return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider whether it captures more than one concept.`;
+  }
+  return null;
+}
 
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp);
@@ -137,6 +167,13 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
   output += `Kind: ${args.kind}\n`;
   output += `Status: ${effectiveStatus}\n`;
   output += `Path: ${result.path}`;
+
+  const wordCount = countWords(args.content);
+  const warning = atomicityWarning(args.kind, wordCount);
+  if (warning) {
+    output += warning;
+  }
+
   return output;
 }
 
@@ -355,13 +392,36 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n';
       }
       
+      // Flag oversized notes that may need splitting
+      const allNotes = repo.getAll();
+      const oversized = allNotes
+        .filter(n => n.status !== 'archived')
+        .filter(n => {
+          const wc = countWords(n.content);
+          const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
+          return guide ? wc > guide.warn : wc > ABSOLUTE_WARN_THRESHOLD;
+        })
+        .map(n => ({ ...n, wordCount: countWords(n.content) }))
+        .sort((a, b) => b.wordCount - a.wordCount);
+
+      if (oversized.length > 0) {
+        output += `### Oversized Notes (${oversized.length} may need splitting)\n`;
+        for (const n of oversized) {
+          const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
+          const target = guide ? guide.target : '?';
+          output += `- "${n.title}" (${n.kind}) — ${n.wordCount} words (target: ~${target}) [${n.id}]\n`;
+        }
+        output += '\n';
+      }
+
       output += '## Next Steps:\n';
       let stepIdx = 65;
       if (hasFleeting) output += `[${String.fromCharCode(stepIdx++)}] Show all fleeting notes for review\n`;
       if (hasPermanent) output += `[${String.fromCharCode(stepIdx++)}] Show all permanent notes for review\n`;
       output += `[${String.fromCharCode(stepIdx++)}] Promote specific note to permanent (requires --noteId)\n`;
       output += `[${String.fromCharCode(stepIdx++)}] Archive specific note (requires --noteId)\n`;
-      
+      if (oversized.length > 0) output += `[${String.fromCharCode(stepIdx++)}] Split an oversized note into atomic notes\n`;
+
       return output;
     }
     case 'dedupe': {

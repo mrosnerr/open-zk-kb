@@ -101,6 +101,111 @@ describe('MCP Tool: knowledge-store', () => {
     expect(notes[0].summary).toBe('User prefers Tailwind CSS over Bootstrap for styling');
     expect(notes[0].guidance).toBe('Use Tailwind when suggesting CSS frameworks or reviewing CSS code');
   });
+
+  it('should warn when note exceeds kind word threshold', async () => {
+    const longContent = Array(100).fill('word').join(' '); // 100 words
+    const output = await handleStore({
+      title: 'Oversized Personalization',
+      content: longContent,
+      kind: 'personalization', // warn threshold: 80
+      summary: 'Test oversized note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('⚠');
+    expect(output).toContain('100 words');
+    expect(output).toContain('target for personalization');
+  });
+
+  it('should warn when note exceeds absolute threshold', async () => {
+    const hugeContent = Array(350).fill('word').join(' '); // 350 words
+    const output = await handleStore({
+      title: 'Huge Decision',
+      content: hugeContent,
+      kind: 'decision', // warn threshold: 250, absolute: 300
+      summary: 'Test huge note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('350 words');
+    expect(output).toContain('splitting into separate atomic notes');
+  });
+
+  it('should not warn when note is within target', async () => {
+    const shortContent = 'This is a concise observation about a specific behavior.';
+    const output = await handleStore({
+      title: 'Good Note',
+      content: shortContent,
+      kind: 'observation',
+      summary: 'Test concise note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('Knowledge stored (created)');
+    expect(output).not.toContain('⚠');
+  });
+
+  it('should not warn at exactly the warn threshold', async () => {
+    // personalization warn threshold is 80 words — exactly 80 should NOT warn
+    const exactContent = Array(80).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Boundary Personalization',
+      content: exactContent,
+      kind: 'personalization',
+      summary: 'Test boundary',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).not.toContain('⚠');
+  });
+
+  it('should use kind-level message below absolute threshold', async () => {
+    // 210 words for reference (warn: 200, absolute: 300) — kind-level warning
+    const content = Array(210).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Long Reference',
+      content,
+      kind: 'reference',
+      summary: 'Test kind-level warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('Consider whether it captures more than one concept');
+    expect(output).not.toContain('splitting into separate atomic notes');
+  });
+
+  it('should use absolute-level message above absolute threshold', async () => {
+    // 310 words for reference — absolute-level warning
+    const content = Array(310).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Huge Reference',
+      content,
+      kind: 'reference',
+      summary: 'Test absolute-level warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('splitting into separate atomic notes');
+  });
+
+  it('should warn for resource kind at its lower threshold', async () => {
+    // resource warn threshold: 100
+    const content = Array(110).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Long Resource',
+      content,
+      kind: 'resource',
+      summary: 'Test resource warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('target for resource: ~50');
+  });
 });
 
 describe('MCP Tool: knowledge-search', () => {
@@ -335,6 +440,7 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('"Review Fleeting"');
     expect(output).toContain('"Review Permanent"');
     expect(output).toContain('## Next Steps:');
+    expect(output).not.toContain('Oversized Notes');
   });
 
   it('should include archive/review recommendations and exclude promote-threshold notes', async () => {
@@ -412,6 +518,43 @@ describe('MCP Tool: knowledge-maintain', () => {
     );
     expect(permanentOnly).toContain('### Permanent Notes for Review (1 total)');
     expect(permanentOnly).not.toContain('### Fleeting Notes for Review');
+  });
+
+  it('should flag oversized notes in review output', async () => {
+    ctx.engine.clearAll();
+
+    // Store a note that exceeds the personalization warn threshold (80 words)
+    const longContent = Array(120).fill('word').join(' ');
+    ctx.engine.store(longContent, {
+      title: 'Bloated Personalization',
+      kind: 'personalization',
+      status: 'fleeting',
+    });
+
+    // Store a small note that should NOT appear in oversized
+    ctx.engine.store('Short content', {
+      title: 'Good Note',
+      kind: 'observation',
+      status: 'fleeting',
+    });
+
+    // Make notes old enough to appear in review (default threshold: 14 days)
+    const allNotes = ctx.engine.getAll();
+    for (const n of allNotes) {
+      setCreatedAt(n.id, daysAgo(20));
+    }
+
+    const output = await handleMaintain(
+      { action: 'review', limit: 10 },
+      ctx.engine, ctx.config,
+    );
+
+    expect(output).toContain('### Oversized Notes');
+    expect(output).toContain('Bloated Personalization');
+    expect(output).toContain('120 words');
+    // "Good Note" should appear in the review queue but NOT in the oversized section
+    const oversizedSection = output.split('### Oversized Notes')[1]?.split('##')[0] || '';
+    expect(oversizedSection).not.toContain('Good Note');
   });
 
   it('dedupe shows permanent notes as protected and never recommends archiving them', async () => {
