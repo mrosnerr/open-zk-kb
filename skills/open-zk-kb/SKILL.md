@@ -1,16 +1,28 @@
 ---
 name: open-zk-kb
 description: >
-  Persistent knowledge base for cross-session memory. Search before starting
-  work for relevant context, decisions, and preferences. Store new knowledge
-  when the user corrects you, states preferences, makes architecture decisions,
-  or when you discover non-obvious errors, workflows, or useful references.
-  Run maintenance to review stale notes.
+  Persistent knowledge base for cross-session memory. BEFORE responding to any
+  user message, scan for storage triggers (remember, always, never, I prefer,
+  don't do X, corrections). If found, call knowledge-store FIRST, then proceed
+  with the task. Also search before starting work for relevant context.
 ---
 
 ## Knowledge Base (open-zk-kb)
 
 ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.
+
+### Pre-Flight: Scan Every Message Before Responding
+
+ALWAYS scan the user's message for these triggers **before doing any other work**. If a trigger matches, call `knowledge-store` FIRST — then continue with the task.
+
+- User says "remember", "always", "never", "I prefer", "don't do X", or corrects you → **personalization**
+- You and user weigh options and pick one → **decision**
+- You hit a non-obvious error or gotcha → **observation**
+- You look something up twice in one session → **reference**
+- You discover a multi-step workflow by doing it → **procedure**
+- A useful URL comes up → **resource**
+
+NEVER defer storage to "after I finish the task." Store first, then work.
 
 ### Before Work
 - `knowledge-search` for relevant context (preferences, decisions, patterns)
@@ -18,7 +30,7 @@ ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across session
 ### Storing Knowledge
 Use `knowledge-store` with **one concept per note**. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents). If you learn multiple things, make multiple store calls — don't bundle.
 
-**Kinds** (with example notes and target word counts):
+**Kinds** (with target word counts):
 - **personalization** (~50 words) — "User prefers Bun over Node.js for all runtime tasks"
 - **decision** (~150 words) — "Chose FTS5 over trigram search because..."
 - **observation** (~100 words) — "Bun's globalThis.fetch includes `preconnect` — use `as any` cast"
@@ -27,14 +39,6 @@ Use `knowledge-store` with **one concept per note**. Include `summary` (one-line
 - **resource** (~50 words) — "Bun SQLite docs: https://bun.sh/docs/api/sqlite"
 
 Notes exceeding the target will trigger a soft warning — heed it and split if the note covers more than one concept.
-
-### When to Store (immediately, not deferred)
-- User corrects you or says "always/never/I prefer" → **personalization**
-- You look something up twice in one session → **reference**
-- You hit a non-obvious error or gotcha → **observation**
-- You and user weigh options and pick one → **decision**
-- You discover a multi-step workflow by doing it → **procedure**
-- A useful URL comes up → **resource**
 
 ### Capture Checkpoints
 - Every task plan with 3+ todos: add a final **"Capture learnings → knowledge base"** todo.
