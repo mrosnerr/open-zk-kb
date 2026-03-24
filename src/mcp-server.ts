@@ -89,6 +89,7 @@ const storeSchema = z.object({
   summary: z.string().describe('One-line present-tense key takeaway'),
   guidance: z.string().describe('Imperative actionable instruction for agents'),
   project: z.string().optional().describe('Project scope — auto-adds project:<name> tag'),
+  client: z.string().optional().describe('Client identifier (e.g. claude-code, opencode). Auto-detected from content when omitted.'),
   related: z.array(z.string()).optional().describe('IDs of related notes to link via wikilinks'),
 });
 
@@ -109,6 +110,7 @@ server.registerTool(
         summary: args.summary,
         guidance: args.guidance,
         project: args.project,
+        client: args.client,
         related: args.related,
       }, getOrCreateRepo(), getEmbeddingConfig());
       return { content: [{ type: 'text' as const, text: result }] };
@@ -148,6 +150,7 @@ const searchSchema = z.object({
   kind: z.enum(NOTE_KINDS).optional().describe('Filter by note kind'),
   status: z.enum(['fleeting', 'permanent', 'archived']).optional().describe('Filter by status'),
   project: z.string().optional().describe('Filter by project tag'),
+  client: z.string().optional().describe('Your client name — excludes notes scoped to other clients'),
   tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),
   limit: z.number().optional().describe('Max results (default 10)'),
 });
@@ -172,6 +175,7 @@ server.registerTool(
         kind: args.kind as NoteKind | undefined,
         status: args.status,
         project: args.project,
+        client: args.client,
         tags: args.tags,
         limit: args.limit,
       }, getOrCreateRepo(), queryEmbedding);
@@ -191,8 +195,8 @@ server.registerTool(
 // ---- knowledge-maintain ----
 
 const maintainSchema = z.object({
-  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs'])
-    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files)'),
+  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit'])
+    .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags)'),
   noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),

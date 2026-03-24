@@ -6,7 +6,7 @@ ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across session
 
 ALWAYS do both of these **before any other work**:
 
-1. **Search** — `knowledge-search` for relevant context. Use filters (`kind`, `project`, `tags`) to narrow results. If no results, try broader keywords before proceeding without context.
+1. **Search** — `knowledge-search` for relevant context. Always pass `client: "{{CLIENT_NAME}}"` to filter out notes meant for other AI clients. Use filters (`kind`, `project`, `tags`) to narrow further. If no results, try broader keywords before proceeding without context.
 2. **Apply results** — each note has a `<guidance>` tag: follow it. Personalization shapes your style, decisions are binding unless overridden, procedures are step-by-step instructions, observations are verified gotchas.
 3. **Scan for storage triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding with the task.
 
@@ -31,6 +31,8 @@ Use `knowledge-store` with **one concept per note**. Include `summary` (one-line
 - **resource** (~50 words) — "Bun SQLite docs: https://bun.sh/docs/api/sqlite"
 
 Notes exceeding the target will trigger a soft warning — heed it and split if the note covers more than one concept.
+
+**Client scoping**: Notes containing client-specific paths (e.g., `.cursor/`, `.claude/`) are auto-tagged at store time. You don't need to pass `client` on store — it's auto-detected.
 
 ### Capture Checkpoints
 - Every task plan with 3+ todos: add a final **"Capture learnings → knowledge base"** todo.

@@ -22,11 +22,14 @@ export interface AgentDocsInspection {
 const START_MARKER = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
 const END_MARKER = '<!-- OPEN-ZK-KB:END -->';
 
-function loadAgentDocsTemplate(size: InstructionSize = 'full'): string {
+function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const filename = size === 'compact' ? 'agent-instructions-compact.md' : 'agent-instructions-full.md';
   const instructionsPath = path.join(projectRoot, filename);
-  const content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
+  let content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
+  if (clientName) {
+    content = content.replace(/\{\{CLIENT_NAME\}\}/g, clientName);
+  }
   return `${START_MARKER}\n${content}\n${END_MARKER}`;
 }
 
@@ -127,7 +130,7 @@ function appendManagedBlock(content: string, replacement: string): string {
  * If the file doesn't exist, it is created.
  * Content outside the managed block is preserved.
  */
-export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
+export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean, clientName?: string): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
   let existing = '';
   const fileExists = fs.existsSync(filePath);
 
@@ -137,7 +140,7 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
 
   let newContent: string;
   let action: 'created' | 'updated' | 'unchanged';
-  const template = loadAgentDocsTemplate(size);
+  const template = loadAgentDocsTemplate(size, clientName);
   const inspection = inspectAgentDocsContent(existing);
 
   if (inspection.status === 'healthy') {
