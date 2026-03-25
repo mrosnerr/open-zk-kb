@@ -4,7 +4,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 async function run() {
   let passed = 0;
   let failed = 0;
-  const totalExpected = 10;
+  const totalExpected = 13;
 
   const check = (name: string, ok: boolean, detail?: string) => {
     if (ok) { console.log(`  ✅ ${name}`); passed++; }
@@ -102,6 +102,49 @@ async function run() {
     check('knowledge-maintain review executes', false, String(err));
   }
 
+  // Client filtering: store a client-scoped note and verify filtering
+  try {
+    await client.callTool({
+      name: 'knowledge-store',
+      arguments: {
+        title: 'Claude Exclusive Smoke Note',
+        content: 'This note is scoped to claude code only for verification.',
+        kind: 'reference',
+        client: 'claude-code',
+        summary: 'Claude only smoke test note',
+        guidance: 'Used for smoke test verification',
+      },
+    });
+
+    // Search as claude-code — should find it
+    const claudeSearch = await client.callTool({
+      name: 'knowledge-search',
+      arguments: { query: 'claude exclusive smoke verification', client: 'claude-code' },
+    });
+    const claudeText = JSON.stringify(claudeSearch);
+    check('client-scoped note visible to matching client', claudeText.includes('Claude only smoke test note'));
+
+    // Search as opencode — should NOT find it
+    const openCodeSearch = await client.callTool({
+      name: 'knowledge-search',
+      arguments: { query: 'claude exclusive smoke verification', client: 'opencode' },
+    });
+    const openCodeText = JSON.stringify(openCodeSearch);
+    const hidden = !openCodeText.includes('Claude only smoke test note');
+    const emptyResult = openCodeText.includes('No matching notes');
+    check('client-scoped note hidden from other client', hidden || emptyResult);
+
+    // Search without client — should find it (backward compat)
+    const allSearch = await client.callTool({
+      name: 'knowledge-search',
+      arguments: { query: 'claude exclusive smoke verification' },
+    });
+    const allText = JSON.stringify(allSearch);
+    check('client-scoped note visible without client filter (backward compat)', allText.includes('Claude only smoke test note'));
+  } catch (err) {
+    check('client filtering round-trip', false, String(err));
+  }
+
   await client.close();
   console.log(`MCP_RESULT:${passed}:${failed}`);
   process.exit(failed > 0 ? 1 : 0);
@@ -109,6 +152,6 @@ async function run() {
 
 run().catch((err) => {
   console.error(`Fatal: ${err}`);
-  console.log('MCP_RESULT:0:10');
+  console.log(`MCP_RESULT:0:${totalExpected}`);
   process.exit(1);
 });

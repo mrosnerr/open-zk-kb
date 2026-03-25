@@ -540,7 +540,7 @@ export function doctor(args: DoctorArgs = {}): string {
         if (!inspection.exists) {
           if (args.fix) {
             const size = clientConfig.instructionSize || 'full';
-            injectAgentDocs(clientConfig.agentDocsPath, size, false);
+            injectAgentDocs(clientConfig.agentDocsPath, size, false, client);
             pushCheck('FIXED', `${clientConfig.name}: restored managed instructions in ${clientConfig.agentDocsPath}`);
           } else {
             pushCheck('WARN', `${clientConfig.name}: managed instructions missing at ${clientConfig.agentDocsPath}`);
@@ -549,7 +549,7 @@ export function doctor(args: DoctorArgs = {}): string {
           pushCheck('OK', `${clientConfig.name}: managed instructions are healthy in ${clientConfig.agentDocsPath}`);
         } else if (args.fix) {
           const size = clientConfig.instructionSize || 'full';
-          injectAgentDocs(clientConfig.agentDocsPath, size, false);
+          injectAgentDocs(clientConfig.agentDocsPath, size, false, client);
           pushCheck('FIXED', `${clientConfig.name}: repaired managed instructions in ${clientConfig.agentDocsPath}`);
         } else if (inspection.status === 'missing') {
           pushCheck('WARN', `${clientConfig.name}: instruction file exists but has no managed block at ${clientConfig.agentDocsPath}`);
@@ -650,7 +650,7 @@ export function install(args: InstallArgs): string {
     migrationResult = migrateFromAgentDocs(getLegacyClaudeMdPath(), args.dryRun);
   } else if (clientConfig.agentDocsPath) {
     const size = args.instructionSize || clientConfig.instructionSize || 'full';
-    agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun);
+    agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client);
   }
 
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;
