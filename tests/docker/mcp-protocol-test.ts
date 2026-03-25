@@ -152,6 +152,6 @@ async function run() {
 
 run().catch((err) => {
   console.error(`Fatal: ${err}`);
-  console.log('MCP_RESULT:0:10');
+  console.log(`MCP_RESULT:0:${totalExpected}`);
   process.exit(1);
 });

@@ -627,7 +627,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     }
     case 'scope-audit': {
       const dryRun = args.dryRun !== false;
-      const allNotes = repo.getAll().filter(n => n.status !== 'archived');
+      const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
       const misScoped: Array<{ note: NoteMetadata; detected: string }> = [];
       const perClient = new Map<string, number>();
       let universalCount = 0;

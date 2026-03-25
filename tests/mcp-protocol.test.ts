@@ -113,6 +113,13 @@ describe('MCP Protocol E2E', () => {
   // When running against a stale dist/, these detect the missing schema field and skip.
 
   it('knowledge-store accepts client param', async () => {
+    // Check if server supports client param via tool schema
+    const tools = await client!.listTools();
+    const storeTool = tools.tools.find(t => t.name === 'knowledge-store');
+    const schema = storeTool?.inputSchema as Record<string, unknown> | undefined;
+    const properties = schema?.properties as Record<string, unknown> | undefined;
+    if (!properties?.client) return; // stale dist/ — client param not supported yet
+
     const result = await client!.callTool({
       name: 'knowledge-store',
       arguments: {
@@ -126,14 +133,7 @@ describe('MCP Protocol E2E', () => {
     });
 
     const content = result.content as Array<{ type: string; text: string }>;
-    // If the server doesn't support client param, it may error or ignore it
-    // Either way, the note should still be stored
-    const text = content[0].text;
-    const stored = text.includes('Knowledge stored');
-    const validationError = text.includes('validation error');
-    // Pass if stored successfully; skip assertion if server doesn't support client yet
-    if (validationError) return; // stale dist/ — client param not supported yet
-    expect(stored).toBe(true);
+    expect(content[0].text).toContain('Knowledge stored');
   });
 
   it('knowledge-search with client param filters correctly', async () => {
