@@ -420,15 +420,14 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
       
       // Flag oversized notes that may need splitting
-      const allNotes = repo.getAll();
+      const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
       const oversized = allNotes
         .filter(n => n.status !== 'archived')
-        .filter(n => {
-          const wc = countWords(n.content);
-          const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
-          return guide ? wc > guide.warn : wc > ABSOLUTE_WARN_THRESHOLD;
-        })
         .map(n => ({ ...n, wordCount: countWords(n.content) }))
+        .filter(n => {
+          const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
+          return guide ? n.wordCount > guide.warn : n.wordCount > ABSOLUTE_WARN_THRESHOLD;
+        })
         .sort((a, b) => b.wordCount - a.wordCount);
 
       if (oversized.length > 0) {
