@@ -84,7 +84,7 @@ The approach is inspired by the [Zettelkasten method](https://en.wikipedia.org/w
 
 ## What's next
 
-open-zk-kb is currently in beta (`0.1.x`). The core functionality is stable — store, search, maintain — and we're collecting feedback from early users before a 1.0 release.
+open-zk-kb is stable and ready for production use. The core functionality — store, search, maintain — has been validated by real-world usage across multiple MCP clients.
 
 If you're tired of re-explaining your architecture every session, give it a try:
 

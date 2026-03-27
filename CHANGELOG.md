@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.0
+
+First stable release. All beta features are now considered production-ready.
+
 ## 0.1.0-beta.11
 
 - **Add client-aware knowledge filtering** — detect caller (claude-code, cursor, etc.) and tailor tool outputs
