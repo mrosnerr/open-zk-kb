@@ -28,7 +28,7 @@ function timeSync(fn: () => void): number {
 }
 
 /** Time an async function, return elapsed ms. */
-async function timeAsync(fn: () => Promise<void>): Promise<number> {
+async function _timeAsync(fn: () => Promise<void>): Promise<number> {
   const start = performance.now();
   await fn();
   return performance.now() - start;
@@ -188,7 +188,7 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
 
     it('FTS5 search with filters < 15ms', () => {
       const elapsed = timeSync(() => {
-        const results = ctx.engine.search('React', {
+        ctx.engine.search('React', {
           kind: 'reference',
           tags: ['topic:1'],
           limit: 5,
@@ -323,7 +323,7 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
       }
 
       const elapsed = timeSync(() => {
-        const dupes = ctx.engine.findSimHashDuplicates();
+        ctx.engine.findSimHashDuplicates();
         // May or may not find dupes depending on content similarity
       });
       console.log(`  findSimHashDuplicates (200 notes): ${elapsed.toFixed(2)}ms`);

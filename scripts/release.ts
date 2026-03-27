@@ -17,7 +17,7 @@ function run(cmd: string[], label: string): CmdResult {
       stdin: 'ignore',
     });
   } catch (error) {
-    throw new Error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 
   return {

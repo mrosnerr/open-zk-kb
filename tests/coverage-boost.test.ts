@@ -550,7 +550,7 @@ describe('NoteRepository — Coverage Boost', () => {
 
   describe('getTopAccessedNotes', () => {
     it('should return notes ordered by access count', () => {
-      const r1 = ctx.engine.store('Rarely accessed', { title: 'Rare', kind: 'reference' });
+      const _r1 = ctx.engine.store('Rarely accessed', { title: 'Rare', kind: 'reference' });
       const r2 = ctx.engine.store('Often accessed', { title: 'Often', kind: 'reference' });
 
       // Record multiple accesses on r2
@@ -594,7 +594,7 @@ describe('NoteRepository — Coverage Boost', () => {
 
   describe('getOutgoingLinks', () => {
     it('should return linked notes', () => {
-      const r1 = ctx.engine.store('Base note', {
+      const _r1 = ctx.engine.store('Base note', {
         title: 'Base',
         kind: 'reference',
         existingId: '2026030900000000',

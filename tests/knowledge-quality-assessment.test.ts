@@ -1,7 +1,7 @@
 // tests/knowledge-quality-assessment.test.ts
 // Quality assessment test for notes in the zettelkasten-mcp vault
 
-// @ts-ignore - bun:test types may not be available during build
+// @ts-expect-error - bun:test types may not be available during build
 import { describe, it, expect, beforeAll } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -54,7 +54,7 @@ class QualityAssessor {
     const paragraphs = cleanContent.split(/\n\n+/).filter(p => p.trim().length > 50);
     if (paragraphs.length >= 2) structureScore += 15;
 
-    let technicalScore = 0;
+    let _technicalScore = 0;
     const techKeywords = [
       /\b(function|class|const|let|var|import|export|return|async|await)\b/i,
       /\b(component|api|endpoint|database|query|schema|model)\b/i,
@@ -62,7 +62,7 @@ class QualityAssessor {
       /\b(typescript|javascript|python|react|node|sql)\b/i,
     ];
     const techMatches = techKeywords.filter(pattern => pattern.test(cleanContent)).length;
-    technicalScore = Math.min(techMatches * 10, 30);
+    _technicalScore = Math.min(techMatches * 10, 30);
 
     const baseScore = Math.min(wordCount / 5, 30);
     const finalScore = Math.min(baseScore + structureScore + technicalScore, 100);

@@ -6,11 +6,11 @@ module.exports = tseslint.config(
   eslint.configs.recommended,
   tseslint.configs.recommended,
   {
-    files: ['src/**/*.ts'],
+    files: ['src/**/*.ts', 'scripts/**/*.ts', 'tests/**/*.ts'],
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
-        project: './tsconfig.json'
+        project: './tsconfig.eslint.json'
       }
     },
     rules: {
@@ -21,6 +21,14 @@ module.exports = tseslint.config(
     }
   },
   {
-    ignores: ['dist/', 'node_modules/', 'coverage/', '**/*.js']
+    files: ['tests/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
+      '@typescript-eslint/no-non-null-assertion': 'off',
+    }
+  },
+  {
+    ignores: ['dist/', 'node_modules/', 'coverage/', '**/*.js', 'eslint.config.cjs']
   }
 );

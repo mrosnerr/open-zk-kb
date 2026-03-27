@@ -63,7 +63,7 @@ describe('MCP Tool: knowledge-store', () => {
 
   it('should append related notes as wikilinks', async () => {
     // Store a first note
-    const result1 = ctx.engine.store('Base concept', {
+    const _result1 = ctx.engine.store('Base concept', {
       title: 'Base Note',
       kind: 'reference',
       existingId: '202602081000',
@@ -1326,7 +1326,7 @@ describe('MCP Tool: knowledge-maintain scope-audit', () => {
   });
 
   it('should not touch notes already correctly tagged', async () => {
-    const result = ctx.engine.store('Edit .opencode/config.json for settings', {
+    const _result = ctx.engine.store('Edit .opencode/config.json for settings', {
       title: 'Already Tagged',
       kind: 'reference',
       tags: ['client:opencode'],

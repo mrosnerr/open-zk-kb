@@ -64,6 +64,7 @@ export function logToFile(level: LogLevel, message: string, data?: unknown, conf
   try {
     fs.appendFileSync(logFile, JSON.stringify(entry) + '\n');
   } catch {
+    // Intentionally empty — logging must not throw
   }
 }
 
@@ -82,6 +83,7 @@ export function cleanupOldLogs(logsDir: string, retentionDays: number = 7): void
       }
     }
   } catch {
+    // Intentionally empty — cleanup must not throw
   }
 }
 

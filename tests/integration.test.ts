@@ -3,12 +3,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import {
   createTestHarness,
   cleanupTestHarness,
-  createNoteFile,
   readNoteFile,
   noteFileExists,
 } from './harness.js';
 import type { TestContext } from './harness.js';
-import type { NoteKind } from '../src/types.js';
 
 describe('Knowledge Capture Integration Tests', () => {
   let context: TestContext;
@@ -447,13 +445,13 @@ describe('Knowledge Capture Integration Tests', () => {
 
   describe('Wikilinks', () => {
     it('should extract and store wiki links between notes', () => {
-      const note1 = context.engine.store('First note about patterns', {
+      const _note1 = context.engine.store('First note about patterns', {
         title: 'Patterns',
         kind: 'reference',
         existingId: '202602081000',
       });
 
-      const note2 = context.engine.store('This references [[202602081000]] for patterns', {
+      const _note2 = context.engine.store('This references [[202602081000]] for patterns', {
         title: 'Architecture',
         kind: 'reference',
         existingId: '202602081001',

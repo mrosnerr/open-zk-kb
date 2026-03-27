@@ -109,7 +109,7 @@ describe('CLIENT_CONTENT_PATTERNS', () => {
   });
 
   it('should have at least one pattern per client', () => {
-    for (const [client, patterns] of Object.entries(CLIENT_CONTENT_PATTERNS)) {
+    for (const [_client, patterns] of Object.entries(CLIENT_CONTENT_PATTERNS)) {
       expect(patterns.length).toBeGreaterThan(0);
     }
   });

@@ -592,10 +592,10 @@ export function install(args: InstallArgs): string {
       const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
       config = JSON.parse(content);
     } catch (e) {
-      throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`);
+      throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`, { cause: e });
     }
   }
-  
+
   const existing = getNestedValue(config, clientConfig.mcpPath);
   if (existing && !args.force) {
     return `Already installed for ${clientConfig.name}. Use --force to overwrite.`;
@@ -690,9 +690,9 @@ export function uninstall(args: UninstallArgs): string {
     const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
     config = JSON.parse(content);
   } catch (e) {
-    throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`);
+    throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`, { cause: e });
   }
-  
+
   const existing = getNestedValue(config, clientConfig.mcpPath);
   if (!existing) {
     return `open-zk-kb not configured for ${clientConfig.name}`;
