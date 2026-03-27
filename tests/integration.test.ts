@@ -465,6 +465,91 @@ describe('Knowledge Capture Integration Tests', () => {
     });
   });
 
+  describe('Client Tag Round-Trip', () => {
+    it('should store a note with client tag and retrieve it', () => {
+      const result = context.engine.store('Configure .opencode/config.json for settings', {
+        title: 'OpenCode Config',
+        kind: 'reference',
+        tags: ['client:opencode'],
+      });
+
+      const note = context.engine.getById(result.id);
+      expect(note).not.toBeNull();
+      expect(note!.tags).toContain('client:opencode');
+    });
+
+    it('should persist client tag in frontmatter', () => {
+      const result = context.engine.store('Claude-specific content', {
+        title: 'Claude Note',
+        kind: 'reference',
+        tags: ['client:claude-code'],
+      });
+
+      const filename = result.path.split('/').pop()!;
+      const content = readNoteFile(context, filename);
+      expect(content).toContain('client:claude-code');
+    });
+
+    it('should preserve client tags through updateTags', () => {
+      const result = context.engine.store('Some content', {
+        title: 'Tag Update Test',
+        kind: 'reference',
+        tags: ['client:opencode', 'existing-tag'],
+      });
+
+      context.engine.updateTags(result.id, ['client:opencode', 'existing-tag', 'new-tag']);
+
+      const note = context.engine.getById(result.id);
+      expect(note!.tags).toContain('client:opencode');
+      expect(note!.tags).toContain('new-tag');
+      expect(note!.tags).toContain('existing-tag');
+
+      // Verify frontmatter updated too
+      const filename = result.path.split('/').pop()!;
+      const content = readNoteFile(context, filename);
+      expect(content).toContain('client:opencode');
+      expect(content).toContain('new-tag');
+    });
+
+    it('should find client-tagged notes in search', () => {
+      context.engine.store('OpenCode specific knowledge', {
+        title: 'OpenCode Note',
+        kind: 'reference',
+        tags: ['client:opencode'],
+      });
+
+      const results = context.engine.search('OpenCode specific knowledge');
+      expect(results.length).toBeGreaterThan(0);
+      expect(results[0].tags).toContain('client:opencode');
+    });
+
+    it('should include client-tagged notes in tag search', () => {
+      context.engine.store('Tagged content', {
+        title: 'Tagged Note',
+        kind: 'reference',
+        tags: ['client:opencode', 'config'],
+      });
+
+      const results = context.engine.search('Tagged content', { tags: ['config'] });
+      expect(results.length).toBeGreaterThan(0);
+    });
+
+    it('should rebuild client-tagged notes from files correctly', () => {
+      context.engine.store('Rebuild test content', {
+        title: 'Rebuild Client Note',
+        kind: 'reference',
+        tags: ['client:cursor', 'test'],
+      });
+
+      const result = context.engine.rebuildFromFiles();
+      expect(result.errors).toBe(0);
+
+      const notes = context.engine.getByTag('client:cursor');
+      expect(notes.length).toBe(1);
+      expect(notes[0].title).toBe('Rebuild Client Note');
+    });
+  });
+
   describe('Access Tracking', () => {
     it('should track access count', () => {
       const result = context.engine.store('Trackable content', {

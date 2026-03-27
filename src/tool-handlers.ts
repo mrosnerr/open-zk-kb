@@ -20,8 +20,39 @@ import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from '.
 import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
 import { getAgentDocsTargets } from './agent-docs-targets.js';
 import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
+import { detectClient, isVisibleToClient, getClientTags, clientTag, isKnownClient } from './client-heuristics.js';
+
+// ---- Constants ----
+
+/** Soft word-count guidelines per note kind (not hard limits). */
+export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: number }> = {
+  personalization: { target: 50, warn: 80 },
+  decision:        { target: 150, warn: 250 },
+  procedure:       { target: 150, warn: 250 },
+  reference:       { target: 120, warn: 200 },
+  observation:     { target: 100, warn: 200 },
+  resource:        { target: 50, warn: 100 },
+};
+
+/** Absolute word-count ceiling — warns regardless of kind. */
+export const ABSOLUTE_WARN_THRESHOLD = 300;
 
 // ---- Helper functions ----
+
+function countWords(text: string): number {
+  return text.split(/\s+/).filter(Boolean).length;
+}
+
+function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
+  const guide = KIND_WORD_GUIDELINES[kind];
+  if (wordCount > ABSOLUTE_WARN_THRESHOLD) {
+    return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider splitting into separate atomic notes — each note should capture one concept.`;
+  }
+  if (wordCount > guide.warn) {
+    return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider whether it captures more than one concept.`;
+  }
+  return null;
+}
 
 function formatDate(timestamp: number): string {
   const date = new Date(timestamp);
@@ -47,6 +78,7 @@ export interface StoreArgs {
   summary: string;
   guidance: string;
   project?: string;
+  client?: string;
   related?: string[];
 }
 
@@ -55,6 +87,7 @@ export interface SearchArgs {
   kind?: NoteKind;
   status?: string;
   project?: string;
+  client?: string;
   tags?: string[];
   limit?: number;
 }
@@ -89,6 +122,15 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     const projectTag = `project:${args.project}`;
     if (!tags.includes(projectTag)) {
       tags.push(projectTag);
+    }
+  }
+
+  // Client tag — explicit or auto-detected from content/guidance
+  const resolvedClient = args.client || detectClient(args.content, args.guidance);
+  if (resolvedClient) {
+    const tag = clientTag(resolvedClient);
+    if (!tags.includes(tag)) {
+      tags.push(tag);
     }
   }
 
@@ -137,6 +179,17 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
   output += `Kind: ${args.kind}\n`;
   output += `Status: ${effectiveStatus}\n`;
   output += `Path: ${result.path}`;
+
+  const wordCount = countWords(args.content);
+  const warning = atomicityWarning(args.kind, wordCount);
+  if (warning) {
+    output += warning;
+  }
+
+  if (args.client && !isKnownClient(args.client)) {
+    output += `\n\n⚠ Unrecognized client "${args.client}". Known clients: opencode, claude-code, cursor, windsurf, zed.`;
+  }
+
   return output;
 }
 
@@ -156,8 +209,19 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     });
   }
 
+  if (args.client) {
+    results = results.filter(note => {
+      const tags = Array.isArray(note.tags) ? note.tags : [];
+      return isVisibleToClient(tags, args.client!);
+    });
+  }
+
+  const clientWarning = args.client && !isKnownClient(args.client)
+    ? `\n⚠ Unrecognized client "${args.client}". Known clients: opencode, claude-code, cursor, windsurf, zed.\n`
+    : '';
+
   if (results.length === 0) {
-    return 'No matching notes found. Try broader keywords or remove filters.';
+    return 'No matching notes found. Try broader keywords or remove filters.' + clientWarning;
   }
 
   let output = `Found ${results.length} note(s):\n\n`;
@@ -172,7 +236,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
       });
     }
   }
-  return output;
+  return output + clientWarning;
 }
 
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string): Promise<string> {
@@ -355,13 +419,35 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n';
       }
       
+      // Flag oversized notes that may need splitting
+      const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
+      const oversized = allNotes
+        .filter(n => n.status !== 'archived')
+        .map(n => ({ ...n, wordCount: countWords(n.content) }))
+        .filter(n => {
+          const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
+          return guide ? n.wordCount > guide.warn : n.wordCount > ABSOLUTE_WARN_THRESHOLD;
+        })
+        .sort((a, b) => b.wordCount - a.wordCount);
+
+      if (oversized.length > 0) {
+        output += `### Oversized Notes (${oversized.length} may need splitting)\n`;
+        for (const n of oversized) {
+          const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
+          const target = guide ? guide.target : '?';
+          output += `- "${n.title}" (${n.kind}) — ${n.wordCount} words (target: ~${target}) [${n.id}]\n`;
+        }
+        output += '\n';
+      }
+
       output += '## Next Steps:\n';
       let stepIdx = 65;
       if (hasFleeting) output += `[${String.fromCharCode(stepIdx++)}] Show all fleeting notes for review\n`;
       if (hasPermanent) output += `[${String.fromCharCode(stepIdx++)}] Show all permanent notes for review\n`;
       output += `[${String.fromCharCode(stepIdx++)}] Promote specific note to permanent (requires --noteId)\n`;
       output += `[${String.fromCharCode(stepIdx++)}] Archive specific note (requires --noteId)\n`;
-      
+      if (oversized.length > 0) output += `[${String.fromCharCode(stepIdx++)}] Split an oversized note into atomic notes\n`;
+
       return output;
     }
     case 'dedupe': {
@@ -516,7 +602,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           if (dryRun) {
             output += '- Result: would refresh managed instructions to current template\n\n';
           } else {
-            const result = injectAgentDocs(target.filePath, target.instructionSize, false);
+            const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client);
             output += `- Result: ${result.action}\n\n`;
           }
           continue;
@@ -530,12 +616,88 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         if (dryRun) {
           output += '- Result: would repair markers and append a fresh managed block while preserving other content\n\n';
         } else {
-          const result = injectAgentDocs(target.filePath, target.instructionSize, false);
+          const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client);
           output += `- Result: ${result.action}\n\n`;
         }
       }
 
       output += 'Use `dryRun: false` to apply conservative repairs.';
+      return output;
+    }
+    case 'scope-audit': {
+      const dryRun = args.dryRun !== false;
+      const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
+      const misScoped: Array<{ note: NoteMetadata; detected: string }> = [];
+      const perClient = new Map<string, number>();
+      let universalCount = 0;
+
+      for (const note of allNotes) {
+        const tags = Array.isArray(note.tags) ? note.tags : [];
+        const currentClients = getClientTags(tags);
+        const detected = detectClient(note.content, note.guidance || '');
+
+        if (currentClients.length === 0 && !detected) {
+          universalCount++;
+        } else if (currentClients.length > 0) {
+          for (const c of currentClients) {
+            perClient.set(c, (perClient.get(c) || 0) + 1);
+          }
+        }
+
+        if (detected && currentClients.length === 0) {
+          misScoped.push({ note, detected });
+        }
+      }
+
+      let output = '## Scope Audit\n\n';
+      output += `Total non-archived notes: ${allNotes.length}\n`;
+      output += `Universal (no client tag): ${universalCount}\n`;
+      if (perClient.size > 0) {
+        output += '\nPer-client:\n';
+        for (const [client, count] of [...perClient.entries()].sort()) {
+          const marker = isKnownClient(client) ? '' : ' ⚠ unrecognized';
+          output += `- ${clientTag(client)}: ${count}${marker}\n`;
+        }
+      }
+
+      // Flag notes with unrecognized client tags
+      const unknownClientNotes = allNotes.filter(n => {
+        const clients = getClientTags(Array.isArray(n.tags) ? n.tags : []);
+        return clients.some(c => !isKnownClient(c));
+      });
+
+      if (misScoped.length === 0 && unknownClientNotes.length === 0) {
+        output += '\nNo mis-scoped notes found. All notes are correctly tagged.';
+        return output;
+      }
+
+      output += `\n### Mis-scoped Notes (${misScoped.length})\n`;
+      output += dryRun ? '*Dry run — no changes applied.*\n\n' : '';
+
+      for (const { note, detected } of misScoped) {
+        output += `- "${note.title}" [${note.id}] — detected: ${clientTag(detected)}, current: (none)\n`;
+
+        if (!dryRun) {
+          const updatedTags = [...(note.tags || []), clientTag(detected)];
+          repo.updateTags(note.id, updatedTags);
+        }
+      }
+
+      if (unknownClientNotes.length > 0) {
+        output += `\n### Unrecognized Client Tags (${unknownClientNotes.length})\n`;
+        output += 'Known clients: opencode, claude-code, cursor, windsurf, zed.\n\n';
+        for (const note of unknownClientNotes) {
+          const unknown = getClientTags(note.tags).filter(c => !isKnownClient(c));
+          output += `- "${note.title}" [${note.id}] — unknown: ${unknown.map(c => clientTag(c)).join(', ')}\n`;
+        }
+      }
+
+      if (misScoped.length > 0 && dryRun) {
+        output += '\nUse `dryRun: false` to apply fixes for mis-scoped notes.';
+      } else if (misScoped.length > 0) {
+        output += `\nFixed ${misScoped.length} mis-scoped note(s).`;
+      }
+
       return output;
     }
     default:

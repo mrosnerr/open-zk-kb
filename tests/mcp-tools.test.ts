@@ -101,6 +101,111 @@ describe('MCP Tool: knowledge-store', () => {
     expect(notes[0].summary).toBe('User prefers Tailwind CSS over Bootstrap for styling');
     expect(notes[0].guidance).toBe('Use Tailwind when suggesting CSS frameworks or reviewing CSS code');
   });
+
+  it('should warn when note exceeds kind word threshold', async () => {
+    const longContent = Array(100).fill('word').join(' '); // 100 words
+    const output = await handleStore({
+      title: 'Oversized Personalization',
+      content: longContent,
+      kind: 'personalization', // warn threshold: 80
+      summary: 'Test oversized note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('⚠');
+    expect(output).toContain('100 words');
+    expect(output).toContain('target for personalization');
+  });
+
+  it('should warn when note exceeds absolute threshold', async () => {
+    const hugeContent = Array(350).fill('word').join(' '); // 350 words
+    const output = await handleStore({
+      title: 'Huge Decision',
+      content: hugeContent,
+      kind: 'decision', // warn threshold: 250, absolute: 300
+      summary: 'Test huge note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('350 words');
+    expect(output).toContain('splitting into separate atomic notes');
+  });
+
+  it('should not warn when note is within target', async () => {
+    const shortContent = 'This is a concise observation about a specific behavior.';
+    const output = await handleStore({
+      title: 'Good Note',
+      content: shortContent,
+      kind: 'observation',
+      summary: 'Test concise note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('Knowledge stored (created)');
+    expect(output).not.toContain('⚠');
+  });
+
+  it('should not warn at exactly the warn threshold', async () => {
+    // personalization warn threshold is 80 words — exactly 80 should NOT warn
+    const exactContent = Array(80).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Boundary Personalization',
+      content: exactContent,
+      kind: 'personalization',
+      summary: 'Test boundary',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).not.toContain('⚠');
+  });
+
+  it('should use kind-level message below absolute threshold', async () => {
+    // 210 words for reference (warn: 200, absolute: 300) — kind-level warning
+    const content = Array(210).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Long Reference',
+      content,
+      kind: 'reference',
+      summary: 'Test kind-level warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('Consider whether it captures more than one concept');
+    expect(output).not.toContain('splitting into separate atomic notes');
+  });
+
+  it('should use absolute-level message above absolute threshold', async () => {
+    // 310 words for reference — absolute-level warning
+    const content = Array(310).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Huge Reference',
+      content,
+      kind: 'reference',
+      summary: 'Test absolute-level warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('splitting into separate atomic notes');
+  });
+
+  it('should warn for resource kind at its lower threshold', async () => {
+    // resource warn threshold: 100
+    const content = Array(110).fill('word').join(' ');
+    const output = await handleStore({
+      title: 'Long Resource',
+      content,
+      kind: 'resource',
+      summary: 'Test resource warning',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠');
+    expect(output).toContain('target for resource: ~50');
+  });
 });
 
 describe('MCP Tool: knowledge-search', () => {
@@ -335,6 +440,7 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('"Review Fleeting"');
     expect(output).toContain('"Review Permanent"');
     expect(output).toContain('## Next Steps:');
+    expect(output).not.toContain('Oversized Notes');
   });
 
   it('should include archive/review recommendations and exclude promote-threshold notes', async () => {
@@ -412,6 +518,43 @@ describe('MCP Tool: knowledge-maintain', () => {
     );
     expect(permanentOnly).toContain('### Permanent Notes for Review (1 total)');
     expect(permanentOnly).not.toContain('### Fleeting Notes for Review');
+  });
+
+  it('should flag oversized notes in review output', async () => {
+    ctx.engine.clearAll();
+
+    // Store a note that exceeds the personalization warn threshold (80 words)
+    const longContent = Array(120).fill('word').join(' ');
+    ctx.engine.store(longContent, {
+      title: 'Bloated Personalization',
+      kind: 'personalization',
+      status: 'fleeting',
+    });
+
+    // Store a small note that should NOT appear in oversized
+    ctx.engine.store('Short content', {
+      title: 'Good Note',
+      kind: 'observation',
+      status: 'fleeting',
+    });
+
+    // Make notes old enough to appear in review (default threshold: 14 days)
+    const allNotes = ctx.engine.getAll();
+    for (const n of allNotes) {
+      setCreatedAt(n.id, daysAgo(20));
+    }
+
+    const output = await handleMaintain(
+      { action: 'review', limit: 10 },
+      ctx.engine, ctx.config,
+    );
+
+    expect(output).toContain('### Oversized Notes');
+    expect(output).toContain('Bloated Personalization');
+    expect(output).toContain('120 words');
+    // "Good Note" should appear in the review queue but NOT in the oversized section
+    const oversizedSection = output.split('### Oversized Notes')[1]?.split('##')[0] || '';
+    expect(oversizedSection).not.toContain('Good Note');
   });
 
   it('dedupe shows permanent notes as protected and never recommends archiving them', async () => {
@@ -908,5 +1051,358 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
       { action: 'stats' }, ctx.engine, ctx.config,
     );
     expect(output).not.toContain('Update Available');
+  });
+});
+
+// ---- Client-aware knowledge filtering (issue #30) ----
+
+describe('MCP Tool: knowledge-store (client filtering)', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should add client tag when client param provided', () => {
+    handleStore({
+      title: 'Claude Code Workflow',
+      content: 'Use skills directory for prompts',
+      kind: 'procedure',
+      client: 'claude-code',
+      summary: 'Claude Code skill setup',
+      guidance: 'Set up skills directory',
+    }, ctx.engine);
+
+    const notes = ctx.engine.getByKind('procedure');
+    expect(notes.length).toBe(1);
+    expect(notes[0].tags).toContain('client:claude-code');
+  });
+
+  it('should auto-detect client from .opencode/ in content', () => {
+    handleStore({
+      title: 'OpenCode Config',
+      content: 'Edit .opencode/config.json to change settings',
+      kind: 'reference',
+      summary: 'OpenCode config location',
+      guidance: 'Edit config for settings',
+    }, ctx.engine);
+
+    const notes = ctx.engine.getByKind('reference');
+    expect(notes[0].tags).toContain('client:opencode');
+  });
+
+  it('should auto-detect client from .claude/ in guidance', () => {
+    handleStore({
+      title: 'Claude Instructions',
+      content: 'Project instructions go in the root',
+      kind: 'reference',
+      summary: 'Where to put project instructions',
+      guidance: 'Add instructions to .claude/settings.json in project root',
+    }, ctx.engine);
+
+    const notes = ctx.engine.getByKind('reference');
+    expect(notes[0].tags).toContain('client:claude-code');
+  });
+
+  it('should NOT auto-tag universal content', () => {
+    handleStore({
+      title: 'General Preference',
+      content: 'User prefers TypeScript',
+      kind: 'personalization',
+      summary: 'Prefers TypeScript',
+      guidance: 'Use TypeScript by default',
+    }, ctx.engine);
+
+    const notes = ctx.engine.getByKind('personalization');
+    const clientTags = notes[0].tags.filter((t: string) => t.startsWith('client:'));
+    expect(clientTags).toHaveLength(0);
+  });
+
+  it('should warn on unrecognized client name', () => {
+    const output = handleStore({
+      title: 'Unknown Client Note',
+      content: 'Some content',
+      kind: 'reference',
+      client: 'vscode',
+      summary: 'Test note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).toContain('⚠ Unrecognized client "vscode"');
+    expect(output).toContain('Known clients:');
+  });
+
+  it('should NOT warn on recognized client name', () => {
+    const output = handleStore({
+      title: 'Known Client Note',
+      content: 'Some content',
+      kind: 'reference',
+      client: 'claude-code',
+      summary: 'Test note',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).not.toContain('Unrecognized client');
+  });
+
+  it('should use explicit client over auto-detection', () => {
+    handleStore({
+      title: 'Cross-Client Note',
+      content: 'Edit .opencode/config for opencode',
+      kind: 'reference',
+      client: 'claude-code',
+      summary: 'OpenCode config via Claude Code',
+      guidance: 'Reference for Claude Code users',
+    }, ctx.engine);
+
+    const notes = ctx.engine.getByKind('reference');
+    expect(notes[0].tags).toContain('client:claude-code');
+    expect(notes[0].tags).not.toContain('client:opencode');
+  });
+
+  it('should not auto-tag when multiple clients detected (ambiguous)', () => {
+    handleStore({
+      title: 'Client Comparison',
+      content: 'Compare .opencode/config.json vs .claude/settings.json',
+      kind: 'reference',
+      summary: 'Comparing client configs',
+      guidance: 'Use this for cross-client reference',
+    }, ctx.engine);
+
+    const notes = ctx.engine.getByKind('reference');
+    const clientTags = notes[0].tags.filter((t: string) => t.startsWith('client:'));
+    expect(clientTags).toHaveLength(0);
+  });
+
+  it('should coexist client and project tags', () => {
+    handleStore({
+      title: 'Project-Client Note',
+      content: 'Edit .cursor/rules for project config',
+      kind: 'reference',
+      project: 'myapp',
+      summary: 'Cursor rules for myapp',
+      guidance: 'Edit cursor rules',
+    }, ctx.engine);
+
+    const notes = ctx.engine.getByKind('reference');
+    expect(notes[0].tags).toContain('project:myapp');
+    expect(notes[0].tags).toContain('client:cursor');
+  });
+});
+
+describe('MCP Tool: knowledge-search (client filtering)', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestHarness();
+    // Store notes with different client scopes
+    ctx.engine.store('Universal knowledge about TypeScript', {
+      title: 'Universal Note',
+      kind: 'reference',
+      tags: [],
+    });
+    ctx.engine.store('Claude-specific knowledge about skills', {
+      title: 'Claude Only',
+      kind: 'reference',
+      tags: ['client:claude-code'],
+    });
+    ctx.engine.store('OpenCode-specific knowledge about agents', {
+      title: 'OpenCode Only',
+      kind: 'reference',
+      tags: ['client:opencode'],
+    });
+    ctx.engine.store('Explicitly universal knowledge for all clients', {
+      title: 'All Clients',
+      kind: 'reference',
+      tags: ['client:all'],
+    });
+  });
+
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should return all notes when no client param (backward compat)', () => {
+    const output = handleSearch({ query: 'knowledge' }, ctx.engine);
+    expect(output).toContain('Universal Note');
+    expect(output).toContain('Claude Only');
+    expect(output).toContain('OpenCode Only');
+    expect(output).toContain('All Clients');
+  });
+
+  it('should exclude other-client notes when client param set', () => {
+    const output = handleSearch({ query: 'knowledge', client: 'claude-code' }, ctx.engine);
+    expect(output).toContain('Universal Note');
+    expect(output).toContain('Claude Only');
+    expect(output).toContain('All Clients');
+    expect(output).not.toContain('OpenCode Only');
+  });
+
+  it('should show only universal notes to a client with no scoped notes', () => {
+    const output = handleSearch({ query: 'knowledge', client: 'cursor' }, ctx.engine);
+    expect(output).toContain('Universal Note');
+    expect(output).toContain('All Clients');
+    expect(output).not.toContain('Claude Only');
+    expect(output).not.toContain('OpenCode Only');
+  });
+
+  it('should combine client and project filters', () => {
+    ctx.engine.store('Project-scoped Claude knowledge', {
+      title: 'Claude Project Note',
+      kind: 'reference',
+      tags: ['client:claude-code', 'project:myapp'],
+    });
+    ctx.engine.store('Project-scoped OpenCode knowledge', {
+      title: 'OpenCode Project Note',
+      kind: 'reference',
+      tags: ['client:opencode', 'project:myapp'],
+    });
+
+    const output = handleSearch({ query: 'knowledge', client: 'claude-code', project: 'myapp' }, ctx.engine);
+    expect(output).toContain('Claude Project Note');
+    expect(output).not.toContain('OpenCode Project Note');
+    // Universal notes without project tag are excluded by project filter
+    expect(output).not.toContain('Universal Note');
+  });
+
+  it('should warn on unrecognized client name in search', () => {
+    const output = handleSearch({ query: 'knowledge', client: 'vscode' }, ctx.engine);
+    expect(output).toContain('⚠ Unrecognized client "vscode"');
+  });
+
+  it('should NOT warn on recognized client name in search', () => {
+    const output = handleSearch({ query: 'knowledge', client: 'opencode' }, ctx.engine);
+    expect(output).not.toContain('Unrecognized client');
+  });
+});
+
+describe('MCP Tool: knowledge-maintain scope-audit', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should detect mis-scoped notes in dry run', async () => {
+    ctx.engine.store('Edit .opencode/config.json for settings', {
+      title: 'Mis-scoped Note',
+      kind: 'reference',
+      tags: [],
+      guidance: 'Configure opencode settings',
+    });
+
+    const output = await handleMaintain(
+      { action: 'scope-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('Mis-scoped Notes');
+    expect(output).toContain('Mis-scoped Note');
+    expect(output).toContain('client:opencode');
+    expect(output).toContain('Dry run');
+  });
+
+  it('should fix mis-scoped notes when dryRun is false', async () => {
+    const result = ctx.engine.store('Edit .opencode/config.json for settings', {
+      title: 'Fixable Note',
+      kind: 'reference',
+      tags: [],
+      guidance: 'Configure settings',
+    });
+
+    await handleMaintain(
+      { action: 'scope-audit', dryRun: false }, ctx.engine, ctx.config,
+    );
+
+    const note = ctx.engine.getById(result.id);
+    expect(note!.tags).toContain('client:opencode');
+  });
+
+  it('should report no issues for correctly scoped notes', async () => {
+    ctx.engine.store('Universal knowledge about TypeScript', {
+      title: 'Universal Note',
+      kind: 'reference',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'scope-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('No mis-scoped notes');
+  });
+
+  it('should not touch notes already correctly tagged', async () => {
+    const result = ctx.engine.store('Edit .opencode/config.json for settings', {
+      title: 'Already Tagged',
+      kind: 'reference',
+      tags: ['client:opencode'],
+      guidance: 'Configure settings',
+    });
+
+    const output = await handleMaintain(
+      { action: 'scope-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('No mis-scoped notes');
+  });
+
+  it('should not auto-tag ambiguous multi-client content', async () => {
+    ctx.engine.store('Compare .opencode/config.json vs .claude/settings.json', {
+      title: 'Multi-Client Note',
+      kind: 'reference',
+      tags: [],
+      guidance: 'Cross-client comparison',
+    });
+
+    const output = await handleMaintain(
+      { action: 'scope-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('No mis-scoped notes');
+  });
+
+  it('should show per-client counts', async () => {
+    ctx.engine.store('Claude knowledge', {
+      title: 'Claude Note',
+      kind: 'reference',
+      tags: ['client:claude-code'],
+    });
+    ctx.engine.store('OpenCode knowledge', {
+      title: 'OpenCode Note',
+      kind: 'reference',
+      tags: ['client:opencode'],
+    });
+
+    const output = await handleMaintain(
+      { action: 'scope-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('client:claude-code: 1');
+    expect(output).toContain('client:opencode: 1');
+  });
+
+  it('should flag notes with unrecognized client tags', async () => {
+    ctx.engine.store('Unknown client knowledge', {
+      title: 'Unknown Client Note',
+      kind: 'reference',
+      tags: ['client:vscode'],
+    });
+
+    const output = await handleMaintain(
+      { action: 'scope-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('Unrecognized Client Tags');
+    expect(output).toContain('Unknown Client Note');
+    expect(output).toContain('client:vscode');
+  });
+
+  it('should mark unrecognized clients in per-client counts', async () => {
+    ctx.engine.store('Unknown client knowledge', {
+      title: 'Unknown Client Note',
+      kind: 'reference',
+      tags: ['client:vscode'],
+    });
+    ctx.engine.store('Known client knowledge', {
+      title: 'Known Client Note',
+      kind: 'reference',
+      tags: ['client:opencode'],
+    });
+
+    const output = await handleMaintain(
+      { action: 'scope-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('client:vscode: 1 ⚠ unrecognized');
+    expect(output).not.toContain('client:opencode: 1 ⚠');
   });
 });

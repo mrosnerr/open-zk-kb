@@ -2,27 +2,37 @@
 
 ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.
 
-### Before Work
-- `knowledge-search` for relevant context (preferences, decisions, patterns)
+### Pre-Flight: Before Responding to Any Message
 
-### Storing Knowledge
-Use `knowledge-store` with one concept per note. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents).
+ALWAYS do both of these **before any other work**:
 
-**Kinds** (with example notes):
-- **personalization** — "User prefers Bun over Node.js for all runtime tasks"
-- **decision** — "Chose FTS5 over trigram search because..."
-- **observation** — "Bun's globalThis.fetch includes `preconnect` — use `as any` cast"
-- **reference** — "getStaleNotes filters on `created_at`, not `updated_at`"
-- **procedure** — "Release: `bun run release` → bumps version, changelog, PR"
-- **resource** — "Bun SQLite docs: https://bun.sh/docs/api/sqlite"
+1. **Search** — `knowledge-search` for relevant context. Always pass `client: "{{CLIENT_NAME}}"` to filter out notes meant for other AI clients. Use filters (`kind`, `project`, `tags`) to narrow further. If no results, try broader keywords before proceeding without context.
+2. **Apply results** — each note has a `<guidance>` tag: follow it. Personalization shapes your style, decisions are binding unless overridden, procedures are step-by-step instructions, observations are verified gotchas.
+3. **Scan for storage triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding with the task.
 
-### When to Store (immediately, not deferred)
-- User corrects you or says "always/never/I prefer" → **personalization**
-- You look something up twice in one session → **reference**
-- You hit a non-obvious error or gotcha → **observation**
+- User says "remember", "always", "never", "I prefer", "don't do X", or corrects you → **personalization**
 - You and user weigh options and pick one → **decision**
+- You hit a non-obvious error or gotcha → **observation**
+- You look something up twice in one session → **reference**
 - You discover a multi-step workflow by doing it → **procedure**
 - A useful URL comes up → **resource**
+
+NEVER defer storage to "after I finish the task." Store first, then work.
+
+### Storing Knowledge
+Use `knowledge-store` with **one concept per note**. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents). If you learn multiple things, make multiple store calls — don't bundle.
+
+**Kinds** (with target word counts):
+- **personalization** (~50 words) — "User prefers Bun over Node.js for all runtime tasks"
+- **decision** (~150 words) — "Chose FTS5 over trigram search because..."
+- **observation** (~100 words) — "Bun's globalThis.fetch includes `preconnect` — use `as any` cast"
+- **reference** (~120 words) — "getStaleNotes filters on `created_at`, not `updated_at`"
+- **procedure** (~150 words) — "Release: `bun run release` → bumps version, changelog, PR"
+- **resource** (~50 words) — "Bun SQLite docs: https://bun.sh/docs/api/sqlite"
+
+Notes exceeding the target will trigger a soft warning — heed it and split if the note covers more than one concept.
+
+**Client scoping**: Notes containing client-specific paths (e.g., `.cursor/`, `.claude/`) are auto-tagged at store time. You don't need to pass `client` on store — it's auto-detected.
 
 ### Capture Checkpoints
 - Every task plan with 3+ todos: add a final **"Capture learnings → knowledge base"** todo.

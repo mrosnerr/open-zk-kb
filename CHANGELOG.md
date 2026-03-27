@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.0-beta.11
+
+- **Add client-aware knowledge filtering** — detect caller (claude-code, cursor, etc.) and tailor tool outputs
+- **Add soft atomicity warnings** — warn when notes exceed size thresholds
+- Improve skill structure to prioritize storage triggers over mechanics
+- Fold search into pre-flight alongside storage triggers
+- Add retrieval guidance to pre-flight instructions
+- Add boundary and edge-case tests for atomicity warnings
+- Fix review oversized-notes scan: unbounded limit and single countWords pass
+- Fix smoke tests for FTS5 query handling and search output matching
+
 ## 0.1.0-beta.10
 
 - Add `skills/` to npm package files (fixes claude-code skill install from npm)

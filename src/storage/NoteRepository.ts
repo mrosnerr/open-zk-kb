@@ -963,21 +963,32 @@ export class NoteRepository {
     return true;
   }
 
+  updateTags(id: string, tags: string[]): boolean {
+    const note = this.getById(id);
+    if (!note) return false;
+
+    const now = Date.now();
+    const tagsJson = JSON.stringify(tags);
+    this.db.prepare('UPDATE notes SET tags = ?, updated_at = ? WHERE id = ?').run(tagsJson, now, id);
+    this.ftsUpdate(id, note.title, note.content, tagsJson, note.context || '');
+    this.rewriteFrontmatter(note, { tags, updated_at: now });
+
+    return true;
+  }
+
   private updateFrontmatterStatus(note: NoteMetadata, newStatus: NoteStatus): void {
+    this.rewriteFrontmatter(note, { status: newStatus, updated_at: Date.now() });
+  }
+
+  /** Rewrite a note's markdown frontmatter with field overrides, preserving body content. */
+  private rewriteFrontmatter(note: NoteMetadata, overrides: Partial<NoteMetadata>): void {
     try {
-      if (!fs.existsSync(note.path)) return;
       const content = fs.readFileSync(note.path, 'utf-8');
       const { body } = this.parseFrontmatter(content);
-
-      const newFrontmatter = this.buildFrontmatter({
-        ...note,
-        status: newStatus,
-        updated_at: Date.now(),
-      });
-
+      const newFrontmatter = this.buildFrontmatter({ ...note, ...overrides });
       fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
     } catch (err) {
-      logToFile('WARN', 'Failed to update frontmatter status', { noteId: note.id, error: String(err) });
+      logToFile('WARN', 'Failed to rewrite frontmatter', { noteId: note.id, error: String(err) });
     }
   }
 
