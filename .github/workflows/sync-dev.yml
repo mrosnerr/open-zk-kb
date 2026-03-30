@@ -18,9 +18,21 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Fast-forward dev to main
+      - name: Sync dev with main
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          
           git fetch origin main dev
           git checkout dev
-          git merge --ff-only origin/main
-          git push origin dev
+          
+          # Try fast-forward first (cleanest)
+          if git merge --ff-only origin/main 2>/dev/null; then
+            echo "Fast-forward succeeded"
+            git push origin dev
+          else
+            # If dev has diverged, create a merge commit
+            echo "Fast-forward failed, creating merge commit..."
+            git merge origin/main -m "Merge main into dev (auto-sync)"
+            git push origin dev
+          fi
