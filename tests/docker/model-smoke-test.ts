@@ -4,7 +4,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 const EMBEDDING_DIMENSIONS = 384;
-const TOTAL_EXPECTED = 9;
+const _TOTAL_EXPECTED = 9;
 
 let passed = 0;
 let failed = 0;

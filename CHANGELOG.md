@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.0
+
+First stable release. Highlights from the beta period:
+
+- **5 MCP clients supported** — Claude Code, OpenCode, Cursor, Windsurf, Zed
+- **Semantic search** — local MiniLM-L6-v2 embeddings with optional API providers
+- **Client-aware filtering** — notes can be scoped to specific clients
+- **Dual storage** — Markdown files (source of truth) + SQLite FTS5 index
+- **Skill-based instructions** — Claude Code uses `~/.claude/skills/`, others use injected `AGENTS.md`
+- **Full test coverage** — 424 tests including E2E MCP protocol tests
+
 ## 0.1.0-beta.11
 
 - **Add client-aware knowledge filtering** — detect caller (claude-code, cursor, etc.) and tailor tool outputs

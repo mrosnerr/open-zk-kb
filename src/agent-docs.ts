@@ -43,7 +43,7 @@ function inspectAgentDocsContent(content: string): Omit<AgentDocsInspection, 'fi
   const startIdx = content.indexOf(START_MARKER);
   const endIdx = content.indexOf(END_MARKER);
 
-  let status: AgentDocsStatus = 'missing';
+  let status: AgentDocsStatus;
   if (startCount === 0 && endCount === 0) {
     status = 'missing';
   } else if (startCount === 1 && endCount === 1 && startIdx < endIdx) {

@@ -11,7 +11,7 @@ function toNoteStatus(status: string | undefined, fallback: NoteStatus): NoteSta
 }
 import type { NoteRepository, NoteMetadata } from './storage/NoteRepository.js';
 import { formatWikiLink } from './utils/wikilink.js';
-import { renderNoteForAgent, renderNoteForSearch } from './prompts.js';
+import { renderNoteForSearch } from './prompts.js';
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash } from './utils/simhash.js';
@@ -409,7 +409,6 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         
         for (let i = 0; i < queue.permanent.notes.length; i++) {
           const note = queue.permanent.notes[i];
-          const daysOld = Math.floor((Date.now() - note.created_at) / (1000 * 60 * 60 * 24));
           output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | never accessed | 2999 Review relevance\n`;
         }
         
@@ -446,7 +445,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       if (hasPermanent) output += `[${String.fromCharCode(stepIdx++)}] Show all permanent notes for review\n`;
       output += `[${String.fromCharCode(stepIdx++)}] Promote specific note to permanent (requires --noteId)\n`;
       output += `[${String.fromCharCode(stepIdx++)}] Archive specific note (requires --noteId)\n`;
-      if (oversized.length > 0) output += `[${String.fromCharCode(stepIdx++)}] Split an oversized note into atomic notes\n`;
+      if (oversized.length > 0) output += `[${String.fromCharCode(stepIdx)}] Split an oversized note into atomic notes\n`;
 
       return output;
     }

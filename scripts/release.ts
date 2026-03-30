@@ -17,7 +17,7 @@ function run(cmd: string[], label: string): CmdResult {
       stdin: 'ignore',
     });
   } catch (error) {
-    throw new Error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`);
+    throw new Error(`${label} failed: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 
   return {
@@ -35,14 +35,14 @@ function mustRun(cmd: string[], label: string): string {
   return result.stdout;
 }
 
-function getNextBetaVersion(current: string): string {
-  const match = current.match(/^(\d+)\.(\d+)\.(\d+)-beta\.(\d+)$/);
+function getNextPatchVersion(current: string): string {
+  const match = current.match(/^(\d+)\.(\d+)\.(\d+)$/);
   if (!match) {
-    throw new Error(`Current version '${current}' is not in X.Y.Z-beta.N format`);
+    throw new Error(`Current version '${current}' is not in X.Y.Z format`);
   }
 
-  const nextBeta = Number(match[4]) + 1;
-  return `${match[1]}.${match[2]}.${match[3]}-beta.${nextBeta}`;
+  const nextPatch = Number(match[3]) + 1;
+  return `${match[1]}.${match[2]}.${nextPatch}`;
 }
 
 function formatCommitForChangelog(message: string): string {
@@ -110,7 +110,7 @@ async function main(): Promise<void> {
   }
 
   const requestedVersion = process.argv[2];
-  const nextVersion = requestedVersion ?? getNextBetaVersion(pkg.version);
+  const nextVersion = requestedVersion ?? getNextPatchVersion(pkg.version);
   const existingPr = getExistingReleasePr('main', 'dev');
   if (nextVersion === pkg.version) {
     p.log.error(`Version ${nextVersion} is already current`);
