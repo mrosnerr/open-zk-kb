@@ -34,7 +34,9 @@
     "agent-instructions-compact.md",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "server.json",
+    "llms.txt"
   ],
   "scripts": {
     "build": "tsc",
@@ -70,12 +72,23 @@
   },
   "keywords": [
     "mcp",
+    "mcp-server",
+    "model-context-protocol",
     "knowledge-management",
     "zettelkasten",
     "ai",
+    "ai-memory",
+    "persistent-memory",
     "llm",
+    "claude-code",
+    "opencode",
+    "cursor",
+    "windsurf",
+    "ai-coding-assistant",
     "sqlite",
-    "fts5"
+    "fts5",
+    "embeddings",
+    "semantic-search"
   ],
   "license": "MIT"
 }

@@ -1,0 +1,63 @@
+# open-zk-kb
+
+> Persistent knowledge base for AI coding assistants
+
+open-zk-kb is an MCP server that gives AI coding assistants persistent memory across sessions. It stores decisions, preferences, patterns, procedures, and context as searchable Markdown notes.
+
+## Installation
+
+Requires Bun runtime.
+
+```bash
+bunx open-zk-kb@latest
+```
+
+The interactive installer adds the MCP server to your client config and installs knowledge base instructions.
+
+## MCP Tools
+
+### knowledge-search
+Search the knowledge base for relevant context. Uses full-text search (SQLite FTS5) and local semantic embeddings (MiniLM-L6-v2). No API key required.
+
+Parameters:
+- query (string, required): Natural language search query
+- kind (string, optional): Filter by note kind
+- tags (array, optional): Filter by tags
+- limit (number, optional): Max results (default 10)
+
+### knowledge-store
+Store a note with one concept. Notes have YAML frontmatter and Markdown content.
+
+Parameters:
+- title (string, required): Note title
+- content (string, required): Note content
+- kind (string, required): personalization, reference, decision, procedure, resource, or observation
+- summary (string, required): One-line takeaway
+- guidance (string, required): Imperative instruction for future agents
+- tags (array, optional): Categorization tags
+- related (array, optional): IDs of related notes for wikilinks
+
+### knowledge-maintain
+Maintenance actions for the knowledge base.
+
+Parameters:
+- action (string, required): stats, review, promote, archive, delete, rebuild, embed, dedupe
+
+## Note Kinds
+
+- personalization: User preferences, habits, personal style (permanent by default)
+- reference: Technical facts, API details, documentation snippets (fleeting by default)
+- decision: Architectural choices, project commitments, trade-offs (permanent by default)
+- procedure: Step-by-step workflows, recurring tasks (fleeting by default)
+- resource: Links, tools, libraries, external documentation (permanent by default)
+- observation: Insights, patterns, temporary findings (fleeting by default)
+
+## Supported Clients
+
+OpenCode, Claude Code, Cursor, Windsurf, Zed
+
+## Links
+
+- Repository: https://github.com/mrosnerr/open-zk-kb
+- npm: https://www.npmjs.com/package/open-zk-kb
+- Documentation: https://mrosnerr.github.io/open-zk-kb
