@@ -27,12 +27,11 @@ jobs:
           git checkout dev
           
           # Try fast-forward first (cleanest)
-          if git merge --ff-only origin/main 2>/dev/null; then
+          if git merge --ff-only origin/main; then
             echo "Fast-forward succeeded"
-            git push origin dev
           else
             # If dev has diverged, create a merge commit
             echo "Fast-forward failed, creating merge commit..."
             git merge origin/main -m "Merge main into dev (auto-sync)"
-            git push origin dev
           fi
+          git push origin dev
