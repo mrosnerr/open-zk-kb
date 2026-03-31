@@ -8,7 +8,7 @@ import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
-import { injectAgentDocs, inspectAgentDocs, removeAgentDocs, getAgentDocsVersion } from './agent-docs.js';
+import { injectAgentDocs, inspectAgentDocs, removeAgentDocs } from './agent-docs.js';
 import type { InstructionSize } from './agent-docs.js';
 import { createRequire } from 'module';
 
