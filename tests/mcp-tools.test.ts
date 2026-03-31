@@ -1002,9 +1002,9 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
     const output = await handleMaintain(
       { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
     );
-    expect(output).toContain('## Update Available');
-    expect(output).toContain('Current: 0.1.0');
-    expect(output).toContain('Latest: 9.9.9');
+    expect(output).toContain('## Version');
+    expect(output).toContain('Server: 0.1.0');
+    expect(output).toContain('9.9.9 available');
     expect(output).toContain('bunx open-zk-kb@latest install');
   });
 

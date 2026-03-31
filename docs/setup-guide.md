@@ -104,6 +104,48 @@ Instructions are injected as a managed block wrapped in markers:
 ## Optional Configuration
 - **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and vector embeddings in a single file. See [configuration.md](configuration.md).
 
+## Updating
+
+### How Updates Work
+
+| Component | Auto-updates? | Mechanism |
+|-----------|---------------|-----------|
+| **MCP server** | ✅ Yes | `bunx open-zk-kb@latest` checks npm registry on each client restart |
+| **Agent instructions** | ❌ No | Requires manual `install --force` to update |
+| **User config** | ❌ No | Your `config.yaml` is never modified after initial copy |
+
+### Checking for Updates
+
+Run `knowledge-maintain stats` to see version information:
+
+```
+## Version
+- Server: 1.0.0 (latest)
+- Instructions:
+  - Claude Code: 1.0.0 ✓
+  - OpenCode: 0.9.0 ⚠️
+```
+
+If instructions are outdated (⚠️), update them:
+
+```bash
+bunx open-zk-kb@latest install --client <name> --force
+```
+
+### Updating Instructions
+
+The `--force` flag re-injects the latest agent instructions while preserving any custom content you've added outside the managed markers:
+
+```bash
+# Update all clients at once
+bunx open-zk-kb@latest install --yes --force
+
+# Update a specific client
+bunx open-zk-kb@latest install --client opencode --force
+```
+
+**Note**: The MCP server itself updates automatically via the `@latest` suffix in the config. You only need to run `install --force` to update the agent instructions (skill files or managed blocks).
+
 ## Uninstalling
 
 Interactive (npm):

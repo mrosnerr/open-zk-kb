@@ -8,8 +8,12 @@ import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
-import { injectAgentDocs, inspectAgentDocs, removeAgentDocs } from './agent-docs.js';
+import { injectAgentDocs, inspectAgentDocs, removeAgentDocs, getAgentDocsVersion } from './agent-docs.js';
 import type { InstructionSize } from './agent-docs.js';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const { version: PKG_VERSION } = require('../package.json') as { version: string };
 
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
@@ -280,6 +284,19 @@ function inspectSkill(skillPath: string): { exists: boolean; hasSkillMd: boolean
 }
 
 /**
+ * Get the version from an installed Claude Code skill's SKILL.md frontmatter.
+ * Returns null if skill doesn't exist or has no version.
+ */
+export function getSkillVersion(skillPath: string): string | null {
+  const skillMdPath = path.join(skillPath, 'SKILL.md');
+  if (!fs.existsSync(skillMdPath)) return null;
+
+  const content = fs.readFileSync(skillMdPath, 'utf-8');
+  const match = content.match(/^---[\s\S]*?version:\s*["']?([\d.]+)["']?[\s\S]*?---/m);
+  return match ? match[1] : null;
+}
+
+/**
  * Remove the old CLAUDE.md managed block if present (migration from pre-skill install).
  */
 function migrateFromAgentDocs(agentDocsPath: string, dryRun?: boolean): { migrated: boolean; fileDeleted: boolean } {
@@ -540,7 +557,7 @@ export function doctor(args: DoctorArgs = {}): string {
         if (!inspection.exists) {
           if (args.fix) {
             const size = clientConfig.instructionSize || 'full';
-            injectAgentDocs(clientConfig.agentDocsPath, size, false, client);
+            injectAgentDocs(clientConfig.agentDocsPath, size, false, client, PKG_VERSION);
             pushCheck('FIXED', `${clientConfig.name}: restored managed instructions in ${clientConfig.agentDocsPath}`);
           } else {
             pushCheck('WARN', `${clientConfig.name}: managed instructions missing at ${clientConfig.agentDocsPath}`);
@@ -549,7 +566,7 @@ export function doctor(args: DoctorArgs = {}): string {
           pushCheck('OK', `${clientConfig.name}: managed instructions are healthy in ${clientConfig.agentDocsPath}`);
         } else if (args.fix) {
           const size = clientConfig.instructionSize || 'full';
-          injectAgentDocs(clientConfig.agentDocsPath, size, false, client);
+          injectAgentDocs(clientConfig.agentDocsPath, size, false, client, PKG_VERSION);
           pushCheck('FIXED', `${clientConfig.name}: repaired managed instructions in ${clientConfig.agentDocsPath}`);
         } else if (inspection.status === 'missing') {
           pushCheck('WARN', `${clientConfig.name}: instruction file exists but has no managed block at ${clientConfig.agentDocsPath}`);
@@ -650,7 +667,7 @@ export function install(args: InstallArgs): string {
     migrationResult = migrateFromAgentDocs(getLegacyClaudeMdPath(), args.dryRun);
   } else if (clientConfig.agentDocsPath) {
     const size = args.instructionSize || clientConfig.instructionSize || 'full';
-    agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client);
+    agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client, PKG_VERSION);
   }
 
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;

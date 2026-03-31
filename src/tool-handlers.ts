@@ -21,6 +21,7 @@ import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
 import { getAgentDocsTargets } from './agent-docs-targets.js';
 import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 import { detectClient, isVisibleToClient, getClientTags, clientTag, isKnownClient } from './client-heuristics.js';
+import { getInstalledInstructionVersions } from './instruction-versions.js';
 
 // ---- Constants ----
 
@@ -283,10 +284,31 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
       if (currentVersion) {
         const latest = await getLatestVersion('open-zk-kb');
+        output += '\n## Version\n';
+        output += `- Server: ${currentVersion}`;
+        if (latest) {
+          if (isNewerVersion(currentVersion, latest)) {
+            output += ` → ${latest} available`;
+          } else {
+            output += ' (latest)';
+          }
+        }
+        output += '\n';
+
+        // Show instruction versions for installed clients
+        const installedInstructions = getInstalledInstructionVersions();
+        if (installedInstructions.length > 0) {
+          output += '- Instructions:\n';
+          for (const inst of installedInstructions) {
+            const versionDisplay = inst.instructionVersion || 'unknown';
+            const isOutdated = inst.instructionVersion && latest && isNewerVersion(inst.instructionVersion, latest);
+            const statusIcon = isOutdated ? '⚠️' : '✓';
+            output += `  - ${inst.name}: ${versionDisplay} ${statusIcon}\n`;
+          }
+        }
+
         if (latest && isNewerVersion(currentVersion, latest)) {
-          output += `\n## Update Available\n`;
-          output += `- Current: ${currentVersion} | Latest: ${latest}\n`;
-          output += `- Run \`bunx open-zk-kb@latest install --client <name> --force\` to update\n`;
+          output += `\n**Update**: \`bunx open-zk-kb@latest install --client <name> --force\`\n`;
         }
       }
       return output;
@@ -601,7 +623,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           if (dryRun) {
             output += '- Result: would refresh managed instructions to current template\n\n';
           } else {
-            const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client);
+            const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion);
             output += `- Result: ${result.action}\n\n`;
           }
           continue;
@@ -615,7 +637,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         if (dryRun) {
           output += '- Result: would repair markers and append a fresh managed block while preserving other content\n\n';
         } else {
-          const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client);
+          const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion);
           output += `- Result: ${result.action}\n\n`;
         }
       }
