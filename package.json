@@ -1,7 +1,8 @@
 {
   "name": "open-zk-kb",
-  "version": "1.0.0",
-  "description": "Persistent knowledge base for AI coding assistants — searchable Markdown notes with full-text and semantic search",
+  "version": "1.0.1",
+  "mcpName": "io.github.mrosnerr/open-zk-kb",
+  "description": "Zettelkasten-style knowledge base for AI coding assistants — linked Markdown notes with full-text and semantic search",
   "type": "module",
   "main": "dist/mcp-server.js",
   "types": "dist/mcp-server.d.ts",
@@ -34,7 +35,9 @@
     "agent-instructions-compact.md",
     "README.md",
     "LICENSE",
-    "CHANGELOG.md"
+    "CHANGELOG.md",
+    "server.json",
+    "llms.txt"
   ],
   "scripts": {
     "build": "tsc",
@@ -70,12 +73,25 @@
   },
   "keywords": [
     "mcp",
-    "knowledge-management",
+    "mcp-server",
+    "model-context-protocol",
     "zettelkasten",
+    "zettelkasten-ai",
+    "knowledge-management",
+    "knowledge-graph",
     "ai",
+    "ai-memory",
+    "persistent-memory",
     "llm",
+    "claude-code",
+    "opencode",
+    "cursor",
+    "windsurf",
+    "ai-coding-assistant",
     "sqlite",
-    "fts5"
+    "fts5",
+    "embeddings",
+    "semantic-search"
   ],
   "license": "MIT"
 }
