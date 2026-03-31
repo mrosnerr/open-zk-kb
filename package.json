@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
   "description": "Zettelkasten-style knowledge base for AI coding assistants — linked Markdown notes with full-text and semantic search",
   "type": "module",

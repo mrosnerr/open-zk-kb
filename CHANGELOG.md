@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- **Add MCP Registry support** — `server.json` manifest for official registry submission
+- **Add `llms.txt`** — machine-readable documentation for AI assistant discovery
+- **Add `mcpName` to package.json** — required for MCP registry npm verification
+- **Emphasize Zettelkasten identity** — updated descriptions and keywords to highlight the Zettelkasten method
+
 ## 1.0.0
 
 First stable release. Highlights from the beta period:
