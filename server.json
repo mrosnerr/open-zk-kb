@@ -1,39 +1,21 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.mrosnerr/open-zk-kb",
-  "title": "open-zk-kb",
-  "description": "Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as searchable Markdown notes with full-text and semantic search — so your assistant remembers across sessions.",
+  "description": "Zettelkasten-style knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as linked Markdown notes with full-text and semantic search.",
   "version": "1.0.0",
-  "license": "MIT",
+  "websiteUrl": "https://mrosnerr.github.io/open-zk-kb",
   "repository": {
-    "type": "git",
-    "url": "https://github.com/mrosnerr/open-zk-kb"
+    "url": "https://github.com/mrosnerr/open-zk-kb",
+    "source": "github"
   },
-  "homepage": "https://mrosnerr.github.io/open-zk-kb",
   "packages": [
     {
       "registryType": "npm",
-      "name": "open-zk-kb",
-      "version": "1.0.0"
+      "identifier": "open-zk-kb",
+      "version": "1.0.0",
+      "transport": {
+        "type": "stdio"
+      }
     }
-  ],
-  "tools": [
-    {
-      "name": "knowledge-search",
-      "description": "Search the knowledge base for relevant context using full-text and semantic search"
-    },
-    {
-      "name": "knowledge-store",
-      "description": "Store a note with one concept — decisions, preferences, procedures, observations, references, or resources"
-    },
-    {
-      "name": "knowledge-maintain",
-      "description": "Maintenance actions: stats, review stale notes, promote/archive/delete, rebuild index"
-    }
-  ],
-  "capabilities": {
-    "tools": true,
-    "prompts": false,
-    "resources": false
-  }
+  ]
 }
