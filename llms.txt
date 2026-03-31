@@ -1,8 +1,8 @@
 # open-zk-kb
 
-> Persistent knowledge base for AI coding assistants
+> Zettelkasten-style knowledge base for AI coding assistants
 
-open-zk-kb is an MCP server that gives AI coding assistants persistent memory across sessions. It stores decisions, preferences, patterns, procedures, and context as searchable Markdown notes.
+open-zk-kb is an MCP server that implements the Zettelkasten method for AI coding assistants, giving them persistent memory across sessions. It stores atomic notes — decisions, preferences, patterns, procedures, and context — as linked Markdown files with wiki-style connections, full-text search (SQLite FTS5), and local semantic embeddings.
 
 ## Installation
 
@@ -43,7 +43,11 @@ Maintenance actions for the knowledge base.
 Parameters:
 - action (string, required): stats, review, promote, archive, delete, rebuild, embed, dedupe
 
-## Note Kinds
+## Zettelkasten Concepts
+
+The Zettelkasten ("slip box") method stores one atomic concept per note, with explicit links between related ideas. This enables emergent knowledge discovery as the network grows.
+
+### Note Kinds
 
 - personalization: User preferences, habits, personal style (permanent by default)
 - reference: Technical facts, API details, documentation snippets (fleeting by default)
@@ -51,6 +55,10 @@ Parameters:
 - procedure: Step-by-step workflows, recurring tasks (fleeting by default)
 - resource: Links, tools, libraries, external documentation (permanent by default)
 - observation: Insights, patterns, temporary findings (fleeting by default)
+
+### Note Lifecycle
+
+Notes follow the Zettelkasten lifecycle: fleeting (temporary captures) → permanent (reviewed and linked) → archived (no longer active). Wiki-links (`[[note-slug]]`) connect related notes, building an interconnected knowledge graph.
 
 ## Supported Clients
 
