@@ -1,8 +1,8 @@
 # open-zk-kb
 
-> Shared, persistent memory for AI coding assistants, built on the Zettelkasten method
+> Shared, persistent memory for AI assistants, built on the Zettelkasten method
 
-open-zk-kb is shared, persistent memory for AI coding assistants, built on the Zettelkasten method. One knowledge base for all your tools — it stores atomic notes (decisions, preferences, patterns, procedures, context) as linked Markdown files with wiki-links, full-text search (SQLite FTS5), and local semantic embeddings.
+open-zk-kb is shared, persistent memory for AI assistants, built on the Zettelkasten method. One knowledge base for all your tools — it stores atomic notes (decisions, preferences, patterns, procedures, context) as linked Markdown files with wiki-links, full-text search (SQLite FTS5), and local semantic embeddings.
 
 ## Installation
 

@@ -3,7 +3,7 @@ layout: home
 title: open-zk-kb
 ---
 
-# Shared, persistent memory for AI coding assistants
+# Shared, persistent memory for AI assistants
 
 Your AI assistant forgets everything between sessions. open-zk-kb fixes that — one Zettelkasten-based knowledge base for all your tools, so context persists across sessions and clients.
 

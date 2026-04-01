@@ -5,7 +5,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/open-zk-kb)](https://www.npmjs.com/package/open-zk-kb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Shared, persistent memory for AI coding assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients.
+Shared, persistent memory for AI assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients.
 
 ## Demo
 
@@ -17,7 +17,7 @@ Shared, persistent memory for AI coding assistants, built on the Zettelkasten me
 
 ## Why open-zk-kb?
 
-AI coding assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
+AI assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
 
 - **Hybrid search** — full-text + local embeddings, so only relevant notes surface
 - **Atomic notes** — one concept per note (6 kinds, lifecycle management) keeps results precise

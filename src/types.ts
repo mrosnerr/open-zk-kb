@@ -1,6 +1,6 @@
 /**
  * Type definitions for open-zk-kb
- * Shared, persistent memory for AI coding assistants, built on the Zettelkasten method
+ * Shared, persistent memory for AI assistants, built on the Zettelkasten method
  */
 
 // ============ NOTE KIND ============
