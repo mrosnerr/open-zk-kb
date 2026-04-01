@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.5
+
+- Shorten server.json description for MCP Registry (#56)
+
 ## 1.0.4
 
 - Add MCP Registry publishing to CI (#54)
