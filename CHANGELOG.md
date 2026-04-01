@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- **Add version tracking to stats** — shows installed instruction version to help identify when reinstall is needed
+- **Pre-select installed clients** — interactive installer now pre-selects already-installed clients
+- **Update GitHub Actions to Node.js 24** — compatibility with latest runner versions
+
 ## 1.0.1
 
 - **Add MCP Registry support** — `server.json` manifest for official registry submission
