@@ -89,3 +89,14 @@ jobs:
             --notes "**Install:** \`bunx open-zk-kb@$VERSION\`
           **npm:** https://www.npmjs.com/package/open-zk-kb/v/$VERSION" \
             $PRERELEASE_FLAG
+
+      - name: Install mcp-publisher
+        if: steps.version-check.outputs.skip == 'false'
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Publish to MCP Registry
+        if: steps.version-check.outputs.skip == 'false'
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
