@@ -130,3 +130,31 @@ jobs:
             exit 1
           fi
           echo "CHANGELOG.md has been updated"
+
+      - name: Verify version consistency across files
+        if: steps.scope.outputs.needs_bump == 'true'
+        run: |
+          PKG_VERSION="${{ steps.versions.outputs.head }}"
+          
+          # Check server.json root version
+          SERVER_ROOT_VERSION=$(node -p "require('./server.json').version")
+          if [ "$SERVER_ROOT_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::server.json root version ($SERVER_ROOT_VERSION) does not match package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          
+          # Check server.json packages[0].version
+          SERVER_PKG_VERSION=$(node -p "require('./server.json').packages[0].version")
+          if [ "$SERVER_PKG_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::server.json packages[0].version ($SERVER_PKG_VERSION) does not match package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          
+          # Check SKILL.md frontmatter version
+          SKILL_VERSION=$(grep -m1 '^version:' skills/open-zk-kb/SKILL.md | sed 's/version: //')
+          if [ "$SKILL_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::skills/open-zk-kb/SKILL.md version ($SKILL_VERSION) does not match package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          
+          echo "All versions consistent: $PKG_VERSION"
