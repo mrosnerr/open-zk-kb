@@ -5,7 +5,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/open-zk-kb)](https://www.npmjs.com/package/open-zk-kb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Persistent knowledge base for AI coding assistants. Stores decisions, preferences, patterns, and context as searchable Markdown notes — so your assistant remembers across sessions.
+Shared, persistent memory for AI coding assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients.
 
 ## Demo
 

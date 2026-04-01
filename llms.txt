@@ -1,8 +1,8 @@
 # open-zk-kb
 
-> Zettelkasten-style knowledge base for AI coding assistants
+> Shared, persistent memory for AI coding assistants, built on the Zettelkasten method
 
-open-zk-kb is an MCP server that implements the Zettelkasten method for AI coding assistants, giving them persistent memory across sessions. It stores atomic notes — decisions, preferences, patterns, procedures, and context — as linked Markdown files with wiki-style connections, full-text search (SQLite FTS5), and local semantic embeddings.
+open-zk-kb is shared, persistent memory for AI coding assistants, built on the Zettelkasten method. One knowledge base for all your tools — it stores atomic notes (decisions, preferences, patterns, procedures, context) as linked Markdown files with wiki-links, full-text search (SQLite FTS5), and local semantic embeddings.
 
 ## Installation
 

@@ -1,6 +1,6 @@
 /**
  * Type definitions for open-zk-kb
- * MCP server for Zettelkasten-based knowledge management
+ * Shared, persistent memory for AI coding assistants, built on the Zettelkasten method
  */
 
 // ============ NOTE KIND ============
