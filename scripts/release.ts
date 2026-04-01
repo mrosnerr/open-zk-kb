@@ -100,8 +100,12 @@ async function main(): Promise<void> {
 
   const packageFile = Bun.file('package.json');
   const changelogFile = Bun.file('CHANGELOG.md');
+  const serverJsonFile = Bun.file('server.json');
+  const skillFile = Bun.file('skills/open-zk-kb/SKILL.md');
   const packageJsonText = await packageFile.text();
   const changelogText = await changelogFile.text();
+  const serverJsonText = await serverJsonFile.text();
+  const skillText = await skillFile.text();
   const pkg = JSON.parse(packageJsonText) as { version?: string };
 
   if (!pkg.version) {
@@ -142,6 +146,16 @@ async function main(): Promise<void> {
     `"version": "${nextVersion}"`
   );
 
+  // Sync server.json versions (root version + packages[0].version)
+  const updatedServerJson = serverJsonText
+    .replace(/"version":\s*"[^"]+"/g, `"version": "${nextVersion}"`);
+
+  // Sync SKILL.md frontmatter version
+  const updatedSkillText = skillText.replace(
+    /^(---\nname: open-zk-kb\nversion: )[^\n]+/m,
+    `$1${nextVersion}`
+  );
+
   p.log.step(`Version: ${pkg.version} ${color.dim('→')} ${nextVersion}`);
   p.log.step(`Commits: ${commitMessages.length}`);
   p.log.message('Preview CHANGELOG entry:');
@@ -163,8 +177,10 @@ async function main(): Promise<void> {
 
   await Bun.write('package.json', updatedPackageJson);
   await Bun.write('CHANGELOG.md', updatedChangelog);
+  await Bun.write('server.json', updatedServerJson);
+  await Bun.write('skills/open-zk-kb/SKILL.md', updatedSkillText);
 
-  mustRun(['git', 'add', 'package.json', 'CHANGELOG.md'], 'git add');
+  mustRun(['git', 'add', 'package.json', 'CHANGELOG.md', 'server.json', 'skills/open-zk-kb/SKILL.md'], 'git add');
   mustRun(['git', 'commit', '-m', `Bump to ${nextVersion}`], 'git commit');
   mustRun(['git', 'push', 'origin', 'dev'], 'git push');
 
