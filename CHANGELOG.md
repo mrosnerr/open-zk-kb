@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.6
+
+- Pin npm version in CI (#58)
+
 ## 1.0.5
 
 - Shorten server.json description for MCP Registry (#56)
