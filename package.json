@@ -1,8 +1,8 @@
 {
   "name": "open-zk-kb",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
-  "description": "Zettelkasten-style knowledge base for AI coding assistants — linked Markdown notes with full-text and semantic search",
+  "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method — one knowledge base for all your tools",
   "type": "module",
   "main": "dist/mcp-server.js",
   "types": "dist/mcp-server.d.ts",

@@ -2,7 +2,7 @@
 
 ## System Overview
 
-open-zk-kb is a persistent knowledge management system implemented as a Model Context Protocol (MCP) server. It allows any MCP-compatible client (OpenCode, Claude Code, Cursor, Windsurf, Zed) to interact with a Zettelkasten-style knowledge base.
+open-zk-kb is shared, persistent memory for AI assistants, built on the Zettelkasten method and implemented as a Model Context Protocol (MCP) server. One knowledge base for all your tools — any MCP-compatible client (OpenCode, Claude Code, Cursor, Windsurf, Zed) can interact with the same atomic, linked notes.
 
 Knowledge capture is driven by the calling agent's instructions (e.g., a Claude Code skill, `AGENTS.md`, or global rules), which guide the model to use the `knowledge-store` tool when relevant information is encountered.
 

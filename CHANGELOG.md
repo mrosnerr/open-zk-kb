@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.9
+
+- Update taglines to emphasize Zettelkasten method and shared KB
+
 ## 1.0.8
 
 - Use Node 24 for npm trusted publishing (#63)
