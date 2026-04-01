@@ -2,7 +2,7 @@
   "name": "open-zk-kb",
   "version": "1.0.9",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
-  "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method — one knowledge base for all your tools",
+  "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method.",
   "type": "module",
   "main": "dist/mcp-server.js",
   "types": "dist/mcp-server.d.ts",
