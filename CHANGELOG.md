@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.4
+
+- Add MCP Registry publishing to CI (#54)
+
 ## 1.0.3
 
 - Sync versions across all files on release
