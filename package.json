@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
   "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method.",
   "type": "module",
