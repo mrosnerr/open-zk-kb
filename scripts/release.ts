@@ -184,7 +184,11 @@ async function main(): Promise<void> {
   mustRun(['git', 'commit', '-m', `Bump to ${nextVersion}`], 'git commit');
   mustRun(['git', 'push', 'origin', 'dev'], 'git push');
 
-  const prTitle = `Bump to ${nextVersion}`;
+  // Generate descriptive PR title from commits (CI rejects generic "Bump to X.Y.Z")
+  const prTitle = commitMessages.length === 1
+    ? commitMessages[0]  // Single commit: use its message
+    : commitMessages[0]; // Multiple commits: use the first (most recent) as summary
+  
   const prBody = buildPrBody(nextVersion, commitMessages);
   if (existingPr) {
     mustRun(['gh', 'pr', 'edit', String(existingPr.number), '--title', prTitle, '--body', prBody], 'gh pr edit');
