@@ -13,7 +13,22 @@ jobs:
         with:
           script: |
             const title = context.payload.pull_request.title;
+            const baseBranch = context.payload.pull_request.base.ref;
+            const headBranch = context.payload.pull_request.head.ref;
             const errors = [];
+
+            // Release PRs (dev→main) must have descriptive titles, not generic version bumps
+            if (baseBranch === 'main' && headBranch === 'dev') {
+              if (/^Bump (to |version )?\d+\.\d+\.\d+/i.test(title.trim())) {
+                errors.push('Release PR title must describe changes, not just "Bump to X.Y.Z" — this becomes the commit message on main');
+              }
+              if (/^Release:/i.test(title.trim())) {
+                errors.push('Release PR title must describe changes, not just "Release: ..." — this becomes the commit message on main');
+              }
+              if (/^Merge \w+ into (main|dev)$/i.test(title.trim())) {
+                errors.push('Release PR title must describe changes, not just "Merge X into Y" — this becomes the commit message on main');
+              }
+            }
 
             if (title !== title.trimStart()) {
               errors.push('Title must not start with whitespace');
