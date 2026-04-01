@@ -459,7 +459,8 @@ describe('setup.ts', () => {
     });
 
     const installedContent = fs.readFileSync(agentDocsPath, 'utf-8');
-    const managedBlock = installedContent.match(/<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->[\s\S]*?<!-- OPEN-ZK-KB:END -->/)?.[0];
+    // Match versioned or unversioned start marker
+    const managedBlock = installedContent.match(/<!-- OPEN-ZK-KB:START(?: v[\d.]+)? -- managed by open-zk-kb, do not edit -->[\s\S]*?<!-- OPEN-ZK-KB:END -->/)?.[0];
     expect(managedBlock).toBeDefined();
 
     fs.writeFileSync(agentDocsPath, `Intro\n\n${managedBlock}\n\nTail\n`, 'utf-8');

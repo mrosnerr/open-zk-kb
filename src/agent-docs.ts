@@ -19,10 +19,60 @@ export interface AgentDocsInspection {
   endCount: number;
 }
 
-const START_MARKER = '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->';
+// Start marker prefix - used for detection (matches both versioned and unversioned)
+const START_MARKER_PREFIX = '<!-- OPEN-ZK-KB:START';
+const START_MARKER_SUFFIX = ' -- managed by open-zk-kb, do not edit -->';
 const END_MARKER = '<!-- OPEN-ZK-KB:END -->';
 
-function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string): string {
+// Regex to match start marker with optional version: <!-- OPEN-ZK-KB:START v1.0.0 -- managed... -->
+const START_MARKER_REGEX = /<!-- OPEN-ZK-KB:START(?: v[\d.]+)? -- managed by open-zk-kb, do not edit -->/g;
+
+function buildStartMarker(version?: string): string {
+  if (version) {
+    return `${START_MARKER_PREFIX} v${version}${START_MARKER_SUFFIX}`;
+  }
+  return `${START_MARKER_PREFIX}${START_MARKER_SUFFIX}`;
+}
+
+/**
+ * Find the start marker in content (handles versioned and unversioned markers).
+ * Returns { index, length } or null if not found.
+ */
+function findStartMarker(content: string): { index: number; length: number; fullMatch: string } | null {
+  const regex = new RegExp(START_MARKER_REGEX.source);
+  const match = regex.exec(content);
+  if (!match) return null;
+  return { index: match.index, length: match[0].length, fullMatch: match[0] };
+}
+
+/**
+ * Count occurrences of start markers (versioned or unversioned).
+ */
+function countStartMarkers(content: string): number {
+  const matches = content.match(START_MARKER_REGEX);
+  return matches ? matches.length : 0;
+}
+
+/**
+ * Extract the version from a managed block's start marker.
+ * Returns null if no version is found or marker doesn't exist.
+ */
+export function extractManagedBlockVersion(content: string): string | null {
+  const match = content.match(/<!-- OPEN-ZK-KB:START v([\d.]+)/);
+  return match ? match[1] : null;
+}
+
+/**
+ * Get the instruction version from an installed agent docs file.
+ * Returns null if file doesn't exist or has no version.
+ */
+export function getAgentDocsVersion(filePath: string): string | null {
+  if (!fs.existsSync(filePath)) return null;
+  const content = fs.readFileSync(filePath, 'utf-8');
+  return extractManagedBlockVersion(content);
+}
+
+function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string, version?: string): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const filename = size === 'compact' ? 'agent-instructions-compact.md' : 'agent-instructions-full.md';
   const instructionsPath = path.join(projectRoot, filename);
@@ -30,7 +80,8 @@ function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: stri
   if (clientName) {
     content = content.replace(/\{\{CLIENT_NAME\}\}/g, clientName);
   }
-  return `${START_MARKER}\n${content}\n${END_MARKER}`;
+  const startMarker = buildStartMarker(version);
+  return `${startMarker}\n${content}\n${END_MARKER}`;
 }
 
 function countOccurrences(content: string, marker: string): number {
@@ -38,9 +89,10 @@ function countOccurrences(content: string, marker: string): number {
 }
 
 function inspectAgentDocsContent(content: string): Omit<AgentDocsInspection, 'filePath' | 'exists'> {
-  const startCount = countOccurrences(content, START_MARKER);
+  const startCount = countStartMarkers(content);
   const endCount = countOccurrences(content, END_MARKER);
-  const startIdx = content.indexOf(START_MARKER);
+  const startMatch = findStartMarker(content);
+  const startIdx = startMatch?.index ?? -1;
   const endIdx = content.indexOf(END_MARKER);
 
   let status: AgentDocsStatus;
@@ -63,7 +115,7 @@ function inspectAgentDocsContent(content: string): Omit<AgentDocsInspection, 'fi
 
 function stripManagedMarkers(content: string): string {
   return content
-    .split(START_MARKER).join('')
+    .replace(START_MARKER_REGEX, '')
     .split(END_MARKER).join('')
     .replace(/\n{3,}/g, '\n\n');
 }
@@ -88,7 +140,8 @@ export function inspectAgentDocs(filePath: string): AgentDocsInspection {
 }
 
 function spliceManagedBlock(content: string, replacement: string): string {
-  const startIdx = content.indexOf(START_MARKER);
+  const startMatch = findStartMarker(content);
+  const startIdx = startMatch?.index ?? -1;
   const endIdx = content.indexOf(END_MARKER);
 
   if (startIdx !== -1 && endIdx !== -1 && startIdx < endIdx) {
@@ -129,8 +182,9 @@ function appendManagedBlock(content: string, replacement: string): string {
  * If the file already contains the block, it is replaced (updated).
  * If the file doesn't exist, it is created.
  * Content outside the managed block is preserved.
+ * @param version - Version string to embed in the start marker (e.g., "1.0.0")
  */
-export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean, clientName?: string): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
+export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean, clientName?: string, version?: string): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
   let existing = '';
   const fileExists = fs.existsSync(filePath);
 
@@ -140,7 +194,7 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
 
   let newContent: string;
   let action: 'created' | 'updated' | 'unchanged';
-  const template = loadAgentDocsTemplate(size, clientName);
+  const template = loadAgentDocsTemplate(size, clientName, version);
   const inspection = inspectAgentDocsContent(existing);
 
   if (inspection.status === 'healthy') {
@@ -190,7 +244,8 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
   }
 
   const content = fs.readFileSync(filePath, 'utf-8');
-  const startIdx = content.indexOf(START_MARKER);
+  const startMatch = findStartMarker(content);
+  const startIdx = startMatch?.index ?? -1;
   const endIdx = content.indexOf(END_MARKER);
   const inspection = inspectAgentDocsContent(content);
 
