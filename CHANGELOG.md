@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.3
+
+- Sync versions across all files on release
+
 ## 1.0.2
 
 - **Add version tracking to stats** — shows installed instruction version to help identify when reinstall is needed
