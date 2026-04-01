@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.10
+
+- Standardize taglines to short and long variants
+- Remove coding-specific terminology from taglines
+
 ## 1.0.9
 
 - Update taglines to emphasize Zettelkasten method and shared KB

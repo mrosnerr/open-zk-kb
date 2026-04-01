@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
   "name": "io.github.mrosnerr/open-zk-kb",
-  "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method — one knowledge base for all your tools.",
-  "version": "1.0.9",
+  "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method.",
+  "version": "1.0.10",
   "websiteUrl": "https://mrosnerr.github.io/open-zk-kb",
   "repository": {
     "url": "https://github.com/mrosnerr/open-zk-kb",
@@ -12,7 +12,7 @@
     {
       "registryType": "npm",
       "identifier": "open-zk-kb",
-"version": "1.0.9",
+"version": "1.0.10",
       "transport": {
         "type": "stdio"
       }

@@ -1,6 +1,6 @@
 ---
 name: open-zk-kb
-version: 1.0.9
+version: 1.0.10
 description: >
   Persistent knowledge base for cross-session memory. BEFORE responding to any
   user message: (1) knowledge-search for relevant context, (2) scan for storage
