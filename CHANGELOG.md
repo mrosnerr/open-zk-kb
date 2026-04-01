@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.7
+
+- Remove flaky npm upgrade step from publish workflow (#60)
+
 ## 1.0.6
 
 - Pin npm version in CI (#58)
