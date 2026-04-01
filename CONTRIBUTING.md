@@ -1,6 +1,6 @@
 # Contributing to open-zk-kb
 
-Thank you for your interest in contributing to open-zk-kb. This project is an MCP server for persistent Zettelkasten knowledge management.
+Thank you for your interest in contributing to open-zk-kb — shared, persistent memory for AI coding assistants, built on the Zettelkasten method.
 
 ## Prerequisites
 
