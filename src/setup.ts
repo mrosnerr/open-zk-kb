@@ -159,6 +159,33 @@ function formatServerCommand(serverPath?: string): string {
   return serverPath ? `bun run ${serverPath}` : 'bunx open-zk-kb@latest server';
 }
 
+/**
+ * Check if open-zk-kb is already installed for a given client.
+ */
+function isClientInstalled(client: McpClient): boolean {
+  const clientConfig = CLIENT_CONFIGS[client];
+  
+  if (!fs.existsSync(clientConfig.configPath)) {
+    return false;
+  }
+  
+  try {
+    const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
+    const config = JSON.parse(content);
+    const entry = getNestedValue(config, clientConfig.mcpPath);
+    return entry !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Get list of clients that are already installed.
+ */
+function getInstalledClients(): McpClient[] {
+  return ALL_CLIENTS.filter(isClientInstalled);
+}
+
 function getNestedValue(obj: any, path: string[]): any {
   let current = obj;
   for (const key of path) {
@@ -884,9 +911,17 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     }
 
     p.intro(color.cyan('open-zk-kb — Knowledge Base Setup'));
+    
+    // Pre-select clients that are already installed
+    const alreadyInstalled = getInstalledClients();
+    const hasInstalled = alreadyInstalled.length > 0;
+    
     const selected = await p.multiselect<McpClient>({
-      message: `Select clients to install:\n${color.dim('space to select, enter to confirm')}`,
+      message: hasInstalled
+        ? `Select clients to install:\n${color.dim('Already installed clients are pre-selected. Use --force to update.')}`
+        : `Select clients to install:\n${color.dim('space to select, enter to confirm')}`,
       options: CLIENT_PROMPT_OPTIONS,
+      initialValues: alreadyInstalled,
     });
 
     if (p.isCancel(selected)) {
@@ -943,9 +978,20 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
   }
 
   p.intro(color.yellow('open-zk-kb — Uninstall'));
+  
+  // Pre-select clients that are currently installed
+  const alreadyInstalled = getInstalledClients();
+  
+  if (alreadyInstalled.length === 0) {
+    p.log.warn('No clients are currently installed.');
+    p.outro('Nothing to uninstall.');
+    return;
+  }
+  
   const selected = await p.multiselect<McpClient>({
-    message: `Select clients to uninstall from:\n${color.dim('space to select, enter to confirm')}`,
+    message: `Select clients to uninstall from:\n${color.dim('Installed clients are pre-selected.')}`,
     options: CLIENT_PROMPT_OPTIONS,
+    initialValues: alreadyInstalled,
   });
 
   if (p.isCancel(selected)) {
