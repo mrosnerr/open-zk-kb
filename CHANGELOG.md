@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.8
+
+- Use Node 24 for npm trusted publishing (#63)
+
 ## 1.0.7
 
 - Remove flaky npm upgrade step from publish workflow (#60)
