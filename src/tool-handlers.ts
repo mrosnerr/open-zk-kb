@@ -301,8 +301,14 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += '- Instructions:\n';
           for (const inst of installedInstructions) {
             const versionDisplay = inst.instructionVersion || 'unknown';
-            const isOutdated = inst.instructionVersion && latest && isNewerVersion(inst.instructionVersion, latest);
-            const statusIcon = isOutdated ? '⚠️' : '✓';
+            let statusIcon: string;
+            if (!inst.instructionVersion) {
+              statusIcon = '?';  // Unknown version
+            } else if (latest && isNewerVersion(inst.instructionVersion, latest)) {
+              statusIcon = '⚠️';  // Outdated
+            } else {
+              statusIcon = '✓';  // Up to date
+            }
             output += `  - ${inst.name}: ${versionDisplay} ${statusIcon}\n`;
           }
         }

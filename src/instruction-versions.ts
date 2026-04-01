@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { expandPath } from './utils/path.js';
 import { getAgentDocsVersion } from './agent-docs.js';
+import { getSkillVersion } from './setup.js';
 
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 
@@ -39,19 +40,6 @@ const CLIENT_INSTRUCTION_CONFIGS: ClientInstructionConfig[] = [
     agentDocsPath: path.join(expandPath('~/.codeium'), 'windsurf', 'memories', 'global_rules.md'),
   },
 ];
-
-/**
- * Get the version from an installed Claude Code skill's SKILL.md frontmatter.
- * Returns null if skill doesn't exist or has no version.
- */
-function getSkillVersion(skillPath: string): string | null {
-  const skillMdPath = path.join(skillPath, 'SKILL.md');
-  if (!fs.existsSync(skillMdPath)) return null;
-
-  const content = fs.readFileSync(skillMdPath, 'utf-8');
-  const match = content.match(/^---[\s\S]*?version:\s*["']?([\d.]+)["']?[\s\S]*?---/m);
-  return match ? match[1] : null;
-}
 
 /**
  * Get all installed clients with their instruction versions.
