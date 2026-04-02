@@ -1,0 +1,20 @@
+{
+  "name": "open-zk-kb",
+  "version": "1.0.10",
+  "description": "Persistent AI memory across sessions. Search context before work, store preferences, decisions, and observations automatically. Cross-session knowledge base built on Zettelkasten.",
+  "author": {
+    "name": "mrosnerr",
+    "url": "https://github.com/mrosnerr"
+  },
+  "homepage": "https://mrosnerr.github.io/open-zk-kb",
+  "repository": "https://github.com/mrosnerr/open-zk-kb",
+  "license": "MIT",
+  "keywords": [
+    "knowledge-base",
+    "memory",
+    "zettelkasten",
+    "persistent-context",
+    "mcp",
+    "cross-session"
+  ]
+}

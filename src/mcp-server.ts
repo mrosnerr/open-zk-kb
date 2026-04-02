@@ -22,10 +22,15 @@ import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
 import type { NoteRepository as NoteRepositoryType } from './storage/NoteRepository.js';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const { version: PKG_VERSION } = require('../package.json');
+// Version injected at compile time via --define, or read from package.json at runtime
+declare const __PKG_VERSION__: string | undefined;
+const PKG_VERSION: string = typeof __PKG_VERSION__ !== 'undefined'
+  ? __PKG_VERSION__
+  : (() => {
+      const { createRequire } = require('module');
+      const req = createRequire(import.meta.url);
+      return req('../package.json').version;
+    })();
 const { NoteRepository } = await import('./storage/NoteRepository.js');
 
 const config = getConfig();

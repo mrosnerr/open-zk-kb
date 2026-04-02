@@ -10,10 +10,15 @@ import color from 'picocolors';
 import { expandPath } from './utils/path.js';
 import { injectAgentDocs, inspectAgentDocs, removeAgentDocs } from './agent-docs.js';
 import type { InstructionSize } from './agent-docs.js';
-import { createRequire } from 'module';
-
-const require = createRequire(import.meta.url);
-const { version: PKG_VERSION } = require('../package.json') as { version: string };
+// Version injected at compile time via --define, or read from package.json at runtime
+declare const __PKG_VERSION__: string | undefined;
+const PKG_VERSION: string = typeof __PKG_VERSION__ !== 'undefined'
+  ? __PKG_VERSION__
+  : (() => {
+      const { createRequire } = require('module');
+      const req = createRequire(import.meta.url);
+      return req('../package.json').version;
+    })();
 
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');

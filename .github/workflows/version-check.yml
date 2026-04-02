@@ -157,4 +157,11 @@ jobs:
             exit 1
           fi
           
+          # Check plugin.json version
+          PLUGIN_VERSION=$(node -p "require('./plugin/.claude-plugin/plugin.json').version")
+          if [ "$PLUGIN_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::plugin/.claude-plugin/plugin.json version ($PLUGIN_VERSION) does not match package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          
           echo "All versions consistent: $PKG_VERSION"
