@@ -15,6 +15,7 @@ declare const __PKG_VERSION__: string | undefined;
 const PKG_VERSION: string = typeof __PKG_VERSION__ !== 'undefined'
   ? __PKG_VERSION__
   : (() => {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
       const { createRequire } = require('module');
       const req = createRequire(import.meta.url);
       return req('../package.json').version;
