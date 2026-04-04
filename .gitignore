@@ -4,6 +4,11 @@ node_modules/
 # Build output
 dist/
 
+# Plugin build artifacts (built during release)
+plugin/bin/open-zk-kb-*
+plugin/skills/
+test-binary
+
 # Database & vault artifacts
 .index/
 .kb/
