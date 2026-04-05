@@ -49,7 +49,8 @@
     "test:coverage": "bun test --coverage",
     "eval": "EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000",
     "setup": "bun run src/setup.ts",
-    "release": "bun run scripts/release.ts"
+    "release": "bun run scripts/release.ts",
+    "build:plugin": "bun run scripts/build-plugin.ts"
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",

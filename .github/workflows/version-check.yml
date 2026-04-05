@@ -34,7 +34,7 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
 
-          if echo "$CHANGED" | grep -Eq '^(src/|package\.json|bun\.lock(b)?|config\.example\.yaml|agent-instructions-(full|compact)\.md)'; then
+          if echo "$CHANGED" | grep -Eq '^(src/|plugin/|package\.json|bun\.lock(b)?|config\.example\.yaml|agent-instructions-(full|compact)\.md)'; then
             echo "needs_bump=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_bump=false" >> "$GITHUB_OUTPUT"
@@ -154,6 +154,13 @@ jobs:
           SKILL_VERSION=$(grep -m1 '^version:' skills/open-zk-kb/SKILL.md | sed 's/version: //')
           if [ "$SKILL_VERSION" != "$PKG_VERSION" ]; then
             echo "::error::skills/open-zk-kb/SKILL.md version ($SKILL_VERSION) does not match package.json ($PKG_VERSION)"
+            exit 1
+          fi
+          
+          # Check plugin.json version
+          PLUGIN_VERSION=$(node -p "require('./plugin/.claude-plugin/plugin.json').version")
+          if [ "$PLUGIN_VERSION" != "$PKG_VERSION" ]; then
+            echo "::error::plugin/.claude-plugin/plugin.json version ($PLUGIN_VERSION) does not match package.json ($PKG_VERSION)"
             exit 1
           fi
           
