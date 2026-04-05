@@ -15,5 +15,9 @@ export const PKG_VERSION: string = (() => {
     return __PKG_VERSION__;
   }
   const require = createRequire(import.meta.url);
-  return (require('../package.json') as { version: string }).version;
+  const pkg = require('../package.json') as { version?: unknown };
+  if (typeof pkg.version !== 'string' || !pkg.version) {
+    throw new Error('Invalid or missing version in package.json');
+  }
+  return pkg.version;
 })();
