@@ -56,13 +56,11 @@ async function main() {
   fs.writeFileSync(pluginJsonPath, JSON.stringify(pluginJson, null, 2) + '\n');
   console.log(`\n  Updated plugin.json version to ${version}`);
 
-  // Copy skills from source to plugin
+  // Copy skills from source to plugin (clean first to remove stale files)
   console.log('\n  Copying skills...');
-  fs.mkdirSync(PLUGIN_SKILLS, { recursive: true });
-  for (const file of fs.readdirSync(SOURCE_SKILLS)) {
-    const src = path.join(SOURCE_SKILLS, file);
-    const dest = path.join(PLUGIN_SKILLS, file);
-    fs.copyFileSync(src, dest);
+  fs.rmSync(PLUGIN_SKILLS, { recursive: true, force: true });
+  fs.cpSync(SOURCE_SKILLS, PLUGIN_SKILLS, { recursive: true });
+  for (const file of fs.readdirSync(PLUGIN_SKILLS)) {
     console.log(`    ✓ ${file}`);
   }
 
@@ -71,4 +69,7 @@ async function main() {
   console.log(`  Skills: ${PLUGIN_SKILLS}`);
 }
 
-main().catch(console.error);
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

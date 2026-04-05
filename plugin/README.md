@@ -24,13 +24,13 @@ This plugin includes pre-compiled binaries for all platforms. No runtime depende
 
 ### From Official Marketplace
 
-```
+```text
 /plugin install open-zk-kb@claude-plugins-official
 ```
 
 ### From GitHub
 
-```
+```text
 /plugin install github:mrosnerr/open-zk-kb/plugin
 ```
 

@@ -34,7 +34,7 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
 
-          if echo "$CHANGED" | grep -Eq '^(src/|package\.json|bun\.lock(b)?|config\.example\.yaml|agent-instructions-(full|compact)\.md)'; then
+          if echo "$CHANGED" | grep -Eq '^(src/|plugin/|package\.json|bun\.lock(b)?|config\.example\.yaml|agent-instructions-(full|compact)\.md)'; then
             echo "needs_bump=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_bump=false" >> "$GITHUB_OUTPUT"

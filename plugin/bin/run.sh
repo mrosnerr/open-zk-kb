@@ -25,11 +25,21 @@ if [ "$OS" = "windows" ]; then
   BINARY="${BINARY}.exe"
 fi
 
-if [ ! -x "$BINARY" ]; then
-  echo "Binary not found or not executable: $BINARY" >&2
-  echo "Available binaries:" >&2
-  ls -la "$SCRIPT_DIR"/open-zk-kb-* 2>/dev/null >&2
-  exit 1
+# Check binary exists (use -f for Windows .exe, -x for others)
+if [ "$OS" = "windows" ]; then
+  if [ ! -f "$BINARY" ]; then
+    echo "Binary not found: $BINARY" >&2
+    echo "Available binaries:" >&2
+    ls -la "$SCRIPT_DIR"/open-zk-kb-* 2>/dev/null >&2
+    exit 1
+  fi
+else
+  if [ ! -x "$BINARY" ]; then
+    echo "Binary not found or not executable: $BINARY" >&2
+    echo "Available binaries:" >&2
+    ls -la "$SCRIPT_DIR"/open-zk-kb-* 2>/dev/null >&2
+    exit 1
+  fi
 fi
 
 exec "$BINARY" "$@"

@@ -22,16 +22,8 @@ import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
 import type { NoteRepository as NoteRepositoryType } from './storage/NoteRepository.js';
-// Version injected at compile time via --define, or read from package.json at runtime
-declare const __PKG_VERSION__: string | undefined;
-const PKG_VERSION: string = typeof __PKG_VERSION__ !== 'undefined'
-  ? __PKG_VERSION__
-  : (() => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { createRequire } = require('module');
-      const req = createRequire(import.meta.url);
-      return req('../package.json').version;
-    })();
+import { PKG_VERSION } from './version.js';
+
 const { NoteRepository } = await import('./storage/NoteRepository.js');
 
 const config = getConfig();
