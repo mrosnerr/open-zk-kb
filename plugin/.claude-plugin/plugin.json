@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "Persistent AI memory across sessions. Search context before work, store preferences, decisions, and observations automatically. Cross-session knowledge base built on Zettelkasten.",
   "author": {
     "name": "mrosnerr",
