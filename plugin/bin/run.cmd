@@ -12,3 +12,4 @@ if not exist "%BINARY%" (
 )
 
 "%BINARY%" %*
+\r
