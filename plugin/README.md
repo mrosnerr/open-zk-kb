@@ -61,11 +61,17 @@ claude --plugin-dir /path/to/open-zk-kb/plugin
 
 ## Data Storage
 
-Notes are stored locally in `~/.local/share/open-zk-kb/` as Markdown files with YAML frontmatter. SQLite with FTS5 provides fast full-text search. Optional local embeddings (MiniLM-L6-v2) enable semantic search.
+Notes are stored locally as Markdown files with YAML frontmatter. SQLite with FTS5 provides fast full-text search. Optional local embeddings (MiniLM-L6-v2) enable semantic search.
+
+**Default storage locations** (override via `vault` in config):
+- **Linux / macOS:** `~/.local/share/open-zk-kb/`
+- **Windows:** `%LOCALAPPDATA%\open-zk-kb\` (or set `XDG_DATA_HOME`)
 
 ## Configuration
 
-Optional config at `~/.config/open-zk-kb/config.yaml`:
+**Default config locations:**
+- **Linux / macOS:** `~/.config/open-zk-kb/config.yaml`
+- **Windows:** `%LOCALAPPDATA%\open-zk-kb\config.yaml` (or set `XDG_CONFIG_HOME`)
 
 ```yaml
 vault: ~/.local/share/open-zk-kb  # Note storage location

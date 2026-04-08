@@ -25,7 +25,11 @@ async function main() {
   // Get version from package.json
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
   const version = pkg.version;
-  
+  if (typeof version !== 'string' || !/^\d+\.\d+\.\d+/.test(version)) {
+    console.error(`Invalid or missing version in package.json: ${version}`);
+    process.exit(1);
+  }
+
   console.log(`Building open-zk-kb v${version} for Claude Code plugin...\n`);
 
   // Ensure plugin/bin directory exists
