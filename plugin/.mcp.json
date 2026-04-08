@@ -1,6 +1,6 @@
 {
   "open-zk-kb": {
     "command": "${CLAUDE_PLUGIN_ROOT}/bin/run.sh",
-    "args": []
+    "args": ["server"]
   }
 }

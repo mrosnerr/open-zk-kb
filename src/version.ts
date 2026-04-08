@@ -11,7 +11,7 @@ declare const __PKG_VERSION__: string | undefined;
  * otherwise falls back to reading package.json at runtime.
  */
 export const PKG_VERSION: string = (() => {
-  if (typeof __PKG_VERSION__ !== 'undefined') {
+  if (typeof __PKG_VERSION__ === 'string' && __PKG_VERSION__.trim() !== '') {
     return __PKG_VERSION__;
   }
   const require = createRequire(import.meta.url);

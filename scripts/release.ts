@@ -159,10 +159,9 @@ async function main(): Promise<void> {
   );
 
   // Sync plugin/.claude-plugin/plugin.json version
-  const updatedPluginJson = pluginJsonText.replace(
-    /"version":\s*"[^"]+"/,
-    `"version": "${nextVersion}"`
-  );
+  const parsedPluginJson = JSON.parse(pluginJsonText) as Record<string, unknown>;
+  parsedPluginJson.version = nextVersion;
+  const updatedPluginJson = JSON.stringify(parsedPluginJson, null, 2) + '\n';
 
   p.log.step(`Version: ${pkg.version} ${color.dim('→')} ${nextVersion}`);
   p.log.step(`Commits: ${commitMessages.length}`);
