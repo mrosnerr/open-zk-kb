@@ -102,10 +102,12 @@ async function main(): Promise<void> {
   const changelogFile = Bun.file('CHANGELOG.md');
   const serverJsonFile = Bun.file('server.json');
   const skillFile = Bun.file('skills/open-zk-kb/SKILL.md');
+  const pluginJsonFile = Bun.file('plugin/.claude-plugin/plugin.json');
   const packageJsonText = await packageFile.text();
   const changelogText = await changelogFile.text();
   const serverJsonText = await serverJsonFile.text();
   const skillText = await skillFile.text();
+  const pluginJsonText = await pluginJsonFile.text();
   const pkg = JSON.parse(packageJsonText) as { version?: string };
 
   if (!pkg.version) {
@@ -156,6 +158,12 @@ async function main(): Promise<void> {
     `$1${nextVersion}`
   );
 
+  // Sync plugin/.claude-plugin/plugin.json version
+  const updatedPluginJson = pluginJsonText.replace(
+    /"version":\s*"[^"]+"/,
+    `"version": "${nextVersion}"`
+  );
+
   p.log.step(`Version: ${pkg.version} ${color.dim('→')} ${nextVersion}`);
   p.log.step(`Commits: ${commitMessages.length}`);
   p.log.message('Preview CHANGELOG entry:');
@@ -179,8 +187,9 @@ async function main(): Promise<void> {
   await Bun.write('CHANGELOG.md', updatedChangelog);
   await Bun.write('server.json', updatedServerJson);
   await Bun.write('skills/open-zk-kb/SKILL.md', updatedSkillText);
+  await Bun.write('plugin/.claude-plugin/plugin.json', updatedPluginJson);
 
-  mustRun(['git', 'add', 'package.json', 'CHANGELOG.md', 'server.json', 'skills/open-zk-kb/SKILL.md'], 'git add');
+  mustRun(['git', 'add', 'package.json', 'CHANGELOG.md', 'server.json', 'skills/open-zk-kb/SKILL.md', 'plugin/.claude-plugin/plugin.json'], 'git add');
   mustRun(['git', 'commit', '-m', `Bump to ${nextVersion}`], 'git commit');
   mustRun(['git', 'push', 'origin', 'dev'], 'git push');
 
