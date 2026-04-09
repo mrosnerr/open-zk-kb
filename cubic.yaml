@@ -1,0 +1,24 @@
+version: 1
+
+reviews:
+  enabled: true
+  sensitivity: medium
+  incremental_commits: true
+  check_drafts: false
+  resolve_threads_when_addressed: true
+  custom_instructions: |
+    This is a Bun-first project (not Node.js). The MCP server uses
+    @modelcontextprotocol/sdk. The plugin/ directory contains pre-compiled
+    binaries for Claude Code's plugin system. Tests run with `bun test`.
+  ignore:
+    files:
+      - bun.lock
+      - plugin/bin/open-zk-kb-*
+
+pr_descriptions:
+  generate: false
+
+issues:
+  fix_with_cubic_buttons: true
+  pr_comment_fixes: true
+  fix_commits_to_pr: false

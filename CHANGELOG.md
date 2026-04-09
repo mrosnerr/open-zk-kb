@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.11
+
+- **Add Claude Code plugin packaging** — compiled binaries for macOS, Linux, and Windows
+- **Add CodeRabbit config** — automated code review with request changes workflow
+- **Add runtime validation** — package.json version fallback for compiled binaries
+- **Bump @huggingface/transformers** — 3.8.1 to 4.0.1
+- **Bump @typescript-eslint/eslint-plugin and parser** — 8.26.0 to 8.58.1 (eslint 10 compat)
+- **Sync plugin.json version in release script** — ensures version consistency
+
 ## 1.0.10
 
 - Standardize taglines to short and long variants

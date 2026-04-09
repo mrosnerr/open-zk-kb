@@ -22,10 +22,8 @@ import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
 import type { NoteRepository as NoteRepositoryType } from './storage/NoteRepository.js';
-import { createRequire } from 'module';
+import { PKG_VERSION } from './version.js';
 
-const require = createRequire(import.meta.url);
-const { version: PKG_VERSION } = require('../package.json');
 const { NoteRepository } = await import('./storage/NoteRepository.js');
 
 const config = getConfig();
