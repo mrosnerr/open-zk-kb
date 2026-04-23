@@ -1177,6 +1177,62 @@ export class NoteRepository {
     }));
   }
 
+  getOrphanNotes(): NoteMetadata[] {
+    // Only count links where the neighbor is also non-archived (live links)
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE status != 'archived'
+        AND id NOT IN (
+          SELECT l.source_id FROM note_links l
+          JOIN notes n ON l.target_id = n.id WHERE n.status != 'archived'
+        )
+        AND id NOT IN (
+          SELECT l.target_id FROM note_links l
+          JOIN notes n ON l.source_id = n.id WHERE n.status != 'archived'
+        )
+      ORDER BY created_at DESC
+    `);
+    const results = stmt.all() as NoteMetadata[];
+    const parsed = results.map(r => ({
+      ...r,
+      kind: (r.kind || 'observation') as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+
+    // Exclude notes that have wikilinks in content (even if broken) —
+    // those belong in broken-links, not orphans
+    return parsed.filter(note => parseAllWikiLinks(note.content || '').length === 0);
+  }
+
+  getBrokenLinks(): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> {
+    const allNotes = this.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
+    const broken: Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> = [];
+    const linkPattern = /\[\[([^\]]+)\]\]/g;
+
+    for (const note of allNotes) {
+      const content = note.content || '';
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        let match;
+        linkPattern.lastIndex = 0;
+        while ((match = linkPattern.exec(lines[i])) !== null) {
+          const slug = parseWikiLink(match[1]).slug;
+          const resolved = this.resolveLink(slug);
+          if (!resolved) {
+            broken.push({
+              sourceId: note.id,
+              sourceTitle: note.title,
+              brokenTarget: slug,
+              line: i + 1,
+            });
+          }
+        }
+      }
+    }
+
+    return broken;
+  }
+
   getUpgradeStatus(): { total: number; needsSummary: number; needsGuidance: number } {
     const row = this.db.prepare(`
       SELECT COUNT(*) as total,
