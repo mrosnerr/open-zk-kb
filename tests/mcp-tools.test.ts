@@ -1695,21 +1695,19 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should guard against zero autoArchiveFleetingDays config', async () => {
-    const result = ctx.engine.store('Recent note', { title: 'Should Not Be Stale', kind: 'observation' });
-    setCreatedAt(result.id, daysAgo(1));
+    ctx.engine.store('Fresh note', { title: 'Should Not Be Stale', kind: 'observation' });
 
     const zeroConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: 0 } };
     const output = await handleMaintain({ action: 'review' }, ctx.engine, zeroConfig);
-    expect(output).not.toContain('Should Not Be Stale');
+    expect(output).not.toContain('Stale Fleeting Notes');
   });
 
   it('should guard against negative autoArchiveFleetingDays config', async () => {
-    const result = ctx.engine.store('Recent note', { title: 'Not Stale Either', kind: 'observation' });
-    setCreatedAt(result.id, daysAgo(1));
+    ctx.engine.store('Fresh note', { title: 'Not Stale Either', kind: 'observation' });
 
     const negConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: -10 } };
     const output = await handleMaintain({ action: 'review' }, ctx.engine, negConfig);
-    expect(output).not.toContain('Not Stale Either');
+    expect(output).not.toContain('Stale Fleeting Notes');
   });
 
   it('should handle all fleeting notes being stale', async () => {
