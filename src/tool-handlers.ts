@@ -424,7 +424,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       
       if (hasFleeting) {
         const nonStaleNotes = queue.fleeting.notes.filter(n => n.created_at >= archiveCutoff);
-        const staleInQueue = queue.fleeting.total - nonStaleNotes.length;
+        const staleInQueue = queue.fleeting.notes.length - nonStaleNotes.length;
 
         if (nonStaleNotes.length > 0) {
           output += `### Fleeting Notes for Review (${nonStaleNotes.length} total`;
