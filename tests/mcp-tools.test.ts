@@ -1496,3 +1496,95 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
     expect(notes[0].title).toBe('Model Store Test');
   });
 });
+
+describe('MCP Tool: knowledge-maintain orphans', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should detect orphan notes with no links', async () => {
+    ctx.engine.store('Standalone note', { title: 'Orphan A', kind: 'reference' });
+    ctx.engine.store('Another standalone', { title: 'Orphan B', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    expect(output).toContain('Orphan Notes (2)');
+    expect(output).toContain('Orphan A');
+    expect(output).toContain('Orphan B');
+  });
+
+  it('should exclude archived notes from orphans', async () => {
+    ctx.engine.store('Archived note', { title: 'Old Note', kind: 'reference', status: 'archived' });
+    ctx.engine.store('Active orphan', { title: 'Active Note', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    expect(output).toContain('Active Note');
+    expect(output).not.toContain('Old Note');
+  });
+
+  it('should not list notes that have outgoing links', async () => {
+    const target = ctx.engine.store('Target note', { title: 'Target', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Linker', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Linker');
+  });
+
+  it('should not list notes that have incoming links', async () => {
+    const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
+    ctx.engine.store(`See also [[${target.id}]]`, { title: 'Source', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Target');
+  });
+
+  it('should return clean message when no orphans', async () => {
+    const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
+    ctx.engine.store(`References [[${noteA.id}]]`, { title: 'Note B', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    expect(output).toContain('No orphan notes found');
+  });
+});
+
+describe('MCP Tool: knowledge-maintain broken-links', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should detect broken wikilinks', async () => {
+    ctx.engine.store('See [[9999999999999999-nonexistent]]', { title: 'Has Broken Link', kind: 'reference' });
+
+    const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
+    expect(output).toContain('Broken Wikilinks');
+    expect(output).toContain('Has Broken Link');
+    expect(output).toContain('nonexistent');
+  });
+
+  it('should not flag valid wikilinks', async () => {
+    const target = ctx.engine.store('Valid target', { title: 'Target Note', kind: 'reference' });
+    ctx.engine.store(`See [[${target.id}]]`, { title: 'Linker', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
+    expect(output).toContain('No broken wikilinks found');
+  });
+
+  it('should exclude archived notes from broken link check', async () => {
+    ctx.engine.store('See [[9999999999999999-fake]]', {
+      title: 'Archived With Broken',
+      kind: 'reference',
+      status: 'archived',
+    });
+
+    const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
+    expect(output).toContain('No broken wikilinks found');
+  });
+
+  it('should return clean message when no broken links', async () => {
+    ctx.engine.store('No links here', { title: 'Plain Note', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
+    expect(output).toContain('No broken wikilinks found');
+  });
+});

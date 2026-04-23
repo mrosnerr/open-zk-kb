@@ -1177,6 +1177,43 @@ export class NoteRepository {
     }));
   }
 
+  getOrphanNotes(): NoteMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE status != 'archived'
+        AND id NOT IN (SELECT source_id FROM note_links)
+        AND id NOT IN (SELECT target_id FROM note_links)
+      ORDER BY created_at DESC
+    `);
+    const results = stmt.all() as NoteMetadata[];
+    return results.map(r => ({
+      ...r,
+      kind: (r.kind || 'observation') as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
+  getBrokenLinks(): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string }> {
+    const allNotes = this.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
+    const broken: Array<{ sourceId: string; sourceTitle: string; brokenTarget: string }> = [];
+
+    for (const note of allNotes) {
+      const linkSlugs = this.extractWikiLinks(note.content || '');
+      for (const slug of linkSlugs) {
+        const resolved = this.resolveLink(slug);
+        if (!resolved) {
+          broken.push({
+            sourceId: note.id,
+            sourceTitle: note.title,
+            brokenTarget: slug,
+          });
+        }
+      }
+    }
+
+    return broken;
+  }
+
   getUpgradeStatus(): { total: number; needsSummary: number; needsGuidance: number } {
     const row = this.db.prepare(`
       SELECT COUNT(*) as total,

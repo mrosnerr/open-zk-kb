@@ -738,6 +738,39 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       return output;
     }
+    case 'orphans': {
+      const orphans = repo.getOrphanNotes();
+      if (orphans.length === 0) {
+        return 'No orphan notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
+      }
+
+      let output = `## Orphan Notes (${orphans.length})\n\n`;
+      output += 'Notes with no incoming or outgoing wikilinks:\n\n';
+      for (const note of orphans) {
+        const wordCount = countWords(note.content || '');
+        output += `- "${note.title}" [${note.id}] | ${note.kind} | ${note.status} | ${wordCount} words\n`;
+      }
+      output += '\n## Next Steps\n';
+      output += '[A] Add wikilinks to connect orphan notes to related notes\n';
+      output += '[B] Archive notes that are no longer relevant\n';
+      return output;
+    }
+    case 'broken-links': {
+      const broken = repo.getBrokenLinks();
+      if (broken.length === 0) {
+        return 'No broken wikilinks found. All links resolve to existing notes.';
+      }
+
+      let output = `## Broken Wikilinks (${broken.length})\n\n`;
+      output += 'Links pointing to non-existent notes:\n\n';
+      for (const { sourceId, sourceTitle, brokenTarget } of broken) {
+        output += `- "${sourceTitle}" [${sourceId}] → [[${brokenTarget}]] (not found)\n`;
+      }
+      output += '\n## Next Steps\n';
+      output += '[A] Create the missing target notes\n';
+      output += '[B] Update or remove the broken links\n';
+      return output;
+    }
     default:
       return `Unknown action: ${args.action}`;
   }
