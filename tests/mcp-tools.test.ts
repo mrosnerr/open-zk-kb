@@ -1676,4 +1676,66 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     expect(output).toContain('Stale Fleeting Notes');
     expect(output).toContain('Borderline');
   });
+
+  it('should not flag note just under the threshold', async () => {
+    const result = ctx.engine.store('Boundary note', { title: 'Just Under 90', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(89));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Stale Fleeting Notes');
+  });
+
+  it('should flag note just over the threshold', async () => {
+    const result = ctx.engine.store('Over boundary', { title: 'Just Over 90', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(91));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Just Over 90');
+  });
+
+  it('should guard against zero autoArchiveFleetingDays config', async () => {
+    const result = ctx.engine.store('Recent note', { title: 'Should Not Be Stale', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(1));
+
+    const zeroConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: 0 } };
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, zeroConfig);
+    expect(output).not.toContain('Should Not Be Stale');
+  });
+
+  it('should guard against negative autoArchiveFleetingDays config', async () => {
+    const result = ctx.engine.store('Recent note', { title: 'Not Stale Either', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(1));
+
+    const negConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: -10 } };
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, negConfig);
+    expect(output).not.toContain('Not Stale Either');
+  });
+
+  it('should handle all fleeting notes being stale', async () => {
+    const r1 = ctx.engine.store('Old one', { title: 'All Stale A', kind: 'observation' });
+    const r2 = ctx.engine.store('Old two', { title: 'All Stale B', kind: 'reference' });
+    setCreatedAt(r1.id, daysAgo(120));
+    setCreatedAt(r2.id, daysAgo(100));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Stale Fleeting Notes (2');
+    expect(output).toContain('All Stale A');
+    expect(output).toContain('All Stale B');
+    expect(output).not.toContain('Fleeting Notes for Review');
+  });
+
+  it('should show correct moved-to-stale count when mixed ages', async () => {
+    const old = ctx.engine.store('Old note', { title: 'Stale One', kind: 'observation' });
+    const recent = ctx.engine.store('Recent note', { title: 'Review One', kind: 'observation' });
+    setCreatedAt(old.id, daysAgo(100));
+    setCreatedAt(recent.id, daysAgo(20));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Fleeting Notes for Review');
+    expect(output).toContain('Review One');
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Stale One');
+    expect(output).toContain('1 older note(s) moved to');
+  });
 });
