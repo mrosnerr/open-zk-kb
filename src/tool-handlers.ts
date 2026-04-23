@@ -478,13 +478,29 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n';
       }
 
+      const archiveDays = config.lifecycle.autoArchiveFleetingDays;
+      const archiveCutoff = Date.now() - (archiveDays * 24 * 60 * 60 * 1000);
+      const staleForArchive = allNotes
+        .filter(n => n.status === 'fleeting' && n.created_at < archiveCutoff);
+
+      if (staleForArchive.length > 0) {
+        output += `### Stale Fleeting Notes (${staleForArchive.length} older than ${archiveDays} days)\n`;
+        output += 'These fleeting notes were never promoted. Consider archiving:\n\n';
+        for (const n of staleForArchive) {
+          const daysOld = Math.floor((Date.now() - n.created_at) / (1000 * 60 * 60 * 24));
+          output += `- "${n.title}" (${n.kind}) — ${daysOld} days old [${n.id}]\n`;
+        }
+        output += '\n';
+      }
+
       output += '## Next Steps:\n';
       let stepIdx = 65;
       if (hasFleeting) output += `[${String.fromCharCode(stepIdx++)}] Show all fleeting notes for review\n`;
       if (hasPermanent) output += `[${String.fromCharCode(stepIdx++)}] Show all permanent notes for review\n`;
       output += `[${String.fromCharCode(stepIdx++)}] Promote specific note to permanent (requires --noteId)\n`;
       output += `[${String.fromCharCode(stepIdx++)}] Archive specific note (requires --noteId)\n`;
-      if (oversized.length > 0) output += `[${String.fromCharCode(stepIdx)}] Split an oversized note into atomic notes\n`;
+      if (oversized.length > 0) output += `[${String.fromCharCode(stepIdx++)}] Split an oversized note into atomic notes\n`;
+      if (staleForArchive.length > 0) output += `[${String.fromCharCode(stepIdx)}] Archive stale fleeting notes\n`;
 
       return output;
     }

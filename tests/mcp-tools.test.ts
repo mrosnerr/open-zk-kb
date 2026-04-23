@@ -1605,3 +1605,59 @@ describe('MCP Tool: knowledge-maintain broken-links', () => {
     expect(output).toContain('No broken wikilinks found');
   });
 });
+
+describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
+  let ctx: TestContext;
+  const daysAgo = (days: number): number => Date.now() - (days * 24 * 60 * 60 * 1000);
+
+  const setCreatedAt = (noteId: string, timestamp: number): void => {
+    (ctx.engine as any).db.prepare('UPDATE notes SET created_at = ? WHERE id = ?').run(timestamp, noteId);
+  };
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should surface stale fleeting notes older than autoArchiveFleetingDays', async () => {
+    const result = ctx.engine.store('Old fleeting', { title: 'Ancient Note', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(100));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Ancient Note');
+    expect(output).toContain('100 days old');
+  });
+
+  it('should not surface fleeting notes younger than threshold', async () => {
+    const result = ctx.engine.store('Recent fleeting', { title: 'Fresh Note', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(30));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Stale Fleeting Notes');
+  });
+
+  it('should not surface permanent notes regardless of age', async () => {
+    const result = ctx.engine.store('Old permanent', { title: 'Old Perm', kind: 'decision', status: 'permanent' });
+    setCreatedAt(result.id, daysAgo(200));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Old Perm');
+  });
+
+  it('should not surface archived notes', async () => {
+    const result = ctx.engine.store('Old archived', { title: 'Already Archived', kind: 'observation', status: 'archived' });
+    setCreatedAt(result.id, daysAgo(200));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Already Archived');
+  });
+
+  it('should respect custom autoArchiveFleetingDays config', async () => {
+    const result = ctx.engine.store('Borderline fleeting', { title: 'Borderline', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(45));
+
+    const customConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: 30 } };
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, customConfig);
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Borderline');
+  });
+});

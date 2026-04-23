@@ -27,6 +27,7 @@ export interface AppConfig {
     reviewAfterDays: number;
     promotionThreshold: number;
     exemptKinds: NoteKind[];
+    autoArchiveFleetingDays: number;
   };
 }
 

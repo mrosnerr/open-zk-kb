@@ -21,6 +21,7 @@ export function createTestHarness(): TestContext {
       reviewAfterDays: 14,
       promotionThreshold: 2,
       exemptKinds: ['personalization', 'decision'],
+      autoArchiveFleetingDays: 90,
     },
   };
 

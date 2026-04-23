@@ -27,6 +27,7 @@ interface RawConfig {
     reviewAfterDays?: number;
     promotionThreshold?: number;
     exemptKinds?: NoteKind[];
+    autoArchiveFleetingDays?: number;
   };
   embeddings?: EmbeddingsConfig;
 }
@@ -40,6 +41,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     reviewAfterDays: 14,
     promotionThreshold: 2,
     exemptKinds: ['personalization', 'decision'],
+    autoArchiveFleetingDays: 90,
   },
 };
 
@@ -80,6 +82,7 @@ export function getConfig(): AppConfig {
       reviewAfterDays: raw?.lifecycle?.reviewAfterDays ?? DEFAULT_CONFIG.lifecycle.reviewAfterDays,
       promotionThreshold: raw?.lifecycle?.promotionThreshold ?? DEFAULT_CONFIG.lifecycle.promotionThreshold,
       exemptKinds: raw?.lifecycle?.exemptKinds ?? DEFAULT_CONFIG.lifecycle.exemptKinds,
+      autoArchiveFleetingDays: raw?.lifecycle?.autoArchiveFleetingDays ?? DEFAULT_CONFIG.lifecycle.autoArchiveFleetingDays,
     },
   };
 }
