@@ -13,6 +13,7 @@ if (typeof globalThis.Bun === 'undefined') {
 }
 
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { AnySchema } from '@modelcontextprotocol/sdk/server/zod-compat.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
@@ -96,7 +97,7 @@ server.registerTool(
   'knowledge-store',
   {
     description: 'Store knowledge in the persistent Zettelkasten knowledge base. One concept per note.',
-    inputSchema: storeSchema as any,
+    inputSchema: storeSchema as unknown as AnySchema,
   },
   async (args: z.infer<typeof storeSchema>) => {
     try {
@@ -160,7 +161,7 @@ server.registerTool(
   'knowledge-search',
   {
     description: 'Search the persistent knowledge base using full-text search and semantic similarity. Accepts natural language queries, keywords, or phrases. Returns matching notes with full content.',
-    inputSchema: searchSchema as any,
+    inputSchema: searchSchema as unknown as AnySchema,
   },
   async (args: z.infer<typeof searchSchema>) => {
     try {
@@ -211,7 +212,7 @@ server.registerTool(
   'knowledge-maintain',
   {
     description: 'Maintain the knowledge base: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, and managed agent docs repair.',
-    inputSchema: maintainSchema as any,
+    inputSchema: maintainSchema as unknown as AnySchema,
   },
   async (args: z.infer<typeof maintainSchema>) => {
     try {

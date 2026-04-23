@@ -1605,3 +1605,135 @@ describe('MCP Tool: knowledge-maintain broken-links', () => {
     expect(output).toContain('No broken wikilinks found');
   });
 });
+
+describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
+  let ctx: TestContext;
+  const daysAgo = (days: number): number => Date.now() - (days * 24 * 60 * 60 * 1000);
+
+  const setCreatedAt = (noteId: string, timestamp: number): void => {
+    (ctx.engine as any).db.prepare('UPDATE notes SET created_at = ? WHERE id = ?').run(timestamp, noteId);
+  };
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should surface stale fleeting notes older than autoArchiveFleetingDays', async () => {
+    const result = ctx.engine.store('Old fleeting', { title: 'Ancient Note', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(100));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Ancient Note');
+    expect(output).toContain('100 days old');
+  });
+
+  it('should not surface fleeting notes younger than threshold', async () => {
+    const result = ctx.engine.store('Recent fleeting', { title: 'Fresh Note', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(30));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Stale Fleeting Notes');
+  });
+
+  it('should not duplicate stale notes in the fleeting review section', async () => {
+    const result = ctx.engine.store('Very old note', { title: 'Stale Duplicate Check', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(100));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Stale Duplicate Check');
+
+    const staleSection = output.indexOf('Stale Fleeting Notes');
+    const fleetingSection = output.indexOf('Fleeting Notes for Review');
+    if (fleetingSection !== -1) {
+      const fleetingContent = output.substring(fleetingSection, staleSection > fleetingSection ? staleSection : undefined);
+      expect(fleetingContent).not.toContain('Stale Duplicate Check');
+    }
+  });
+
+  it('should not surface permanent notes regardless of age', async () => {
+    const result = ctx.engine.store('Old permanent', { title: 'Old Perm', kind: 'decision', status: 'permanent' });
+    setCreatedAt(result.id, daysAgo(200));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Old Perm');
+  });
+
+  it('should not surface archived notes', async () => {
+    const result = ctx.engine.store('Old archived', { title: 'Already Archived', kind: 'observation', status: 'archived' });
+    setCreatedAt(result.id, daysAgo(200));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Already Archived');
+  });
+
+  it('should respect custom autoArchiveFleetingDays config', async () => {
+    const result = ctx.engine.store('Borderline fleeting', { title: 'Borderline', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(45));
+
+    const customConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: 30 } };
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, customConfig);
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Borderline');
+  });
+
+  it('should not flag note just under the threshold', async () => {
+    const result = ctx.engine.store('Boundary note', { title: 'Just Under 90', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(89));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Stale Fleeting Notes');
+  });
+
+  it('should flag note just over the threshold', async () => {
+    const result = ctx.engine.store('Over boundary', { title: 'Just Over 90', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(91));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Just Over 90');
+  });
+
+  it('should guard against zero autoArchiveFleetingDays config', async () => {
+    ctx.engine.store('Fresh note', { title: 'Should Not Be Stale', kind: 'observation' });
+
+    const zeroConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: 0 } };
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, zeroConfig);
+    expect(output).not.toContain('Stale Fleeting Notes');
+  });
+
+  it('should guard against negative autoArchiveFleetingDays config', async () => {
+    ctx.engine.store('Fresh note', { title: 'Not Stale Either', kind: 'observation' });
+
+    const negConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: -10 } };
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, negConfig);
+    expect(output).not.toContain('Stale Fleeting Notes');
+  });
+
+  it('should handle all fleeting notes being stale', async () => {
+    const r1 = ctx.engine.store('Old one', { title: 'All Stale A', kind: 'observation' });
+    const r2 = ctx.engine.store('Old two', { title: 'All Stale B', kind: 'reference' });
+    setCreatedAt(r1.id, daysAgo(120));
+    setCreatedAt(r2.id, daysAgo(100));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Stale Fleeting Notes (2');
+    expect(output).toContain('All Stale A');
+    expect(output).toContain('All Stale B');
+    expect(output).not.toContain('Fleeting Notes for Review');
+  });
+
+  it('should show correct moved-to-stale count when mixed ages', async () => {
+    const old = ctx.engine.store('Old note', { title: 'Stale One', kind: 'observation' });
+    const recent = ctx.engine.store('Recent note', { title: 'Review One', kind: 'observation' });
+    setCreatedAt(old.id, daysAgo(100));
+    setCreatedAt(recent.id, daysAgo(20));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Fleeting Notes for Review');
+    expect(output).toContain('Review One');
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Stale One');
+    expect(output).toContain('1 older note(s) moved to');
+  });
+});

@@ -79,6 +79,7 @@ describe('config.ts', () => {
     expect(cfg.lifecycle.reviewAfterDays).toBe(14);
     expect(cfg.lifecycle.promotionThreshold).toBe(2);
     expect(cfg.lifecycle.exemptKinds).toEqual(['personalization', 'decision']);
+    expect(cfg.lifecycle.autoArchiveFleetingDays).toBe(90);
   });
 
   it('reads vault path from YAML config', async () => {
@@ -102,6 +103,7 @@ describe('config.ts', () => {
     expect(cfg.lifecycle.reviewAfterDays).toBe(30);
     expect(cfg.lifecycle.promotionThreshold).toBe(2);
     expect(cfg.lifecycle.exemptKinds).toEqual(['personalization', 'decision']);
+    expect(cfg.lifecycle.autoArchiveFleetingDays).toBe(90);
     expect(cfg.vault).toBe(path.join(isolated.dataDir, 'open-zk-kb'));
   });
 
