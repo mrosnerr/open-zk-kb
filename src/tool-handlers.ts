@@ -222,9 +222,10 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   }
 
   if (args.client) {
+    const clientFilter = args.client;
     results = results.filter(note => {
       const tags = Array.isArray(note.tags) ? note.tags : [];
-      return isVisibleToClient(tags, args.client!);
+      return isVisibleToClient(tags, clientFilter);
     });
   }
 

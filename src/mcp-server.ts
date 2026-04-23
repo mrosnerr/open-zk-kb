@@ -96,6 +96,7 @@ server.registerTool(
   'knowledge-store',
   {
     description: 'Store knowledge in the persistent Zettelkasten knowledge base. One concept per note.',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zod v4 ZodObject not assignable to SDK's AnySchema (v3 compat)
     inputSchema: storeSchema as any,
   },
   async (args: z.infer<typeof storeSchema>) => {
@@ -160,6 +161,7 @@ server.registerTool(
   'knowledge-search',
   {
     description: 'Search the persistent knowledge base using full-text search and semantic similarity. Accepts natural language queries, keywords, or phrases. Returns matching notes with full content.',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zod v4 ZodObject not assignable to SDK's AnySchema (v3 compat)
     inputSchema: searchSchema as any,
   },
   async (args: z.infer<typeof searchSchema>) => {
@@ -211,6 +213,7 @@ server.registerTool(
   'knowledge-maintain',
   {
     description: 'Maintain the knowledge base: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, and managed agent docs repair.',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Zod v4 ZodObject not assignable to SDK's AnySchema (v3 compat)
     inputSchema: maintainSchema as any,
   },
   async (args: z.infer<typeof maintainSchema>) => {
