@@ -1201,24 +1201,31 @@ export class NoteRepository {
 
     // Exclude notes that have wikilinks in content (even if broken) —
     // those belong in broken-links, not orphans
-    const wikilinkPattern = /\[\[[^\]]+\]\]/;
-    return parsed.filter(note => !wikilinkPattern.test(note.content || ''));
+    return parsed.filter(note => parseAllWikiLinks(note.content || '').length === 0);
   }
 
-  getBrokenLinks(): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string }> {
+  getBrokenLinks(): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> {
     const allNotes = this.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
-    const broken: Array<{ sourceId: string; sourceTitle: string; brokenTarget: string }> = [];
+    const broken: Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> = [];
+    const linkPattern = /\[\[([^\]]+)\]\]/g;
 
     for (const note of allNotes) {
-      const linkSlugs = this.extractWikiLinks(note.content || '');
-      for (const slug of linkSlugs) {
-        const resolved = this.resolveLink(slug);
-        if (!resolved) {
-          broken.push({
-            sourceId: note.id,
-            sourceTitle: note.title,
-            brokenTarget: slug,
-          });
+      const content = note.content || '';
+      const lines = content.split('\n');
+      for (let i = 0; i < lines.length; i++) {
+        let match;
+        linkPattern.lastIndex = 0;
+        while ((match = linkPattern.exec(lines[i])) !== null) {
+          const slug = parseWikiLink(match[1]).slug;
+          const resolved = this.resolveLink(slug);
+          if (!resolved) {
+            broken.push({
+              sourceId: note.id,
+              sourceTitle: note.title,
+              brokenTarget: slug,
+              line: i + 1,
+            });
+          }
         }
       }
     }

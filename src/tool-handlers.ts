@@ -763,8 +763,8 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       let output = `## Broken Wikilinks (${broken.length})\n\n`;
       output += 'Links pointing to non-existent notes:\n\n';
-      for (const { sourceId, sourceTitle, brokenTarget } of broken) {
-        output += `- "${sourceTitle}" [${sourceId}] → [[${brokenTarget}]] (not found)\n`;
+      for (const { sourceId, sourceTitle, brokenTarget, line } of broken) {
+        output += `- "${sourceTitle}" [${sourceId}] line ${line} → [[${brokenTarget}]] (not found)\n`;
       }
       output += '\n## Next Steps\n';
       output += '[A] Create the missing target notes\n';

@@ -1553,7 +1553,7 @@ describe('MCP Tool: knowledge-maintain orphans', () => {
     expect(output).not.toContain('Has Broken Link');
   });
 
-  it('should detect orphan when only link target is archived', async () => {
+  it('should not flag as orphan when note has wikilink syntax to archived target', async () => {
     const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
     ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Linker To Archived', kind: 'observation' });
     ctx.engine.archive(target.id);
@@ -1569,13 +1569,14 @@ describe('MCP Tool: knowledge-maintain broken-links', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should detect broken wikilinks', async () => {
+  it('should detect broken wikilinks with line numbers', async () => {
     ctx.engine.store('See [[9999999999999999-nonexistent]]', { title: 'Has Broken Link', kind: 'reference' });
 
     const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
     expect(output).toContain('Broken Wikilinks');
     expect(output).toContain('Has Broken Link');
     expect(output).toContain('nonexistent');
+    expect(output).toContain('line');
   });
 
   it('should not flag valid wikilinks', async () => {
