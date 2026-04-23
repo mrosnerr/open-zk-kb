@@ -23,6 +23,8 @@ import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 import { detectClient, isVisibleToClient, getClientTags, clientTag, isKnownClient } from './client-heuristics.js';
 import { getInstalledInstructionVersions } from './instruction-versions.js';
 import { classifyModel, MODEL_HINT } from './model-capabilities.js';
+import { extractFromUrl } from './url-extractor.js';
+import type { ExtractionResult } from './url-extractor.js';
 
 // ---- Constants ----
 
@@ -104,6 +106,31 @@ export interface MaintainArgs {
   limit?: number;
   dryRun?: boolean;
   model?: string;
+}
+
+export interface IngestArgs {
+  url: string;
+  model?: string;
+}
+
+export async function handleIngest(args: IngestArgs): Promise<string> {
+  const result: ExtractionResult = await extractFromUrl(args.url);
+
+  let output = `## Extracted Content\n\n`;
+  output += `**Title:** ${result.title}\n`;
+  output += `**URL:** ${result.url}\n`;
+  output += `**Words:** ${result.wordCount}\n`;
+  if (result.byline) output += `**Author:** ${result.byline}\n`;
+  if (result.siteName) output += `**Site:** ${result.siteName}\n`;
+  if (result.excerpt) output += `**Excerpt:** ${result.excerpt}\n`;
+  output += `**Extracted:** ${result.extractedAt}\n`;
+  output += `\n---\n\n${result.content}`;
+
+  if (!args.model) {
+    output += MODEL_HINT;
+  }
+
+  return output;
 }
 
 function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['status']): string {

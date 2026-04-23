@@ -56,11 +56,15 @@
     "@clack/prompts": "^1.1.0",
     "@huggingface/transformers": "^4.0.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "^0.18.12",
     "picocolors": "^1.1.1",
+    "turndown": "^7.2.4",
     "yaml": "^2.3.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/turndown": "^5.0.6",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
     "@typescript-eslint/parser": "^8.58.1",
     "bun-types": "^1.2.2",

@@ -18,7 +18,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
-import { handleStore, handleSearch, handleMaintain } from './tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleIngest } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
@@ -117,6 +117,39 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-store failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ---- knowledge-ingest ----
+
+const ingestSchema = z.object({
+  url: z.string().describe('URL to extract content from. Must be http:// or https://.'),
+  model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
+});
+
+server.registerTool(
+  'knowledge-ingest',
+  {
+    description: 'Fetch a URL and extract its article content as clean markdown. Returns title, content, word count, and metadata. Use the extracted content to create notes via knowledge-store.',
+    inputSchema: ingestSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof ingestSchema>) => {
+    try {
+      const result = await handleIngest({
+        url: args.url,
+        model: args.model,
+      });
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-ingest failed', {
+        url: args.url,
         error: error instanceof Error ? error.message : String(error),
       }, config);
       return {
