@@ -1576,7 +1576,7 @@ describe('MCP Tool: knowledge-maintain broken-links', () => {
     expect(output).toContain('Broken Wikilinks');
     expect(output).toContain('Has Broken Link');
     expect(output).toContain('nonexistent');
-    expect(output).toContain('line');
+    expect(output).toContain('content:');
   });
 
   it('should not flag valid wikilinks', async () => {
