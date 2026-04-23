@@ -10,8 +10,8 @@ describe('classifyModel', () => {
       'gpt-5',
       'gpt-5.4',
       'openai/gpt-5',
-      'o3-mini',
-      'o4-mini',
+      'o3-pro',
+      'o4-preview',
       'gemini-2.5-pro',
       'gemini-25-pro',
       'gemini-ultra',
@@ -35,6 +35,9 @@ describe('classifyModel', () => {
       'gpt-4o-mini',
       'gpt-3.5-turbo',
       'gpt-35-turbo',
+      'gpt-5-mini',
+      'o3-mini',
+      'o4-mini',
       'gemini-flash',
       'gemini-nano',
       'gemma-2b',
@@ -114,6 +117,21 @@ describe('classifyModel', () => {
     it('trims leading/trailing whitespace', () => {
       expect(classifyModel('  claude-opus-4  ')).toBe('high');
     });
+  });
+
+  describe('tier collision: low suffix overrides high base', () => {
+    const collisionModels: Array<[string, 'low']> = [
+      ['gpt-5-mini', 'low'],
+      ['gpt-5-nano', 'low'],
+      ['o3-mini', 'low'],
+      ['o4-mini', 'low'],
+    ];
+
+    for (const [model, expected] of collisionModels) {
+      it(`classifies "${model}" as ${expected} (low suffix wins)`, () => {
+        expect(classifyModel(model)).toBe(expected);
+      });
+    }
   });
 });
 

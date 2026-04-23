@@ -43,12 +43,14 @@ export function classifyModel(model: string | undefined): CapabilityTier {
 
   const normalized = model.trim();
 
-  for (const pattern of HIGH_TIER_PATTERNS) {
-    if (pattern.test(normalized)) return 'high';
-  }
-
+  // Low-tier checked first: "mini"/"nano"/"flash" suffixes override high-tier bases
+  // (e.g., gpt-5-mini → low, not high)
   for (const pattern of LOW_TIER_PATTERNS) {
     if (pattern.test(normalized)) return 'low';
+  }
+
+  for (const pattern of HIGH_TIER_PATTERNS) {
+    if (pattern.test(normalized)) return 'high';
   }
 
   return 'medium';

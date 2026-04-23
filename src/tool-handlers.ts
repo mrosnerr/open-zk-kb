@@ -22,7 +22,7 @@ import { getAgentDocsTargets } from './agent-docs-targets.js';
 import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 import { detectClient, isVisibleToClient, getClientTags, clientTag, isKnownClient } from './client-heuristics.js';
 import { getInstalledInstructionVersions } from './instruction-versions.js';
-import { MODEL_HINT } from './model-capabilities.js';
+import { classifyModel, MODEL_HINT } from './model-capabilities.js';
 
 // ---- Constants ----
 
@@ -195,8 +195,11 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     output += `\n\n⚠ Unrecognized client "${args.client}". Known clients: opencode, claude-code, cursor, windsurf, zed.`;
   }
 
+  const tier = classifyModel(args.model);
   if (!args.model) {
     output += MODEL_HINT;
+  } else if (tier === 'high') {
+    output += `\n\nCapability: ${tier}`;
   }
 
   return output;
