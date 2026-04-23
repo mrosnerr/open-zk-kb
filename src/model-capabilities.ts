@@ -7,7 +7,7 @@
 export type CapabilityTier = 'high' | 'medium' | 'low';
 
 // ---- Model family patterns ----
-// Ordered: high-tier checked first, then low-tier. Everything else = medium.
+// Ordered: low-tier checked first (mini/nano/flash override high-tier bases). Everything else = medium.
 
 const HIGH_TIER_PATTERNS: RegExp[] = [
   /\bopus\b/i,
@@ -26,7 +26,6 @@ const LOW_TIER_PATTERNS: RegExp[] = [
   /\bflash\b/i,
   /\bnano\b/i,
   /\bgpt-?3\.?5\b/i,
-  /\bgpt-?4o-mini\b/i,
   /\bgemma\b/i,
   /\bphi-/i,
   /\bqwen.*\b[0-3]b\b/i,  // ≤3B parameter models
