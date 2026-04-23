@@ -22,6 +22,7 @@ import { getAgentDocsTargets } from './agent-docs-targets.js';
 import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 import { detectClient, isVisibleToClient, getClientTags, clientTag, isKnownClient } from './client-heuristics.js';
 import { getInstalledInstructionVersions } from './instruction-versions.js';
+import { MODEL_HINT } from './model-capabilities.js';
 
 // ---- Constants ----
 
@@ -81,6 +82,7 @@ export interface StoreArgs {
   project?: string;
   client?: string;
   related?: string[];
+  model?: string;
 }
 
 export interface SearchArgs {
@@ -91,6 +93,7 @@ export interface SearchArgs {
   client?: string;
   tags?: string[];
   limit?: number;
+  model?: string;
 }
 
 export interface MaintainArgs {
@@ -100,6 +103,7 @@ export interface MaintainArgs {
   days?: number;
   limit?: number;
   dryRun?: boolean;
+  model?: string;
 }
 
 function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['status']): string {
@@ -189,6 +193,10 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
 
   if (args.client && !isKnownClient(args.client)) {
     output += `\n\n⚠ Unrecognized client "${args.client}". Known clients: opencode, claude-code, cursor, windsurf, zed.`;
+  }
+
+  if (!args.model) {
+    output += MODEL_HINT;
   }
 
   return output;
