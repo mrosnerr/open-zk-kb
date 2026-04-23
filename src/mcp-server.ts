@@ -89,6 +89,7 @@ const storeSchema = z.object({
   project: z.string().optional().describe('Project scope — auto-adds project:<name> tag'),
   client: z.string().optional().describe('Client identifier (e.g. claude-code, opencode). Auto-detected from content when omitted.'),
   related: z.array(z.string()).optional().describe('IDs of related notes to link via wikilinks'),
+  model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
 });
 
 server.registerTool(
@@ -110,6 +111,7 @@ server.registerTool(
         project: args.project,
         client: args.client,
         related: args.related,
+        model: args.model,
       }, getOrCreateRepo(), getEmbeddingConfig());
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
@@ -151,6 +153,7 @@ const searchSchema = z.object({
   client: z.string().optional().describe('Your client name — excludes notes scoped to other clients'),
   tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),
   limit: z.number().optional().describe('Max results (default 10)'),
+  model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
 });
 
 server.registerTool(
@@ -176,6 +179,7 @@ server.registerTool(
         client: args.client,
         tags: args.tags,
         limit: args.limit,
+        model: args.model,
       }, getOrCreateRepo(), queryEmbedding);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
@@ -200,6 +204,7 @@ const maintainSchema = z.object({
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
   limit: z.number().optional().describe('Max notes to show (default: 3 for review)'),
   dryRun: z.boolean().optional().describe('Preview changes without applying'),
+  model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
 });
 
 server.registerTool(
@@ -217,6 +222,7 @@ server.registerTool(
         days: args.days,
         limit: args.limit,
         dryRun: args.dryRun,
+        model: args.model,
       }, getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {

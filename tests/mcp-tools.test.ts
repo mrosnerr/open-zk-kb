@@ -1402,7 +1402,97 @@ describe('MCP Tool: knowledge-maintain scope-audit', () => {
     const output = await handleMaintain(
       { action: 'scope-audit', dryRun: true }, ctx.engine, ctx.config,
     );
-    expect(output).toContain('client:vscode: 1 ⚠ unrecognized');
+     expect(output).toContain('client:vscode: 1 ⚠ unrecognized');
     expect(output).not.toContain('client:opencode: 1 ⚠');
+  });
+});
+
+describe('MCP Tool: knowledge-store (model capability)', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should append model hint when model param is absent', async () => {
+    const output = await handleStore({
+      title: 'No Model',
+      content: 'Test content',
+      kind: 'observation',
+      summary: 'Test',
+      guidance: 'Test',
+    }, ctx.engine);
+
+    expect(output).toContain('💡');
+    expect(output).toContain('model');
+  });
+
+  it('should not append model hint when model param is provided', async () => {
+    const output = await handleStore({
+      title: 'With Model',
+      content: 'Test content',
+      kind: 'observation',
+      summary: 'Test',
+      guidance: 'Test',
+      model: 'claude-sonnet-4',
+    }, ctx.engine);
+
+    expect(output).not.toContain('💡');
+  });
+
+  it('should show capability tier for high-tier models', async () => {
+    const output = await handleStore({
+      title: 'High Tier',
+      content: 'Test content',
+      kind: 'observation',
+      summary: 'Test',
+      guidance: 'Test',
+      model: 'claude-opus-4',
+    }, ctx.engine);
+
+    expect(output).toContain('Capability: high');
+  });
+
+  it('should not show capability tier for medium-tier models', async () => {
+    const output = await handleStore({
+      title: 'Medium Tier',
+      content: 'Test content',
+      kind: 'observation',
+      summary: 'Test',
+      guidance: 'Test',
+      model: 'claude-sonnet-4',
+    }, ctx.engine);
+
+    expect(output).not.toContain('Capability:');
+  });
+
+  it('should not show capability tier for low-tier models', async () => {
+    const output = await handleStore({
+      title: 'Low Tier',
+      content: 'Test content',
+      kind: 'observation',
+      summary: 'Test',
+      guidance: 'Test',
+      model: 'claude-haiku',
+    }, ctx.engine);
+
+    expect(output).not.toContain('Capability:');
+  });
+
+  it('should still store the note correctly regardless of model param', async () => {
+    const output = await handleStore({
+      title: 'Model Store Test',
+      content: 'Important knowledge',
+      kind: 'reference',
+      summary: 'Test storage with model',
+      guidance: 'Test guidance',
+      model: 'gpt-4o-mini',
+    }, ctx.engine);
+
+    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('Kind: reference');
+
+    const notes = ctx.engine.search('Important knowledge');
+    expect(notes.length).toBe(1);
+    expect(notes[0].title).toBe('Model Store Test');
   });
 });
