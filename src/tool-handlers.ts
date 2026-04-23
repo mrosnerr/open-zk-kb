@@ -408,6 +408,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const daysThreshold = args.days || config.lifecycle.reviewAfterDays;
       const limit = args.limit || 3;
       const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.promotionThreshold, config.lifecycle.exemptKinds);
+
+      const archiveDays = Math.max(1, config.lifecycle.autoArchiveFleetingDays);
+      const archiveCutoff = Date.now() - (archiveDays * 24 * 60 * 60 * 1000);
       
       let output = '## Review Queue\n\n';
       
@@ -419,24 +422,26 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
       
       if (hasFleeting) {
-        output += `### Fleeting Notes for Review (${queue.fleeting.total} total`;
-        if (queue.fleeting.notes.length < queue.fleeting.total) {
-          output += `, showing ${queue.fleeting.notes.length}`;
+        const nonStaleNotes = queue.fleeting.notes.filter(n => n.created_at >= archiveCutoff);
+        const staleInQueue = queue.fleeting.total - nonStaleNotes.length;
+
+        if (nonStaleNotes.length > 0) {
+          output += `### Fleeting Notes for Review (${nonStaleNotes.length} total`;
+          output += ')\n';
+
+          for (let i = 0; i < nonStaleNotes.length; i++) {
+            const note = nonStaleNotes[i];
+            const daysOld = Math.floor((Date.now() - note.created_at) / (1000 * 60 * 60 * 24));
+            const accessInfo = note.access_count === 0 ? 'never accessed' : `${note.access_count} access${note.access_count === 1 ? '' : 'es'}`;
+            const rec = getRecommendation(note, daysOld, config.lifecycle.promotionThreshold);
+            output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | ${accessInfo} | ${rec}\n`;
+          }
+
+          if (staleInQueue > 0) {
+            output += `\n${staleInQueue} older note(s) moved to "Stale Fleeting Notes" below.\n`;
+          }
+          output += '\n';
         }
-        output += ')\n';
-        
-        for (let i = 0; i < queue.fleeting.notes.length; i++) {
-          const note = queue.fleeting.notes[i];
-          const daysOld = Math.floor((Date.now() - note.created_at) / (1000 * 60 * 60 * 24));
-          const accessInfo = note.access_count === 0 ? 'never accessed' : `${note.access_count} access${note.access_count === 1 ? '' : 'es'}`;
-          const rec = getRecommendation(note, daysOld, config.lifecycle.promotionThreshold);
-          output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | ${accessInfo} | ${rec}\n`;
-        }
-        
-        if (queue.fleeting.total > queue.fleeting.notes.length) {
-          output += `\n... ${queue.fleeting.total - queue.fleeting.notes.length} more. Use \`--filter fleeting --limit 10\` to see all.\n`;
-        }
-        output += '\n';
       }
       
       if (hasPermanent) {
@@ -478,8 +483,6 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n';
       }
 
-      const archiveDays = config.lifecycle.autoArchiveFleetingDays;
-      const archiveCutoff = Date.now() - (archiveDays * 24 * 60 * 60 * 1000);
       const staleForArchive = allNotes
         .filter(n => n.status === 'fleeting' && n.created_at < archiveCutoff);
 

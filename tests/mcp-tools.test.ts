@@ -1635,6 +1635,22 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     expect(output).not.toContain('Stale Fleeting Notes');
   });
 
+  it('should not duplicate stale notes in the fleeting review section', async () => {
+    const result = ctx.engine.store('Very old note', { title: 'Stale Duplicate Check', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(100));
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).toContain('Stale Fleeting Notes');
+    expect(output).toContain('Stale Duplicate Check');
+
+    const staleSection = output.indexOf('Stale Fleeting Notes');
+    const fleetingSection = output.indexOf('Fleeting Notes for Review');
+    if (fleetingSection !== -1) {
+      const fleetingContent = output.substring(fleetingSection, staleSection > fleetingSection ? staleSection : undefined);
+      expect(fleetingContent).not.toContain('Stale Duplicate Check');
+    }
+  });
+
   it('should not surface permanent notes regardless of age', async () => {
     const result = ctx.engine.store('Old permanent', { title: 'Old Perm', kind: 'decision', status: 'permanent' });
     setCreatedAt(result.id, daysAgo(200));
