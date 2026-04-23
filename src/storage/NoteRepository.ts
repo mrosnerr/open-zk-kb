@@ -1178,19 +1178,31 @@ export class NoteRepository {
   }
 
   getOrphanNotes(): NoteMetadata[] {
+    // Only count links where the neighbor is also non-archived (live links)
     const stmt = this.db.prepare(`
       SELECT * FROM notes
       WHERE status != 'archived'
-        AND id NOT IN (SELECT source_id FROM note_links)
-        AND id NOT IN (SELECT target_id FROM note_links)
+        AND id NOT IN (
+          SELECT l.source_id FROM note_links l
+          JOIN notes n ON l.target_id = n.id WHERE n.status != 'archived'
+        )
+        AND id NOT IN (
+          SELECT l.target_id FROM note_links l
+          JOIN notes n ON l.source_id = n.id WHERE n.status != 'archived'
+        )
       ORDER BY created_at DESC
     `);
     const results = stmt.all() as NoteMetadata[];
-    return results.map(r => ({
+    const parsed = results.map(r => ({
       ...r,
       kind: (r.kind || 'observation') as NoteKind,
       tags: JSON.parse(r.tags as unknown as string),
     }));
+
+    // Exclude notes that have wikilinks in content (even if broken) —
+    // those belong in broken-links, not orphans
+    const wikilinkPattern = /\[\[[^\]]+\]\]/;
+    return parsed.filter(note => !wikilinkPattern.test(note.content || ''));
   }
 
   getBrokenLinks(): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string }> {
