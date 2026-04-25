@@ -713,3 +713,134 @@ describe('handleIngest output format', () => {
     expect(result).toContain('---');
   });
 });
+
+// ---- Integration: full pipeline (HTML → Readability → Turndown → sections → links) ----
+
+describe('full pipeline integration', () => {
+  const realisticHtml = `
+    <html>
+    <head><title>Getting Started with SQLite in Bun</title></head>
+    <body>
+      <nav><ul><li><a href="/">Home</a></li><li><a href="/docs">Docs</a></li></ul></nav>
+      <header><div class="logo">BunDocs</div></header>
+      <main>
+        <article>
+          <h1>Getting Started with SQLite in Bun</h1>
+          <p class="meta">By <span class="author" rel="author">Jarred Sumner</span> — Published 2024-01-15</p>
+          <p>Bun natively implements a high-performance SQLite3 driver. This guide covers installation, basic queries, transactions, and best practices for production use.</p>
+
+          <h2>Installation</h2>
+          <p>No installation needed — <code>bun:sqlite</code> is built into Bun. Just import it:</p>
+          <pre><code>import { Database } from "bun:sqlite";
+const db = new Database(":memory:");</code></pre>
+          <p>See the <a href="https://bun.sh/docs/api/sqlite">official SQLite docs</a> for the full API reference.</p>
+
+          <h2>Basic Queries</h2>
+          <p>Use <code>db.query()</code> to prepare a statement. The result is cached on the Database instance for performance.</p>
+          <pre><code>const query = db.query("SELECT * FROM users WHERE id = ?1");
+const user = query.get(42);</code></pre>
+          <p>For write operations, use <code>.run()</code> which returns metadata about the execution:</p>
+          <pre><code>const result = db.run("INSERT INTO users (name) VALUES (?)", "Alice");
+console.log(result.lastInsertRowid); // => 1</code></pre>
+
+          <h2>Transactions</h2>
+          <p>Wrap multiple operations in a transaction for atomicity. If any query throws, the entire transaction rolls back automatically.</p>
+          <pre><code>const insertUser = db.prepare("INSERT INTO users (name) VALUES ($name)");
+const insertMany = db.transaction(users => {
+  for (const user of users) insertUser.run(user);
+});
+insertMany([{ $name: "Bob" }, { $name: "Carol" }]);</code></pre>
+          <p>Transactions support <code>deferred</code>, <code>immediate</code>, and <code>exclusive</code> modes. See <a href="https://www.sqlite.org/lang_transaction.html">SQLite transaction docs</a> for details.</p>
+
+          <h2>Performance Tips</h2>
+          <p>Enable WAL mode for significantly better concurrent read performance:</p>
+          <pre><code>db.run("PRAGMA journal_mode = WAL;");</code></pre>
+          <p>Use prepared statements instead of string concatenation. The <code>.query()</code> method caches compiled statements automatically.</p>
+          <p>For bulk inserts, always wrap in a transaction — it can be 10-100x faster than individual inserts.</p>
+          <p>Read more about <a href="https://bun.sh/docs/api/sqlite#wal-mode">WAL mode</a> and <a href="https://bun.sh/blog/bun-v1.0#sqlite">Bun's SQLite benchmarks</a>.</p>
+        </article>
+      </main>
+      <aside><h3>Related</h3><ul><li><a href="/docs/api/http">HTTP Server</a></li></ul></aside>
+      <footer><p>&copy; 2024 Oven. <a href="/privacy">Privacy</a> | <a href="/terms">Terms</a></p></footer>
+    </body>
+    </html>`;
+
+  it('extracts article content and strips nav/sidebar/footer', async () => {
+    const result = await handleIngest({ html: realisticHtml, url: 'https://bun.sh/docs/guides/sqlite' });
+    expect(result).toContain('Getting Started with SQLite');
+    expect(result).not.toContain('BunDocs');
+    expect(result).not.toContain('Privacy');
+    expect(result).not.toContain('Terms');
+  });
+
+  it('produces multiple sections from h2 headings', async () => {
+    const result = await handleIngest({ html: realisticHtml, url: 'https://bun.sh/docs/guides/sqlite' });
+    expect(result).toContain('§ Installation');
+    expect(result).toContain('§ Basic Queries');
+    expect(result).toContain('§ Transactions');
+    expect(result).toContain('§ Performance Tips');
+    expect(result).toContain('**Sections:**');
+  });
+
+  it('includes word counts per section', async () => {
+    const result = await handleIngest({ html: realisticHtml, url: 'https://bun.sh/docs/guides/sqlite' });
+    const sectionMatches = result.match(/§ .+ \(\d+ words/g);
+    expect(sectionMatches).not.toBeNull();
+    expect(sectionMatches!.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('extracts outbound links with section context', async () => {
+    const result = await handleIngest({ html: realisticHtml, url: 'https://bun.sh/docs/guides/sqlite' });
+    expect(result).toContain('## Links Found');
+    expect(result).toContain('sqlite.org');
+    expect(result).toContain('§');
+  });
+
+  it('preserves code blocks in section content', async () => {
+    const result = await handleIngest({ html: realisticHtml, url: 'https://bun.sh/docs/guides/sqlite' });
+    expect(result).toContain('import { Database }');
+    expect(result).toContain('db.query');
+    expect(result).toContain('PRAGMA journal_mode');
+  });
+
+  it('extracts byline from author metadata', async () => {
+    const result = await handleIngest({ html: realisticHtml, url: 'https://bun.sh/docs/guides/sqlite' });
+    expect(result).toContain('Jarred Sumner');
+  });
+
+  it('includes traversal guidance in next steps', async () => {
+    const result = await handleIngest({ html: realisticHtml, url: 'https://bun.sh/docs/guides/sqlite' });
+    expect(result).toContain('## Next Steps');
+    expect(result).toContain('Follow at most 1-2');
+  });
+
+  it('handles HTML passed as pre-fetched content with URL for link resolution', async () => {
+    const result = await handleIngest({ html: realisticHtml, url: 'https://bun.sh/docs/guides/sqlite' });
+    expect(result).toContain('**URL:** https://bun.sh/docs/guides/sqlite');
+  });
+
+  it('produces coherent output when article has no h2 headings', async () => {
+    const flatHtml = `<html><head><title>Flat</title></head><body>
+      <article><h1>Single Section Article</h1>
+      <p>${'This is a flat article with no subsections but enough content for extraction. '.repeat(10)}</p>
+      </article></body></html>`;
+    const result = await handleIngest({ html: flatHtml });
+    expect(result).toContain('Single Section Article');
+    expect(result).not.toContain('**Sections:**');
+    expect(result).toContain('---');
+  });
+
+  it('handles markdown passed as html (passthrough)', async () => {
+    const markdownAsHtml = `<html><head><title>MD Content</title></head><body>
+      <article><h1>Markdown Article</h1>
+      <h2>First Section</h2>
+      <p>Some content here with a <a href="https://example.com">link</a> included.</p>
+      <h2>Second Section</h2>
+      <p>${'More detailed content about the second topic for testing purposes. '.repeat(5)}</p>
+      </article></body></html>`;
+    const result = await handleIngest({ html: markdownAsHtml });
+    expect(result).toContain('§ First Section');
+    expect(result).toContain('§ Second Section');
+    expect(result).toContain('## Links Found');
+  });
+});
