@@ -147,7 +147,7 @@ server.registerTool(
         url: args.url,
         html: args.html,
         model: args.model,
-      });
+      }, getOrCreateRepo());
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-ingest failed', {

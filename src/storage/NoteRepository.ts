@@ -839,6 +839,19 @@ export class NoteRepository {
     }));
   }
 
+  findByUrl(url: string): Array<{ id: string; title: string }> {
+    try {
+      const parsed = new URL(url);
+      const hostPath = parsed.hostname + parsed.pathname.replace(/\/$/, '');
+      const stmt = this.db.prepare(
+        "SELECT id, title FROM notes WHERE content LIKE ? AND status != 'archived' LIMIT 5"
+      );
+      return stmt.all(`%${hostPath}%`) as Array<{ id: string; title: string }>;
+    } catch {
+      return [];
+    }
+  }
+
   /**
    * Get the most frequently accessed notes, prioritizing permanent notes.
    */

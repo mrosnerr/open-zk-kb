@@ -119,7 +119,7 @@ function sanitizeMetadata(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
-export async function handleIngest(args: IngestArgs): Promise<string> {
+export async function handleIngest(args: IngestArgs, repo?: NoteRepository): Promise<string> {
   let result: ExtractionResult;
   if (args.html) {
     const sourceUrl = args.url || 'about:blank';
@@ -173,6 +173,19 @@ export async function handleIngest(args: IngestArgs): Promise<string> {
     }
     if (links.length > 10) {
       output += `- ...and ${links.length - 10} more\n`;
+    }
+  }
+
+  const sourceUrl = result.url !== 'about:blank' ? result.url : args.url;
+  if (repo && sourceUrl) {
+    const existing = repo.findByUrl(sourceUrl);
+    if (existing.length > 0) {
+      output += '\n## Existing KB Coverage\n';
+      output += `⚠️ ${existing.length} note(s) already reference this URL:\n`;
+      for (const note of existing) {
+        output += `- ${note.title} [${note.id}]\n`;
+      }
+      output += 'Review before creating duplicates.\n';
     }
   }
 
