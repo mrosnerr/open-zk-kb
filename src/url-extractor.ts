@@ -59,7 +59,7 @@ export function isValidUrl(url: string): boolean {
  * or otherwise reserved IP pattern. Does not perform DNS resolution.
  */
 export function isPrivateOrReservedHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
+  const host = hostname.toLowerCase().replace(/\.$/, '');
 
   // Loopback hostnames
   if (host === 'localhost' || host.endsWith('.localhost')) return true;
@@ -256,14 +256,17 @@ export async function extractFromUrl(url: string, options: ExtractOptions = {}):
   }
 
   const { html, finalUrl } = await fetchHtml(url, options);
-  const result = extractArticle(html, finalUrl);
+  const safeFinalUrl = new URL(finalUrl);
+  safeFinalUrl.username = '';
+  safeFinalUrl.password = '';
+  const result = extractArticle(html, safeFinalUrl.href);
 
   if (!result) {
     throw new Error(`Could not extract article content from ${url}. The page may not contain enough readable content.`);
   }
 
   logToFile('DEBUG', 'URL extraction complete', {
-    url: finalUrl,
+    url: safeFinalUrl.href,
     title: result.title,
     wordCount: result.wordCount,
   });

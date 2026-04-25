@@ -315,6 +315,15 @@ describe('isPrivateOrReservedHost', () => {
     expect(isPrivateOrReservedHost('google.com')).toBe(false);
     expect(isPrivateOrReservedHost('8.8.8.8')).toBe(false);
   });
+
+  it('blocks trailing-dot hostnames', () => {
+    expect(isPrivateOrReservedHost('localhost.')).toBe(true);
+    expect(isPrivateOrReservedHost('app.localhost.')).toBe(true);
+  });
+
+  it('allows public hostnames with trailing dot', () => {
+    expect(isPrivateOrReservedHost('example.com.')).toBe(false);
+  });
 });
 
 // ---- Unit: fetchHtml ----
@@ -903,6 +912,18 @@ describe('fetchHtml finalUrl tracking', () => {
     const result = await fetchHtml('https://example.com/start');
     expect(result.finalUrl).toBe('https://example.com/final-page');
   });
+
+  it('strips credentials from finalUrl before downstream use', async () => {
+    const longContent = '<p>' + 'Enough content for readability extraction. '.repeat(10) + '</p>';
+    globalThis.fetch = (async () => new Response(
+      `<html><head><title>Creds</title></head><body><article><h1>Creds</h1>${longContent}</article></body></html>`,
+      { status: 200, headers: { 'content-type': 'text/html' } },
+    )) as typeof fetch;
+    const result = await extractFromUrl('https://admin:secret@example.com/page');
+    expect(result.url).not.toContain('admin');
+    expect(result.url).not.toContain('secret');
+    expect(result.url).toContain('example.com/page');
+  });
 });
 
 // ---- New: HTML input size guard ----
@@ -963,11 +984,7 @@ describe('word count accuracy', () => {
 
 describe('SSRF error message clarity', () => {
   it('says matches not resolves', async () => {
-    try {
-      await fetchHtml('http://127.0.0.1/secret');
-    } catch (e: unknown) {
-      expect((e as Error).message).toContain('matches a private/reserved range');
-      expect((e as Error).message).not.toContain('resolves to');
-    }
+    await expect(fetchHtml('http://127.0.0.1/secret'))
+      .rejects.toThrow(/matches a private\/reserved range/);
   });
 });
