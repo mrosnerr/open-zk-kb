@@ -23,6 +23,9 @@ import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 import { detectClient, isVisibleToClient, getClientTags, clientTag, isKnownClient } from './client-heuristics.js';
 import { getInstalledInstructionVersions } from './instruction-versions.js';
 import { classifyModel, MODEL_HINT } from './model-capabilities.js';
+import { extractFromUrl, extractArticle } from './url-extractor.js';
+import type { ExtractionResult } from './url-extractor.js';
+import { splitSections, extractLinks, countWords } from './content-splitter.js';
 
 // ---- Constants ----
 
@@ -40,10 +43,6 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
 export const ABSOLUTE_WARN_THRESHOLD = 300;
 
 // ---- Helper functions ----
-
-function countWords(text: string): number {
-  return text.split(/\s+/).filter(Boolean).length;
-}
 
 function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
   const guide = KIND_WORD_GUIDELINES[kind];
@@ -104,6 +103,107 @@ export interface MaintainArgs {
   limit?: number;
   dryRun?: boolean;
   model?: string;
+}
+
+export interface IngestArgs {
+  url?: string;
+  html?: string;
+  model?: string;
+}
+
+function sanitizeMetadata(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const MAX_HTML_BYTES = 5 * 1024 * 1024; // 5MB
+
+export async function handleIngest(args: IngestArgs, repo?: NoteRepository): Promise<string> {
+  let result: ExtractionResult;
+  if (args.html) {
+    if (Buffer.byteLength(args.html, 'utf8') > MAX_HTML_BYTES) {
+      throw new Error(`HTML content too large: exceeds ${MAX_HTML_BYTES} byte limit`);
+    }
+    const sourceUrl = args.url || 'about:blank';
+    const article = extractArticle(args.html, sourceUrl);
+    if (!article) {
+      throw new Error('Could not extract article content from provided HTML. The content may not contain enough readable text.');
+    }
+    result = article;
+  } else if (args.url) {
+    result = await extractFromUrl(args.url);
+  } else {
+    throw new Error('Either url or html must be provided');
+  }
+
+  const title = sanitizeMetadata(result.title);
+  const byline = result.byline ? sanitizeMetadata(result.byline) : null;
+  const siteName = result.siteName ? sanitizeMetadata(result.siteName) : null;
+  const excerpt = result.excerpt ? sanitizeMetadata(result.excerpt) : null;
+
+  const sections = splitSections(result.content);
+  const links = extractLinks(result.content, result.url !== 'about:blank' ? result.url : undefined);
+
+  let output = `## Extracted Content\n\n`;
+  output += `**Title:** ${title}\n`;
+  output += `**URL:** ${result.url}\n`;
+  output += `**Words:** ${result.wordCount}`;
+  if (byline) output += `  |  **Author:** ${byline}`;
+  if (siteName) output += `  |  **Site:** ${siteName}`;
+  output += '\n';
+  if (excerpt) output += `**Excerpt:** ${excerpt}\n`;
+  output += `**Extracted:** ${result.extractedAt}\n`;
+
+  if (sections.length > 1) {
+    output += `**Sections:** ${sections.length}\n`;
+    output += '\n---\n';
+    for (const section of sections) {
+      const flag = section.wordCount > 200 ? ' — exceeds 200w note target' : '';
+      const heading = section.heading || '(preamble)';
+      output += `\n### § ${heading} (${section.wordCount} words${flag})\n\n`;
+      output += section.content + '\n';
+    }
+  } else {
+    output += `\n---\n\n${result.content}`;
+  }
+
+  if (links.length > 0) {
+    output += '\n---\n\n## Links Found (' + links.length + ')\n';
+    for (const link of links.slice(0, 10)) {
+      const sectionNote = link.section ? ` — § ${link.section}` : '';
+      output += `- [${link.anchor}](${link.url})${sectionNote}\n`;
+    }
+    if (links.length > 10) {
+      output += `- ...and ${links.length - 10} more\n`;
+    }
+  }
+
+  const sourceUrl = result.url !== 'about:blank' ? result.url : args.url;
+  if (repo && sourceUrl) {
+    const existing = repo.findByUrl(sourceUrl);
+    if (existing.length > 0) {
+      output += '\n## Existing KB Coverage\n';
+      output += `⚠️ ${existing.length} note(s) already reference this URL:\n`;
+      for (const note of existing) {
+        output += `- ${note.title} [${note.id}]\n`;
+      }
+      output += 'Review before creating duplicates.\n';
+    }
+  }
+
+  output += '\n## Next Steps\n';
+  output += 'Review each section. For each worth saving, call knowledge-store with title, content, kind, summary, guidance.\n';
+  if (sections.some(s => s.wordCount > 200)) {
+    output += 'Sections over ~200 words may need splitting into separate atomic notes.\n';
+  }
+  if (links.length > 0) {
+    output += `${links.length} link(s) found. Follow at most 1-2 per ingest. Do not follow links from followed articles.\n`;
+  }
+
+  if (!args.model) {
+    output += MODEL_HINT;
+  }
+
+  return output;
 }
 
 function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['status']): string {

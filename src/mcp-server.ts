@@ -18,7 +18,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
-import { handleStore, handleSearch, handleMaintain } from './tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleIngest } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
@@ -117,6 +117,44 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-store failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ---- knowledge-ingest ----
+
+const ingestSchema = z.object({
+  url: z.string().url()
+    .refine(u => { try { const p = new URL(u); return p.protocol === 'http:' || p.protocol === 'https:'; } catch { return false; } }, { message: 'URL must use http:// or https://' })
+    .optional()
+    .describe('URL to fetch and extract. Fallback only — the built-in fetcher cannot handle JavaScript-rendered pages, bot protection, or authenticated content. If you have a web tool (Playwright, Exa, web_fetch), fetch with that and pass html instead. When passing html, also pass url for relative link resolution.'),
+  html: z.string().optional().describe('Preferred — raw HTML to extract content from. Pass HTML you already fetched via Playwright, Exa, web_fetch, or any browser/web tool for best results.'),
+  model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
+}).refine(d => d.url || d.html, { message: 'At least one of url or html must be provided' });
+
+server.registerTool(
+  'knowledge-ingest',
+  {
+    description: 'Extract article content as clean markdown. Returns title, content, word count, and metadata. PREFER passing html from your own web tools (Playwright, Exa, web_fetch) — the built-in url fetcher is a basic fallback that cannot render JavaScript or bypass bot protection. Use the extracted content to create notes via knowledge-store.',
+    inputSchema: ingestSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof ingestSchema>) => {
+    try {
+      const result = await handleIngest({
+        url: args.url,
+        html: args.html,
+        model: args.model,
+      }, getOrCreateRepo());
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-ingest failed', {
+        url: args.url,
         error: error instanceof Error ? error.message : String(error),
       }, config);
       return {

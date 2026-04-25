@@ -1,6 +1,6 @@
 # Tools Reference
 
-open-zk-kb exposes three MCP tools. Your AI assistant calls these automatically based on injected instructions — you rarely need to invoke them manually.
+open-zk-kb exposes four MCP tools. Your AI assistant calls these automatically based on injected instructions — you rarely need to invoke them manually.
 
 ## knowledge-store
 
@@ -42,6 +42,79 @@ Store knowledge in the persistent knowledge base. One concept per note.
   "project": "open-zk-kb"
 }
 ```
+
+---
+
+## knowledge-ingest
+
+Extract article content as clean markdown from a URL or pre-fetched HTML. Returns title, content, word count, and metadata. Deterministic — no LLM dependency.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | string | No* | URL to fetch and extract content from. Must be `http://` or `https://` |
+| `html` | string | No* | Raw HTML to extract from. Use when you already fetched the page via another tool |
+
+\* At least one of `url` or `html` must be provided. When both are provided, `html` is used for extraction and `url` is used for resolving relative links.
+
+### What happens
+
+1. **If `url` only** — fetches the page with SSRF protection (literal private IP/hostname pattern blocking, redirect validation, streaming size limits), then extracts
+2. **If `html` only** — extracts directly from provided HTML (no network request). Pass `url` alongside `html` when possible — without it, relative links cannot be resolved
+3. **If both** — extracts from `html`, uses `url` for relative link resolution
+4. Extracts article content using Mozilla Readability (same engine as Firefox Reader View)
+5. Converts to clean markdown (headings, lists, links preserved; images, iframes, nav stripped)
+6. Returns structured metadata: title, word count, byline, excerpt, site name
+
+### Usage patterns
+
+**Preferred: Pre-fetched HTML** — use your web tools (Playwright, Exa, web_fetch) to fetch first, then pass the HTML for extraction. This handles JavaScript-rendered pages, bot-protected sites, and authenticated content:
+```json
+{
+  "url": "https://example.com/blog/article",
+  "html": "<html>...</html>"
+}
+```
+
+**HTML only** — when you have HTML but no source URL:
+```json
+{ "html": "<html><body><article>...</article></body></html>" }
+```
+
+**Fallback: Direct URL** — when no web tools are available. The built-in fetcher is basic — see limitations below:
+```json
+{ "url": "https://example.com/blog/article" }
+```
+
+### Built-in fetcher limitations
+
+The `url`-only path uses a basic HTTP client. It **cannot** handle:
+
+- JavaScript-rendered pages (SPAs, React, Vue, Next.js client-side)
+- Bot-protected sites (CloudFlare, Akamai, CAPTCHAs)
+- Authenticated or paywalled content
+- Cookie consent modals
+- Lazy-loaded or infinite-scroll content
+
+For these cases, fetch the page with a browser-capable tool and pass the `html` parameter.
+
+### Security notes
+
+- **SSRF protection** blocks literal private/reserved IP addresses and hostname patterns (localhost, 10.x, 172.16-31.x, 192.168.x, 169.254.x, IPv6 loopback/link-local/unique-local, IPv4-mapped IPv6). Redirect hops are validated individually.
+- **Known limitation**: hostnames that DNS-resolve to private IPs are **not** blocked — the check operates on hostname text, not resolved addresses. This is acceptable for a locally-run MCP tool but means a domain like `evil.com → 127.0.0.1` would bypass the guard.
+- **Extracted links** are filtered to exclude private/reserved IP targets before being shown in output.
+- **URL credentials** (userinfo) are stripped from extracted links.
+
+### Workflow
+
+The intended workflow is a two-step pipeline:
+
+1. *(If you have web tools)* Fetch with Playwright/Exa/web_fetch → pass to `knowledge-ingest(html: ...)`
+2. `knowledge-ingest` → extract and review content
+3. `knowledge-store` → save as a knowledge base note
+
+The tool extracts content but does **not** create notes automatically. This keeps summarization and note structuring at the agent layer.
 
 ---
 
