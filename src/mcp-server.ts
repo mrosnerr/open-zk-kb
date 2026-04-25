@@ -130,7 +130,7 @@ server.registerTool(
 // ---- knowledge-ingest ----
 
 const ingestSchema = z.object({
-  url: z.string().describe('URL to extract content from. Must be http:// or https://.'),
+  url: z.string().url().describe('URL to extract content from. Must be http:// or https://.'),
   model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
 });
 

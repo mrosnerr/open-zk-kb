@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'bun:test';
-import { isValidUrl, extractArticle, extractFromUrl, fetchHtml } from '../src/url-extractor.js';
+import { describe, it, expect, afterEach } from 'bun:test';
+import { isValidUrl, isPrivateOrReservedHost, extractArticle, extractFromUrl, fetchHtml } from '../src/url-extractor.js';
 import { handleIngest } from '../src/tool-handlers.js';
 
 // ---- Unit: isValidUrl ----
@@ -165,9 +165,8 @@ describe('extractArticle', () => {
     </body></html>`;
     const result = extractArticle(html, 'https://example.com');
 
-    if (result?.byline) {
-      expect(result.byline).toContain('John Smith');
-    }
+    expect(result).not.toBeNull();
+    expect(result!.byline).toContain('John Smith');
   });
 
   it('extracts excerpt', () => {
@@ -175,9 +174,8 @@ describe('extractArticle', () => {
     const result = extractArticle(html, 'https://example.com');
 
     expect(result).not.toBeNull();
-    if (result!.excerpt) {
-      expect(result!.excerpt.length).toBeGreaterThan(0);
-    }
+    expect(result!.excerpt).toBeTruthy();
+    expect(result!.excerpt!.length).toBeGreaterThan(0);
   });
 
   it('handles HTML with multiple articles (extracts main content)', () => {
@@ -195,9 +193,8 @@ describe('extractArticle', () => {
     const html = `<html><head></head><body><article><h1></h1>${longParagraph}</article></body></html>`;
     const result = extractArticle(html, 'https://myblog.example.com/post');
 
-    if (result && !result.title.includes('meaningful')) {
-      expect(result.title).toBeTruthy();
-    }
+    expect(result).not.toBeNull();
+    expect(result!.title).toBeTruthy();
   });
 });
 
@@ -229,82 +226,179 @@ describe('handleIngest', () => {
   });
 });
 
+// ---- Unit: isPrivateOrReservedHost ----
+
+describe('isPrivateOrReservedHost', () => {
+  it('blocks localhost', () => {
+    expect(isPrivateOrReservedHost('localhost')).toBe(true);
+  });
+
+  it('blocks *.localhost', () => {
+    expect(isPrivateOrReservedHost('app.localhost')).toBe(true);
+  });
+
+  it('blocks 127.x.x.x loopback', () => {
+    expect(isPrivateOrReservedHost('127.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedHost('127.255.255.255')).toBe(true);
+  });
+
+  it('blocks 10.x.x.x private range', () => {
+    expect(isPrivateOrReservedHost('10.0.0.1')).toBe(true);
+    expect(isPrivateOrReservedHost('10.255.255.255')).toBe(true);
+  });
+
+  it('blocks 172.16-31.x.x private range', () => {
+    expect(isPrivateOrReservedHost('172.16.0.1')).toBe(true);
+    expect(isPrivateOrReservedHost('172.31.255.255')).toBe(true);
+    expect(isPrivateOrReservedHost('172.15.0.1')).toBe(false);
+    expect(isPrivateOrReservedHost('172.32.0.1')).toBe(false);
+  });
+
+  it('blocks 192.168.x.x private range', () => {
+    expect(isPrivateOrReservedHost('192.168.1.1')).toBe(true);
+    expect(isPrivateOrReservedHost('192.168.0.1')).toBe(true);
+  });
+
+  it('blocks 169.254.x.x link-local / cloud metadata', () => {
+    expect(isPrivateOrReservedHost('169.254.169.254')).toBe(true);
+    expect(isPrivateOrReservedHost('169.254.0.1')).toBe(true);
+  });
+
+  it('blocks 0.0.0.0', () => {
+    expect(isPrivateOrReservedHost('0.0.0.0')).toBe(true);
+  });
+
+  it('blocks IPv6 loopback', () => {
+    expect(isPrivateOrReservedHost('[::1]')).toBe(true);
+  });
+
+  it('blocks IPv6 unique local (fc/fd)', () => {
+    expect(isPrivateOrReservedHost('[fc00::1]')).toBe(true);
+    expect(isPrivateOrReservedHost('[fd12::1]')).toBe(true);
+  });
+
+  it('blocks IPv6 link-local (fe80)', () => {
+    expect(isPrivateOrReservedHost('[fe80::1]')).toBe(true);
+  });
+
+  it('allows public hostnames', () => {
+    expect(isPrivateOrReservedHost('example.com')).toBe(false);
+    expect(isPrivateOrReservedHost('google.com')).toBe(false);
+    expect(isPrivateOrReservedHost('8.8.8.8')).toBe(false);
+  });
+});
+
 // ---- Unit: fetchHtml ----
 
 describe('fetchHtml', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
   it('rejects on non-HTML content type', async () => {
-    const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response('{}', {
       status: 200,
       headers: { 'content-type': 'application/json' },
     })) as typeof fetch;
-
-    try {
-      await expect(fetchHtml('https://example.com/api')).rejects.toThrow('Unsupported content type');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    await expect(fetchHtml('https://example.com/api')).rejects.toThrow('Unsupported content type');
   });
 
   it('rejects on HTTP error status', async () => {
-    const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response('Not Found', {
       status: 404,
       statusText: 'Not Found',
       headers: { 'content-type': 'text/html' },
     })) as typeof fetch;
-
-    try {
-      await expect(fetchHtml('https://example.com/missing')).rejects.toThrow('HTTP 404');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    await expect(fetchHtml('https://example.com/missing')).rejects.toThrow('HTTP 404');
   });
 
   it('rejects when content-length exceeds limit', async () => {
-    const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response('x', {
       status: 200,
-      headers: {
-        'content-type': 'text/html',
-        'content-length': '999999999',
-      },
+      headers: { 'content-type': 'text/html', 'content-length': '999999999' },
     })) as typeof fetch;
-
-    try {
-      await expect(fetchHtml('https://example.com/huge')).rejects.toThrow('Content too large');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    await expect(fetchHtml('https://example.com/huge')).rejects.toThrow('Content too large');
   });
 
   it('accepts text/html content type', async () => {
-    const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response('<html><body>ok</body></html>', {
       status: 200,
       headers: { 'content-type': 'text/html; charset=utf-8' },
     })) as typeof fetch;
-
-    try {
-      const html = await fetchHtml('https://example.com');
-      expect(html).toContain('<body>ok</body>');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+    const html = await fetchHtml('https://example.com');
+    expect(html).toContain('<body>ok</body>');
   });
 
   it('accepts text/plain content type', async () => {
-    const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response('plain text content', {
       status: 200,
       headers: { 'content-type': 'text/plain' },
     })) as typeof fetch;
+    const html = await fetchHtml('https://example.com/text');
+    expect(html).toBe('plain text content');
+  });
 
-    try {
-      const html = await fetchHtml('https://example.com/text');
-      expect(html).toBe('plain text content');
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
+  it('rejects when streamed body exceeds limit', async () => {
+    const largeBody = 'x'.repeat(1024);
+    globalThis.fetch = (async () => new Response(largeBody, {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    })) as typeof fetch;
+    await expect(fetchHtml('https://example.com', { maxContentLength: 100 })).rejects.toThrow('Content too large');
+  });
+
+  it('aborts on timeout', async () => {
+    globalThis.fetch = ((_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      return new Promise<Response>((_, reject) => {
+        const onAbort = () => reject(new DOMException('The operation was aborted.', 'AbortError'));
+        if (init?.signal?.aborted) { onAbort(); return; }
+        init?.signal?.addEventListener('abort', onAbort);
+      });
+    }) as typeof fetch;
+    await expect(fetchHtml('https://example.com', { timeoutMs: 50 })).rejects.toThrow();
+  });
+
+  it('blocks URLs targeting localhost', async () => {
+    await expect(fetchHtml('http://localhost/secret')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks URLs targeting private IPs', async () => {
+    await expect(fetchHtml('http://192.168.1.1/admin')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks URLs targeting cloud metadata endpoint', async () => {
+    await expect(fetchHtml('http://169.254.169.254/latest/meta-data/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks redirects to private IPs', async () => {
+    globalThis.fetch = (async () => new Response('', {
+      status: 302,
+      headers: { 'location': 'http://127.0.0.1/secret' },
+    })) as typeof fetch;
+    await expect(fetchHtml('https://example.com/redirect')).rejects.toThrow('private/reserved');
+  });
+
+  it('follows valid redirects', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', { status: 301, headers: { 'location': 'https://example.com/final' } });
+      }
+      return new Response('<html><body>redirected</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }) as typeof fetch;
+    const html = await fetchHtml('https://example.com/start');
+    expect(html).toContain('redirected');
+    expect(callCount).toBe(2);
+  });
+
+  it('rejects on too many redirects', async () => {
+    globalThis.fetch = (async () => new Response('', {
+      status: 302,
+      headers: { 'location': 'https://example.com/loop' },
+    })) as typeof fetch;
+    await expect(fetchHtml('https://example.com/start')).rejects.toThrow('Too many redirects');
   });
 });

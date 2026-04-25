@@ -113,16 +113,25 @@ export interface IngestArgs {
   model?: string;
 }
 
+function sanitizeMetadata(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
 export async function handleIngest(args: IngestArgs): Promise<string> {
   const result: ExtractionResult = await extractFromUrl(args.url);
 
+  const title = sanitizeMetadata(result.title);
+  const byline = result.byline ? sanitizeMetadata(result.byline) : null;
+  const siteName = result.siteName ? sanitizeMetadata(result.siteName) : null;
+  const excerpt = result.excerpt ? sanitizeMetadata(result.excerpt) : null;
+
   let output = `## Extracted Content\n\n`;
-  output += `**Title:** ${result.title}\n`;
+  output += `**Title:** ${title}\n`;
   output += `**URL:** ${result.url}\n`;
   output += `**Words:** ${result.wordCount}\n`;
-  if (result.byline) output += `**Author:** ${result.byline}\n`;
-  if (result.siteName) output += `**Site:** ${result.siteName}\n`;
-  if (result.excerpt) output += `**Excerpt:** ${result.excerpt}\n`;
+  if (byline) output += `**Author:** ${byline}\n`;
+  if (siteName) output += `**Site:** ${siteName}\n`;
+  if (excerpt) output += `**Excerpt:** ${excerpt}\n`;
   output += `**Extracted:** ${result.extractedAt}\n`;
   output += `\n---\n\n${result.content}`;
 
