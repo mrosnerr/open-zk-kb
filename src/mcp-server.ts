@@ -130,15 +130,15 @@ server.registerTool(
 // ---- knowledge-ingest ----
 
 const ingestSchema = z.object({
-  url: z.string().url().optional().describe('URL to fetch and extract content from. Provide url, html, or both (url used for link resolution when html is provided).'),
-  html: z.string().optional().describe('Raw HTML to extract content from. Use when you already fetched the page via another tool (e.g. Playwright, Exa, web_fetch).'),
+  url: z.string().url().optional().describe('URL to fetch and extract. Fallback only — the built-in fetcher cannot handle JavaScript-rendered pages, bot protection, or authenticated content. If you have a web tool (Playwright, Exa, web_fetch), fetch with that and pass html instead.'),
+  html: z.string().optional().describe('Preferred — raw HTML to extract content from. Pass HTML you already fetched via Playwright, Exa, web_fetch, or any browser/web tool for best results.'),
   model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
 });
 
 server.registerTool(
   'knowledge-ingest',
   {
-    description: 'Extract article content as clean markdown from a URL or raw HTML. Returns title, content, word count, and metadata. Accepts a url (fetches and extracts), html (extracts from pre-fetched content), or both. Use the extracted content to create notes via knowledge-store.',
+    description: 'Extract article content as clean markdown. Returns title, content, word count, and metadata. PREFER passing html from your own web tools (Playwright, Exa, web_fetch) — the built-in url fetcher is a basic fallback that cannot render JavaScript or bypass bot protection. Use the extracted content to create notes via knowledge-store.',
     inputSchema: ingestSchema as unknown as AnySchema,
   },
   async (args: z.infer<typeof ingestSchema>) => {

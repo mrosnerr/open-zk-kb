@@ -52,13 +52,16 @@ Notes exceeding the target will trigger a soft warning — heed it and split if 
 - Before ending a session: review for uncaptured preferences, decisions, gotchas, or workflows.
 
 ### Ingesting URLs
-When a useful URL comes up, use `knowledge-ingest` to extract clean article content, then store via `knowledge-store`:
+When a useful URL comes up, extract its content via `knowledge-ingest`, then store via `knowledge-store`.
 
-1. `knowledge-ingest(url: "...")` → returns extracted title, content, metadata
-2. Review the extracted content and summarize the key takeaway
+**If you have a web tool** (Playwright, Exa, web_fetch, dev-browser — check your available tools):
+1. Fetch the page with your web tool (handles JS rendering, bot protection, auth)
+2. `knowledge-ingest(html: "<fetched html>", url: "<source url>")` → extracts title, content, metadata
 3. `knowledge-store(kind: "resource", ...)` with your summary
 
-If you already fetched HTML via another tool (e.g. Playwright, web_fetch), pass it directly: `knowledge-ingest(html: "...")`.
+**If you have no web tools** (fallback only):
+1. `knowledge-ingest(url: "...")` → basic fetch + extract (no JS rendering, may fail on protected sites)
+2. `knowledge-store(kind: "resource", ...)` with your summary
 
 ### Maintenance
 - `knowledge-maintain stats` — KB health | `knowledge-maintain review` — stale notes

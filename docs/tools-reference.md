@@ -69,17 +69,7 @@ Extract article content as clean markdown from a URL or pre-fetched HTML. Return
 
 ### Usage patterns
 
-**Direct URL ingestion** — when you have a URL and no other web tools:
-```json
-{ "url": "https://example.com/blog/article" }
-```
-
-**Pre-fetched HTML** — when you already got the page via Playwright, Exa, or another tool:
-```json
-{ "html": "<html><body><article>...</article></body></html>" }
-```
-
-**HTML with URL context** — for correct relative link resolution:
+**Preferred: Pre-fetched HTML** — use your web tools (Playwright, Exa, web_fetch) to fetch first, then pass the HTML for extraction. This handles JavaScript-rendered pages, bot-protected sites, and authenticated content:
 ```json
 {
   "url": "https://example.com/blog/article",
@@ -87,12 +77,35 @@ Extract article content as clean markdown from a URL or pre-fetched HTML. Return
 }
 ```
 
+**HTML only** — when you have HTML but no source URL:
+```json
+{ "html": "<html><body><article>...</article></body></html>" }
+```
+
+**Fallback: Direct URL** — when no web tools are available. The built-in fetcher is basic — see limitations below:
+```json
+{ "url": "https://example.com/blog/article" }
+```
+
+### Built-in fetcher limitations
+
+The `url`-only path uses a basic HTTP client. It **cannot** handle:
+
+- JavaScript-rendered pages (SPAs, React, Vue, Next.js client-side)
+- Bot-protected sites (CloudFlare, Akamai, CAPTCHAs)
+- Authenticated or paywalled content
+- Cookie consent modals
+- Lazy-loaded or infinite-scroll content
+
+For these cases, fetch the page with a browser-capable tool and pass the `html` parameter.
+
 ### Workflow
 
 The intended workflow is a two-step pipeline:
 
-1. `knowledge-ingest` → extract and review content
-2. `knowledge-store` → save as a knowledge base note
+1. *(If you have web tools)* Fetch with Playwright/Exa/web_fetch → pass to `knowledge-ingest(html: ...)`
+2. `knowledge-ingest` → extract and review content
+3. `knowledge-store` → save as a knowledge base note
 
 The tool extracts content but does **not** create notes automatically. This keeps summarization and note structuring at the agent layer.
 
