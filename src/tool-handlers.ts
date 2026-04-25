@@ -25,6 +25,7 @@ import { getInstalledInstructionVersions } from './instruction-versions.js';
 import { classifyModel, MODEL_HINT } from './model-capabilities.js';
 import { extractFromUrl, extractArticle } from './url-extractor.js';
 import type { ExtractionResult } from './url-extractor.js';
+import { splitSections, extractLinks } from './content-splitter.js';
 
 // ---- Constants ----
 
@@ -138,15 +139,51 @@ export async function handleIngest(args: IngestArgs): Promise<string> {
   const siteName = result.siteName ? sanitizeMetadata(result.siteName) : null;
   const excerpt = result.excerpt ? sanitizeMetadata(result.excerpt) : null;
 
+  const sections = splitSections(result.content);
+  const links = extractLinks(result.content, result.url !== 'about:blank' ? result.url : undefined);
+
   let output = `## Extracted Content\n\n`;
   output += `**Title:** ${title}\n`;
   output += `**URL:** ${result.url}\n`;
-  output += `**Words:** ${result.wordCount}\n`;
-  if (byline) output += `**Author:** ${byline}\n`;
-  if (siteName) output += `**Site:** ${siteName}\n`;
+  output += `**Words:** ${result.wordCount}`;
+  if (byline) output += `  |  **Author:** ${byline}`;
+  if (siteName) output += `  |  **Site:** ${siteName}`;
+  output += '\n';
   if (excerpt) output += `**Excerpt:** ${excerpt}\n`;
   output += `**Extracted:** ${result.extractedAt}\n`;
-  output += `\n---\n\n${result.content}`;
+
+  if (sections.length > 1) {
+    output += `**Sections:** ${sections.length}\n`;
+    output += '\n---\n';
+    for (const section of sections) {
+      const flag = section.wordCount > 200 ? ' — exceeds 200w note target' : '';
+      const heading = section.heading || '(preamble)';
+      output += `\n### § ${heading} (${section.wordCount} words${flag})\n\n`;
+      output += section.content + '\n';
+    }
+  } else {
+    output += `\n---\n\n${result.content}`;
+  }
+
+  if (links.length > 0) {
+    output += '\n---\n\n## Links Found (' + links.length + ')\n';
+    for (const link of links.slice(0, 10)) {
+      const sectionNote = link.section ? ` — § ${link.section}` : '';
+      output += `- [${link.anchor}](${link.url})${sectionNote}\n`;
+    }
+    if (links.length > 10) {
+      output += `- ...and ${links.length - 10} more\n`;
+    }
+  }
+
+  output += '\n## Next Steps\n';
+  output += 'Review each section. For each worth saving, call knowledge-store with title, content, kind, summary, guidance.\n';
+  if (sections.some(s => s.wordCount > 200)) {
+    output += 'Sections over ~200 words may need splitting into separate atomic notes.\n';
+  }
+  if (links.length > 0) {
+    output += `${links.length} link(s) found. Follow at most 1-2 per ingest. Do not follow links from followed articles.\n`;
+  }
 
   if (!args.model) {
     output += MODEL_HINT;
