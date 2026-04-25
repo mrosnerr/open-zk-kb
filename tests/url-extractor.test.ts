@@ -430,4 +430,286 @@ describe('fetchHtml', () => {
     })) as typeof fetch;
     await expect(fetchHtml('https://example.com/start')).rejects.toThrow('Too many redirects');
   });
+
+  it('resolves relative Location headers', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response('', { status: 301, headers: { 'location': '/new-path' } });
+      }
+      return new Response('<html><body>relative redirect</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }) as typeof fetch;
+    const html = await fetchHtml('https://example.com/old-path');
+    expect(html).toContain('relative redirect');
+  });
+
+  it('rejects redirect without Location header', async () => {
+    globalThis.fetch = (async () => new Response('', { status: 302 })) as typeof fetch;
+    await expect(fetchHtml('https://example.com/start')).rejects.toThrow('without Location header');
+  });
+
+  it('follows mixed redirect chain (301 → 302 → 200)', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async () => {
+      callCount++;
+      if (callCount === 1) return new Response('', { status: 301, headers: { 'location': 'https://example.com/step2' } });
+      if (callCount === 2) return new Response('', { status: 302, headers: { 'location': 'https://example.com/final' } });
+      return new Response('<html><body>chain done</body></html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      });
+    }) as typeof fetch;
+    const html = await fetchHtml('https://example.com/start');
+    expect(html).toContain('chain done');
+    expect(callCount).toBe(3);
+  });
+
+  it('blocks redirect that changes to non-http scheme', async () => {
+    globalThis.fetch = (async () => new Response('', {
+      status: 302,
+      headers: { 'location': 'ftp://example.com/file' },
+    })) as typeof fetch;
+    await expect(fetchHtml('https://example.com/start')).rejects.toThrow('unsupported protocol');
+  });
+
+  it('handles empty response body', async () => {
+    globalThis.fetch = (async () => new Response('', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    })) as typeof fetch;
+    const html = await fetchHtml('https://example.com');
+    expect(html).toBe('');
+  });
+});
+
+// ---- SSRF bypass attempts ----
+
+describe('SSRF bypass vectors', () => {
+  it('blocks decimal IP notation (2130706433 = 127.0.0.1)', async () => {
+    await expect(fetchHtml('http://2130706433/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks octal IP notation (0177.0.0.1 = 127.0.0.1)', async () => {
+    await expect(fetchHtml('http://0177.0.0.1/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks hex IP notation (0x7f000001 = 127.0.0.1)', async () => {
+    await expect(fetchHtml('http://0x7f000001/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks IPv4-mapped IPv6 loopback (::ffff:127.0.0.1)', async () => {
+    await expect(fetchHtml('http://[::ffff:127.0.0.1]/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks IPv4-mapped IPv6 private (::ffff:10.0.0.1)', async () => {
+    await expect(fetchHtml('http://[::ffff:10.0.0.1]/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks IPv4-mapped IPv6 metadata (::ffff:169.254.169.254)', async () => {
+    await expect(fetchHtml('http://[::ffff:169.254.169.254]/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks IPv4-compatible IPv6 loopback (::127.0.0.1)', async () => {
+    await expect(fetchHtml('http://[::127.0.0.1]/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks URL with credentials targeting private IP', async () => {
+    await expect(fetchHtml('http://user:pass@127.0.0.1/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks short hex notation (0x7f.1 = 127.0.0.1)', async () => {
+    await expect(fetchHtml('http://0x7f.1/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks private IP with port number', async () => {
+    await expect(fetchHtml('http://127.0.0.1:8080/')).rejects.toThrow('private/reserved');
+  });
+
+  it('allows IPv4-mapped IPv6 public IP (::ffff:8.8.8.8)', () => {
+    expect(isPrivateOrReservedHost('[::ffff:808:808]')).toBe(false);
+  });
+});
+
+// ---- extractArticle edge cases ----
+
+describe('extractArticle edge cases', () => {
+  const longContent = '<p>' + 'Substantial article content for readability extraction testing. '.repeat(10) + '</p>';
+
+  it('handles malformed HTML with unclosed tags', () => {
+    const html = `<html><head><title>Broken</title></head><body>
+      <article><h1>Broken Article</h1><div>${longContent}</article></body>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.content).toContain('Substantial article');
+  });
+
+  it('strips script tag content from output', () => {
+    const html = `<html><head><title>Scripts</title></head><body>
+      <article><h1>Clean Article</h1>
+      <script>var malicious = "should not appear";</script>
+      ${longContent}
+      </article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.content).not.toContain('malicious');
+    expect(result!.content).not.toContain('should not appear');
+  });
+
+  it('strips style tag content from output', () => {
+    const html = `<html><head><title>Styles</title></head><body>
+      <article><h1>Styled Article</h1>
+      <style>.hidden { display: none; }</style>
+      ${longContent}
+      </article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.content).not.toContain('display: none');
+  });
+
+  it('preserves HTML entities in content', () => {
+    const html = `<html><head><title>Entities</title></head><body>
+      <article><h1>Entities</h1>
+      <p>Use &amp; for ampersand, &lt;tag&gt; for angle brackets, &quot;quotes&quot; work too.</p>
+      ${longContent}
+      </article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.content).toContain('&');
+    expect(result!.content).toContain('<tag>');
+  });
+
+  it('handles unicode content (CJK characters)', () => {
+    const unicodeContent = '<p>' + '这是一篇关于人工智能技术发展的长篇文章内容。'.repeat(10) + '</p>';
+    const html = `<html><head><title>中文文章</title></head><body>
+      <article><h1>中文文章</h1>${unicodeContent}</article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.title).toContain('中文');
+    expect(result!.content).toContain('人工智能');
+  });
+
+  it('handles emoji in content', () => {
+    const emojiContent = '<p>' + 'Article with emoji 🚀 and more content for extraction. '.repeat(10) + '</p>';
+    const html = `<html><head><title>Emoji Test</title></head><body>
+      <article><h1>Emoji Test</h1>${emojiContent}</article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.content).toContain('🚀');
+  });
+
+  it('extracts code blocks', () => {
+    const html = `<html><head><title>Code</title></head><body>
+      <article><h1>Code Example</h1>
+      <pre><code>function hello() { return "world"; }</code></pre>
+      ${longContent}
+      </article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.content).toContain('function hello');
+  });
+
+  it('extracts table content', () => {
+    const html = `<html><head><title>Table</title></head><body>
+      <article><h1>Data Table</h1>
+      <table><tr><th>Name</th><th>Value</th></tr><tr><td>Alpha</td><td>100</td></tr></table>
+      ${longContent}
+      </article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.content).toContain('Alpha');
+    expect(result!.content).toContain('100');
+  });
+
+  it('returns null for whitespace-only content near MIN_READABLE_CHARS threshold', () => {
+    const shortContent = '<p>' + '  '.repeat(30) + 'tiny</p>';
+    const html = `<html><body><article>${shortContent}</article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).toBeNull();
+  });
+
+  it('extracts content just above MIN_READABLE_CHARS threshold', () => {
+    const justEnough = '<p>' + 'A'.repeat(60) + '</p>';
+    const html = `<html><head><title>Threshold</title></head><body>
+      <article><h1>Threshold</h1>${justEnough}${longContent}</article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+  });
+
+  it('preserves text around inline media', () => {
+    const html = `<html><head><title>Images</title></head><body>
+      <article><h1>Image Article</h1>
+      <p>Before image.</p>
+      <img src="photo.jpg" alt="A photo">
+      <p>After image.</p>
+      ${longContent}
+      </article></body></html>`;
+    const result = extractArticle(html, 'https://example.com');
+    expect(result).not.toBeNull();
+    expect(result!.content).toContain('Before image');
+    expect(result!.content).toContain('After image');
+  });
+});
+
+// ---- handleIngest output format ----
+
+describe('handleIngest output format', () => {
+  const makeHtml = (title: string, body: string) => `<html><head><title>${title}</title></head><body>
+    <article><h1>${title}</h1>${body}</article></body></html>`;
+  const longBody = '<p>' + 'Content for handleIngest output format testing. '.repeat(10) + '</p>';
+
+  it('includes all metadata fields in output', async () => {
+    const result = await handleIngest({ html: makeHtml('Full Metadata', longBody) });
+    expect(result).toContain('## Extracted Content');
+    expect(result).toContain('**Title:** Full Metadata');
+    expect(result).toContain('**Words:**');
+    expect(result).toContain('**Extracted:**');
+    expect(result).toContain('---');
+  });
+
+  it('shows about:blank as URL when html-only', async () => {
+    const result = await handleIngest({ html: makeHtml('No URL', longBody) });
+    expect(result).toContain('**URL:** about:blank');
+  });
+
+  it('sanitizes newlines in title', async () => {
+    const html = `<html><head><title>Line1\nLine2\rLine3</title></head><body>
+      <article><h1>Line1\nLine2</h1>${longBody}</article></body></html>`;
+    const result = await handleIngest({ html });
+    const titleLine = result.split('\n').find(l => l.startsWith('**Title:**'));
+    expect(titleLine).toBeDefined();
+    expect(titleLine).not.toContain('\n');
+    expect(titleLine).not.toContain('\r');
+  });
+
+  it('includes MODEL_HINT when model is not provided', async () => {
+    const result = await handleIngest({ html: makeHtml('Hint Test', longBody) });
+    expect(result).toContain('model');
+  });
+
+  it('excludes MODEL_HINT when model is provided', async () => {
+    const withModel = await handleIngest({ html: makeHtml('No Hint', longBody), model: 'gpt-4o' });
+    const withoutModel = await handleIngest({ html: makeHtml('No Hint', longBody) });
+    expect(withModel.length).toBeLessThan(withoutModel.length);
+  });
+
+  it('produces accurate word count on html path', async () => {
+    const fiveWords = '<p>one two three four five</p>';
+    const html = `<html><head><title>Count</title></head><body>
+      <article><h1>Count</h1>${fiveWords}${longBody}</article></body></html>`;
+    const result = await handleIngest({ html });
+    const wordMatch = result.match(/\*\*Words:\*\* (\d+)/);
+    expect(wordMatch).not.toBeNull();
+    expect(Number(wordMatch![1])).toBeGreaterThan(5);
+  });
+
+  it('handles very long metadata without breaking format', async () => {
+    const longTitle = 'A'.repeat(500);
+    const result = await handleIngest({ html: makeHtml(longTitle, longBody) });
+    expect(result).toContain('**Title:**');
+    expect(result).toContain('---');
+  });
 });

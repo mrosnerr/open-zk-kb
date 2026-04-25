@@ -78,6 +78,15 @@ export function isPrivateOrReservedHost(hostname: string): boolean {
     if (ipv6 === '::1') return true;                                    // loopback
     if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return true;    // fc00::/7 unique local
     if (ipv6.startsWith('fe80')) return true;                           // fe80::/10 link-local
+
+    // IPv4-mapped (::ffff:H:H) and IPv4-compatible (::H:H) — extract embedded IPv4 and re-check
+    const mappedMatch = ipv6.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+    if (mappedMatch) {
+      const high = parseInt(mappedMatch[1], 16);
+      const low = parseInt(mappedMatch[2], 16);
+      const ipv4 = `${(high >> 8) & 0xff}.${high & 0xff}.${(low >> 8) & 0xff}.${low & 0xff}`;
+      return isPrivateOrReservedHost(ipv4);
+    }
   }
 
   return false;
