@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'bun:test';
-import { splitSections, extractLinks } from '../src/content-splitter.js';
+import { splitSections, extractLinks, canonicalizeUrl, countWords } from '../src/content-splitter.js';
 
 describe('splitSections', () => {
   it('splits on h2 boundaries', () => {
@@ -186,5 +186,89 @@ describe('extractLinks', () => {
     const links = extractLinks(md);
     expect(links).toHaveLength(1);
     expect(links[0].anchor).toBe('');
+  });
+
+  it('filters out links targeting private IPs', () => {
+    const md = `
+[public](https://example.com)
+[private](http://192.168.1.1/admin)
+[metadata](http://169.254.169.254/latest)
+[localhost](http://localhost:3000/api)
+[also public](https://other.com)
+`;
+    const links = extractLinks(md);
+    expect(links).toHaveLength(2);
+    expect(links[0].url).toContain('example.com');
+    expect(links[1].url).toContain('other.com');
+  });
+
+  it('filters out IPv6 private links', () => {
+    const md = '[loopback](http://[::1]:8080/secret)';
+    const links = extractLinks(md);
+    expect(links).toHaveLength(0);
+  });
+
+  it('strips URL credentials from extracted links', () => {
+    const md = '[creds](https://user:pass@example.com/page)';
+    const links = extractLinks(md);
+    expect(links).toHaveLength(1);
+    expect(links[0].url).not.toContain('user');
+    expect(links[0].url).not.toContain('pass');
+    expect(links[0].url).toContain('example.com/page');
+  });
+
+  it('uses strict http:// or https:// prefix for absolute detection', () => {
+    const md = '[x](httpfoo://example.com/bad)';
+    const links = extractLinks(md);
+    expect(links).toHaveLength(0);
+  });
+
+  it('resolves relative links only when sourceUrl provided', () => {
+    const md = '[relative](/docs/api)';
+    const links = extractLinks(md, 'https://example.com/page');
+    expect(links).toHaveLength(1);
+    expect(links[0].url).toBe('https://example.com/docs/api');
+  });
+});
+
+describe('canonicalizeUrl', () => {
+  it('strips credentials from URLs', () => {
+    const result = canonicalizeUrl('https://admin:secret@example.com/path');
+    expect(result).not.toBeNull();
+    expect(result).not.toContain('admin');
+    expect(result).not.toContain('secret');
+    expect(result).toContain('example.com/path');
+  });
+
+  it('returns null for private IP URLs', () => {
+    expect(canonicalizeUrl('http://127.0.0.1/secret')).toBeNull();
+    expect(canonicalizeUrl('http://192.168.1.1/admin')).toBeNull();
+    expect(canonicalizeUrl('http://10.0.0.1/internal')).toBeNull();
+    expect(canonicalizeUrl('http://169.254.169.254/metadata')).toBeNull();
+    expect(canonicalizeUrl('http://localhost:3000/')).toBeNull();
+  });
+
+  it('allows public URLs', () => {
+    expect(canonicalizeUrl('https://example.com/page')).not.toBeNull();
+  });
+
+  it('returns null for non-http schemes', () => {
+    expect(canonicalizeUrl('ftp://example.com')).toBeNull();
+    expect(canonicalizeUrl('javascript:alert(1)')).toBeNull();
+  });
+});
+
+describe('countWords', () => {
+  it('counts space-separated words', () => {
+    expect(countWords('one two three')).toBe(3);
+  });
+
+  it('handles multiple whitespace types', () => {
+    expect(countWords('one\ttwo\nthree  four')).toBe(4);
+  });
+
+  it('returns 0 for empty/whitespace input', () => {
+    expect(countWords('')).toBe(0);
+    expect(countWords('   ')).toBe(0);
   });
 });

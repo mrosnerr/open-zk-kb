@@ -60,8 +60,8 @@ Extract article content as clean markdown from a URL or pre-fetched HTML. Return
 
 ### What happens
 
-1. **If `url` only** — fetches the page with SSRF protection (private IP blocking, redirect validation, streaming size limits), then extracts
-2. **If `html` only** — extracts directly from provided HTML (no network request)
+1. **If `url` only** — fetches the page with SSRF protection (literal private IP/hostname pattern blocking, redirect validation, streaming size limits), then extracts
+2. **If `html` only** — extracts directly from provided HTML (no network request). Pass `url` alongside `html` when possible — without it, relative links cannot be resolved
 3. **If both** — extracts from `html`, uses `url` for relative link resolution
 4. Extracts article content using Mozilla Readability (same engine as Firefox Reader View)
 5. Converts to clean markdown (headings, lists, links preserved; images, iframes, nav stripped)
@@ -98,6 +98,13 @@ The `url`-only path uses a basic HTTP client. It **cannot** handle:
 - Lazy-loaded or infinite-scroll content
 
 For these cases, fetch the page with a browser-capable tool and pass the `html` parameter.
+
+### Security notes
+
+- **SSRF protection** blocks literal private/reserved IP addresses and hostname patterns (localhost, 10.x, 172.16-31.x, 192.168.x, 169.254.x, IPv6 loopback/link-local/unique-local, IPv4-mapped IPv6). Redirect hops are validated individually.
+- **Known limitation**: hostnames that DNS-resolve to private IPs are **not** blocked — the check operates on hostname text, not resolved addresses. This is acceptable for a locally-run MCP tool but means a domain like `evil.com → 127.0.0.1` would bypass the guard.
+- **Extracted links** are filtered to exclude private/reserved IP targets before being shown in output.
+- **URL credentials** (userinfo) are stripped from extracted links.
 
 ### Workflow
 

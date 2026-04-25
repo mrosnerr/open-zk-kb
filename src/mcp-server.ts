@@ -130,10 +130,13 @@ server.registerTool(
 // ---- knowledge-ingest ----
 
 const ingestSchema = z.object({
-  url: z.string().url().optional().describe('URL to fetch and extract. Fallback only — the built-in fetcher cannot handle JavaScript-rendered pages, bot protection, or authenticated content. If you have a web tool (Playwright, Exa, web_fetch), fetch with that and pass html instead.'),
+  url: z.string().url()
+    .refine(u => { try { const p = new URL(u); return p.protocol === 'http:' || p.protocol === 'https:'; } catch { return false; } }, { message: 'URL must use http:// or https://' })
+    .optional()
+    .describe('URL to fetch and extract. Fallback only — the built-in fetcher cannot handle JavaScript-rendered pages, bot protection, or authenticated content. If you have a web tool (Playwright, Exa, web_fetch), fetch with that and pass html instead. When passing html, also pass url for relative link resolution.'),
   html: z.string().optional().describe('Preferred — raw HTML to extract content from. Pass HTML you already fetched via Playwright, Exa, web_fetch, or any browser/web tool for best results.'),
   model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
-});
+}).refine(d => d.url || d.html, { message: 'At least one of url or html must be provided' });
 
 server.registerTool(
   'knowledge-ingest',

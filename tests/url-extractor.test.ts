@@ -353,8 +353,9 @@ describe('fetchHtml', () => {
       status: 200,
       headers: { 'content-type': 'text/html; charset=utf-8' },
     })) as typeof fetch;
-    const html = await fetchHtml('https://example.com');
-    expect(html).toContain('<body>ok</body>');
+    const result = await fetchHtml('https://example.com');
+    expect(result.html).toContain('<body>ok</body>');
+    expect(result.finalUrl).toBe('https://example.com');
   });
 
   it('accepts text/plain content type', async () => {
@@ -362,8 +363,8 @@ describe('fetchHtml', () => {
       status: 200,
       headers: { 'content-type': 'text/plain' },
     })) as typeof fetch;
-    const html = await fetchHtml('https://example.com/text');
-    expect(html).toBe('plain text content');
+    const result = await fetchHtml('https://example.com/text');
+    expect(result.html).toBe('plain text content');
   });
 
   it('rejects when streamed body exceeds limit', async () => {
@@ -418,8 +419,9 @@ describe('fetchHtml', () => {
         headers: { 'content-type': 'text/html' },
       });
     }) as typeof fetch;
-    const html = await fetchHtml('https://example.com/start');
-    expect(html).toContain('redirected');
+    const result = await fetchHtml('https://example.com/start');
+    expect(result.html).toContain('redirected');
+    expect(result.finalUrl).toBe('https://example.com/final');
     expect(callCount).toBe(2);
   });
 
@@ -443,8 +445,9 @@ describe('fetchHtml', () => {
         headers: { 'content-type': 'text/html' },
       });
     }) as typeof fetch;
-    const html = await fetchHtml('https://example.com/old-path');
-    expect(html).toContain('relative redirect');
+    const result = await fetchHtml('https://example.com/old-path');
+    expect(result.html).toContain('relative redirect');
+    expect(result.finalUrl).toBe('https://example.com/new-path');
   });
 
   it('rejects redirect without Location header', async () => {
@@ -463,8 +466,9 @@ describe('fetchHtml', () => {
         headers: { 'content-type': 'text/html' },
       });
     }) as typeof fetch;
-    const html = await fetchHtml('https://example.com/start');
-    expect(html).toContain('chain done');
+    const result = await fetchHtml('https://example.com/start');
+    expect(result.html).toContain('chain done');
+    expect(result.finalUrl).toBe('https://example.com/final');
     expect(callCount).toBe(3);
   });
 
@@ -481,8 +485,8 @@ describe('fetchHtml', () => {
       status: 200,
       headers: { 'content-type': 'text/html' },
     })) as typeof fetch;
-    const html = await fetchHtml('https://example.com');
-    expect(html).toBe('');
+    const result = await fetchHtml('https://example.com');
+    expect(result.html).toBe('');
   });
 });
 
@@ -842,5 +846,128 @@ insertMany([{ $name: "Bob" }, { $name: "Carol" }]);</code></pre>
     expect(result).toContain('§ First Section');
     expect(result).toContain('§ Second Section');
     expect(result).toContain('## Links Found');
+  });
+});
+
+// ---- New: fe80::/10 full range ----
+
+describe('IPv6 link-local full fe80::/10 range', () => {
+  it('blocks fe80::1', () => {
+    expect(isPrivateOrReservedHost('[fe80::1]')).toBe(true);
+  });
+
+  it('blocks fe90::1 (within fe80::/10)', () => {
+    expect(isPrivateOrReservedHost('[fe90::1]')).toBe(true);
+  });
+
+  it('blocks fea0::1 (within fe80::/10)', () => {
+    expect(isPrivateOrReservedHost('[fea0::1]')).toBe(true);
+  });
+
+  it('blocks febf::1 (upper bound of fe80::/10)', () => {
+    expect(isPrivateOrReservedHost('[febf::1]')).toBe(true);
+  });
+
+  it('allows fec0::1 (outside fe80::/10)', () => {
+    expect(isPrivateOrReservedHost('[fec0::1]')).toBe(false);
+  });
+
+  it('allows fe7f::1 (below fe80::/10)', () => {
+    expect(isPrivateOrReservedHost('[fe7f::1]')).toBe(false);
+  });
+});
+
+// ---- New: fetchHtml finalUrl after redirects ----
+
+describe('fetchHtml finalUrl tracking', () => {
+  const originalFetch = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = originalFetch; });
+
+  it('returns original URL when no redirect', async () => {
+    globalThis.fetch = (async () => new Response('<html></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    })) as typeof fetch;
+    const result = await fetchHtml('https://example.com/page');
+    expect(result.finalUrl).toBe('https://example.com/page');
+  });
+
+  it('returns final URL after redirect chain', async () => {
+    let callCount = 0;
+    globalThis.fetch = (async () => {
+      callCount++;
+      if (callCount === 1) return new Response('', { status: 301, headers: { 'location': 'https://example.com/step2' } });
+      if (callCount === 2) return new Response('', { status: 302, headers: { 'location': 'https://example.com/final-page' } });
+      return new Response('<html></html>', { status: 200, headers: { 'content-type': 'text/html' } });
+    }) as typeof fetch;
+    const result = await fetchHtml('https://example.com/start');
+    expect(result.finalUrl).toBe('https://example.com/final-page');
+  });
+});
+
+// ---- New: HTML input size guard ----
+
+describe('handleIngest HTML size guard', () => {
+  it('rejects HTML exceeding 5MB', async () => {
+    const hugeHtml = '<html><body>' + 'x'.repeat(6 * 1024 * 1024) + '</body></html>';
+    await expect(handleIngest({ html: hugeHtml })).rejects.toThrow('HTML content too large');
+  });
+
+  it('accepts HTML just under 5MB', async () => {
+    const body = 'A'.repeat(100) + ' content '.repeat(50);
+    const html = `<html><head><title>Big</title></head><body><article><h1>Big</h1><p>${body}</p></article></body></html>`;
+    const result = await handleIngest({ html });
+    expect(result).toContain('Big');
+  });
+});
+
+// ---- New: about:blank title fallback ----
+
+describe('extractArticle title fallback', () => {
+  const longContent = '<p>' + 'Substantial article content for testing. '.repeat(10) + '</p>';
+
+  it('falls back to Untitled when url is about:blank', () => {
+    const html = `<html><body><article>${longContent}</article></body></html>`;
+    const result = extractArticle(html, 'about:blank');
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe('Untitled');
+  });
+
+  it('falls back to hostname when url has one', () => {
+    const html = `<html><body><article>${longContent}</article></body></html>`;
+    const result = extractArticle(html, 'https://example.com/page');
+    expect(result).not.toBeNull();
+    expect(result!.title).toBe('example.com');
+  });
+});
+
+// ---- New: word count from textContent ----
+
+describe('word count accuracy', () => {
+  it('counts words from text, not markdown syntax', async () => {
+    const html = `<html><head><title>Count</title></head><body>
+      <article><h1>Count</h1>
+      <p><strong>Bold</strong> <a href="https://example.com/very/long/url">link text</a> normal words here.</p>
+      <p>${'More content for extraction to pass threshold. '.repeat(5)}</p>
+      </article></body></html>`;
+    const result = await handleIngest({ html });
+    const wordMatch = result.match(/\*\*Words:\*\* (\d+)/);
+    expect(wordMatch).not.toBeNull();
+    const count = Number(wordMatch![1]);
+    expect(count).toBeGreaterThan(0);
+    expect(count).toBeLessThan(200);
+  });
+});
+
+// ---- New: error message wording ----
+
+describe('SSRF error message clarity', () => {
+  it('says matches not resolves', async () => {
+    try {
+      await fetchHtml('http://127.0.0.1/secret');
+    } catch (e: unknown) {
+      expect((e as Error).message).toContain('matches a private/reserved range');
+      expect((e as Error).message).not.toContain('resolves to');
+    }
   });
 });

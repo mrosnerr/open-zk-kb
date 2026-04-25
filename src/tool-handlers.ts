@@ -25,7 +25,7 @@ import { getInstalledInstructionVersions } from './instruction-versions.js';
 import { classifyModel, MODEL_HINT } from './model-capabilities.js';
 import { extractFromUrl, extractArticle } from './url-extractor.js';
 import type { ExtractionResult } from './url-extractor.js';
-import { splitSections, extractLinks } from './content-splitter.js';
+import { splitSections, extractLinks, countWords } from './content-splitter.js';
 
 // ---- Constants ----
 
@@ -43,10 +43,6 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
 export const ABSOLUTE_WARN_THRESHOLD = 300;
 
 // ---- Helper functions ----
-
-function countWords(text: string): number {
-  return text.split(/\s+/).filter(Boolean).length;
-}
 
 function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
   const guide = KIND_WORD_GUIDELINES[kind];
@@ -119,9 +115,14 @@ function sanitizeMetadata(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+const MAX_HTML_BYTES = 5 * 1024 * 1024; // 5MB
+
 export async function handleIngest(args: IngestArgs, repo?: NoteRepository): Promise<string> {
   let result: ExtractionResult;
   if (args.html) {
+    if (Buffer.byteLength(args.html, 'utf8') > MAX_HTML_BYTES) {
+      throw new Error(`HTML content too large: exceeds ${MAX_HTML_BYTES} byte limit`);
+    }
     const sourceUrl = args.url || 'about:blank';
     const article = extractArticle(args.html, sourceUrl);
     if (!article) {

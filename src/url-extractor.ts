@@ -11,12 +11,18 @@ import { logToFile } from './logger.js';
 export interface ExtractionResult {
   title: string;
   content: string;
+  textContent: string;
   url: string;
   extractedAt: string;
   wordCount: number;
   byline: string | null;
   excerpt: string | null;
   siteName: string | null;
+}
+
+export interface FetchResult {
+  html: string;
+  finalUrl: string;
 }
 
 export interface ExtractOptions {
@@ -49,8 +55,8 @@ export function isValidUrl(url: string): boolean {
 }
 
 /**
- * Returns true if the hostname resolves to a private, loopback, link-local,
- * or otherwise reserved IP range. Used to block SSRF via redirect chains.
+ * Returns true if the hostname matches a private, loopback, link-local,
+ * or otherwise reserved IP pattern. Does not perform DNS resolution.
  */
 export function isPrivateOrReservedHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
@@ -77,7 +83,8 @@ export function isPrivateOrReservedHost(hostname: string): boolean {
     const ipv6 = host.slice(1, -1).toLowerCase();
     if (ipv6 === '::1') return true;                                    // loopback
     if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return true;    // fc00::/7 unique local
-    if (ipv6.startsWith('fe80')) return true;                           // fe80::/10 link-local
+    const fe = parseInt(ipv6.slice(0, 4), 16);
+    if ((fe & 0xffc0) === 0xfe80) return true;                            // fe80::/10 link-local (fe80-febf)
 
     // IPv4-mapped (::ffff:H:H) and IPv4-compatible (::H:H) — extract embedded IPv4 and re-check
     const mappedMatch = ipv6.match(/^::(?:ffff:)?([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
@@ -102,7 +109,7 @@ function validateFetchTarget(url: string): void {
     throw new Error(`Blocked URL: unsupported protocol ${parsed.protocol}`);
   }
   if (isPrivateOrReservedHost(parsed.hostname)) {
-    throw new Error(`Blocked URL: hostname ${parsed.hostname} resolves to a private/reserved range`);
+    throw new Error(`Blocked URL: hostname ${parsed.hostname} matches a private/reserved range`);
   }
 }
 
@@ -148,8 +155,7 @@ async function readBodyWithLimit(response: Response, maxLength: number): Promise
   return new TextDecoder().decode(combined);
 }
 
-/** Fetches HTML from a URL with SSRF protection, redirect validation, and streaming size limits. */
-export async function fetchHtml(url: string, options: ExtractOptions = {}): Promise<string> {
+export async function fetchHtml(url: string, options: ExtractOptions = {}): Promise<FetchResult> {
   const timeout = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxLength = options.maxContentLength ?? DEFAULT_MAX_CONTENT_LENGTH;
 
@@ -196,7 +202,8 @@ export async function fetchHtml(url: string, options: ExtractOptions = {}): Prom
         throw new Error(`Content too large: ${contentLength} bytes (max ${maxLength})`);
       }
 
-      return await readBodyWithLimit(response, maxLength);
+      const html = await readBodyWithLimit(response, maxLength);
+      return { html, finalUrl: currentUrl };
     }
   } finally {
     clearTimeout(timer);
@@ -208,8 +215,11 @@ export function extractArticle(html: string, url: string): ExtractionResult | nu
 
   const { document } = parseHTML(html);
 
-  // Set documentURI for Readability's relative URL resolution
-  Object.defineProperty(document, 'documentURI', { value: url, writable: false });
+  try {
+    Object.defineProperty(document, 'documentURI', { value: url, configurable: true, writable: false });
+  } catch {
+    // linkedom may define documentURI as non-configurable; fall through
+  }
 
   const reader = new Readability(document);
   const article = reader.parse();
@@ -219,11 +229,18 @@ export function extractArticle(html: string, url: string): ExtractionResult | nu
   }
 
   const markdown = turndown.turndown(article.content);
-  const wordCount = markdown.split(/\s+/).filter(Boolean).length;
+  const textContent = article.textContent;
+  const wordCount = textContent.split(/\s+/).filter(Boolean).length;
+
+  let title = article.title;
+  if (!title) {
+    try { title = new URL(url).hostname || 'Untitled'; } catch { title = 'Untitled'; }
+  }
 
   return {
-    title: article.title || new URL(url).hostname,
+    title,
     content: markdown,
+    textContent,
     url,
     extractedAt: new Date().toISOString(),
     wordCount,
@@ -238,15 +255,15 @@ export async function extractFromUrl(url: string, options: ExtractOptions = {}):
     throw new Error(`Invalid URL: ${url}`);
   }
 
-  const html = await fetchHtml(url, options);
-  const result = extractArticle(html, url);
+  const { html, finalUrl } = await fetchHtml(url, options);
+  const result = extractArticle(html, finalUrl);
 
   if (!result) {
     throw new Error(`Could not extract article content from ${url}. The page may not contain enough readable content.`);
   }
 
   logToFile('DEBUG', 'URL extraction complete', {
-    url,
+    url: finalUrl,
     title: result.title,
     wordCount: result.wordCount,
   });

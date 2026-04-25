@@ -1,7 +1,4 @@
-// content-splitter.ts — Standalone content processing utilities.
-//
-// Splits markdown into sections by heading boundaries and extracts links.
-// No dependency on ingest, store, or any MCP tool — reusable across the codebase.
+import { isPrivateOrReservedHost } from './url-extractor.js';
 
 export interface ContentSection {
   heading: string;
@@ -22,15 +19,19 @@ const TRACKING_PARAMS = new Set([
   'ref', '_ga', '_gl', 'mc_cid', 'mc_eid',
 ]);
 
-function countWords(text: string): number {
+export function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
-function canonicalizeUrl(raw: string): string | null {
+export function canonicalizeUrl(raw: string): string | null {
   try {
     const url = new URL(raw);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return null;
 
+    if (isPrivateOrReservedHost(url.hostname)) return null;
+
+    url.username = '';
+    url.password = '';
     for (const param of [...url.searchParams.keys()]) {
       if (TRACKING_PARAMS.has(param.toLowerCase())) {
         url.searchParams.delete(param);
@@ -125,8 +126,9 @@ export function extractLinks(markdown: string, sourceUrl?: string): ContentLink[
       const anchor = match[1].trim();
       const rawUrl = match[2].trim();
 
+      const absolute = rawUrl.startsWith('http://') || rawUrl.startsWith('https://');
       const canonical = canonicalizeUrl(
-        rawUrl.startsWith('http') ? rawUrl : sourceUrl ? new URL(rawUrl, sourceUrl).href : rawUrl,
+        absolute ? rawUrl : sourceUrl ? new URL(rawUrl, sourceUrl).href : rawUrl,
       );
       if (!canonical) continue;
       if (seen.has(canonical)) continue;
