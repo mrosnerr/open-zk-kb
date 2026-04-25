@@ -23,7 +23,7 @@ import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
 import { detectClient, isVisibleToClient, getClientTags, clientTag, isKnownClient } from './client-heuristics.js';
 import { getInstalledInstructionVersions } from './instruction-versions.js';
 import { classifyModel, MODEL_HINT } from './model-capabilities.js';
-import { extractFromUrl } from './url-extractor.js';
+import { extractFromUrl, extractArticle } from './url-extractor.js';
 import type { ExtractionResult } from './url-extractor.js';
 
 // ---- Constants ----
@@ -109,7 +109,8 @@ export interface MaintainArgs {
 }
 
 export interface IngestArgs {
-  url: string;
+  url?: string;
+  html?: string;
   model?: string;
 }
 
@@ -118,7 +119,19 @@ function sanitizeMetadata(value: string): string {
 }
 
 export async function handleIngest(args: IngestArgs): Promise<string> {
-  const result: ExtractionResult = await extractFromUrl(args.url);
+  let result: ExtractionResult;
+  if (args.html) {
+    const sourceUrl = args.url || 'about:blank';
+    const article = extractArticle(args.html, sourceUrl);
+    if (!article) {
+      throw new Error('Could not extract article content from provided HTML. The content may not contain enough readable text.');
+    }
+    result = article;
+  } else if (args.url) {
+    result = await extractFromUrl(args.url);
+  } else {
+    throw new Error('Either url or html must be provided');
+  }
 
   const title = sanitizeMetadata(result.title);
   const byline = result.byline ? sanitizeMetadata(result.byline) : null;

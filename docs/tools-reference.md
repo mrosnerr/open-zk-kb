@@ -1,6 +1,6 @@
 # Tools Reference
 
-open-zk-kb exposes three MCP tools. Your AI assistant calls these automatically based on injected instructions — you rarely need to invoke them manually.
+open-zk-kb exposes four MCP tools. Your AI assistant calls these automatically based on injected instructions — you rarely need to invoke them manually.
 
 ## knowledge-store
 
@@ -42,6 +42,59 @@ Store knowledge in the persistent knowledge base. One concept per note.
   "project": "open-zk-kb"
 }
 ```
+
+---
+
+## knowledge-ingest
+
+Extract article content as clean markdown from a URL or pre-fetched HTML. Returns title, content, word count, and metadata. Deterministic — no LLM dependency.
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `url` | string | No* | URL to fetch and extract content from. Must be `http://` or `https://` |
+| `html` | string | No* | Raw HTML to extract from. Use when you already fetched the page via another tool |
+
+\* At least one of `url` or `html` must be provided. When both are provided, `html` is used for extraction and `url` is used for resolving relative links.
+
+### What happens
+
+1. **If `url` only** — fetches the page with SSRF protection (private IP blocking, redirect validation, streaming size limits), then extracts
+2. **If `html` only** — extracts directly from provided HTML (no network request)
+3. **If both** — extracts from `html`, uses `url` for relative link resolution
+4. Extracts article content using Mozilla Readability (same engine as Firefox Reader View)
+5. Converts to clean markdown (headings, lists, links preserved; images, iframes, nav stripped)
+6. Returns structured metadata: title, word count, byline, excerpt, site name
+
+### Usage patterns
+
+**Direct URL ingestion** — when you have a URL and no other web tools:
+```json
+{ "url": "https://example.com/blog/article" }
+```
+
+**Pre-fetched HTML** — when you already got the page via Playwright, Exa, or another tool:
+```json
+{ "html": "<html><body><article>...</article></body></html>" }
+```
+
+**HTML with URL context** — for correct relative link resolution:
+```json
+{
+  "url": "https://example.com/blog/article",
+  "html": "<html>...</html>"
+}
+```
+
+### Workflow
+
+The intended workflow is a two-step pipeline:
+
+1. `knowledge-ingest` → extract and review content
+2. `knowledge-store` → save as a knowledge base note
+
+The tool extracts content but does **not** create notes automatically. This keeps summarization and note structuring at the agent layer.
 
 ---
 

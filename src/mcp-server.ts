@@ -130,20 +130,22 @@ server.registerTool(
 // ---- knowledge-ingest ----
 
 const ingestSchema = z.object({
-  url: z.string().url().describe('URL to extract content from. Must be http:// or https://.'),
+  url: z.string().url().optional().describe('URL to fetch and extract content from. Provide url, html, or both (url used for link resolution when html is provided).'),
+  html: z.string().optional().describe('Raw HTML to extract content from. Use when you already fetched the page via another tool (e.g. Playwright, Exa, web_fetch).'),
   model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
 });
 
 server.registerTool(
   'knowledge-ingest',
   {
-    description: 'Fetch a URL and extract its article content as clean markdown. Returns title, content, word count, and metadata. Use the extracted content to create notes via knowledge-store.',
+    description: 'Extract article content as clean markdown from a URL or raw HTML. Returns title, content, word count, and metadata. Accepts a url (fetches and extracts), html (extracts from pre-fetched content), or both. Use the extracted content to create notes via knowledge-store.',
     inputSchema: ingestSchema as unknown as AnySchema,
   },
   async (args: z.infer<typeof ingestSchema>) => {
     try {
       const result = await handleIngest({
         url: args.url,
+        html: args.html,
         model: args.model,
       });
       return { content: [{ type: 'text' as const, text: result }] };

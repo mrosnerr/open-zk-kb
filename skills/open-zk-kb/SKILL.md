@@ -51,6 +51,15 @@ Notes exceeding the target will trigger a soft warning — heed it and split if 
 - At natural breakpoints (complex debug, architecture choice, topic change): ask *"Anything worth saving?"*
 - Before ending a session: review for uncaptured preferences, decisions, gotchas, or workflows.
 
+### Ingesting URLs
+When a useful URL comes up, use `knowledge-ingest` to extract clean article content, then store via `knowledge-store`:
+
+1. `knowledge-ingest(url: "...")` → returns extracted title, content, metadata
+2. Review the extracted content and summarize the key takeaway
+3. `knowledge-store(kind: "resource", ...)` with your summary
+
+If you already fetched HTML via another tool (e.g. Playwright, web_fetch), pass it directly: `knowledge-ingest(html: "...")`.
+
 ### Maintenance
 - `knowledge-maintain stats` — KB health | `knowledge-maintain review` — stale notes
 

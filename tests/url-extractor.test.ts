@@ -222,7 +222,36 @@ describe('handleIngest', () => {
   });
 
   it('rejects empty URL', async () => {
-    await expect(handleIngest({ url: '' })).rejects.toThrow('Invalid URL');
+    await expect(handleIngest({ url: '' })).rejects.toThrow('Either url or html must be provided');
+  });
+
+  it('rejects when neither url nor html is provided', async () => {
+    await expect(handleIngest({})).rejects.toThrow('Either url or html must be provided');
+  });
+
+  it('extracts from raw HTML when html parameter is provided', async () => {
+    const html = `<html><head><title>Pre-fetched Article</title></head><body>
+      <article><h1>Pre-fetched Article</h1>
+      <p>${'This is meaningful content from a pre-fetched page. '.repeat(10)}</p>
+      </article></body></html>`;
+    const result = await handleIngest({ html });
+    expect(result).toContain('Pre-fetched Article');
+    expect(result).toContain('Extracted Content');
+  });
+
+  it('uses url for link resolution when both url and html are provided', async () => {
+    const html = `<html><head><title>Resolved Links</title></head><body>
+      <article><h1>Resolved Links</h1>
+      <p>${'Content with enough text to pass readability threshold. '.repeat(10)}</p>
+      </article></body></html>`;
+    const result = await handleIngest({ url: 'https://example.com/article', html });
+    expect(result).toContain('https://example.com/article');
+    expect(result).toContain('Resolved Links');
+  });
+
+  it('rejects html that has no extractable content', async () => {
+    await expect(handleIngest({ html: '<html><body><p>Too short</p></body></html>' }))
+      .rejects.toThrow('Could not extract article content');
   });
 });
 
