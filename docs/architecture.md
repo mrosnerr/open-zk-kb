@@ -88,7 +88,7 @@ All settings live in a single YAML file: `~/.config/open-zk-kb/config.yaml`
 
 The SQLite schema is versioned and managed programmatically:
 
-* **Version Tracking**: Uses `PRAGMA user_version` (currently v5).
+* **Version Tracking**: Uses `PRAGMA user_version` (currently v6).
 * **DDL Migrations**: Managed by the `SchemaManager` class in `src/schema.ts`.
 * **Data Migrations**: Handled in `src/data-migrations.ts` for agent-driven content upgrades.
 * **Core Tables**:

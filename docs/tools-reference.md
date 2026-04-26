@@ -137,7 +137,6 @@ Search the knowledge base using full-text search and semantic similarity. Return
 | `client` | string | No | Your client name — excludes notes scoped to other clients |
 | `tags` | string[] | No | Filter by tags (all must match) |
 | `limit` | number | No | Max results (default 10) |
-| `model` | string | No | Your model identifier. Enables richer responses for capable models |
 
 ### How search works
 
