@@ -11,7 +11,7 @@ description: >
 ## Knowledge Base (open-zk-kb)
 
 ### Pre-Flight
-ALWAYS do both of these **before any other work**:
+ALWAYS do all of these **before any other work**:
 
 1. **Search** — `knowledge-search` with `client: "claude-code"`. Use `kind`/`project`/`tags` filters to narrow. Try broader keywords if no results.
 2. **Apply results** — follow each note's `<guidance>` tag. Personalization shapes style, decisions are binding, procedures are step-by-step, observations are verified gotchas.

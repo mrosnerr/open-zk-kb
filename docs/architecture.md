@@ -28,6 +28,7 @@ Knowledge capture is driven by the calling agent's instructions (e.g., a Claude 
 │   handleStore()     │
 │   handleSearch()    │
 │   handleMaintain()  │
+│   handleIngest()    │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
