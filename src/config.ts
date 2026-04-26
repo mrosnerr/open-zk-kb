@@ -110,7 +110,9 @@ export function getConfig(): AppConfig {
       detectSnapshotFromSlug: raw?.lifecycleDefaults?.detectSnapshotFromSlug ?? DEFAULT_CONFIG.lifecycleDefaults.detectSnapshotFromSlug,
     },
     search: {
-      alwaysIncludeDomainNote: raw?.search?.alwaysIncludeDomainNote ?? DEFAULT_CONFIG.search.alwaysIncludeDomainNote,
+      alwaysIncludeDomainNote: typeof raw?.search?.alwaysIncludeDomainNote === 'boolean'
+        ? raw.search.alwaysIncludeDomainNote
+        : DEFAULT_CONFIG.search.alwaysIncludeDomainNote,
     },
   };
 }

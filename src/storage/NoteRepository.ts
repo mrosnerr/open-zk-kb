@@ -787,6 +787,7 @@ export class NoteRepository {
     const stmt = this.db.prepare(`
       SELECT * FROM notes
       WHERE kind = 'domain' AND tags LIKE ? AND status != 'archived'
+      ORDER BY updated_at DESC
       LIMIT 1
     `);
 
