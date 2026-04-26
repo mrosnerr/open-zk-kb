@@ -16,7 +16,9 @@ function toLifecycle(lifecycle: string | undefined, fallback: Lifecycle): Lifecy
 }
 import type { NoteRepository, NoteMetadata } from './storage/NoteRepository.js';
 import { formatWikiLink } from './utils/wikilink.js';
-import { renderNoteForSearch } from './prompts.js';
+import { renderNoteForSearch, renderNoteForAgent } from './prompts.js';
+import { buildIndexContent } from './storage/IndexBuilder.js';
+import { buildLogEntry, buildInitialLogContent, appendToLogContent } from './storage/LogAppender.js';
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash } from './utils/simhash.js';
@@ -43,6 +45,8 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
   observation:     { target: 100, warn: 200 },
   resource:        { target: 50, warn: 100 },
   domain:          { target: 500, warn: 1000 },
+  index:           { target: 500, warn: 2000 },
+  log:             { target: 500, warn: 5000 },
 };
 
 /** Absolute word-count ceiling — warns regardless of kind. */
@@ -116,6 +120,12 @@ export interface MaintainArgs {
 export interface IngestArgs {
   url?: string;
   html?: string;
+  model?: string;
+}
+
+export interface OverviewArgs {
+  project: string;
+  logEntries?: number;
   model?: string;
 }
 
@@ -225,6 +235,94 @@ function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['st
   }
 }
 
+// ---- Navigation hooks ----
+
+const STRUCTURAL_KINDS = new Set(['index', 'log']);
+
+function extractProjectFromTags(tags: string[]): string | null {
+  for (const tag of tags) {
+    if (tag.startsWith('project:')) return tag.replace('project:', '');
+  }
+  return null;
+}
+
+function rebuildProjectIndex(project: string, repo: NoteRepository, config?: AppConfig): void {
+  if (config?.navigation?.enableProjectIndex === false) return;
+
+  try {
+    const notes = repo.getProjectNotes(project);
+    const content = buildIndexContent(project, notes);
+    const existingIndex = repo.getIndexNote(project);
+
+    repo.store(content, {
+      existingId: existingIndex?.id,
+      title: `${project} Index`,
+      kind: 'index',
+      status: 'permanent',
+      lifecycle: 'living',
+      tags: [`project:${project}`],
+      summary: `Auto-generated catalog of all ${project} notes`,
+      guidance: 'Auto-generated project catalog — use knowledge-overview to view.',
+    });
+  } catch (error) {
+    logToFile('WARN', 'Failed to rebuild project index', {
+      project,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function appendProjectLog(project: string, event: string, repo: NoteRepository, config?: AppConfig): void {
+  if (config?.navigation?.enableProjectLog === false) return;
+
+  try {
+    const entry = buildLogEntry(event);
+    const existingLog = repo.getLogNote(project);
+
+    if (existingLog) {
+      const existingContent = existingLog.content || '';
+      const newContent = appendToLogContent(existingContent, entry);
+      repo.store(newContent, {
+        existingId: existingLog.id,
+        title: `${project} Operations Log`,
+        kind: 'log',
+        status: 'permanent',
+        lifecycle: 'append-only',
+        tags: [`project:${project}`],
+        summary: `Chronological operations log for ${project}`,
+        guidance: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
+      });
+    } else {
+      const content = buildInitialLogContent(project, entry);
+      repo.store(content, {
+        title: `${project} Operations Log`,
+        kind: 'log',
+        status: 'permanent',
+        lifecycle: 'append-only',
+        tags: [`project:${project}`],
+        summary: `Chronological operations log for ${project}`,
+        guidance: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
+      });
+    }
+  } catch (error) {
+    logToFile('WARN', 'Failed to append to project log', {
+      project,
+      event,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function updateProjectNavigation(
+  project: string,
+  event: string,
+  repo: NoteRepository,
+  config?: AppConfig,
+): void {
+  rebuildProjectIndex(project, repo, config);
+  appendProjectLog(project, event, repo, config);
+}
+
 // ---- Handlers ----
 
 export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): string {
@@ -245,7 +343,10 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     }
   }
 
-  // Domain note constraints: require project, enforce one-per-project
+  if (STRUCTURAL_KINDS.has(args.kind)) {
+    return `Error: ${args.kind} notes are auto-generated per project. Use knowledge-overview to view them.`;
+  }
+
   if (args.kind === 'domain') {
     if (!args.project) {
       return 'Error: Domain notes require a project parameter. A domain note is a project operating manual — it must be scoped to a specific project.';
@@ -330,6 +431,13 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     output += `\n\nCapability: ${tier}`;
   }
 
+  if (args.project) {
+    const event = result.action === 'created'
+      ? `Created ${args.kind}: "${args.title}"`
+      : `Updated ${args.kind}: "${args.title}"`;
+    updateProjectNavigation(args.project, event, repo, config);
+  }
+
   return output;
 }
 
@@ -340,6 +448,10 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     tags: args.tags,
     limit: args.limit || 10,
   });
+
+  if (config?.search?.excludeLogFromSearch !== false && !STRUCTURAL_KINDS.has(args.kind as string)) {
+    results = results.filter(note => !STRUCTURAL_KINDS.has(note.kind));
+  }
 
   if (args.lifecycle) {
     const lifecycleFilter = args.lifecycle;
@@ -493,6 +605,12 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
       repo.promoteToPermanent(args.noteId);
+      if (!STRUCTURAL_KINDS.has(note.kind)) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        if (project) {
+          updateProjectNavigation(project, `Promoted "${note.title}" from fleeting to permanent`, repo, config);
+        }
+      }
       return `Promoted "${note.title}" (${args.noteId}) to permanent status.`;
     }
     case 'archive': {
@@ -500,6 +618,12 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
       repo.archive(args.noteId);
+      if (!STRUCTURAL_KINDS.has(note.kind)) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        if (project) {
+          updateProjectNavigation(project, `Archived "${note.title}"`, repo, config);
+        }
+      }
       return `Archived "${note.title}" (${args.noteId}).`;
     }
     case 'delete': {
@@ -507,11 +631,22 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
       repo.remove(args.noteId);
+      if (!STRUCTURAL_KINDS.has(note.kind)) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        if (project) {
+          updateProjectNavigation(project, `Deleted "${note.title}"`, repo, config);
+        }
+      }
       return `Deleted "${note.title}" (${args.noteId}).`;
     }
     case 'rebuild': {
       const result = repo.rebuildFromFiles();
-      return `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuild complete.`;
+      const projects = repo.getAllProjects();
+      for (const project of projects) {
+        rebuildProjectIndex(project, repo, config);
+        appendProjectLog(project, 'Full DB rebuild', repo, config);
+      }
+      return `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuilt index for ${projects.length} project(s).\nRebuild complete.`;
     }
     case 'upgrade': {
       const pending = getPendingMigrations(repo);
@@ -951,4 +1086,56 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     default:
       return `Unknown action: ${args.action}`;
   }
+}
+
+export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?: AppConfig): string {
+  const project = args.project;
+  const logLimit = args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10;
+
+  const indexNote = repo.getIndexNote(project);
+  const logNote = repo.getLogNote(project);
+  const domainNote = repo.getDomainNote(project);
+
+  if (!indexNote && !logNote && !domainNote) {
+    return `No navigation notes found for project "${project}". Store a project-scoped note first (include project parameter).`;
+  }
+
+  let output = `## Project Overview: ${project}\n\n`;
+
+  if (domainNote) {
+    output += '### Domain\n';
+    output += renderNoteForAgent(domainNote) + '\n\n';
+  }
+
+  if (indexNote) {
+    output += '### Index\n';
+    const content = indexNote.content || '(empty index)';
+    output += content + '\n\n';
+  } else {
+    output += '### Index\n(not yet generated — store a project-scoped note to trigger)\n\n';
+  }
+
+  if (logNote) {
+    output += '### Recent Activity\n';
+    const content = logNote.content || '';
+    const lines = content.split('\n');
+    const entryLines = lines.filter(l => l.startsWith('- **'));
+    const recentEntries = entryLines.slice(-logLimit);
+    if (recentEntries.length > 0) {
+      output += recentEntries.join('\n') + '\n';
+      if (entryLines.length > logLimit) {
+        output += `\n(showing ${logLimit} of ${entryLines.length} entries)\n`;
+      }
+    } else {
+      output += '(no log entries yet)\n';
+    }
+  } else {
+    output += '### Recent Activity\n(not yet generated — store a project-scoped note to trigger)\n';
+  }
+
+  if (!args.model) {
+    output += MODEL_HINT;
+  }
+
+  return output;
 }

@@ -32,6 +32,14 @@
 # ─── Search ───────────────────────────────────────────────────────────────────
 # search:
 #   alwaysIncludeDomainNote: true         # Prepend domain note to project-scoped searches
+#   excludeLogFromSearch: true            # Exclude structural log notes from default search results
+
+# ─── Navigation ───────────────────────────────────────────────────────────────
+# Auto-generated per-project index and operations log.
+# navigation:
+#   enableProjectIndex: true              # Auto-rebuild project index on every store/archive/promote
+#   enableProjectLog: true               # Auto-append to project log on every event
+#   overviewLogEntryLimit: 10            # Recent log entries shown in knowledge-overview
 
 # ─── Embeddings ──────────────────────────────────────────────────────────────
 # Local embeddings (23MB MiniLM model) are enabled by default — no config needed.
