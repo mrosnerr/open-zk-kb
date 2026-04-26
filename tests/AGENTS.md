@@ -11,7 +11,7 @@ tests/
 ├── setup.ts               # Exports bun:test globals, sets NODE_ENV=test
 ├── harness.ts             # TestContext: temp dirs, NoteRepository lifecycle, file helpers
 ├── fixtures.ts            # 5 note fixtures + 2 content snippets
-├── mcp-tools.test.ts      # Tests handleStore/Search/Maintain via tool-handlers.ts
+├── mcp-tools.test.ts      # Tests handleStore/Search/Maintain/Overview via tool-handlers.ts
 ├── integration.test.ts    # NoteRepository direct: kind defaults, frontmatter, search filters
 ├── edge-cases.test.ts     # FTS5 edge cases (operators, injection, unicode) + input validation
 ├── embeddings.test.ts     # Pure functions: cosineSimilarity, blob round-trip, buildEmbeddingText
