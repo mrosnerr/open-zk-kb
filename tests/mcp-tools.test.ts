@@ -8,7 +8,7 @@ import {
   cleanupTestHarness,
 } from './harness.js';
 import type { TestContext } from './harness.js';
-import { renderNoteForAgent } from '../src/prompts.js';
+import { renderNoteForAgent, renderNoteForSearch } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
@@ -2003,14 +2003,17 @@ describe('MCP Tool: lifecycle field', () => {
       lifecycle: 'snapshot',
     });
 
-    try {
-      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id });
-      expect(true).toBe(false);
-    } catch (err) {
-      expect(err).toBeInstanceOf(LifecycleViolationError);
-      expect((err as Error).message).toContain('My Snapshot');
-      expect((err as Error).message).toContain(result.id);
-    }
+    expect(() =>
+      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+    ).toThrow(LifecycleViolationError);
+
+    expect(() =>
+      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+    ).toThrow(/My Snapshot/);
+
+    expect(() =>
+      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+    ).toThrow(new RegExp(result.id));
   });
 
   it('should render lifecycle attribute in XML only for non-living notes', () => {
@@ -2038,12 +2041,37 @@ describe('MCP Tool: lifecycle field', () => {
     expect(snapshotResults.length).toBeGreaterThan(0);
     expect(livingResults.length).toBeGreaterThan(0);
 
-    const { renderNoteForSearch } = require('../src/prompts.js');
     const snapshotXml = renderNoteForSearch(snapshotResults[0]);
     const livingXml = renderNoteForSearch(livingResults[0]);
 
     expect(snapshotXml).toContain('lifecycle="snapshot"');
     expect(livingXml).not.toContain('lifecycle=');
+  });
+
+  it('should preserve append-only lifecycle on update without explicit lifecycle param', () => {
+    const result = ctx.engine.store('Entry 1', {
+      title: 'Preserved Log',
+      kind: 'observation',
+      lifecycle: 'append-only',
+    });
+
+    ctx.engine.store('Entry 1\nEntry 2', {
+      title: 'Preserved Log',
+      kind: 'observation',
+      existingId: result.id,
+    });
+
+    const note = ctx.engine.getById(result.id);
+    expect(note).not.toBeNull();
+    expect(note!.lifecycle).toBe('append-only');
+
+    expect(() =>
+      ctx.engine.store('Completely rewritten', {
+        title: 'Preserved Log',
+        kind: 'observation',
+        existingId: result.id,
+      }),
+    ).toThrow(LifecycleViolationError);
   });
 
   it('should preserve lifecycle through rebuildFromFiles', () => {

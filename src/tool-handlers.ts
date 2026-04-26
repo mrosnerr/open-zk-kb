@@ -229,9 +229,10 @@ function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['st
 export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): string {
   const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
   const lifecycleDefaults = config?.lifecycleDefaults;
-  const kindDefault = (lifecycleDefaults?.defaultForKind[args.kind] as Lifecycle | undefined) || KIND_DEFAULT_LIFECYCLE[args.kind];
+  const kindDefault = (lifecycleDefaults?.defaultForKind?.[args.kind] as Lifecycle | undefined) || KIND_DEFAULT_LIFECYCLE[args.kind];
+  const lifecycleExplicit = typeof args.lifecycle === 'string' && VALID_LIFECYCLES.has(args.lifecycle);
   let effectiveLifecycle = toLifecycle(args.lifecycle, kindDefault);
-  if (!args.lifecycle && lifecycleDefaults?.detectSnapshotFromSlug !== false && /\d{4}-\d{2}-\d{2}/.test(args.title)) {
+  if (!lifecycleExplicit && lifecycleDefaults?.detectSnapshotFromSlug !== false && /\d{4}-\d{2}-\d{2}/.test(args.title)) {
     effectiveLifecycle = 'snapshot';
   }
   const tags = [...(args.tags || [])];

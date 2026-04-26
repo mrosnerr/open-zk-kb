@@ -32,7 +32,7 @@ describe('schema.ts', () => {
     return Boolean(row);
   }
 
-  it('sets schema version 5 for a fresh database after initialize and repair', () => {
+  it('sets schema version 6 for a fresh database after initialize and repair', () => {
     const db = new Database(':memory:');
     const schema = new SchemaManager(db);
 

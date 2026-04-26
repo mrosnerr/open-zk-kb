@@ -3,7 +3,7 @@ import * as path from 'path';
 import YAML from 'yaml';
 import { expandPath } from './utils/path.js';
 import type { AppConfig, NoteKind } from './types.js';
-import { KIND_DEFAULT_LIFECYCLE } from './types.js';
+import { KIND_DEFAULT_LIFECYCLE, VALID_LIFECYCLES } from './types.js';
 
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
@@ -94,7 +94,13 @@ export function getConfig(): AppConfig {
       autoArchiveFleetingDays: raw?.lifecycle?.autoArchiveFleetingDays ?? DEFAULT_CONFIG.lifecycle.autoArchiveFleetingDays,
     },
     lifecycleDefaults: {
-      defaultForKind: { ...DEFAULT_CONFIG.lifecycleDefaults.defaultForKind, ...(raw?.lifecycleDefaults?.defaultForKind || {}) },
+      defaultForKind: {
+        ...DEFAULT_CONFIG.lifecycleDefaults.defaultForKind,
+        ...Object.fromEntries(
+          Object.entries(raw?.lifecycleDefaults?.defaultForKind || {})
+            .filter(([, v]) => typeof v === 'string' && VALID_LIFECYCLES.has(v))
+        ),
+      },
       detectSnapshotFromSlug: raw?.lifecycleDefaults?.detectSnapshotFromSlug ?? DEFAULT_CONFIG.lifecycleDefaults.detectSnapshotFromSlug,
     },
   };

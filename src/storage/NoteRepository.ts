@@ -11,6 +11,7 @@ import { extractWikiLinks as parseAllWikiLinks, parseWikiLink } from '../utils/w
 import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
 import type { NoteKind, NoteStatus, Lifecycle } from '../types.js';
+import { VALID_LIFECYCLES } from '../types.js';
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -354,7 +355,7 @@ export class NoteRepository {
     const wordCount = this.countWords(content);
     const noteType = options.type || 'atomic';
     const noteKind = options.kind || 'observation';
-    const noteLifecycle = options.lifecycle || 'living';
+    let noteLifecycle: Lifecycle = (options.lifecycle as Lifecycle) || 'living';
     const tagsJson = JSON.stringify(options.tags || []);
     const summaryStr = options.summary || '';
     const guidanceStr = options.guidance || '';
@@ -379,6 +380,9 @@ export class NoteRepository {
               `Cannot modify append-only note "${existing.title}" [${existing.id}]. New content must strictly extend existing content — append only, do not rewrite.`
             );
           }
+        }
+        if (!options.lifecycle) {
+          noteLifecycle = existingLifecycle as Lifecycle;
         }
       }
     }
@@ -1110,7 +1114,10 @@ export class NoteRepository {
         const title = (frontmatter.title as string) || this.extractTitle(body);
         const kind = (frontmatter.kind as NoteKind) || 'observation';
         const status = (frontmatter.status as NoteStatus) || 'fleeting';
-        const lifecycle = (frontmatter.lifecycle as string) || 'living';
+        const rawLifecycle = (frontmatter.lifecycle as string) || 'living';
+        const lifecycle = VALID_LIFECYCLES.has(rawLifecycle)
+          ? rawLifecycle
+          : (logToFile('WARN', 'Unknown lifecycle in frontmatter, defaulting to living', { file, value: rawLifecycle }), 'living');
         const noteType = (frontmatter.type as 'atomic' | 'moc') || 'atomic';
         const tags = Array.isArray(frontmatter.tags) ? frontmatter.tags : [];
         const summary = (frontmatter.summary as string) || '';
