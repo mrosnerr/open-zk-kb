@@ -432,10 +432,7 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
   }
 
   if (args.project) {
-    const event = result.action === 'created'
-      ? `Created ${args.kind}: "${args.title}"`
-      : `Updated ${args.kind}: "${args.title}"`;
-    updateProjectNavigation(args.project, event, repo, config);
+    updateProjectNavigation(args.project, `Created ${args.kind}: "${args.title}"`, repo, config);
   }
 
   return output;
@@ -1105,6 +1102,7 @@ export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?
   if (domainNote) {
     output += '### Domain\n';
     output += renderNoteForAgent(domainNote) + '\n\n';
+    try { repo.recordAccess(domainNote.id); } catch { /* non-fatal */ }
   }
 
   if (indexNote) {

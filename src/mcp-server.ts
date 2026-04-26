@@ -78,12 +78,13 @@ const server = new McpServer({
 // ---- knowledge-store ----
 
 const NOTE_KINDS = ['personalization', 'reference', 'decision', 'procedure', 'resource', 'observation', 'domain', 'index', 'log'] as const;
+const STORABLE_KINDS = ['personalization', 'reference', 'decision', 'procedure', 'resource', 'observation', 'domain'] as const;
 const LIFECYCLES = ['living', 'snapshot', 'append-only'] as const;
 
 const storeSchema = z.object({
   title: z.string().describe('Note title — concise, descriptive'),
   content: z.string().describe('Note content — the knowledge to store'),
-  kind: z.enum(NOTE_KINDS).describe('Note kind: personalization, reference, decision, procedure, resource, observation, domain'),
+  kind: z.enum(STORABLE_KINDS).describe('Note kind: personalization, reference, decision, procedure, resource, observation, domain'),
   status: z.enum(['fleeting', 'permanent', 'archived']).optional().describe('Override default status (defaults based on kind)'),
   lifecycle: z.enum(LIFECYCLES).optional().describe('Note lifecycle: living (mutable), snapshot (immutable), append-only (additive only). Defaults per kind.'),
   tags: z.array(z.string()).optional().describe('Tags for categorization'),
