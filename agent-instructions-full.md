@@ -29,6 +29,7 @@ Use `knowledge-store` with **one concept per note**. Include `summary` (one-line
 - **reference** (~120 words) — "getStaleNotes filters on `created_at`, not `updated_at`"
 - **procedure** (~150 words) — "Release: `bun run release` → bumps version, changelog, PR"
 - **resource** (~50 words) — "Bun SQLite docs: https://bun.sh/docs/api/sqlite"
+- **domain** (~500 words) — Project operating manual: agent role, scope, conventions, boundaries. One per project, always surfaced in project-scoped searches.
 
 Notes exceeding the target will trigger a soft warning — heed it and split if the note covers more than one concept.
 

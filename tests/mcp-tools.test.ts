@@ -10,6 +10,7 @@ import {
 import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
+import { getConfig } from '../src/config.js';
 import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
@@ -2093,5 +2094,250 @@ describe('MCP Tool: lifecycle field', () => {
     const afterRebuild = ctx.engine.search('rebuild lifecycle test');
     expect(afterRebuild.length).toBeGreaterThan(0);
     expect(afterRebuild[0].lifecycle).toBe('append-only');
+  });
+});
+
+describe('Domain note kind', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should store domain note with permanent status by default', () => {
+    const output = handleStore({
+      title: 'MyApp Domain',
+      content: 'Core domain knowledge for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp domain guide',
+      guidance: 'Read before project-scoped work',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Status: permanent');
+  });
+
+  it('should store domain note with living lifecycle by default', () => {
+    const output = handleStore({
+      title: 'MyApp Domain',
+      content: 'Core domain knowledge for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp domain guide',
+      guidance: 'Read before project-scoped work',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Lifecycle: living');
+  });
+
+  it('should reject domain note without project', () => {
+    const output = handleStore({
+      title: 'Unscoped Domain',
+      content: 'Missing project scope.',
+      kind: 'domain',
+      summary: 'Invalid domain note',
+      guidance: 'Always provide a project',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('require a project');
+  });
+
+  it('should reject duplicate domain note for same project', () => {
+    const first = handleStore({
+      title: 'MyApp Domain',
+      content: 'Primary domain note.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'Primary domain guide',
+      guidance: 'Use this note',
+    }, ctx.engine, null, ctx.config);
+
+    const firstId = first.match(/ID: (\d+)/)?.[1];
+    expect(firstId).toBeDefined();
+
+    const second = handleStore({
+      title: 'MyApp Domain Duplicate',
+      content: 'Duplicate domain note.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'Duplicate domain guide',
+      guidance: 'Should be rejected',
+    }, ctx.engine, null, ctx.config);
+
+    expect(second).toContain('already exists for project "myapp"');
+    expect(second).toContain(firstId!);
+  });
+
+  it('should allow domain notes for different projects', () => {
+    const outputA = handleStore({
+      title: 'MyApp Domain',
+      content: 'Domain note for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp domain guide',
+      guidance: 'Use for MyApp work',
+    }, ctx.engine, null, ctx.config);
+
+    const outputB = handleStore({
+      title: 'OtherApp Domain',
+      content: 'Domain note for OtherApp.',
+      kind: 'domain',
+      project: 'otherapp',
+      summary: 'OtherApp domain guide',
+      guidance: 'Use for OtherApp work',
+    }, ctx.engine, null, ctx.config);
+
+    expect(outputA).toContain('Knowledge stored (created)');
+    expect(outputB).toContain('Knowledge stored (created)');
+    expect(ctx.engine.getByKind('domain')).toHaveLength(2);
+  });
+
+  it('should auto-add project tag to domain note', () => {
+    handleStore({
+      title: 'MyApp Domain',
+      content: 'Tagged domain note.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'Tagged domain guide',
+      guidance: 'Check project tags',
+    }, ctx.engine, null, ctx.config);
+
+    const note = ctx.engine.getDomainNote('myapp');
+    expect(note).not.toBeNull();
+    expect(note!.tags).toContain('project:myapp');
+  });
+
+  it('should always-include domain note in project-scoped search', () => {
+    handleStore({
+      title: 'MyApp Domain',
+      content: 'Canonical operating manual for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp operating manual',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    handleStore({
+      title: 'MyApp Query Match',
+      content: 'Contains onboarding keyword for project search.',
+      kind: 'observation',
+      project: 'myapp',
+      summary: 'Project note with keyword',
+      guidance: 'Used for search ordering test',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const output = handleSearch({ query: 'onboarding', project: 'myapp' }, ctx.engine, null, config);
+
+    const domainIndex = output.indexOf('MyApp operating manual');
+    const regularIndex = output.indexOf('Project note with keyword');
+    expect(domainIndex).toBeGreaterThan(-1);
+    expect(regularIndex).toBeGreaterThan(-1);
+    expect(domainIndex).toBeLessThan(regularIndex);
+  });
+
+  it('should return domain note even with zero FTS matches', () => {
+    handleStore({
+      title: 'MyApp Domain',
+      content: 'Canonical operating manual for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp operating manual',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const output = handleSearch({ query: 'totally-unrelated-query', project: 'myapp' }, ctx.engine, null, config);
+
+    expect(output).toContain('Found 1 note(s):');
+    expect(output).toContain('MyApp operating manual');
+  });
+
+  it('should not duplicate domain note if it matches search', () => {
+    handleStore({
+      title: 'MyApp Domain',
+      content: 'This domain note documents foobar workflows.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'Foobar domain guide',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const output = handleSearch({ query: 'foobar', project: 'myapp' }, ctx.engine, null, config);
+    const occurrences = output.match(/Foobar domain guide/g) ?? [];
+
+    expect(occurrences).toHaveLength(1);
+  });
+
+  it('should not include domain note without project filter', () => {
+    handleStore({
+      title: 'MyApp Domain',
+      content: 'Canonical operating manual for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp operating manual',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const output = handleSearch({ query: 'totally-unrelated-query' }, ctx.engine, null, config);
+
+    expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
+  });
+
+  it('should respect alwaysIncludeDomainNote=false config', () => {
+    handleStore({
+      title: 'MyApp Domain',
+      content: 'Canonical operating manual for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp operating manual',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: false } };
+    const output = handleSearch({ query: 'totally-unrelated-query', project: 'myapp' }, ctx.engine, null, config);
+
+    expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
+  });
+
+  it('should not include archived domain note', () => {
+    const storeOutput = handleStore({
+      title: 'MyApp Domain',
+      content: 'Canonical operating manual for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp operating manual',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const noteId = storeOutput.match(/ID: (\d+)/)?.[1];
+    expect(noteId).toBeDefined();
+    ctx.engine.archive(noteId!);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const output = handleSearch({ query: 'totally-unrelated-query', project: 'myapp' }, ctx.engine, null, config);
+
+    expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
+  });
+
+  it('should find domain note via getDomainNote()', () => {
+    handleStore({
+      title: 'MyApp Domain',
+      content: 'Canonical operating manual for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp operating manual',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const note = ctx.engine.getDomainNote('myapp');
+    expect(note).not.toBeNull();
+    expect(note!.title).toBe('MyApp Domain');
+    expect(note!.kind).toBe('domain');
+  });
+
+  it('should return null for missing domain note', () => {
+    expect(ctx.engine.getDomainNote('nonexistent')).toBeNull();
   });
 });

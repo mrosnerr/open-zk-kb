@@ -26,7 +26,12 @@
 #     reference: living
 #     procedure: living
 #     resource: living
+#     domain: living
 #   detectSnapshotFromSlug: true          # Titles with YYYY-MM-DD auto-default to snapshot
+
+# ─── Search ───────────────────────────────────────────────────────────────────
+# search:
+#   alwaysIncludeDomainNote: true         # Prepend domain note to project-scoped searches
 
 # ─── Embeddings ──────────────────────────────────────────────────────────────
 # Local embeddings (23MB MiniLM model) are enabled by default — no config needed.

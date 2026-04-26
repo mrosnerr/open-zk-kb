@@ -34,6 +34,9 @@ interface RawConfig {
     defaultForKind?: Record<string, string>;
     detectSnapshotFromSlug?: boolean;
   };
+  search?: {
+    alwaysIncludeDomainNote?: boolean;
+  };
   embeddings?: EmbeddingsConfig;
 }
 
@@ -51,6 +54,9 @@ export const DEFAULT_CONFIG: AppConfig = {
   lifecycleDefaults: {
     defaultForKind: { ...KIND_DEFAULT_LIFECYCLE },
     detectSnapshotFromSlug: true,
+  },
+  search: {
+    alwaysIncludeDomainNote: true,
   },
 };
 
@@ -102,6 +108,11 @@ export function getConfig(): AppConfig {
         ),
       },
       detectSnapshotFromSlug: raw?.lifecycleDefaults?.detectSnapshotFromSlug ?? DEFAULT_CONFIG.lifecycleDefaults.detectSnapshotFromSlug,
+    },
+    search: {
+      alwaysIncludeDomainNote: typeof raw?.search?.alwaysIncludeDomainNote === 'boolean'
+        ? raw.search.alwaysIncludeDomainNote
+        : DEFAULT_CONFIG.search.alwaysIncludeDomainNote,
     },
   };
 }

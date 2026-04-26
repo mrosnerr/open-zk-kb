@@ -20,7 +20,7 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 AI assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
 
 - **Hybrid search** — full-text + local embeddings, so only relevant notes surface
-- **Atomic notes** — one concept per note (6 kinds, lifecycle management) keeps results precise
+- **Atomic notes** — one concept per note (7 kinds, lifecycle management) keeps results precise
 - **Local-first** — no API keys, works offline, scales to thousands of notes
 - **Human-readable** — Markdown + YAML frontmatter, rebuildable from files
 - **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, Windsurf, and Zed
@@ -83,6 +83,7 @@ Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). 
 | `procedure` | fleeting | Step-by-step workflows and recurring tasks |
 | `resource` | permanent | Links, tools, libraries, and external documentation |
 | `observation` | fleeting | Insights, patterns, and temporary findings |
+| `domain` | permanent | Project operating manuals — agent role, scope, conventions, boundaries |
 
 Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
 

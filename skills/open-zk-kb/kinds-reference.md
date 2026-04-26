@@ -62,6 +62,20 @@ Useful URLs, documentation links, and external references. Default lifecycle: `l
 - "FTS5 tokenizer reference: https://sqlite.org/fts5.html#tokenizers"
 - "MCP SDK repo: https://github.com/modelcontextprotocol/typescript-sdk"
 
+## domain
+Project operating manual — agent role, scope, conventions, and boundaries. Default lifecycle: `living`. Default status: `permanent`.
+
+**When to store**: When a project needs a persistent operating manual that defines how the agent should work within it. One per project — enforced by the server.
+
+**Constraints**:
+- Requires a `project` parameter (rejected without one)
+- One per project — storing a second domain note for the same project is rejected
+- Always included in project-scoped search results (prepended before relevance-ranked results)
+
+**Examples**:
+- "conductor — Operating Manual: Agent role is operations assistant. Priority order: 1) monitoring 2) alerting 3) reporting..."
+- "open-zk-kb — Operating Manual: Agent role is KB developer. Always use Bun, never Node.js..."
+
 ## Lifecycle Reference
 
 | Lifecycle | Behavior | When to use |

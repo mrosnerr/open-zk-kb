@@ -38,6 +38,7 @@ Use `knowledge-store` with **one concept per note**. Include `summary` (one-line
 - **reference** (~120 words) — "getStaleNotes filters on `created_at`, not `updated_at`"
 - **procedure** (~150 words) — "Release: `bun run release` → bumps version, changelog, PR"
 - **resource** (~50 words) — "Bun SQLite docs: https://bun.sh/docs/api/sqlite"
+- **domain** (~200 words) — "Project operating manual: agent role, scope, conventions, boundaries"
 
 Notes exceeding the target trigger a soft warning — split if the note covers more than one concept. Client-specific paths (e.g., `.cursor/`, `.claude/`) are auto-tagged; no need to pass `client` on store.
 
@@ -67,6 +68,7 @@ guidance: "Check the database."
 | API endpoint for user creation is `POST /api/v2/users` | **reference** |
 | Deploy: run build, tag version, push to registry | **procedure** |
 | Bun SQLite docs: https://bun.sh/docs/api/sqlite | **resource** |
+| Project's agent role, scope, conventions, and boundaries | **domain** |
 
 ### Boundaries
 ✅ **Always**:
@@ -90,7 +92,7 @@ Notes have a `lifecycle` field controlling mutability. The server enforces it.
 
 | Lifecycle | Behavior | Default for |
 |-----------|----------|-------------|
-| `living` | Mutable, updated freely | personalization, reference, procedure, resource |
+| `living` | Mutable, updated freely | personalization, reference, procedure, resource, domain |
 | `snapshot` | Immutable after creation | decision, observation |
 | `append-only` | Additive only, no rewrites | (explicit opt-in) |
 

@@ -12,7 +12,7 @@ Store knowledge in the persistent knowledge base. One concept per note.
 |-----------|------|----------|-------------|
 | `title` | string | Yes | Note title — concise, descriptive |
 | `content` | string | Yes | Note content — the knowledge to store |
-| `kind` | enum | Yes | One of: `personalization`, `reference`, `decision`, `procedure`, `resource`, `observation` |
+| `kind` | enum | Yes | One of: `personalization`, `reference`, `decision`, `procedure`, `resource`, `observation`, `domain` |
 | `summary` | string | Yes | One-line present-tense key takeaway |
 | `guidance` | string | Yes | Imperative actionable instruction for future agents |
 | `status` | enum | No | Override default: `fleeting`, `permanent`, or `archived`. Defaults based on kind (see [Note Lifecycle](note-lifecycle.md)) |
@@ -22,6 +22,13 @@ Store knowledge in the persistent knowledge base. One concept per note.
 | `client` | string | No | Client identifier (e.g. `claude-code`, `opencode`). Auto-detected from content when omitted |
 | `related` | string[] | No | IDs of related notes to link via `[[wikilinks]]` |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
+
+### Domain note constraints
+
+When `kind: "domain"`:
+- **Requires** `project` parameter — rejected without one
+- **One per project** — storing a second domain note for the same project returns an error with the existing note's ID
+- Default status: `permanent`, default lifecycle: `living`
 
 ### What happens
 
@@ -143,7 +150,8 @@ Search the knowledge base using full-text search and semantic similarity. Return
 1. **Full-text search** — tokenizes the query, strips special operators, searches title + content + tags + context
 2. **Semantic embedding search** — if embeddings are enabled, generates a query vector and finds cosine-similar notes (races against a 500ms timeout)
 3. **Reciprocal Rank Fusion** — merges both result sets into a single ranked list
-4. If the embedding model isn't ready (first query after startup), gracefully falls back to full-text-only
+4. **Domain note injection** — when a `project` filter is set and the project has a `domain` note, it is prepended to results regardless of relevance ranking. Configurable via `search.alwaysIncludeDomainNote` (default: `true`)
+5. If the embedding model isn't ready (first query after startup), gracefully falls back to full-text-only
 
 ### Example
 
