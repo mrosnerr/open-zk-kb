@@ -782,6 +782,23 @@ export class NoteRepository {
     }));
   }
 
+  getDomainNote(project: string): NoteMetadata | null {
+    const pattern = `%"project:${project}"%`;
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE kind = 'domain' AND tags LIKE ? AND status != 'archived'
+      LIMIT 1
+    `);
+
+    const row = stmt.get(pattern) as NoteMetadata | undefined;
+    if (!row) return null;
+    return {
+      ...row,
+      kind: row.kind as NoteKind,
+      tags: JSON.parse(row.tags as unknown as string),
+    };
+  }
+
   getByStatus(status: NoteStatus, limit: number = 50): NoteMetadata[] {
     const stmt = this.db.prepare(`
       SELECT * FROM notes
@@ -1087,8 +1104,10 @@ export class NoteRepository {
     `).run(now, id);
   }
 
-  rebuildFromFiles(): { indexed: number; errors: number } {
+  rebuildFromFiles(): { indexed: number; errors: number; warnings: string[] } {
     const uniqueIds = new Set<string>();
+    const domainNotes = new Map<string, string>();
+    const warnings: string[] = [];
     let errors = 0;
 
     // Clear existing data
@@ -1142,13 +1161,29 @@ export class NoteRepository {
         this.ftsInsert(id, title, body, tagsJson, context);
         this.syncLinks(id, body);
         uniqueIds.add(id);
+
+        if (kind === 'domain') {
+          const projectTag = tags.find((t: string) => t.startsWith('project:'));
+          if (projectTag) {
+            const project = projectTag.replace('project:', '');
+            if (domainNotes.has(project)) {
+              warnings.push(`Duplicate domain note for project "${project}": ${file} (first: ${domainNotes.get(project)})`);
+            } else {
+              domainNotes.set(project, file);
+            }
+          }
+        }
       } catch (err) {
         logToFile('WARN', 'Failed to index file during rebuild', { file, error: String(err) });
         errors++;
       }
     }
 
-    return { indexed: uniqueIds.size, errors };
+    for (const warning of warnings) {
+      logToFile('WARN', warning);
+    }
+
+    return { indexed: uniqueIds.size, errors, warnings };
   }
 
   private extractWikiLinks(content: string): string[] {

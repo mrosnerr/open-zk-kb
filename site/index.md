@@ -20,7 +20,7 @@ Notes are Markdown files with YAML frontmatter. A SQLite index provides full-tex
 ## Key features
 
 - **Hybrid search** — full-text + semantic embeddings, so results match meaning not just keywords
-- **Atomic notes** — one concept per note, typed (6 kinds) with lifecycle management (fleeting, permanent, archived)
+- **Atomic notes** — one concept per note, typed (7 kinds) with lifecycle management (fleeting, permanent, archived)
 - **Local-first** — everything stays on your machine, no API keys required
 - **Multi-client** — Claude Code, Cursor, Windsurf, OpenCode, Zed
 - **Human-readable** — Markdown files you can browse, edit, and version control

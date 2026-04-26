@@ -42,6 +42,7 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
   reference:       { target: 120, warn: 200 },
   observation:     { target: 100, warn: 200 },
   resource:        { target: 50, warn: 100 },
+  domain:          { target: 500, warn: 1000 },
 };
 
 /** Absolute word-count ceiling — warns regardless of kind. */
@@ -244,6 +245,17 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     }
   }
 
+  // Domain note constraints: require project, enforce one-per-project
+  if (args.kind === 'domain') {
+    if (!args.project) {
+      return 'Error: Domain notes require a project parameter. A domain note is a project operating manual — it must be scoped to a specific project.';
+    }
+    const existingDomain = repo.getDomainNote(args.project);
+    if (existingDomain) {
+      return `A domain note already exists for project "${args.project}" [${existingDomain.id}]: "${existingDomain.title}". Update the existing note instead of creating a duplicate.`;
+    }
+  }
+
   // Client tag — explicit or auto-detected from content/guidance
   const resolvedClient = args.client || detectClient(args.content, args.guidance);
   if (resolvedClient) {
@@ -321,7 +333,7 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
   return output;
 }
 
-export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedding?: number[] | null): string {
+export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedding?: number[] | null, config?: AppConfig): string {
   let results = repo.searchHybrid(args.query, queryEmbedding || null, {
     kind: args.kind,
     status: args.status ? toNoteStatus(args.status, 'fleeting') : undefined,
@@ -354,11 +366,35 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     ? `\n⚠ Unrecognized client "${args.client}". Known clients: opencode, claude-code, cursor, windsurf, zed.\n`
     : '';
 
-  if (results.length === 0) {
+  // Always-include domain note for project-scoped searches
+  let domainNote: NoteMetadata | null = null;
+  if (args.project && config?.search?.alwaysIncludeDomainNote !== false) {
+    domainNote = repo.getDomainNote(args.project);
+    if (domainNote) {
+      const domainId = domainNote.id;
+      results = results.filter(r => r.id !== domainId);
+    }
+  }
+
+  if (results.length === 0 && !domainNote) {
     return 'No matching notes found. Try broader keywords or remove filters.' + clientWarning;
   }
 
-  let output = `Found ${results.length} note(s):\n\n`;
+  const totalCount = results.length + (domainNote ? 1 : 0);
+  let output = `Found ${totalCount} note(s):\n\n`;
+
+  if (domainNote) {
+    output += renderNoteForSearch(domainNote) + '\n';
+    try {
+      repo.recordAccess(domainNote.id);
+    } catch (error) {
+      logToFile('WARN', 'Failed to record access', {
+        noteId: domainNote.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   for (const note of results) {
     output += renderNoteForSearch(note) + '\n';
     try {

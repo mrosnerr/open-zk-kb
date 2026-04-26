@@ -5,7 +5,7 @@
 
 // ============ NOTE KIND ============
 
-export type NoteKind = 'personalization' | 'reference' | 'decision' | 'procedure' | 'resource' | 'observation';
+export type NoteKind = 'personalization' | 'reference' | 'decision' | 'procedure' | 'resource' | 'observation' | 'domain';
 export type NoteStatus = 'fleeting' | 'permanent' | 'archived';
 export type Lifecycle = 'living' | 'snapshot' | 'append-only';
 
@@ -17,6 +17,7 @@ export const KIND_DEFAULT_STATUS: Record<NoteKind, NoteStatus> = {
   procedure: 'fleeting',
   resource: 'permanent',
   observation: 'fleeting',
+  domain: 'permanent',
 };
 
 /** Map kind to its default lifecycle */
@@ -27,6 +28,7 @@ export const KIND_DEFAULT_LIFECYCLE: Record<NoteKind, Lifecycle> = {
   procedure: 'living',
   resource: 'living',
   observation: 'snapshot',
+  domain: 'living',
 };
 
 export const VALID_LIFECYCLES = new Set<string>(['living', 'snapshot', 'append-only']);
@@ -36,6 +38,10 @@ export const VALID_LIFECYCLES = new Set<string>(['living', 'snapshot', 'append-o
 export interface LifecycleDefaults {
   defaultForKind: Record<string, string>;
   detectSnapshotFromSlug: boolean;
+}
+
+export interface SearchConfig {
+  alwaysIncludeDomainNote: boolean;
 }
 
 export interface AppConfig {
@@ -48,6 +54,7 @@ export interface AppConfig {
     autoArchiveFleetingDays: number;
   };
   lifecycleDefaults: LifecycleDefaults;
+  search: SearchConfig;
 }
 
 // NOTE: NoteMetadata and StoreResult are defined in storage/NoteRepository.ts

@@ -56,7 +56,7 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 | `handleMaintain` | function | `tool-handlers.ts` | knowledge-maintain implementation |
 | `handleIngest` | function | `tool-handlers.ts` | knowledge-ingest implementation |
 | `NoteMetadata` | interface | `storage/NoteRepository.ts` | Domain model for notes |
-| `NoteKind` | type | `types.ts` | 6 kinds: personalization, reference, decision, procedure, resource, observation |
+| `NoteKind` | type | `types.ts` | 7 kinds: personalization, reference, decision, procedure, resource, observation, domain |
 | `NoteStatus` | type | `types.ts` | 3 statuses: fleeting → permanent → archived |
 | `Lifecycle` | type | `types.ts` | 3 lifecycles: living, snapshot, append-only |
 | `KIND_DEFAULT_STATUS` | const | `types.ts` | Maps kind → default status |
