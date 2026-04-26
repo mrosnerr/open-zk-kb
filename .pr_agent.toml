@@ -11,6 +11,10 @@ response_language = "en-US"
 # Skip generated and non-code files
 patch_extension_skip_types = [".md", ".txt", ".lock", ".lockb", ".snap", ".gif", ".png", ".jpg", ".svg"]
 
+# Run auto-review on subsequent pushes (synchronize), not just PR open
+[github_action_config]
+pr_actions = ["opened", "reopened", "ready_for_review", "synchronize"]
+
 # Skip bot PRs
 ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
 
