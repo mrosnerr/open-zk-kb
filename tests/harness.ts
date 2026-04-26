@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
 import type { AppConfig } from '../src/types.js';
+import { KIND_DEFAULT_LIFECYCLE } from '../src/types.js';
 
 export interface TestContext {
   tempDir: string;
@@ -22,6 +23,10 @@ export function createTestHarness(): TestContext {
       promotionThreshold: 2,
       exemptKinds: ['personalization', 'decision'],
       autoArchiveFleetingDays: 90,
+    },
+    lifecycleDefaults: {
+      defaultForKind: { ...KIND_DEFAULT_LIFECYCLE },
+      detectSnapshotFromSlug: true,
     },
   };
 

@@ -11,6 +11,7 @@ export const fixturePermanentNote = {
 id: 202602081000
 title: React Hooks Pattern
 status: permanent
+lifecycle: living
 type: atomic
 tags:
   - react
@@ -63,6 +64,7 @@ export const fixtureActiveFleetingNote = {
 id: 202602081001
 title: Component Lifecycle
 status: fleeting
+lifecycle: living
 type: atomic
 tags:
   - react
@@ -105,6 +107,7 @@ export const fixtureStaleFleetingNote = {
 id: 202601011000
 title: Old Idea for State Management
 status: fleeting
+lifecycle: living
 type: atomic
 tags:
   - idea
@@ -133,6 +136,7 @@ export const fixtureLargeNote = {
 id: 202602081002
 title: Complete API Guide
 status: permanent
+lifecycle: living
 type: atomic
 tags:
   - api
@@ -293,6 +297,7 @@ export const fixtureBrokenLinkNote = {
 id: 202602081003
 title: Architecture Overview
 status: permanent
+lifecycle: living
 type: atomic
 tags:
   - architecture
@@ -355,6 +360,7 @@ export const fixtureContradictionContent = {
 id: 202602081000-new
 title: React Hooks Pattern (Updated)
 status: permanent
+lifecycle: living
 type: atomic
 tags:
   - react

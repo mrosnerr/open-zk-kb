@@ -41,7 +41,7 @@ describe('schema.ts', () => {
 
     expect(result.valid).toBe(true);
     expect(result.needsRebuild).toBe(false);
-    expect(getUserVersion(db)).toBe(5);
+    expect(getUserVersion(db)).toBe(6);
     db.close();
   });
 
@@ -86,6 +86,7 @@ describe('schema.ts', () => {
       'embedding',
       'embedding_model',
       'content_hash',
+      'lifecycle',
     ]);
     db.close();
   });
@@ -120,7 +121,7 @@ describe('schema.ts', () => {
 
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('kind');
-    expect(getUserVersion(db)).toBe(5);
+    expect(getUserVersion(db)).toBe(6);
     db.close();
   });
 
@@ -155,7 +156,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('summary');
     expect(columns).toContain('guidance');
-    expect(getUserVersion(db)).toBe(5);
+    expect(getUserVersion(db)).toBe(6);
     db.close();
   });
 
@@ -192,7 +193,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('embedding');
     expect(columns).toContain('embedding_model');
-    expect(getUserVersion(db)).toBe(5);
+    expect(getUserVersion(db)).toBe(6);
     db.close();
   });
 
@@ -232,7 +233,46 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('content_hash');
     expect(tableExists(db, 'capture_metrics')).toBe(false);
-    expect(getUserVersion(db)).toBe(5);
+    expect(getUserVersion(db)).toBe(6);
+    db.close();
+  });
+
+  it('migrates from v5 to v6: adds lifecycle column', () => {
+    const db = new Database(':memory:');
+
+    db.run(`
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY,
+        path TEXT UNIQUE,
+        title TEXT,
+        content TEXT,
+        kind TEXT DEFAULT 'observation',
+        status TEXT DEFAULT 'fleeting',
+        type TEXT DEFAULT 'atomic',
+        tags TEXT DEFAULT '[]',
+        context TEXT DEFAULT '',
+        created_at INTEGER,
+        updated_at INTEGER,
+        word_count INTEGER DEFAULT 0,
+        access_count INTEGER DEFAULT 0,
+        last_accessed_at INTEGER,
+        summary TEXT DEFAULT '',
+        guidance TEXT DEFAULT '',
+        embedding BLOB DEFAULT NULL,
+        embedding_model TEXT DEFAULT NULL,
+        content_hash TEXT DEFAULT NULL
+      )
+    `);
+    db.run("CREATE VIRTUAL TABLE notes_fts USING fts5(note_id, title, content, tags, context, tokenize='porter')");
+    db.run('CREATE TABLE note_links (source_id TEXT, target_id TEXT, link_text TEXT, created_at INTEGER, PRIMARY KEY (source_id, target_id))');
+    db.run('PRAGMA user_version = 5');
+
+    const schema = new SchemaManager(db);
+    schema.checkAndRepair();
+
+    const columns = getColumns(db, 'notes');
+    expect(columns).toContain('lifecycle');
+    expect(getUserVersion(db)).toBe(6);
     db.close();
   });
 });

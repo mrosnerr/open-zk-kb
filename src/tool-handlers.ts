@@ -1,12 +1,17 @@
 // tool-handlers.ts - Handler functions for knowledge tools
 
-import type { NoteKind, NoteStatus, AppConfig } from './types.js';
-import { KIND_DEFAULT_STATUS } from './types.js';
+import type { NoteKind, NoteStatus, Lifecycle, AppConfig } from './types.js';
+import { KIND_DEFAULT_STATUS, KIND_DEFAULT_LIFECYCLE, VALID_LIFECYCLES } from './types.js';
 
 const VALID_STATUSES = new Set<string>(['fleeting', 'permanent', 'archived']);
 
 function toNoteStatus(status: string | undefined, fallback: NoteStatus): NoteStatus {
   if (status && VALID_STATUSES.has(status)) return status as NoteStatus;
+  return fallback;
+}
+
+function toLifecycle(lifecycle: string | undefined, fallback: Lifecycle): Lifecycle {
+  if (lifecycle && VALID_LIFECYCLES.has(lifecycle)) return lifecycle as Lifecycle;
   return fallback;
 }
 import type { NoteRepository, NoteMetadata } from './storage/NoteRepository.js';
@@ -75,6 +80,7 @@ export interface StoreArgs {
   content: string;
   kind: NoteKind;
   status?: string;
+  lifecycle?: string;
   tags?: string[];
   summary: string;
   guidance: string;
@@ -88,6 +94,7 @@ export interface SearchArgs {
   query: string;
   kind?: NoteKind;
   status?: string;
+  lifecycle?: string;
   project?: string;
   client?: string;
   tags?: string[];
@@ -219,8 +226,14 @@ function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['st
 
 // ---- Handlers ----
 
-export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null): string {
+export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): string {
   const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
+  const lifecycleDefaults = config?.lifecycleDefaults;
+  const kindDefault = (lifecycleDefaults?.defaultForKind[args.kind] as Lifecycle | undefined) || KIND_DEFAULT_LIFECYCLE[args.kind];
+  let effectiveLifecycle = toLifecycle(args.lifecycle, kindDefault);
+  if (!args.lifecycle && lifecycleDefaults?.detectSnapshotFromSlug !== false && /\d{4}-\d{2}-\d{2}/.test(args.title)) {
+    effectiveLifecycle = 'snapshot';
+  }
   const tags = [...(args.tags || [])];
 
   if (args.project) {
@@ -255,6 +268,7 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     title: args.title,
     kind: args.kind,
     status: effectiveStatus,
+    lifecycle: effectiveLifecycle,
     tags,
     summary: args.summary,
     guidance: args.guidance,
@@ -283,6 +297,7 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
   output += `ID: ${result.id}\n`;
   output += `Kind: ${args.kind}\n`;
   output += `Status: ${effectiveStatus}\n`;
+  output += `Lifecycle: ${effectiveLifecycle}\n`;
   output += `Path: ${result.path}`;
 
   const wordCount = countWords(args.content);
@@ -312,6 +327,11 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     tags: args.tags,
     limit: args.limit || 10,
   });
+
+  if (args.lifecycle) {
+    const lifecycleFilter = args.lifecycle;
+    results = results.filter(note => note.lifecycle === lifecycleFilter);
+  }
 
   if (args.project) {
     const projectPrefix = `project:${args.project}`;

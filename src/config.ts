@@ -3,6 +3,7 @@ import * as path from 'path';
 import YAML from 'yaml';
 import { expandPath } from './utils/path.js';
 import type { AppConfig, NoteKind } from './types.js';
+import { KIND_DEFAULT_LIFECYCLE } from './types.js';
 
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
@@ -29,6 +30,10 @@ interface RawConfig {
     exemptKinds?: NoteKind[];
     autoArchiveFleetingDays?: number;
   };
+  lifecycleDefaults?: {
+    defaultForKind?: Record<string, string>;
+    detectSnapshotFromSlug?: boolean;
+  };
   embeddings?: EmbeddingsConfig;
 }
 
@@ -42,6 +47,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     promotionThreshold: 2,
     exemptKinds: ['personalization', 'decision'],
     autoArchiveFleetingDays: 90,
+  },
+  lifecycleDefaults: {
+    defaultForKind: { ...KIND_DEFAULT_LIFECYCLE },
+    detectSnapshotFromSlug: true,
   },
 };
 
@@ -83,6 +92,10 @@ export function getConfig(): AppConfig {
       promotionThreshold: raw?.lifecycle?.promotionThreshold ?? DEFAULT_CONFIG.lifecycle.promotionThreshold,
       exemptKinds: raw?.lifecycle?.exemptKinds ?? DEFAULT_CONFIG.lifecycle.exemptKinds,
       autoArchiveFleetingDays: raw?.lifecycle?.autoArchiveFleetingDays ?? DEFAULT_CONFIG.lifecycle.autoArchiveFleetingDays,
+    },
+    lifecycleDefaults: {
+      defaultForKind: { ...DEFAULT_CONFIG.lifecycleDefaults.defaultForKind, ...(raw?.lifecycleDefaults?.defaultForKind || {}) },
+      detectSnapshotFromSlug: raw?.lifecycleDefaults?.detectSnapshotFromSlug ?? DEFAULT_CONFIG.lifecycleDefaults.detectSnapshotFromSlug,
     },
   };
 }

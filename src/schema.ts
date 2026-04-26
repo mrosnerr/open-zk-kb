@@ -5,7 +5,7 @@ import { Database } from 'bun:sqlite';
 import { logToFile } from './logger.js';
 
 export class SchemaManager {
-  static readonly SCHEMA_VERSION = 5;
+  static readonly SCHEMA_VERSION = 6;
 
   private static readonly MIGRATIONS: Array<{
     version: number;
@@ -85,6 +85,16 @@ export class SchemaManager {
         }
         db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
         db.run('DROP TABLE IF EXISTS capture_metrics');
+      },
+    },
+    {
+      version: 6,
+      description: 'Add lifecycle column',
+      migrate: (db) => {
+        const columns = db.prepare('PRAGMA table_info(notes)').all() as Array<{ name: string }>;
+        if (!columns.some(c => c.name === 'lifecycle')) {
+          db.run("ALTER TABLE notes ADD COLUMN lifecycle TEXT DEFAULT 'living'");
+        }
       },
     },
   ];
@@ -167,7 +177,8 @@ export class SchemaManager {
         guidance TEXT DEFAULT '',
         embedding BLOB DEFAULT NULL,
         embedding_model TEXT DEFAULT NULL,
-        content_hash TEXT DEFAULT NULL
+        content_hash TEXT DEFAULT NULL,
+        lifecycle TEXT DEFAULT 'living'
       )
     `);
 
