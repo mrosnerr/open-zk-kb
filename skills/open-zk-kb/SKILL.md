@@ -1,6 +1,6 @@
 ---
 name: open-zk-kb
-version: 1.0.11
+version: 1.0.12
 description: >
   Persistent knowledge base for cross-session memory. BEFORE responding to any
   user message: (1) knowledge-search for relevant context, (2) scan for storage
@@ -10,15 +10,12 @@ description: >
 
 ## Knowledge Base (open-zk-kb)
 
-ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.
-
-### Pre-Flight: Before Responding to Any Message
-
+### Pre-Flight
 ALWAYS do both of these **before any other work**:
 
-1. **Search** — `knowledge-search` for relevant context. Always pass `client: "claude-code"` to filter out notes meant for other AI clients. Use filters (`kind`, `project`, `tags`) to narrow further. If no results, try broader keywords before proceeding without context.
-2. **Apply results** — each note has a `<guidance>` tag: follow it. Personalization shapes your style, decisions are binding unless overridden, procedures are step-by-step instructions, observations are verified gotchas.
-3. **Scan for storage triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding with the task.
+1. **Search** — `knowledge-search` with `client: "claude-code"`. Use `kind`/`project`/`tags` filters to narrow. Try broader keywords if no results.
+2. **Apply results** — follow each note's `<guidance>` tag. Personalization shapes style, decisions are binding, procedures are step-by-step, observations are verified gotchas.
+3. **Scan for triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding.
 
 | Trigger | Kind |
 |---------|------|
@@ -42,26 +39,77 @@ Use `knowledge-store` with **one concept per note**. Include `summary` (one-line
 - **procedure** (~150 words) — "Release: `bun run release` → bumps version, changelog, PR"
 - **resource** (~50 words) — "Bun SQLite docs: https://bun.sh/docs/api/sqlite"
 
-Notes exceeding the target will trigger a soft warning — heed it and split if the note covers more than one concept.
+Notes exceeding the target trigger a soft warning — split if the note covers more than one concept. Client-specific paths (e.g., `.cursor/`, `.claude/`) are auto-tagged; no need to pass `client` on store.
 
-**Client scoping**: Notes containing client-specific paths (e.g., `.cursor/`, `.claude/`) are auto-tagged at store time. You don't need to pass `client` on store — it's auto-detected.
+### Good vs Bad Examples
+✅ **Good** — specific title, correct kind, actionable guidance:
+```
+title: "Bun SQLite requires explicit WAL mode for concurrent access"
+kind: "observation"
+summary: "SQLite in Bun uses journal mode by default; WAL must be set explicitly."
+guidance: "Run `db.exec('PRAGMA journal_mode=WAL')` after opening any Bun SQLite db."
+```
+
+🚫 **Bad** — vague title, wrong kind, useless guidance:
+```
+title: "Database stuff"
+kind: "reference"
+summary: "Some notes about the database."
+guidance: "Check the database."
+```
+
+### Kind Selection Guide
+| Scenario | Kind |
+|----------|------|
+| User says they prefer tabs over spaces | **personalization** |
+| We chose PostgreSQL over MySQL after comparing replication | **decision** |
+| Bun's SQLite requires explicit WAL mode for concurrent access | **observation** |
+| API endpoint for user creation is `POST /api/v2/users` | **reference** |
+| Deploy: run build, tag version, push to registry | **procedure** |
+| Bun SQLite docs: https://bun.sh/docs/api/sqlite | **resource** |
+
+### Boundaries
+✅ **Always**:
+- One concept per note — split if in doubt
+- Include both `summary` and `guidance` on every store call
+- Search before storing to avoid duplicates
+- Pass `client: "claude-code"` on search calls
+
+⚠️ **Ask first**:
+- Before archiving or deleting notes you didn't create this session
+- Before changing the `kind` or `status` of a permanent note
+
+🚫 **Never**:
+- Bundle multiple concepts into one note
+- Use vague titles like "Notes" or "Stuff"
+- Store sensitive data (API keys, credentials, tokens)
+- Defer storage to after task completion
+
+### Lifecycle
+Notes have a `lifecycle` field controlling mutability. The server enforces it.
+
+| Lifecycle | Behavior | Default for |
+|-----------|----------|-------------|
+| `living` | Mutable, updated freely | personalization, reference, procedure, resource |
+| `snapshot` | Immutable after creation | decision, observation |
+| `append-only` | Additive only, no rewrites | (explicit opt-in) |
+
+- **Auto-detection**: titles with a date (e.g., "Analysis 2026-04-26") auto-set to `snapshot`.
+- **Enforcement**: snapshot updates and append-only rewrites are rejected by the server. Create a new note instead.
+- **Migration**: notes without `lifecycle` default to `living`. No action needed; the field is added on next update.
+
+**Server vs agent**: The server surfaces data and enforces constraints (lifecycle immutability, atomicity warnings, duplicate detection). You decide whether and how to act on surfaced information.
 
 ### Capture Checkpoints
-- Every task plan with 3+ todos: add a final **"Capture learnings → knowledge base"** todo.
-- At natural breakpoints (complex debug, architecture choice, topic change): ask *"Anything worth saving?"*
-- Before ending a session: review for uncaptured preferences, decisions, gotchas, or workflows.
+- 3+ todo tasks: add a final **"Capture learnings → knowledge base"** todo.
+- Natural breakpoints (debug, architecture choice, topic change): ask *"Anything worth saving?"*
+- Session end: review for uncaptured preferences, decisions, gotchas, or workflows.
 
 ### Ingesting URLs
-When a useful URL comes up, extract its content via `knowledge-ingest`, then store via `knowledge-store`.
+When a useful URL comes up: `knowledge-ingest` to extract, then `knowledge-store(kind: "resource", ...)`.
 
-**If you have a web tool** (Playwright, Exa, web_fetch, dev-browser — check your available tools):
-1. Fetch the page with your web tool (handles JS rendering, bot protection, auth)
-2. `knowledge-ingest(html: "<fetched html>", url: "<source url>")` → extracts title, content, metadata
-3. `knowledge-store(kind: "resource", ...)` with your summary
-
-**If you have no web tools** (fallback only):
-1. `knowledge-ingest(url: "...")` → basic fetch + extract (no JS rendering, may fail on protected sites)
-2. `knowledge-store(kind: "resource", ...)` with your summary
+- **With a web tool** (Playwright, Exa, web_fetch): fetch first, then `knowledge-ingest(html: "...", url: "...")` — handles JS rendering and bot protection.
+- **Without a web tool**: `knowledge-ingest(url: "...")` directly — basic fetch, may fail on protected sites.
 
 ### Maintenance
 - `knowledge-maintain stats` — KB health | `knowledge-maintain review` — stale notes
