@@ -1,0 +1,79 @@
+# PR Agent configuration for open-zk-kb
+# Docs: https://www.pr-agent.ai
+
+[config]
+model = "openrouter/deepseek/deepseek-v4-pro"
+fallback_models = ["openrouter/moonshotai/kimi-k2.6"]
+custom_model_max_tokens = 128000
+ai_timeout = 300
+response_language = "en-US"
+
+# Skip generated and non-code files
+patch_extension_skip_types = [".md", ".txt", ".lock", ".lockb", ".snap", ".gif", ".png", ".jpg", ".svg"]
+
+# Skip bot PRs
+ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
+
+[pr_reviewer]
+extra_instructions = """\
+Project: open-zk-kb — persistent AI memory using Zettelkasten method.
+Stack: Bun (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5, MCP SDK.
+
+Key conventions to enforce:
+- Bun APIs only (Bun.file, Bun.write, Bun.serve) — never Node.js equivalents
+- ESM only — no CommonJS (require, module.exports)
+- Factory pattern: classes export createXxx() factories
+- NEVER console.log/warn/error in server code — use logToFile() (MCP stdout must be clean)
+- Server surfaces data with annotations, never returns directives ("you should X")
+- Note IDs are 16-digit timestamps (YYYYMMDDHHmmss00)
+- Dual storage: Markdown files (source of truth) + SQLite index
+
+Focus on:
+1. Type safety — strict TS, avoid any/as any/ts-ignore
+2. SQLite correctness — parameterized queries via Bun SQLite, handle SQLITE_BUSY
+3. MCP protocol compliance — clean stdout, proper error responses
+4. Lifecycle enforcement — snapshot notes can't be updated, append-only can't be rewritten
+"""
+num_max_findings = 5
+require_security_review = true
+require_tests_review = true
+require_estimate_effort_to_review = true
+persistent_comment = true
+
+[pr_description]
+extra_instructions = """\
+Stack: Bun + TypeScript + SQLite FTS5 + MCP SDK.
+Mention affected modules: storage, tool-handlers, mcp-server, config, setup, prompts.
+Use technical language appropriate for a library/SDK project.
+"""
+publish_labels = true
+add_original_user_description = true
+generate_ai_title = false
+use_bullet_points = true
+enable_semantic_files_types = true
+
+[pr_code_suggestions]
+extra_instructions = """\
+Focus on: type safety, SQLite query correctness, MCP protocol compliance, Bun API usage.
+Ignore: import ordering, trailing commas, minor formatting.
+Do NOT suggest adding comments to code that is already clear.
+Do NOT suggest Node.js APIs — this project uses Bun exclusively.
+"""
+focus_only_on_problems = true
+suggestions_score_threshold = 5
+num_code_suggestions_per_chunk = 3
+commitable_code_suggestions = false
+
+[best_practices]
+content = """\
+- Use factory pattern: export createXxx() instead of exporting class directly
+- Never use console.log in server code — MCP requires clean stdout
+- SQLite: always use parameterized queries, handle SQLITE_BUSY with retries
+- Dual storage: Markdown files are source of truth, DB is index only
+- Note lifecycle: fleeting -> permanent -> archived (enforce transitions)
+- Snapshot notes are immutable after creation
+- Append-only notes (index, log) can only have content appended
+- XDG paths for all storage: vault, config, logs
+- Tests use bun:test (describe/it/expect)
+- Commits: capitalized imperative, no prefix, no trailing period
+"""
