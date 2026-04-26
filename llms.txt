@@ -31,7 +31,7 @@ Store a note with one concept. Notes have YAML frontmatter and Markdown content.
 Parameters:
 - title (string, required): Note title
 - content (string, required): Note content
-- kind (string, required): personalization, reference, decision, procedure, resource, observation, or domain
+- kind (string, required): personalization, reference, decision, procedure, resource, observation, or domain. Note: index and log are auto-generated and cannot be set manually
 - summary (string, required): One-line takeaway
 - guidance (string, required): Imperative instruction for future agents
 - tags (array, optional): Categorization tags
@@ -42,6 +42,13 @@ Maintenance actions for the knowledge base.
 
 Parameters:
 - action (string, required): stats, review, promote, archive, delete, rebuild, embed, dedupe
+
+### knowledge-overview
+Get a project overview combining the auto-generated index and recent log entries.
+
+Parameters:
+- project (string, required): Project name to get an overview for
+- logEntries (number, optional): Number of recent log entries to include (default 10)
 
 ## Zettelkasten Concepts
 
@@ -56,6 +63,8 @@ The Zettelkasten ("slip box") method stores one atomic concept per note, with ex
 - resource: Links, tools, libraries, external documentation (permanent by default)
 - observation: Insights, patterns, temporary findings (fleeting by default)
 - domain: Project operating manuals — agent role, scope, conventions, boundaries (permanent by default)
+- index: Auto-generated project catalog with wikilinks grouped by kind (permanent, auto-generated only)
+- log: Auto-generated chronological operations log with bold date entries (permanent, append-only, auto-generated only)
 
 ### Note Lifecycle
 

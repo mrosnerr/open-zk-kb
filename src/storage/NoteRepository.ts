@@ -800,6 +800,77 @@ export class NoteRepository {
     };
   }
 
+  getIndexNote(project: string): NoteMetadata | null {
+    const pattern = `%"project:${project}"%`;
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE kind = 'index' AND tags LIKE ? AND status != 'archived'
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `);
+
+    const row = stmt.get(pattern) as NoteMetadata | undefined;
+    if (!row) return null;
+    return {
+      ...row,
+      kind: row.kind as NoteKind,
+      tags: JSON.parse(row.tags as unknown as string),
+    };
+  }
+
+  getLogNote(project: string): NoteMetadata | null {
+    const pattern = `%"project:${project}"%`;
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE kind = 'log' AND tags LIKE ? AND status != 'archived'
+      ORDER BY updated_at DESC
+      LIMIT 1
+    `);
+
+    const row = stmt.get(pattern) as NoteMetadata | undefined;
+    if (!row) return null;
+    return {
+      ...row,
+      kind: row.kind as NoteKind,
+      tags: JSON.parse(row.tags as unknown as string),
+    };
+  }
+
+  getProjectNotes(project: string): NoteMetadata[] {
+    const pattern = `%"project:${project}"%`;
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE tags LIKE ? AND status != 'archived'
+        AND kind NOT IN ('index', 'log')
+      ORDER BY kind, created_at DESC
+    `);
+
+    const results = stmt.all(pattern) as NoteMetadata[];
+    return results.map(r => ({
+      ...r,
+      kind: (r.kind || 'observation') as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
+  getAllProjects(): string[] {
+    const stmt = this.db.prepare(`
+      SELECT DISTINCT tags FROM notes
+      WHERE tags LIKE '%"project:%' AND status != 'archived'
+    `);
+    const rows = stmt.all() as Array<{ tags: string }>;
+    const projects = new Set<string>();
+    for (const row of rows) {
+      const tags: string[] = JSON.parse(row.tags);
+      for (const tag of tags) {
+        if (tag.startsWith('project:')) {
+          projects.add(tag.replace('project:', ''));
+        }
+      }
+    }
+    return [...projects].sort();
+  }
+
   getByStatus(status: NoteStatus, limit: number = 50): NoteMetadata[] {
     const stmt = this.db.prepare(`
       SELECT * FROM notes
@@ -1108,6 +1179,8 @@ export class NoteRepository {
   rebuildFromFiles(): { indexed: number; errors: number; warnings: string[] } {
     const uniqueIds = new Set<string>();
     const domainNotes = new Map<string, string>();
+    const indexNotes = new Map<string, string>();
+    const logNotes = new Map<string, string>();
     const warnings: string[] = [];
     let errors = 0;
 
@@ -1163,14 +1236,15 @@ export class NoteRepository {
         this.syncLinks(id, body);
         uniqueIds.add(id);
 
-        if (kind === 'domain') {
+        if (kind === 'domain' || kind === 'index' || kind === 'log') {
           const projectTag = tags.find((t: string) => t.startsWith('project:'));
           if (projectTag) {
             const project = projectTag.replace('project:', '');
-            if (domainNotes.has(project)) {
-              warnings.push(`Duplicate domain note for project "${project}": ${file} (first: ${domainNotes.get(project)})`);
+            const noteMap = kind === 'domain' ? domainNotes : kind === 'index' ? indexNotes : logNotes;
+            if (noteMap.has(project)) {
+              warnings.push(`Duplicate ${kind} note for project "${project}": ${file} (first: ${noteMap.get(project)})`);
             } else {
-              domainNotes.set(project, file);
+              noteMap.set(project, file);
             }
           }
         }

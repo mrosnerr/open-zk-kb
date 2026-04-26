@@ -20,7 +20,7 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 AI assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
 
 - **Hybrid search** — full-text + local embeddings, so only relevant notes surface
-- **Atomic notes** — one concept per note (7 kinds, lifecycle management) keeps results precise
+- **Atomic notes** — one concept per note (9 kinds, lifecycle management) keeps results precise
 - **Local-first** — no API keys, works offline, scales to thousands of notes
 - **Human-readable** — Markdown + YAML frontmatter, rebuildable from files
 - **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, Windsurf, and Zed
@@ -43,7 +43,7 @@ Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Ze
 
 ## How It Works
 
-Your AI assistant gets four MCP tools:
+Your AI assistant gets five MCP tools:
 
 | Tool | What it does |
 |------|-------------|
@@ -51,6 +51,7 @@ Your AI assistant gets four MCP tools:
 | `knowledge-store` | Save decisions, preferences, procedures, and insights |
 | `knowledge-maintain` | Review, promote, archive, and rebuild notes |
 | `knowledge-ingest` | Extract article content from URLs or HTML into structured markdown |
+| `knowledge-overview` | Get a project overview with auto-generated index and recent log |
 
 The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
 
@@ -84,6 +85,8 @@ Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). 
 | `resource` | permanent | Links, tools, libraries, and external documentation |
 | `observation` | fleeting | Insights, patterns, and temporary findings |
 | `domain` | permanent | Project operating manuals — agent role, scope, conventions, boundaries |
+| `index` | permanent | Auto-generated project catalog — navigation entry point |
+| `log` | permanent | Auto-generated chronological operations log |
 
 Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
 
@@ -184,7 +187,7 @@ bun run setup            # interactive installer
 ## Links
 
 - [Setup Guide](docs/setup-guide.md) — installation, instruction injection, verification
-- [Tools Reference](docs/tools-reference.md) — all 4 MCP tools, parameters, examples
+- [Tools Reference](docs/tools-reference.md) — all 5 MCP tools, parameters, examples
 - [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
 - [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
 - [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection

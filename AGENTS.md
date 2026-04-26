@@ -12,6 +12,8 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 │   ├── mcp-server.ts      # MCP stdio server entry
 │   ├── tool-handlers.ts   # Shared handler functions
 │   ├── storage/            # NoteRepository — SQLite+FTS5+filesystem
+│   │   ├── IndexBuilder.ts # Auto-generates per-project index notes
+│   │   └── LogAppender.ts  # Auto-appends to per-project log notes
 │   └── utils/              # Path resolution, wikilink parsing
 ├── skills/                # Skill templates for Claude Code
 │   └── open-zk-kb/        # Copied to ~/.claude/skills/open-zk-kb/ on install
@@ -55,13 +57,17 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 | `handleSearch` | function | `tool-handlers.ts` | knowledge-search implementation |
 | `handleMaintain` | function | `tool-handlers.ts` | knowledge-maintain implementation |
 | `handleIngest` | function | `tool-handlers.ts` | knowledge-ingest implementation |
+| `handleOverview` | function | `tool-handlers.ts` | knowledge-overview implementation |
 | `NoteMetadata` | interface | `storage/NoteRepository.ts` | Domain model for notes |
-| `NoteKind` | type | `types.ts` | 7 kinds: personalization, reference, decision, procedure, resource, observation, domain |
+| `NoteKind` | type | `types.ts` | 9 kinds: personalization, reference, decision, procedure, resource, observation, domain, index, log |
+| `NavigationConfig` | interface | `types.ts` | Config shape for navigation: enableProjectIndex, enableProjectLog, overviewLogEntryLimit |
+| `IndexBuilder` | class | `storage/IndexBuilder.ts` | Auto-generates per-project index notes with wikilinks grouped by kind |
+| `LogAppender` | class | `storage/LogAppender.ts` | Auto-appends chronological event entries to per-project log notes |
 | `NoteStatus` | type | `types.ts` | 3 statuses: fleeting → permanent → archived |
 | `Lifecycle` | type | `types.ts` | 3 lifecycles: living, snapshot, append-only |
 | `KIND_DEFAULT_STATUS` | const | `types.ts` | Maps kind → default status |
 | `KIND_DEFAULT_LIFECYCLE` | const | `types.ts` | Maps kind → default lifecycle |
-| `AppConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle, lifecycleDefaults |
+| `AppConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle, lifecycleDefaults, navigation |
 | `SchemaManager` | class | `schema.ts` | DB schema versioning (v6), migrations |
 | `LifecycleViolationError` | class | `storage/NoteRepository.ts` | Thrown on snapshot update or append-only rewrite |
 | `getConfig` | function | `config.ts` | 2-layer merge: defaults → YAML config |
@@ -118,3 +124,5 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 - **Knowledge capture**: Claude Code uses skills (`~/.claude/skills/open-zk-kb/`); other clients use injected `AGENTS.md` instructions. Calling models use `knowledge-store` directly.
 - **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
+- **5 MCP tools**: knowledge-store, knowledge-search, knowledge-maintain, knowledge-ingest, knowledge-overview
+- **Auto-generated notes**: `index` (per-project catalog, wikilinks grouped by kind) and `log` (per-project append-only event log) are auto-generated on project-scoped events. Agents cannot create them manually.

@@ -14,6 +14,9 @@ export const KIND_GUIDANCE: Record<string, string> = {
   procedure: 'Follow these steps when performing this task.',
   resource: 'Recommended resource — reference when relevant.',
   observation: 'Unverified insight — consider but verify before relying on.',
+  domain: 'Project operating manual — follow conventions and boundaries defined here.',
+  index: 'Auto-generated project catalog — use knowledge-overview to view.',
+  log: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
 };
 
 // Kinds that benefit from a content preview in compact rendering

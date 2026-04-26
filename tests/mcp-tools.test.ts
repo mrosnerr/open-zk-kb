@@ -11,7 +11,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
-import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleOverview } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -2339,5 +2339,303 @@ describe('Domain note kind', () => {
 
   it('should return null for missing domain note', () => {
     expect(ctx.engine.getDomainNote('nonexistent')).toBeNull();
+  });
+});
+
+describe('Index and log note kinds', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  const makeConfig = (
+    overrides: {
+      search?: Record<string, boolean>;
+      navigation?: Record<string, boolean | number>;
+    } = {},
+  ) => {
+    const base = getConfig();
+    return {
+      ...base,
+      vault: ctx.tempDir,
+      logLevel: ctx.config.logLevel,
+      lifecycle: ctx.config.lifecycle,
+      lifecycleDefaults: ctx.config.lifecycleDefaults,
+      search: {
+        ...base.search,
+        ...ctx.config.search,
+        ...overrides.search,
+      },
+      navigation: {
+        ...base.navigation,
+        ...ctx.config.navigation,
+        ...overrides.navigation,
+      },
+    };
+  };
+
+  const storeProjectNote = (
+    title: string,
+    project: string = 'myapp',
+    config = makeConfig(),
+    kind: 'observation' | 'domain' = 'observation',
+  ) => handleStore({
+    title,
+    content: `${title} content for ${project}`,
+    kind,
+    project,
+    summary: `${title} summary`,
+    guidance: `${title} guidance`,
+  }, ctx.engine, null, config);
+
+  const extractId = (output: string): string => {
+    const noteId = output.match(/ID: (\d+)/)?.[1];
+    expect(noteId).toBeDefined();
+    return noteId!;
+  };
+
+  it('should auto-generate an index note for project-scoped notes', () => {
+    storeProjectNote('Alpha Note');
+
+    const indexNote = ctx.engine.getIndexNote('myapp');
+    expect(indexNote).not.toBeNull();
+    expect(indexNote!.kind).toBe('index');
+  });
+
+  it('should include wikilinks to stored notes in index content', () => {
+    storeProjectNote('Linked Note');
+
+    const indexNote = ctx.engine.getIndexNote('myapp');
+    expect(indexNote).not.toBeNull();
+    expect(indexNote!.content).toContain('[[');
+    expect(indexNote!.content).toContain('Linked Note');
+  });
+
+  it('should exclude index notes from default search results', () => {
+    storeProjectNote('Index Search Hidden');
+
+    const output = handleSearch({ query: 'Index Search Hidden' }, ctx.engine, null, makeConfig());
+    expect(output).not.toContain('myapp Index');
+  });
+
+  it('should return index notes when explicitly filtered by kind', () => {
+    storeProjectNote('Index Search Visible');
+
+    const output = handleSearch({ query: 'Index Search Visible', kind: 'index' }, ctx.engine, null, makeConfig());
+    expect(output).toContain('# Myapp Index');
+  });
+
+  it('should rebuild the index when a second project note is stored', () => {
+    storeProjectNote('First Indexed Note');
+    const before = ctx.engine.getIndexNote('myapp');
+    expect(before).not.toBeNull();
+
+    storeProjectNote('Second Indexed Note');
+    const after = ctx.engine.getIndexNote('myapp');
+    expect(after).not.toBeNull();
+    expect(after!.content.length).toBeGreaterThan(before!.content.length);
+    expect(after!.content).toContain('Second Indexed Note');
+  });
+
+  it('should exclude archived notes from the index after archive', async () => {
+    const keepOutput = storeProjectNote('Keep In Index');
+    const archiveOutput = storeProjectNote('Archive From Index');
+    const archiveId = extractId(archiveOutput);
+
+    expect(keepOutput).toContain('Knowledge stored');
+    await handleMaintain({ action: 'archive', noteId: archiveId }, ctx.engine, makeConfig());
+
+    const indexNote = ctx.engine.getIndexNote('myapp');
+    expect(indexNote).not.toBeNull();
+    expect(indexNote!.content).toContain('Keep In Index');
+    expect(indexNote!.content).not.toContain('Archive From Index');
+  });
+
+  it('should keep exactly one index note per project', () => {
+    storeProjectNote('Project Note One');
+    storeProjectNote('Project Note Two');
+    storeProjectNote('Project Note Three');
+
+    const indexNotes = ctx.engine.getByKind('index').filter(note => note.tags.includes('project:myapp'));
+    expect(indexNotes).toHaveLength(1);
+  });
+
+  it('should auto-generate a log note with a Created entry', () => {
+    storeProjectNote('Created Log Note');
+
+    const logNote = ctx.engine.getLogNote('myapp');
+    expect(logNote).not.toBeNull();
+    expect(logNote!.content).toContain('Created observation: "Created Log Note"');
+  });
+
+  it('should format log entries with bold dates', () => {
+    storeProjectNote('Bold Date Log');
+
+    const logNote = ctx.engine.getLogNote('myapp');
+    expect(logNote).not.toBeNull();
+    expect(logNote!.content).toMatch(/- \*\*\d{4}-\d{2}-\d{2}\*\* — Created observation: "Bold Date Log"/);
+  });
+
+  it('should exclude log notes from default search results', () => {
+    storeProjectNote('Log Search Hidden');
+
+    const output = handleSearch({ query: 'Log Search Hidden' }, ctx.engine, null, makeConfig());
+    expect(output).not.toContain('Operations Log');
+  });
+
+  it('should return log notes when explicitly filtered by kind', () => {
+    storeProjectNote('Log Search Visible');
+
+    const output = handleSearch({ query: 'Log Search Visible', kind: 'log' }, ctx.engine, null, makeConfig());
+    expect(output).toContain('# Myapp Operations Log');
+  });
+
+  it('should accumulate log entries across multiple project note stores', () => {
+    storeProjectNote('First Log Entry');
+    storeProjectNote('Second Log Entry');
+
+    const logNote = ctx.engine.getLogNote('myapp');
+    expect(logNote).not.toBeNull();
+    const entries = logNote!.content.match(/^- \*\*/gm) ?? [];
+    expect(entries).toHaveLength(2);
+  });
+
+  it('should append a Promoted entry to the log', async () => {
+    const output = storeProjectNote('Promote Me');
+    const noteId = extractId(output);
+
+    await handleMaintain({ action: 'promote', noteId }, ctx.engine, makeConfig());
+
+    const logNote = ctx.engine.getLogNote('myapp');
+    expect(logNote).not.toBeNull();
+    expect(logNote!.content).toContain('Promoted "Promote Me" from fleeting to permanent');
+  });
+
+  it('should append an Archived entry to the log', async () => {
+    const output = storeProjectNote('Archive Me');
+    const noteId = extractId(output);
+
+    await handleMaintain({ action: 'archive', noteId }, ctx.engine, makeConfig());
+
+    const logNote = ctx.engine.getLogNote('myapp');
+    expect(logNote).not.toBeNull();
+    expect(logNote!.content).toContain('Archived "Archive Me"');
+  });
+
+  it('should append a Deleted entry to the log', async () => {
+    const output = storeProjectNote('Delete Me');
+    const noteId = extractId(output);
+
+    await handleMaintain({ action: 'delete', noteId }, ctx.engine, makeConfig());
+
+    const logNote = ctx.engine.getLogNote('myapp');
+    expect(logNote).not.toBeNull();
+    expect(logNote!.content).toContain('Deleted "Delete Me"');
+  });
+
+  it('should store log notes with append-only lifecycle', () => {
+    storeProjectNote('Append Only Log');
+
+    const logNote = ctx.engine.getLogNote('myapp');
+    expect(logNote).not.toBeNull();
+    expect(logNote!.lifecycle).toBe('append-only');
+  });
+
+  it('should reject manual creation of structural kinds', () => {
+    const indexOutput = handleStore({
+      title: 'Manual Index',
+      content: 'Should fail',
+      kind: 'index',
+      summary: 'Manual index summary',
+      guidance: 'Do not create manually',
+    }, ctx.engine, null, makeConfig());
+
+    const logOutput = handleStore({
+      title: 'Manual Log',
+      content: 'Should fail',
+      kind: 'log',
+      summary: 'Manual log summary',
+      guidance: 'Do not create manually',
+    }, ctx.engine, null, makeConfig());
+
+    expect(indexOutput).toContain('Error: index notes are auto-generated');
+    expect(logOutput).toContain('Error: log notes are auto-generated');
+  });
+
+  it('should return project overview with domain, index, and log sections', () => {
+    storeProjectNote('MyApp Domain', 'myapp', makeConfig(), 'domain');
+    storeProjectNote('Overview Note');
+
+    const output = handleOverview({ project: 'myapp' }, ctx.engine, makeConfig());
+    expect(output).toContain('## Project Overview: myapp');
+    expect(output).toContain('### Domain');
+    expect(output).toContain('### Index');
+    expect(output).toContain('### Recent Activity');
+    expect(output).toContain('Overview Note');
+  });
+
+  it('should return a no-navigation message for unknown projects', () => {
+    const output = handleOverview({ project: 'unknown-project' }, ctx.engine, makeConfig());
+    expect(output).toContain('No navigation notes found for project "unknown-project"');
+  });
+
+  it('should respect the logEntries parameter in overview output', () => {
+    storeProjectNote('Overview Entry One');
+    storeProjectNote('Overview Entry Two');
+    storeProjectNote('Overview Entry Three');
+
+    const output = handleOverview({ project: 'myapp', logEntries: 2 }, ctx.engine, makeConfig());
+    const recentActivity = output.split('### Recent Activity\n')[1] || '';
+    expect(recentActivity).not.toContain('Overview Entry One');
+    expect(recentActivity).toContain('Overview Entry Two');
+    expect(recentActivity).toContain('Overview Entry Three');
+    expect(output).toContain('(showing 2 of 3 entries)');
+  });
+
+  it('should work when only some navigation notes exist', () => {
+    const config = makeConfig({ navigation: { enableProjectIndex: false, enableProjectLog: false } });
+    storeProjectNote('Partial Domain', 'partial', config, 'domain');
+
+    const output = handleOverview({ project: 'partial' }, ctx.engine, config);
+    expect(output).toContain('### Domain');
+    expect(output).toContain('(not yet generated — store a project-scoped note to trigger)');
+  });
+
+  it('should skip index generation when enableProjectIndex is false', () => {
+    const config = makeConfig({ navigation: { enableProjectIndex: false } });
+    storeProjectNote('No Index Generated', 'myapp', config);
+
+    expect(ctx.engine.getIndexNote('myapp')).toBeNull();
+  });
+
+  it('should skip log generation when enableProjectLog is false', () => {
+    const config = makeConfig({ navigation: { enableProjectLog: false } });
+    storeProjectNote('No Log Generated', 'myapp', config);
+
+    expect(ctx.engine.getLogNote('myapp')).toBeNull();
+  });
+
+  it('should include structural kinds in default search when excludeLogFromSearch is false', () => {
+    const config = makeConfig({ search: { excludeLogFromSearch: false } });
+    storeProjectNote('Structural Search Visible', 'myapp', config);
+
+    const output = handleSearch({ query: 'Structural Search Visible' }, ctx.engine, null, config);
+    expect(output).toContain('Structural Search Visible');
+    expect(output).toContain('# Myapp Index');
+    expect(output).toContain('# Myapp Operations Log');
+  });
+
+  it('should regenerate indexes for all projects during rebuild', async () => {
+    const disabledConfig = makeConfig({ navigation: { enableProjectIndex: false, enableProjectLog: false } });
+    storeProjectNote('Rebuild Alpha', 'alpha', disabledConfig);
+    storeProjectNote('Rebuild Beta', 'beta', disabledConfig);
+
+    expect(ctx.engine.getIndexNote('alpha')).toBeNull();
+    expect(ctx.engine.getIndexNote('beta')).toBeNull();
+
+    const output = await handleMaintain({ action: 'rebuild' }, ctx.engine, makeConfig());
+    expect(output).toContain('Rebuilt index for 2 project(s).');
+    expect(ctx.engine.getIndexNote('alpha')).not.toBeNull();
+    expect(ctx.engine.getIndexNote('beta')).not.toBeNull();
   });
 });

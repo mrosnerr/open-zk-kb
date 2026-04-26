@@ -18,7 +18,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
-import { handleStore, handleSearch, handleMaintain, handleIngest } from './tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
@@ -77,13 +77,14 @@ const server = new McpServer({
 
 // ---- knowledge-store ----
 
-const NOTE_KINDS = ['personalization', 'reference', 'decision', 'procedure', 'resource', 'observation', 'domain'] as const;
+const NOTE_KINDS = ['personalization', 'reference', 'decision', 'procedure', 'resource', 'observation', 'domain', 'index', 'log'] as const;
+const STORABLE_KINDS = ['personalization', 'reference', 'decision', 'procedure', 'resource', 'observation', 'domain'] as const;
 const LIFECYCLES = ['living', 'snapshot', 'append-only'] as const;
 
 const storeSchema = z.object({
   title: z.string().describe('Note title — concise, descriptive'),
   content: z.string().describe('Note content — the knowledge to store'),
-  kind: z.enum(NOTE_KINDS).describe('Note kind: personalization, reference, decision, procedure, resource, observation, domain'),
+  kind: z.enum(STORABLE_KINDS).describe('Note kind: personalization, reference, decision, procedure, resource, observation, domain'),
   status: z.enum(['fleeting', 'permanent', 'archived']).optional().describe('Override default status (defaults based on kind)'),
   lifecycle: z.enum(LIFECYCLES).optional().describe('Note lifecycle: living (mutable), snapshot (immutable), append-only (additive only). Defaults per kind.'),
   tags: z.array(z.string()).optional().describe('Tags for categorization'),
@@ -228,6 +229,40 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-search failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ---- knowledge-overview ----
+
+const overviewSchema = z.object({
+  project: z.string().describe('Project name to get overview for'),
+  logEntries: z.number().int().min(1).optional().describe('Number of recent log entries to show (default: 10)'),
+  model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
+});
+
+server.registerTool(
+  'knowledge-overview',
+  {
+    description: 'Get a project overview: auto-generated index (catalog of all project notes) and recent operations log. The project entry point for navigation.',
+    inputSchema: overviewSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof overviewSchema>) => {
+    try {
+      const result = handleOverview({
+        project: args.project,
+        logEntries: args.logEntries,
+        model: args.model,
+      }, getOrCreateRepo(), config);
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-overview failed', {
         error: error instanceof Error ? error.message : String(error),
       }, config);
       return {

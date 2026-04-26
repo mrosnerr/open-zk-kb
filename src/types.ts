@@ -5,7 +5,7 @@
 
 // ============ NOTE KIND ============
 
-export type NoteKind = 'personalization' | 'reference' | 'decision' | 'procedure' | 'resource' | 'observation' | 'domain';
+export type NoteKind = 'personalization' | 'reference' | 'decision' | 'procedure' | 'resource' | 'observation' | 'domain' | 'index' | 'log';
 export type NoteStatus = 'fleeting' | 'permanent' | 'archived';
 export type Lifecycle = 'living' | 'snapshot' | 'append-only';
 
@@ -18,6 +18,8 @@ export const KIND_DEFAULT_STATUS: Record<NoteKind, NoteStatus> = {
   resource: 'permanent',
   observation: 'fleeting',
   domain: 'permanent',
+  index: 'permanent',
+  log: 'permanent',
 };
 
 /** Map kind to its default lifecycle */
@@ -29,6 +31,8 @@ export const KIND_DEFAULT_LIFECYCLE: Record<NoteKind, Lifecycle> = {
   resource: 'living',
   observation: 'snapshot',
   domain: 'living',
+  index: 'living',
+  log: 'append-only',
 };
 
 export const VALID_LIFECYCLES = new Set<string>(['living', 'snapshot', 'append-only']);
@@ -42,6 +46,13 @@ export interface LifecycleDefaults {
 
 export interface SearchConfig {
   alwaysIncludeDomainNote: boolean;
+  excludeLogFromSearch: boolean;
+}
+
+export interface NavigationConfig {
+  enableProjectIndex: boolean;
+  enableProjectLog: boolean;
+  overviewLogEntryLimit: number;
 }
 
 export interface AppConfig {
@@ -55,6 +66,7 @@ export interface AppConfig {
   };
   lifecycleDefaults: LifecycleDefaults;
   search: SearchConfig;
+  navigation: NavigationConfig;
 }
 
 // NOTE: NoteMetadata and StoreResult are defined in storage/NoteRepository.ts

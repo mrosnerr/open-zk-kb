@@ -36,6 +36,12 @@ interface RawConfig {
   };
   search?: {
     alwaysIncludeDomainNote?: boolean;
+    excludeLogFromSearch?: boolean;
+  };
+  navigation?: {
+    enableProjectIndex?: boolean;
+    enableProjectLog?: boolean;
+    overviewLogEntryLimit?: number;
   };
   embeddings?: EmbeddingsConfig;
 }
@@ -57,6 +63,12 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   search: {
     alwaysIncludeDomainNote: true,
+    excludeLogFromSearch: true,
+  },
+  navigation: {
+    enableProjectIndex: true,
+    enableProjectLog: true,
+    overviewLogEntryLimit: 10,
   },
 };
 
@@ -113,6 +125,20 @@ export function getConfig(): AppConfig {
       alwaysIncludeDomainNote: typeof raw?.search?.alwaysIncludeDomainNote === 'boolean'
         ? raw.search.alwaysIncludeDomainNote
         : DEFAULT_CONFIG.search.alwaysIncludeDomainNote,
+      excludeLogFromSearch: typeof raw?.search?.excludeLogFromSearch === 'boolean'
+        ? raw.search.excludeLogFromSearch
+        : DEFAULT_CONFIG.search.excludeLogFromSearch,
+    },
+    navigation: {
+      enableProjectIndex: typeof raw?.navigation?.enableProjectIndex === 'boolean'
+        ? raw.navigation.enableProjectIndex
+        : DEFAULT_CONFIG.navigation.enableProjectIndex,
+      enableProjectLog: typeof raw?.navigation?.enableProjectLog === 'boolean'
+        ? raw.navigation.enableProjectLog
+        : DEFAULT_CONFIG.navigation.enableProjectLog,
+      overviewLogEntryLimit: typeof raw?.navigation?.overviewLogEntryLimit === 'number'
+        ? raw.navigation.overviewLogEntryLimit
+        : DEFAULT_CONFIG.navigation.overviewLogEntryLimit,
     },
   };
 }
