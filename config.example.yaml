@@ -37,7 +37,7 @@
 # ─── Navigation ───────────────────────────────────────────────────────────────
 # Auto-generated per-project index and operations log.
 # navigation:
-#   enableProjectIndex: true              # Auto-rebuild project index on every store/archive/promote
+#   enableProjectIndex: true              # Auto-rebuild project index on every store/archive/promote/delete/rebuild
 #   enableProjectLog: true               # Auto-append to project log on every event
 #   overviewLogEntryLimit: 10            # Recent log entries shown in knowledge-overview
 

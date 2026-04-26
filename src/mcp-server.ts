@@ -243,7 +243,7 @@ server.registerTool(
 
 const overviewSchema = z.object({
   project: z.string().describe('Project name to get overview for'),
-  logEntries: z.number().optional().describe('Number of recent log entries to show (default: 10)'),
+  logEntries: z.number().int().min(1).optional().describe('Number of recent log entries to show (default: 10)'),
   model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
 });
 

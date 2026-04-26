@@ -79,7 +79,7 @@ Project operating manual — agent role, scope, conventions, and boundaries. Def
 ## index
 Auto-generated project catalog. Default status: `permanent`. Default lifecycle: `living`.
 
-**Created by**: The server automatically, on every project-scoped store, promote, or archive event. Agents cannot create index notes manually.
+**Created by**: The server automatically, on every project-scoped store, promote, archive, delete, or rebuild event. Agents cannot create index notes manually.
 
 **Contents**: A catalog of all notes in the project, with wikilinks grouped by kind. Rebuilt from scratch on every event — always reflects the current state of the project.
 
@@ -91,7 +91,7 @@ Auto-generated project catalog. Default status: `permanent`. Default lifecycle: 
 ## log
 Auto-generated chronological operations log. Default status: `permanent`. Default lifecycle: `append-only`.
 
-**Created by**: The server automatically, on every project-scoped store, promote, or archive event. Agents cannot create log notes manually.
+**Created by**: The server automatically, on every project-scoped store, promote, archive, delete, or rebuild event. Agents cannot create log notes manually.
 
 **Contents**: A chronological list of events. Each entry has a bold date prefix (e.g., `**2026-04-26**: Stored "Prefer Bun over Node"`). Entries are appended — the log is never rewritten.
 

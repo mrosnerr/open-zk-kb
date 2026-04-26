@@ -1087,7 +1087,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
 export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?: AppConfig): string {
   const project = args.project;
-  const logLimit = args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10;
+  const logLimit = Math.max(1, args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10);
 
   const indexNote = repo.getIndexNote(project);
   const logNote = repo.getLogNote(project);

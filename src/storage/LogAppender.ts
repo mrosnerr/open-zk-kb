@@ -6,7 +6,8 @@ function formatDate(date: Date = new Date()): string {
 }
 
 export function buildLogEntry(event: string, date: Date = new Date()): string {
-  return `- **${formatDate(date)}** — ${event}`;
+  const sanitized = event.replace(/[\r\n]+/g, ' ').trim();
+  return `- **${formatDate(date)}** — ${sanitized}`;
 }
 
 export function buildInitialLogContent(project: string, entry: string): string {
