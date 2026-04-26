@@ -29,6 +29,10 @@ function buildNoteAttrs(note: NoteMetadata): string {
     `status="${note.status}"`,
   ];
 
+  if (note.lifecycle && note.lifecycle !== 'living') {
+    attrs.push(`lifecycle="${note.lifecycle}"`);
+  }
+
   const tags = Array.isArray(note.tags) ? note.tags : [];
   if (tags.length > 0) {
     attrs.push(`tags="${tags.join(', ')}"`);

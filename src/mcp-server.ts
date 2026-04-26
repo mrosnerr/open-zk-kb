@@ -78,12 +78,14 @@ const server = new McpServer({
 // ---- knowledge-store ----
 
 const NOTE_KINDS = ['personalization', 'reference', 'decision', 'procedure', 'resource', 'observation'] as const;
+const LIFECYCLES = ['living', 'snapshot', 'append-only'] as const;
 
 const storeSchema = z.object({
   title: z.string().describe('Note title — concise, descriptive'),
   content: z.string().describe('Note content — the knowledge to store'),
   kind: z.enum(NOTE_KINDS).describe('Note kind: personalization, reference, decision, procedure, resource, observation'),
   status: z.enum(['fleeting', 'permanent', 'archived']).optional().describe('Override default status (defaults based on kind)'),
+  lifecycle: z.enum(LIFECYCLES).optional().describe('Note lifecycle: living (mutable), snapshot (immutable), append-only (additive only). Defaults per kind.'),
   tags: z.array(z.string()).optional().describe('Tags for categorization'),
   summary: z.string().describe('One-line present-tense key takeaway'),
   guidance: z.string().describe('Imperative actionable instruction for agents'),
@@ -106,6 +108,7 @@ server.registerTool(
         content: args.content,
         kind: args.kind as NoteKind,
         status: args.status,
+        lifecycle: args.lifecycle,
         tags: args.tags,
         summary: args.summary,
         guidance: args.guidance,
@@ -113,7 +116,7 @@ server.registerTool(
         client: args.client,
         related: args.related,
         model: args.model,
-      }, getOrCreateRepo(), getEmbeddingConfig());
+      }, getOrCreateRepo(), getEmbeddingConfig(), config);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-store failed', {
@@ -188,6 +191,7 @@ const searchSchema = z.object({
   query: z.string().describe('Search query — natural language or keywords. Supports semantic matching when embeddings are enabled.'),
   kind: z.enum(NOTE_KINDS).optional().describe('Filter by note kind'),
   status: z.enum(['fleeting', 'permanent', 'archived']).optional().describe('Filter by status'),
+  lifecycle: z.enum(LIFECYCLES).optional().describe('Filter by lifecycle: living, snapshot, append-only'),
   project: z.string().optional().describe('Filter by project tag'),
   client: z.string().optional().describe('Your client name — excludes notes scoped to other clients'),
   tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),
@@ -214,6 +218,7 @@ server.registerTool(
         query: args.query,
         kind: args.kind as NoteKind | undefined,
         status: args.status,
+        lifecycle: args.lifecycle,
         project: args.project,
         client: args.client,
         tags: args.tags,

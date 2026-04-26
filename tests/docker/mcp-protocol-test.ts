@@ -4,7 +4,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 async function run() {
   let passed = 0;
   let failed = 0;
-  const totalExpected = 13;
+  const totalExpected = 14;
 
   const check = (name: string, ok: boolean, detail?: string) => {
     if (ok) { console.log(`  ✅ ${name}`); passed++; }
@@ -30,10 +30,11 @@ async function run() {
   try {
     const tools = await client.listTools();
     const toolNames = tools.tools.map(t => t.name);
-    check('lists all 3 tools', toolNames.length === 3);
+    check('lists all 4 tools', toolNames.length === 4);
     check('has knowledge-store', toolNames.includes('knowledge-store'));
     check('has knowledge-search', toolNames.includes('knowledge-search'));
     check('has knowledge-maintain', toolNames.includes('knowledge-maintain'));
+    check('has knowledge-ingest', toolNames.includes('knowledge-ingest'));
   } catch (err) {
     check('list tools', false, String(err));
   }

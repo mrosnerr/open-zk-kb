@@ -7,6 +7,7 @@
 
 export type NoteKind = 'personalization' | 'reference' | 'decision' | 'procedure' | 'resource' | 'observation';
 export type NoteStatus = 'fleeting' | 'permanent' | 'archived';
+export type Lifecycle = 'living' | 'snapshot' | 'append-only';
 
 /** Map kind to its default status */
 export const KIND_DEFAULT_STATUS: Record<NoteKind, NoteStatus> = {
@@ -18,7 +19,24 @@ export const KIND_DEFAULT_STATUS: Record<NoteKind, NoteStatus> = {
   observation: 'fleeting',
 };
 
+/** Map kind to its default lifecycle */
+export const KIND_DEFAULT_LIFECYCLE: Record<NoteKind, Lifecycle> = {
+  personalization: 'living',
+  reference: 'living',
+  decision: 'snapshot',
+  procedure: 'living',
+  resource: 'living',
+  observation: 'snapshot',
+};
+
+export const VALID_LIFECYCLES = new Set<string>(['living', 'snapshot', 'append-only']);
+
 // ============ APP CONFIGURATION ============
+
+export interface LifecycleDefaults {
+  defaultForKind: Record<string, string>;
+  detectSnapshotFromSlug: boolean;
+}
 
 export interface AppConfig {
   logLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
@@ -29,6 +47,7 @@ export interface AppConfig {
     exemptKinds: NoteKind[];
     autoArchiveFleetingDays: number;
   };
+  lifecycleDefaults: LifecycleDefaults;
 }
 
 // NOTE: NoteMetadata and StoreResult are defined in storage/NoteRepository.ts

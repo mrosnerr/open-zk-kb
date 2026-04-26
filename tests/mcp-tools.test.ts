@@ -8,9 +8,10 @@ import {
   cleanupTestHarness,
 } from './harness.js';
 import type { TestContext } from './harness.js';
-import { renderNoteForAgent } from '../src/prompts.js';
+import { renderNoteForAgent, renderNoteForSearch } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
+import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
 describe('MCP Tool: knowledge-store', () => {
@@ -1735,5 +1736,362 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     expect(output).toContain('Stale Fleeting Notes');
     expect(output).toContain('Stale One');
     expect(output).toContain('1 older note(s) moved to');
+  });
+});
+
+describe('MCP Tool: lifecycle field', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should default lifecycle based on kind', () => {
+    const output = handleStore({
+      title: 'A Decision',
+      content: 'We chose X',
+      kind: 'decision',
+      summary: 'Chose X',
+      guidance: 'Follow X',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Lifecycle: snapshot');
+  });
+
+  it('should default to living for personalization', () => {
+    const output = handleStore({
+      title: 'Dark Mode',
+      content: 'I prefer dark mode',
+      kind: 'personalization',
+      summary: 'Prefers dark mode',
+      guidance: 'Use dark mode',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Lifecycle: living');
+  });
+
+  it('should accept explicit lifecycle override', () => {
+    const output = handleStore({
+      title: 'Living Decision',
+      content: 'An evolving decision',
+      kind: 'decision',
+      lifecycle: 'living',
+      summary: 'Evolving decision',
+      guidance: 'May change',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Lifecycle: living');
+  });
+
+  it('should auto-detect snapshot from date in title', () => {
+    const output = handleStore({
+      title: 'Analysis 2025-04-25',
+      content: 'Point-in-time analysis',
+      kind: 'observation',
+      summary: 'April analysis',
+      guidance: 'Historical reference',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Lifecycle: snapshot');
+  });
+
+  it('should not auto-detect snapshot when explicit lifecycle given', () => {
+    const output = handleStore({
+      title: 'Log 2025-04-25',
+      content: 'Append-only log',
+      kind: 'observation',
+      lifecycle: 'append-only',
+      summary: 'Daily log',
+      guidance: 'Append only',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Lifecycle: append-only');
+  });
+
+  it('should reject updates to snapshot notes', () => {
+    const result = ctx.engine.store('Immutable content', {
+      title: 'Frozen Decision',
+      kind: 'decision',
+      lifecycle: 'snapshot',
+      summary: 'Frozen',
+      guidance: 'Do not change',
+    });
+
+    expect(() => {
+      ctx.engine.store('Changed content', {
+        title: 'Frozen Decision',
+        kind: 'decision',
+        existingId: result.id,
+      });
+    }).toThrow(LifecycleViolationError);
+  });
+
+  it('should reject non-extending updates to append-only notes', () => {
+    const result = ctx.engine.store('Entry 1: started project', {
+      title: 'Ops Log',
+      kind: 'observation',
+      lifecycle: 'append-only',
+      summary: 'Ops log',
+      guidance: 'Append only',
+    });
+
+    expect(() => {
+      ctx.engine.store('Completely different content', {
+        title: 'Ops Log',
+        kind: 'observation',
+        existingId: result.id,
+      });
+    }).toThrow(LifecycleViolationError);
+  });
+
+  it('should allow extending append-only notes', () => {
+    const result = ctx.engine.store('Entry 1: started', {
+      title: 'Ops Log',
+      kind: 'observation',
+      lifecycle: 'append-only',
+      summary: 'Ops log',
+      guidance: 'Append only',
+    });
+
+    const updated = ctx.engine.store('Entry 1: started\nEntry 2: continued', {
+      title: 'Ops Log',
+      kind: 'observation',
+      existingId: result.id,
+    });
+
+    expect(updated.action).toBe('updated');
+  });
+
+  it('should persist lifecycle in frontmatter', () => {
+    const output = handleStore({
+      title: 'Snapshot Note',
+      content: 'Frozen content',
+      kind: 'decision',
+      lifecycle: 'snapshot',
+      summary: 'Snapshot',
+      guidance: 'Immutable',
+    }, ctx.engine, null, ctx.config);
+
+    const idMatch = output.match(/ID: (\d+)/);
+    const note = ctx.engine.getById(idMatch![1]);
+    expect(note).not.toBeNull();
+    expect(note!.lifecycle).toBe('snapshot');
+
+    const fileContent = fs.readFileSync(note!.path, 'utf-8');
+    expect(fileContent).toContain('lifecycle: snapshot');
+  });
+
+  it('should persist lifecycle in DB and read back', () => {
+    handleStore({
+      title: 'Append Log',
+      content: 'Log entry',
+      kind: 'observation',
+      lifecycle: 'append-only',
+      summary: 'Log',
+      guidance: 'Append',
+    }, ctx.engine, null, ctx.config);
+
+    const results = ctx.engine.search('Log entry');
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0].lifecycle).toBe('append-only');
+  });
+
+  it('should disable slug detection when config says so', () => {
+    const noDetectConfig = {
+      ...ctx.config,
+      lifecycleDefaults: { ...ctx.config.lifecycleDefaults, detectSnapshotFromSlug: false },
+    };
+    const output = handleStore({
+      title: 'Procedure 2025-04-25',
+      content: 'Dated procedure',
+      kind: 'procedure',
+      summary: 'Procedure',
+      guidance: 'Follow steps',
+    }, ctx.engine, null, noDetectConfig);
+
+    expect(output).toContain('Lifecycle: living');
+  });
+
+  it('should slug-detect snapshot for kind that defaults to living', () => {
+    const output = handleStore({
+      title: 'Procedure 2025-04-25',
+      content: 'Dated procedure',
+      kind: 'procedure',
+      summary: 'Procedure',
+      guidance: 'Follow steps',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Lifecycle: snapshot');
+  });
+
+  it('should fall back to kind default for invalid lifecycle value', () => {
+    const output = handleStore({
+      title: 'Bad Lifecycle',
+      content: 'Invalid lifecycle value',
+      kind: 'decision',
+      lifecycle: 'bogus',
+      summary: 'Bad lifecycle',
+      guidance: 'Test fallback',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Lifecycle: snapshot');
+  });
+
+  it('should filter search results by lifecycle', () => {
+    handleStore({
+      title: 'Living Reference',
+      content: 'A living reference note about search',
+      kind: 'reference',
+      lifecycle: 'living',
+      summary: 'Living ref',
+      guidance: 'Use it',
+    }, ctx.engine, null, ctx.config);
+
+    handleStore({
+      title: 'Snapshot Reference',
+      content: 'A snapshot reference note about search',
+      kind: 'reference',
+      lifecycle: 'snapshot',
+      summary: 'Snapshot ref',
+      guidance: 'Frozen',
+    }, ctx.engine, null, ctx.config);
+
+    const living = handleSearch({ query: 'reference note search', lifecycle: 'living' }, ctx.engine);
+    const snapshot = handleSearch({ query: 'reference note search', lifecycle: 'snapshot' }, ctx.engine);
+
+    expect(living).toContain('Living ref');
+    expect(living).not.toContain('Snapshot ref');
+    expect(snapshot).toContain('Snapshot ref');
+    expect(snapshot).not.toContain('Living ref');
+  });
+
+  it('should allow updating living notes freely', () => {
+    const result = ctx.engine.store('Original content', {
+      title: 'Mutable Note',
+      kind: 'procedure',
+      lifecycle: 'living',
+    });
+
+    const updated = ctx.engine.store('Completely rewritten content', {
+      title: 'Mutable Note',
+      kind: 'procedure',
+      existingId: result.id,
+    });
+
+    expect(updated.action).toBe('updated');
+  });
+
+  it('should normalize trailing whitespace in append-only validation', () => {
+    const result = ctx.engine.store('Entry 1\n', {
+      title: 'Whitespace Log',
+      kind: 'observation',
+      lifecycle: 'append-only',
+    });
+
+    const updated = ctx.engine.store('Entry 1\nEntry 2', {
+      title: 'Whitespace Log',
+      kind: 'observation',
+      existingId: result.id,
+    });
+
+    expect(updated.action).toBe('updated');
+  });
+
+  it('should include note title and ID in LifecycleViolationError', () => {
+    const result = ctx.engine.store('Frozen', {
+      title: 'My Snapshot',
+      kind: 'decision',
+      lifecycle: 'snapshot',
+    });
+
+    expect(() =>
+      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+    ).toThrow(LifecycleViolationError);
+
+    expect(() =>
+      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+    ).toThrow(/My Snapshot/);
+
+    expect(() =>
+      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+    ).toThrow(new RegExp(result.id));
+  });
+
+  it('should render lifecycle attribute in XML only for non-living notes', () => {
+    handleStore({
+      title: 'Snapshot for Render',
+      content: 'Frozen for rendering test',
+      kind: 'decision',
+      lifecycle: 'snapshot',
+      summary: 'Snapshot render',
+      guidance: 'Check XML',
+    }, ctx.engine, null, ctx.config);
+
+    handleStore({
+      title: 'Living for Render',
+      content: 'Living for rendering test',
+      kind: 'procedure',
+      lifecycle: 'living',
+      summary: 'Living render',
+      guidance: 'Check XML',
+    }, ctx.engine, null, ctx.config);
+
+    const snapshotResults = ctx.engine.search('Frozen for rendering');
+    const livingResults = ctx.engine.search('Living for rendering');
+
+    expect(snapshotResults.length).toBeGreaterThan(0);
+    expect(livingResults.length).toBeGreaterThan(0);
+
+    const snapshotXml = renderNoteForSearch(snapshotResults[0]);
+    const livingXml = renderNoteForSearch(livingResults[0]);
+
+    expect(snapshotXml).toContain('lifecycle="snapshot"');
+    expect(livingXml).not.toContain('lifecycle=');
+  });
+
+  it('should preserve append-only lifecycle on update without explicit lifecycle param', () => {
+    const result = ctx.engine.store('Entry 1', {
+      title: 'Preserved Log',
+      kind: 'observation',
+      lifecycle: 'append-only',
+    });
+
+    ctx.engine.store('Entry 1\nEntry 2', {
+      title: 'Preserved Log',
+      kind: 'observation',
+      existingId: result.id,
+    });
+
+    const note = ctx.engine.getById(result.id);
+    expect(note).not.toBeNull();
+    expect(note!.lifecycle).toBe('append-only');
+
+    expect(() =>
+      ctx.engine.store('Completely rewritten', {
+        title: 'Preserved Log',
+        kind: 'observation',
+        existingId: result.id,
+      }),
+    ).toThrow(LifecycleViolationError);
+  });
+
+  it('should preserve lifecycle through rebuildFromFiles', () => {
+    handleStore({
+      title: 'Rebuild Test Note',
+      content: 'Content for rebuild lifecycle test',
+      kind: 'observation',
+      lifecycle: 'append-only',
+      summary: 'Rebuild test',
+      guidance: 'Check lifecycle persists',
+    }, ctx.engine, null, ctx.config);
+
+    const beforeRebuild = ctx.engine.search('rebuild lifecycle test');
+    expect(beforeRebuild.length).toBeGreaterThan(0);
+    expect(beforeRebuild[0].lifecycle).toBe('append-only');
+
+    ctx.engine.rebuildFromFiles();
+
+    const afterRebuild = ctx.engine.search('rebuild lifecycle test');
+    expect(afterRebuild.length).toBeGreaterThan(0);
+    expect(afterRebuild[0].lifecycle).toBe('append-only');
   });
 });

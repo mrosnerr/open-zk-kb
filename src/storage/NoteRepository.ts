@@ -10,7 +10,15 @@ import { logToFile } from '../logger.js';
 import { extractWikiLinks as parseAllWikiLinks, parseWikiLink } from '../utils/wikilink.js';
 import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
-import type { NoteKind, NoteStatus } from '../types.js';
+import type { NoteKind, NoteStatus, Lifecycle } from '../types.js';
+import { VALID_LIFECYCLES } from '../types.js';
+
+export class LifecycleViolationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LifecycleViolationError';
+  }
+}
 
 export interface NoteMetadata {
   id: string;
@@ -18,6 +26,7 @@ export interface NoteMetadata {
   title: string;
   kind: NoteKind;
   status: NoteStatus;
+  lifecycle: Lifecycle;
   type: 'atomic' | 'moc';
   tags: string[];
   content: string;
@@ -51,6 +60,7 @@ export interface StoreOptions {
   title?: string;
   kind?: NoteKind;
   status?: NoteStatus;
+  lifecycle?: Lifecycle;
   type?: 'atomic' | 'moc';
   tags?: string[];
   summary?: string;
@@ -221,6 +231,7 @@ export class NoteRepository {
       title: metadata.title,
       kind: metadata.kind || 'observation',
       status: metadata.status,
+      lifecycle: metadata.lifecycle || 'living',
       type: metadata.type,
       tags: metadata.tags || [],
       created: new Date(metadata.created_at || Date.now()).toISOString().split('T')[0],
@@ -344,12 +355,38 @@ export class NoteRepository {
     const wordCount = this.countWords(content);
     const noteType = options.type || 'atomic';
     const noteKind = options.kind || 'observation';
+    let noteLifecycle: Lifecycle = (options.lifecycle as Lifecycle) || 'living';
     const tagsJson = JSON.stringify(options.tags || []);
     const summaryStr = options.summary || '';
     const guidanceStr = options.guidance || '';
     const contextStr = options.context || '';
 
     const isUpdate = !!options.existingId;
+
+    if (isUpdate) {
+      const existing = this.getById(id);
+      if (existing) {
+        const existingLifecycle = existing.lifecycle || 'living';
+        if (existingLifecycle === 'snapshot') {
+          throw new LifecycleViolationError(
+            `Cannot update snapshot note "${existing.title}" [${existing.id}]. Snapshots are immutable — create a new dated snapshot instead.`
+          );
+        }
+        if (existingLifecycle === 'append-only') {
+          const normalizedExisting = (existing.content || '').trimEnd();
+          const normalizedNew = content.trimEnd();
+          if (!normalizedNew.startsWith(normalizedExisting)) {
+            throw new LifecycleViolationError(
+              `Cannot modify append-only note "${existing.title}" [${existing.id}]. New content must strictly extend existing content — append only, do not rewrite.`
+            );
+          }
+        }
+        if (!options.lifecycle) {
+          noteLifecycle = existingLifecycle as Lifecycle;
+        }
+      }
+    }
+
     const createdAt = isUpdate ?
       (this.db.prepare('SELECT created_at FROM notes WHERE id = ?').get(id) as { created_at: number } | undefined)?.created_at || now :
       now;
@@ -359,6 +396,7 @@ export class NoteRepository {
       title,
       kind: noteKind,
       status: options.status || 'fleeting',
+      lifecycle: noteLifecycle,
       type: noteType,
       tags: options.tags || [],
       summary: summaryStr || undefined,
@@ -388,11 +426,11 @@ export class NoteRepository {
 
     this.db.prepare(`
       INSERT OR REPLACE INTO notes
-      (id, path, title, content, kind, status, type, tags, summary, guidance, context, updated_at, created_at, word_count)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      (id, path, title, content, kind, status, lifecycle, type, tags, summary, guidance, context, updated_at, created_at, word_count)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id, filePath, title, content, noteKind,
-      options.status || 'fleeting', noteType,
+      options.status || 'fleeting', noteLifecycle, noteType,
       tagsJson, summaryStr, guidanceStr, contextStr, now, createdAt, wordCount
     );
 
@@ -1076,6 +1114,10 @@ export class NoteRepository {
         const title = (frontmatter.title as string) || this.extractTitle(body);
         const kind = (frontmatter.kind as NoteKind) || 'observation';
         const status = (frontmatter.status as NoteStatus) || 'fleeting';
+        const rawLifecycle = (frontmatter.lifecycle as string) || 'living';
+        const lifecycle = VALID_LIFECYCLES.has(rawLifecycle)
+          ? rawLifecycle
+          : (logToFile('WARN', 'Unknown lifecycle in frontmatter, defaulting to living', { file, value: rawLifecycle }), 'living');
         const noteType = (frontmatter.type as 'atomic' | 'moc') || 'atomic';
         const tags = Array.isArray(frontmatter.tags) ? frontmatter.tags : [];
         const summary = (frontmatter.summary as string) || '';
@@ -1089,10 +1131,10 @@ export class NoteRepository {
 
         this.db.prepare(`
           INSERT OR REPLACE INTO notes
-          (id, path, title, content, kind, status, type, tags, summary, guidance, context, updated_at, created_at, word_count)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (id, path, title, content, kind, status, lifecycle, type, tags, summary, guidance, context, updated_at, created_at, word_count)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          id, filePath, title, body, kind, status, noteType,
+          id, filePath, title, body, kind, status, lifecycle, noteType,
           tagsJson, summary, guidance, context, updatedDate, createdDate, wordCount
         );
 
