@@ -32,6 +32,8 @@ Use `knowledge-store` with **one concept per note**. Include `summary` (one-line
 
 Notes exceeding the target will trigger a soft warning — heed it and split if the note covers more than one concept.
 
+**Lifecycle**: Notes have a `lifecycle` field — `living` (mutable, default), `snapshot` (immutable), or `append-only`. Decisions and observations default to `snapshot`; titles with dates auto-detect as `snapshot`. The server enforces immutability — snapshot updates and append-only rewrites are rejected.
+
 **Client scoping**: Notes containing client-specific paths (e.g., `.cursor/`, `.claude/`) are auto-tagged at store time. You don't need to pass `client` on store — it's auto-detected.
 
 ### Capture Checkpoints
