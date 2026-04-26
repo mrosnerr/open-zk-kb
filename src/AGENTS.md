@@ -8,8 +8,8 @@ TypeScript source for the MCP server (`mcp-server.ts`), with core logic in `tool
 
 ```
 src/
-├── mcp-server.ts          # MCP stdio server — 3 tools via @modelcontextprotocol/sdk
-├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleMaintain (~477 LOC)
+├── mcp-server.ts          # MCP stdio server — 4 tools via @modelcontextprotocol/sdk
+├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleMaintain, handleIngest
 ├── storage/
 │   └── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
 ├── utils/
@@ -21,9 +21,9 @@ src/
 ├── data-migrations.ts     # Agent-driven content upgrades (summary/guidance)
 ├── logger.ts              # logToFile() — file-based, never stdout
 ├── prompts.ts             # renderNoteForAgent() — XML <note> format
-├── schema.ts              # SchemaManager — PRAGMA user_version (v5)
+├── schema.ts              # SchemaManager — PRAGMA user_version (v6)
 ├── setup.ts               # CLI install/uninstall for 5 clients (bun run setup)
-└── types.ts               # NoteKind, NoteStatus, AppConfig
+└── types.ts               # NoteKind, NoteStatus, Lifecycle, AppConfig
 ```
 
 ## Data Flow
@@ -31,7 +31,7 @@ src/
 ```
 Client request → mcp-server.ts
                         ↓
-               tool-handlers.ts (handleStore/Search/Maintain)
+               tool-handlers.ts (handleStore/Search/Maintain/Ingest)
                         ↓
                NoteRepository.store/search/getStats/...
                     ↓              ↓

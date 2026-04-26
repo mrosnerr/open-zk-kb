@@ -16,6 +16,18 @@
 #     - personalization
 #     - decision
 
+# ─── Lifecycle Defaults ───────────────────────────────────────────────────────
+# Per-kind lifecycle defaults and slug-based snapshot auto-detection.
+# lifecycleDefaults:
+#   defaultForKind:
+#     personalization: living
+#     decision: snapshot
+#     observation: snapshot
+#     reference: living
+#     procedure: living
+#     resource: living
+#   detectSnapshotFromSlug: true          # Titles with YYYY-MM-DD auto-default to snapshot
+
 # ─── Embeddings ──────────────────────────────────────────────────────────────
 # Local embeddings (23MB MiniLM model) are enabled by default — no config needed.
 # To use an API provider instead, uncomment below:
