@@ -36,6 +36,11 @@ Notes exceeding the target will trigger a soft warning — heed it and split if 
 
 **Client scoping**: Notes containing client-specific paths (e.g., `.cursor/`, `.claude/`) are auto-tagged at store time. You don't need to pass `client` on store — it's auto-detected.
 
+### Ingesting URLs
+When a useful URL comes up: `knowledge-ingest` to extract content, then `knowledge-store` to save.
+- **With a web tool** (Playwright, Exa, web_fetch): fetch first, then `knowledge-ingest(html: "...", url: "...")`.
+- **Without a web tool**: `knowledge-ingest(url: "...")` directly — basic fetch, may fail on protected sites.
+
 ### Capture Checkpoints
 - Every task plan with 3+ todos: add a final **"Capture learnings → knowledge base"** todo.
 - At natural breakpoints (complex debug, architecture choice, topic change): ask *"Anything worth saving?"*

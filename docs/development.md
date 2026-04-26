@@ -35,7 +35,7 @@ For rapid iteration:
 ```
 src/
 ├── mcp-server.ts       # MCP server entry point (stdio transport)
-├── tool-handlers.ts    # Shared logic for all 3 tools
+├── tool-handlers.ts    # Shared logic for all 4 tools
 ├── storage/
 │   └── NoteRepository.ts  # Core CRUD, FTS5, link tracking
 ├── config.ts           # Config loading (YAML with defaults)

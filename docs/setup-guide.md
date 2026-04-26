@@ -61,10 +61,11 @@ bun run setup install --client opencode
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.
 3. Ask your assistant: **"Run `knowledge-maintain stats`"**
-4. You should see vault statistics (0 notes on fresh install). This confirms the 3 tools are available:
+4. You should see vault statistics (0 notes on fresh install). This confirms the 4 tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
+   - `knowledge-ingest` -- extract article content from URLs or HTML
 
 ## Agent Instructions
 

@@ -18,7 +18,7 @@ Knowledge capture is driven by the calling agent's instructions (e.g., a Claude 
 ┌──────────▼──────────┐
 │   MCP Server        │
 │   (mcp-server.ts)   │
-│   - 3 tool handlers │
+│   - 4 tool handlers │
 │   - stdio transport │
 └──────────┬──────────┘
            │
@@ -61,7 +61,7 @@ The system employs a hybrid storage strategy to balance portability with perform
 The MCP server provides a reactive interface to the knowledge base:
 
 * **Transport**: Uses `@modelcontextprotocol/sdk` with stdio transport.
-* **Tools**: Registers three core tools: `knowledge-store`, `knowledge-search`, and `knowledge-maintain`.
+* **Tools**: Registers four core tools: `knowledge-store`, `knowledge-search`, `knowledge-maintain`, and `knowledge-ingest`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).
     * **Model**: `Xenova/all-MiniLM-L6-v2` (quantized q8, ~23MB).

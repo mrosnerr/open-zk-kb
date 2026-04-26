@@ -8,4 +8,5 @@ ALWAYS use the open-zk-kb MCP tools for persistent memory across sessions.
   - Lifecycle: `living` (default), `snapshot` (immutable — decisions, observations), `append-only`. Server enforces.
 - **Triggers**: user corrections/preferences, repeated lookups, non-obvious errors, architecture choices, multi-step workflows, useful URLs
 - **Client scoping**: Client-specific paths (`.cursor/`, `.claude/`) auto-tagged on store. No action needed.
+- **Ingest URLs**: `knowledge-ingest` to extract articles, then `knowledge-store` to save. Prefer passing HTML from your web tools.
 - **Maintain**: `knowledge-maintain stats` for health, `knowledge-maintain review` for stale notes

@@ -41,7 +41,7 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 | Schema migrations | `src/schema.ts` | PRAGMA user_version based |
 | Data migrations | `src/data-migrations.ts` | Agent-driven content upgrades |
 | Configuration | `src/config.ts` | YAML config with defaults |
-| Types/interfaces | `src/types.ts` | NoteKind, NoteStatus, AppConfig |
+| Types/interfaces | `src/types.ts` | NoteKind, NoteStatus, Lifecycle, AppConfig |
 | Note rendering | `src/prompts.ts` | XML format for agent consumption |
 | Install/uninstall CLI | `src/setup.ts` | 5 clients: opencode, claude-code, cursor, windsurf, zed |
 | Tests | `tests/` | bun:test with harness + fixtures |
@@ -54,12 +54,16 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 | `handleStore` | function | `tool-handlers.ts` | knowledge-store implementation |
 | `handleSearch` | function | `tool-handlers.ts` | knowledge-search implementation |
 | `handleMaintain` | function | `tool-handlers.ts` | knowledge-maintain implementation |
+| `handleIngest` | function | `tool-handlers.ts` | knowledge-ingest implementation |
 | `NoteMetadata` | interface | `storage/NoteRepository.ts` | Domain model for notes |
 | `NoteKind` | type | `types.ts` | 6 kinds: personalization, reference, decision, procedure, resource, observation |
 | `NoteStatus` | type | `types.ts` | 3 statuses: fleeting → permanent → archived |
+| `Lifecycle` | type | `types.ts` | 3 lifecycles: living, snapshot, append-only |
 | `KIND_DEFAULT_STATUS` | const | `types.ts` | Maps kind → default status |
-| `AppConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle |
-| `SchemaManager` | class | `schema.ts` | DB schema versioning (v5), migrations |
+| `KIND_DEFAULT_LIFECYCLE` | const | `types.ts` | Maps kind → default lifecycle |
+| `AppConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle, lifecycleDefaults |
+| `SchemaManager` | class | `schema.ts` | DB schema versioning (v6), migrations |
+| `LifecycleViolationError` | class | `storage/NoteRepository.ts` | Thrown on snapshot update or append-only rewrite |
 | `getConfig` | function | `config.ts` | 2-layer merge: defaults → YAML config |
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |
 | `renderNoteForAgent` | function | `prompts.ts` | XML note rendering for agent consumption |
