@@ -40,6 +40,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
           config.model: "openrouter/deepseek/deepseek-v4-pro"
+          config.fallback_models: '["openrouter/moonshotai/kimi-k2.6"]'
+          config.custom_model_max_tokens: "128000"
+          config.verbosity_level: "2"
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "true"
