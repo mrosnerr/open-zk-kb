@@ -41,6 +41,6 @@ jobs:
           OPENROUTER.KEY: ${{ secrets.OPENROUTER_API_KEY }}
           config.model: "openrouter/deepseek/deepseek-v4-pro"
           github_action_config.auto_review: "true"
-          github_action_config.auto_describe: "true"
+          github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "true"
           github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'
