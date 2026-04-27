@@ -46,3 +46,6 @@ jobs:
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "true"
           github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'
+          pr_reviewer.require_ticket_analysis_review: "false"
+          pr_code_suggestions.publish_output_no_suggestions: "false"
+          pr_reviewer.publish_output_no_suggestions: "false"
