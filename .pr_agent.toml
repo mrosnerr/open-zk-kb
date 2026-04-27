@@ -153,14 +153,24 @@ Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTest
 
 ## Output Format
 
+Start with a one-line summary: "**N issues found** across N files" or "**No issues found** across N files."
+
 For each finding, use this format:
 🔴/🟡/⚪ **[Title]** — one-line summary
 File: `path/to/file.ts` line N
 [Explanation with specific variable/function names]
+[If suggesting a fix, include a minimal code diff]
 
-Be specific: cite exact code. When suggesting a fix, include a minimal code diff.
-Group findings by priority tier — all 🔴 first, then 🟡, then ⚪.
-If no 🔴 findings exist, state: "No blocking issues. Approve with optional fixes below."
+Group findings by priority — all 🔴 first, then 🟡, then ⚪ (max 2 nits).
+If no 🔴 findings: state "No blocking issues. Approve with optional fixes below."
+
+End with a review log section:
+## Review Log
+| Round | Commit | Findings | Status |
+Round 1: [short SHA] — N findings (X 🔴, Y 🟡, Z ⚪)
+Round 2: [short SHA] — N new, M resolved, [remaining blockers or "ready to merge"]
+
+This log must persist and accumulate across rounds — never delete previous entries.
 """
 
 # ---------------------------------------------------------------------------
