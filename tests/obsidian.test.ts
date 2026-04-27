@@ -6,6 +6,7 @@ import {
   detectObsidian,
   getRegistryPath,
   isVaultRegistered,
+  registerVault,
   formatNotInstalledMessage,
   formatSuccessMessage,
 } from '../src/obsidian.js';
@@ -164,6 +165,104 @@ describe('Vault Registry', () => {
     const result = getRegistryPath('linux');
     process.env.HOME = origHome;
     expect(result).toBeNull();
+  });
+});
+
+describe('Vault Registration', () => {
+  let tempDir: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'obsidian-register-'));
+    origHome = process.env.HOME || '';
+    process.env.HOME = tempDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it('should create .obsidian/ directory in the vault', () => {
+    const vaultDir = path.join(tempDir, 'my-vault');
+    fs.mkdirSync(vaultDir);
+
+    registerVault(vaultDir, 'linux');
+
+    expect(fs.existsSync(path.join(vaultDir, '.obsidian'))).toBe(true);
+  });
+
+  it('should add vault entry to obsidian.json', () => {
+    const vaultDir = path.join(tempDir, 'my-vault');
+    fs.mkdirSync(vaultDir);
+
+    registerVault(vaultDir, 'linux');
+
+    const registryPath = path.join(tempDir, '.config', 'obsidian', 'obsidian.json');
+    expect(fs.existsSync(registryPath)).toBe(true);
+
+    const data = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+    const entries = Object.values(data.vaults) as Array<{ path: string }>;
+    expect(entries.some(e => e.path === path.resolve(vaultDir))).toBe(true);
+  });
+
+  it('should make isVaultRegistered return true after registration', () => {
+    const vaultDir = path.join(tempDir, 'my-vault');
+    fs.mkdirSync(vaultDir);
+
+    expect(isVaultRegistered(vaultDir, 'linux')).toBe(false);
+    registerVault(vaultDir, 'linux');
+    expect(isVaultRegistered(vaultDir, 'linux')).toBe(true);
+  });
+
+  it('should preserve existing vaults in registry', () => {
+    const configDir = path.join(tempDir, '.config', 'obsidian');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'obsidian.json'), JSON.stringify({
+      vaults: { 'existing-id': { path: '/existing/vault', ts: 1000 } },
+      frame: 'hidden',
+    }));
+
+    const vaultDir = path.join(tempDir, 'new-vault');
+    fs.mkdirSync(vaultDir);
+    registerVault(vaultDir, 'linux');
+
+    const data = JSON.parse(fs.readFileSync(path.join(configDir, 'obsidian.json'), 'utf-8'));
+    expect(data.vaults['existing-id'].path).toBe('/existing/vault');
+    expect(data.frame).toBe('hidden');
+    const entries = Object.values(data.vaults) as Array<{ path: string }>;
+    expect(entries.length).toBe(2);
+  });
+
+  it('should not duplicate if vault already registered', () => {
+    const vaultDir = path.join(tempDir, 'my-vault');
+    fs.mkdirSync(vaultDir);
+
+    registerVault(vaultDir, 'linux');
+    const registryPath = path.join(tempDir, '.config', 'obsidian', 'obsidian.json');
+    const beforeCount = Object.keys(JSON.parse(fs.readFileSync(registryPath, 'utf-8')).vaults).length;
+
+    registerVault(vaultDir, 'linux');
+    const afterCount = Object.keys(JSON.parse(fs.readFileSync(registryPath, 'utf-8')).vaults).length;
+
+    expect(afterCount).toBe(beforeCount);
+  });
+
+  it('should create registry from scratch if obsidian.json does not exist', () => {
+    const vaultDir = path.join(tempDir, 'my-vault');
+    fs.mkdirSync(vaultDir);
+
+    const result = registerVault(vaultDir, 'linux');
+
+    expect(result).toBe(true);
+    const registryPath = path.join(tempDir, '.config', 'obsidian', 'obsidian.json');
+    expect(fs.existsSync(registryPath)).toBe(true);
+  });
+
+  it('should return false when HOME is unavailable', () => {
+    process.env.HOME = '';
+    const result = registerVault('/some/vault', 'linux');
+    expect(result).toBe(false);
   });
 });
 

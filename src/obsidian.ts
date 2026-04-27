@@ -148,8 +148,12 @@ export function registerVault(vaultPath: string, platform?: string): boolean {
     }
 
     const vaults = data.vaults as Record<string, { path: string; ts: number }>;
+    const resolvedPath = path.resolve(vaultPath);
+    const alreadyRegistered = Object.values(vaults).some(v => v.path === resolvedPath);
+    if (alreadyRegistered) return true;
+
     const id = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
-    vaults[id] = { path: path.resolve(vaultPath), ts: Date.now() };
+    vaults[id] = { path: resolvedPath, ts: Date.now() };
     fs.writeFileSync(registryPath, JSON.stringify(data, null, 2));
     logToFile('INFO', 'Registered vault in Obsidian', { vaultPath, registryPath });
     return true;
