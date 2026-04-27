@@ -12,6 +12,7 @@ test-binary
 # Database & vault artifacts
 .index/
 .kb/
+.obsidian/
 *.db
 *.db-journal
 *.db-wal

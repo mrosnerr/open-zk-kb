@@ -63,7 +63,7 @@ The system employs a hybrid storage strategy to balance portability with perform
 The MCP server provides a reactive interface to the knowledge base:
 
 * **Transport**: Uses `@modelcontextprotocol/sdk` with stdio transport.
-* **Tools**: Registers five core tools: `knowledge-store`, `knowledge-search`, `knowledge-maintain`, `knowledge-ingest`, and `knowledge-overview`.
+* **Tools**: Registers six core tools: `knowledge-store`, `knowledge-search`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).
     * **Model**: `Xenova/all-MiniLM-L6-v2` (quantized q8, ~23MB).

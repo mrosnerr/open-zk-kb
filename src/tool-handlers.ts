@@ -1,5 +1,7 @@
 // tool-handlers.ts - Handler functions for knowledge tools
 
+import * as fs from 'fs';
+import * as path from 'path';
 import type { NoteKind, NoteStatus, Lifecycle, AppConfig } from './types.js';
 import { KIND_DEFAULT_STATUS, KIND_DEFAULT_LIFECYCLE, VALID_LIFECYCLES } from './types.js';
 
@@ -33,6 +35,8 @@ import { classifyModel, MODEL_HINT } from './model-capabilities.js';
 import { extractFromUrl, extractArticle } from './url-extractor.js';
 import type { ExtractionResult } from './url-extractor.js';
 import { splitSections, extractLinks, countWords } from './content-splitter.js';
+import { detectObsidian, launchObsidian, formatNotInstalledMessage, formatSuccessMessage } from './obsidian.js';
+import { contractPath } from './utils/path.js';
 
 // ---- Constants ----
 
@@ -127,6 +131,10 @@ export interface OverviewArgs {
   project: string;
   logEntries?: number;
   model?: string;
+}
+
+export interface OpenArgs {
+  project?: string;
 }
 
 function sanitizeMetadata(value: string): string {
@@ -1136,4 +1144,30 @@ export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?
   }
 
   return output;
+}
+
+export function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteRepository): string {
+  const vaultPath = config.vault;
+
+  if (!fs.existsSync(vaultPath)) {
+    return `Vault directory does not exist yet: ${contractPath(vaultPath)}\nStore a note first to create the vault, then try again.`;
+  }
+
+  const detection = detectObsidian();
+
+  if (!detection.installed) {
+    return formatNotInstalledMessage(vaultPath);
+  }
+
+  let filePath: string | undefined;
+  if (args.project && repo) {
+    const indexNote = repo.getIndexNote(args.project);
+    if (indexNote?.path) {
+      const noteFilename = path.basename(indexNote.path);
+      filePath = noteFilename.replace(/\.md$/, '');
+    }
+  }
+
+  launchObsidian(detection, vaultPath, filePath);
+  return formatSuccessMessage(vaultPath, args.project);
 }

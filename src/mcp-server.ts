@@ -18,7 +18,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
-import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview } from './tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
@@ -263,6 +263,36 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-overview failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ---- knowledge-open ----
+
+const openSchema = z.object({
+  project: z.string().optional().describe('Open focused on a specific project\'s index note'),
+});
+
+server.registerTool(
+  'knowledge-open',
+  {
+    description: 'Open the knowledge base vault in Obsidian for visual browsing. Detects Obsidian installation and launches it pointed at the vault.',
+    inputSchema: openSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof openSchema>) => {
+    try {
+      const result = handleOpen({
+        project: args.project,
+      }, config, getOrCreateRepo());
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-open failed', {
         error: error instanceof Error ? error.message : String(error),
       }, config);
       return {
