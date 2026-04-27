@@ -17,12 +17,13 @@ export interface ObsidianDetection {
 // ---- Platform detection ----
 
 function detectMacOS(): ObsidianDetection {
+  const home = process.env.HOME || '';
   const candidates = [
     '/Applications/Obsidian.app',
-    path.join(process.env.HOME || '', 'Applications/Obsidian.app'),
+    ...(home ? [path.join(home, 'Applications/Obsidian.app')] : []),
   ];
   for (const appPath of candidates) {
-    if (appPath && fs.existsSync(appPath)) {
+    if (fs.existsSync(appPath)) {
       return { installed: true, binaryPath: `${appPath}/Contents/MacOS/Obsidian` };
     }
   }

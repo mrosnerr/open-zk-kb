@@ -135,6 +135,8 @@ export interface OverviewArgs {
 
 export interface OpenArgs {
   project?: string;
+  _detectObsidian?: typeof detectObsidian;
+  _launchObsidian?: typeof launchObsidian;
 }
 
 function sanitizeMetadata(value: string): string {
@@ -1153,7 +1155,8 @@ export function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteReposit
     return `Vault directory does not exist yet: ${contractPath(vaultPath)}\nStore a note first to create the vault, then try again.`;
   }
 
-  const detection = detectObsidian();
+  const detect = args._detectObsidian || detectObsidian;
+  const detection = detect();
 
   if (!detection.installed) {
     return formatNotInstalledMessage(vaultPath);
@@ -1170,7 +1173,8 @@ export function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteReposit
     }
   }
 
-  const error = launchObsidian(detection, vaultPath, filePath);
+  const launch = args._launchObsidian || launchObsidian;
+  const error = launch(detection, vaultPath, filePath);
   if (error) {
     return `Failed to launch Obsidian: ${error}`;
   }

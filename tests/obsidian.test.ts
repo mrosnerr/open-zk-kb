@@ -197,29 +197,35 @@ describe('Message Formatting', () => {
 
 describe('handleOpen', () => {
   let ctx: TestContext;
+  const noObsidian = () => ({ installed: false as const });
+  const fakeObsidian = () => ({ installed: true as const, binaryPath: '/fake/obsidian' });
+  const noopLaunch = () => null;
 
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should return error when vault does not exist', () => {
     const config = { ...ctx.config, vault: '/nonexistent/vault/path' };
-    const result = handleOpen({}, config);
+    const result = handleOpen({ _detectObsidian: noObsidian }, config);
     expect(result).toContain('Vault directory does not exist');
     expect(result).toContain('Store a note first');
   });
 
   it('should return not-installed message when Obsidian is missing', () => {
-    const result = handleOpen({}, ctx.config);
-
-    if (!detectObsidian().installed) {
-      expect(result).toContain('Obsidian is not installed');
-      expect(result).toContain('https://obsidian.md/download');
-    } else {
-      expect(result).toContain('Opened vault in Obsidian');
-    }
+    const result = handleOpen({ _detectObsidian: noObsidian }, ctx.config);
+    expect(result).toContain('Obsidian is not installed');
+    expect(result).toContain('https://obsidian.md/download');
   });
 
-  it('should handle project parameter with index note', () => {
+  it('should return success when Obsidian is installed', () => {
+    const result = handleOpen({
+      _detectObsidian: fakeObsidian,
+      _launchObsidian: noopLaunch,
+    }, ctx.config);
+    expect(result).toContain('Opened vault in Obsidian');
+  });
+
+  it('should include project focus when index note exists', () => {
     handleStore({
       title: 'Test Note',
       content: 'Test content for project',
@@ -229,27 +235,35 @@ describe('handleOpen', () => {
       project: 'myapp',
     }, ctx.engine, null, ctx.config);
 
-    const result = handleOpen({ project: 'myapp' }, ctx.config, ctx.engine);
-
-    if (detectObsidian().installed) {
-      expect(result).toContain('Focused on project: myapp');
-    } else {
-      expect(result).toContain('Obsidian is not installed');
-    }
+    const result = handleOpen({
+      project: 'myapp',
+      _detectObsidian: fakeObsidian,
+      _launchObsidian: noopLaunch,
+    }, ctx.config, ctx.engine);
+    expect(result).toContain('Focused on project: myapp');
   });
 
   it('should not claim project focus when no index note exists', () => {
-    const result = handleOpen({ project: 'nonexistent' }, ctx.config, ctx.engine);
+    const result = handleOpen({
+      project: 'nonexistent',
+      _detectObsidian: fakeObsidian,
+      _launchObsidian: noopLaunch,
+    }, ctx.config, ctx.engine);
+    expect(result).not.toContain('Focused on project');
+  });
 
-    if (!detectObsidian().installed) {
-      expect(result).toContain('Obsidian is not installed');
-    } else {
-      expect(result).not.toContain('Focused on project');
-    }
+  it('should report launch failure', () => {
+    const failLaunch = () => 'spawn failed';
+    const result = handleOpen({
+      _detectObsidian: fakeObsidian,
+      _launchObsidian: failLaunch,
+    }, ctx.config);
+    expect(result).toContain('Failed to launch Obsidian');
+    expect(result).toContain('spawn failed');
   });
 
   it('should work without repo when no project specified', () => {
-    const result = handleOpen({}, ctx.config);
+    const result = handleOpen({ _detectObsidian: noObsidian }, ctx.config);
     expect(typeof result).toBe('string');
     expect(result.length).toBeGreaterThan(0);
   });
