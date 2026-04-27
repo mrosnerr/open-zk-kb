@@ -190,9 +190,9 @@ function openUri(uri: string, platform?: string): string | null {
       break;
   }
 
+  const abort = new AbortController();
+  const timeout = setTimeout(() => abort.abort(), 5000);
   try {
-    const abort = new AbortController();
-    const timeout = setTimeout(() => abort.abort(), 5000);
     const proc = Bun.spawn([cmd, ...args], {
       stdio: ['ignore', 'ignore', 'ignore'],
       signal: abort.signal,
@@ -201,6 +201,7 @@ function openUri(uri: string, platform?: string): string | null {
     proc.unref();
     return null;
   } catch (error) {
+    clearTimeout(timeout);
     const msg = error instanceof Error ? error.message : String(error);
     logToFile('WARN', 'Failed to open URI', { uri, error: msg });
     return msg;
