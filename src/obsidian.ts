@@ -124,6 +124,43 @@ export function isVaultRegistered(vaultPath: string, platform?: string): boolean
   }
 }
 
+/** Register a vault in Obsidian's obsidian.json so URI scheme works. */
+export function registerVault(vaultPath: string, platform?: string): boolean {
+  const registryPath = getRegistryPath(platform);
+  if (!registryPath) return false;
+
+  try {
+    // Obsidian requires .obsidian/ to recognize a directory as a vault
+    const obsidianDir = path.join(vaultPath, '.obsidian');
+    if (!fs.existsSync(obsidianDir)) {
+      fs.mkdirSync(obsidianDir, { recursive: true });
+    }
+
+    let data: Record<string, unknown>;
+    if (fs.existsSync(registryPath)) {
+      data = JSON.parse(fs.readFileSync(registryPath, 'utf-8'));
+      if (!data.vaults || typeof data.vaults !== 'object') {
+        data.vaults = {};
+      }
+    } else {
+      fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+      data = { vaults: {} };
+    }
+
+    const vaults = data.vaults as Record<string, { path: string; ts: number }>;
+    const id = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    vaults[id] = { path: path.resolve(vaultPath), ts: Date.now() };
+    fs.writeFileSync(registryPath, JSON.stringify(data, null, 2));
+    logToFile('INFO', 'Registered vault in Obsidian', { vaultPath, registryPath });
+    return true;
+  } catch (error) {
+    logToFile('WARN', 'Failed to register vault in Obsidian', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
 // ---- Launch ----
 
 /** Open a URI using the platform's default handler. Returns error message or null. */
@@ -171,49 +208,19 @@ export function launchObsidian(
   const vaultName = path.basename(vaultPath);
   const registered = isVaultRegistered(vaultPath, plat);
 
-  if (registered) {
-    // vault= opens by name; file= navigates within it (path= is for files only, not directories)
-    let uri: string;
-    if (filePath) {
-      uri = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(filePath)}`;
-    } else {
-      uri = `obsidian://open?vault=${encodeURIComponent(vaultName)}`;
-    }
-    logToFile('DEBUG', 'Launching Obsidian via URI scheme', { uri });
-    return openUri(uri, plat);
-  } else if (detection.binaryPath) {
-    logToFile('DEBUG', 'Launching Obsidian binary', {
-      binary: detection.binaryPath,
-      vault: vaultPath,
-    });
-    try {
-      // macOS: `open -a Obsidian /path` reliably opens directory as vault
-      // Other platforms: spawn binary directly
-      if (plat === 'darwin') {
-        const proc = Bun.spawn(['open', '-a', 'Obsidian', vaultPath], {
-          stdio: ['ignore', 'ignore', 'ignore'],
-        });
-        proc.unref();
-      } else {
-        const proc = Bun.spawn([detection.binaryPath, vaultPath], {
-          stdio: ['ignore', 'ignore', 'ignore'],
-        });
-        proc.unref();
-      }
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      logToFile('WARN', 'Failed to spawn Obsidian', { error: msg });
-      return msg;
-    }
-
-    // Best-effort: navigate to file after vault has time to register
-    if (filePath) {
-      const fileUri = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(filePath)}`;
-      setTimeout(() => openUri(fileUri, plat), 2000);
-    }
-    return null;
+  if (!registered) {
+    registerVault(vaultPath, plat);
   }
-  return null;
+
+  // vault= opens by name; file= navigates within it (path= is for files only, not directories)
+  let uri: string;
+  if (filePath) {
+    uri = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(filePath)}`;
+  } else {
+    uri = `obsidian://open?vault=${encodeURIComponent(vaultName)}`;
+  }
+  logToFile('DEBUG', 'Launching Obsidian via URI scheme', { uri });
+  return openUri(uri, plat);
 }
 
 // ---- Message formatting ----
