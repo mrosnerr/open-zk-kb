@@ -1,5 +1,6 @@
 # PR Agent configuration for open-zk-kb
 # Docs: https://www.pr-agent.ai
+# Model config also set via workflow env vars (TOML is read from base branch only)
 
 [config]
 model = "openrouter/deepseek/deepseek-v4-pro"
@@ -7,77 +8,212 @@ fallback_models = ["openrouter/moonshotai/kimi-k2.6"]
 custom_model_max_tokens = 128000
 ai_timeout = 300
 response_language = "en-US"
+patch_extra_lines_before = 8
+patch_extra_lines_after = 3
+allow_dynamic_context = true
 
-# Skip generated and non-code files
-patch_extension_skip_types = [".md", ".txt", ".lock", ".lockb", ".snap", ".gif", ".png", ".jpg", ".svg"]
-
-# Run auto-review on subsequent pushes (synchronize), not just PR open
 [github_action_config]
 pr_actions = ["opened", "reopened", "ready_for_review", "synchronize"]
+
+[ignore]
+glob = [
+    "dist/**",
+    "node_modules/**",
+    "*.lock",
+    "*.lockb",
+    "*.snap",
+    "*.gif",
+    "*.png",
+    "*.jpg",
+    "*.svg",
+    "*.map",
+]
 
 # Skip bot PRs
 ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
 
+# ---------------------------------------------------------------------------
+# Review Tool
+# ---------------------------------------------------------------------------
 [pr_reviewer]
-extra_instructions = """\
-Project: open-zk-kb — persistent AI memory using Zettelkasten method.
-Stack: Bun (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5, MCP SDK.
-
-Key conventions to enforce:
-- Bun APIs only (Bun.file, Bun.write, Bun.serve) — never Node.js equivalents
-- ESM only — no CommonJS (require, module.exports)
-- Factory pattern: classes export createXxx() factories
-- NEVER console.log/warn/error in server code — use logToFile() (MCP stdout must be clean)
-- Server surfaces data with annotations, never returns directives ("you should X")
-- Note IDs are 16-digit timestamps (YYYYMMDDHHmmss00)
-- Dual storage: Markdown files (source of truth) + SQLite index
-
-Focus on:
-1. Type safety — strict TS, avoid any/as any/ts-ignore
-2. SQLite correctness — parameterized queries via Bun SQLite, handle SQLITE_BUSY
-3. MCP protocol compliance — clean stdout, proper error responses
-4. Lifecycle enforcement — snapshot notes can't be updated, append-only can't be rewritten
-"""
-num_max_findings = 5
+persistent_comment = true
+num_max_findings = 8
+require_score_review = true
 require_security_review = true
 require_tests_review = true
 require_estimate_effort_to_review = true
-persistent_comment = true
+require_ticket_analysis_review = false
+enable_review_labels_security = true
+enable_review_labels_effort = true
 
-[pr_description]
 extra_instructions = """\
-Stack: Bun + TypeScript + SQLite FTS5 + MCP SDK.
-Mention affected modules: storage, tool-handlers, mcp-server, config, setup, prompts.
-Use technical language appropriate for a library/SDK project.
-"""
-publish_labels = true
-add_original_user_description = true
-generate_ai_title = false
-use_bullet_points = true
-enable_semantic_files_types = true
+You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
+Stack: Bun 1.x (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5,
+@modelcontextprotocol/sdk. Runtime: Bun. Tests: bun:test.
 
+## Severity Classification (exactly ONE per finding)
+
+[Critical] — Blocks release. Security vulnerability, data loss/corruption, crash in
+production path, resource leak without cleanup, auth bypass, hardcoded secrets,
+MCP stdout pollution (breaks stdio transport).
+
+[Bug] — Must fix before merge. Logic error, behavioral regression, API contract
+violation, race condition, lifecycle enforcement gap (snapshot mutated, append-only
+rewritten), missing error handling on I/O boundary.
+
+[Suggestion] — Recommended improvement. Missing tests, dead code, naming inconsistency,
+poor observability, unclear intent, unrelated changes mixed into PR.
+
+## What to Flag
+- Actual bugs with exact line numbers and variable names
+- Security issues exploitable in production
+- Missing error handling on I/O boundaries (DB, filesystem, fetch)
+- API contract violations (param removal, type changes without defaults)
+- Lifecycle violations: snapshot notes mutated, append-only notes rewritten
+- MCP protocol violations: console.log/warn/error in server code (pollutes stdout)
+- Type safety gaps: `as any`, `@ts-ignore`, `@ts-expect-error`
+
+## What NOT to Flag
+- Theoretical risks without concrete exploitation path
+- Issues in unchanged code outside the diff
+- Style preferences handled by ESLint (import order, trailing commas, formatting)
+- "Consider using library X" suggestions
+- Generic praise or filler statements ("Great job", "Looks good overall")
+- Node.js alternatives — this project uses Bun exclusively
+
+## Rules (WHEN condition → THEN check → BECAUSE rationale)
+
+R1. MCP STDOUT SAFETY
+WHEN code is in src/ (excluding setup.ts and scripts/)
+THEN verify: no console.log, console.warn, console.error — use logToFile() only
+BECAUSE MCP stdio transport requires clean stdout. Any console output breaks
+     the protocol. Real fix: PR #97 added this as a documented anti-pattern.
+
+R2. LIFECYCLE ENFORCEMENT
+WHEN code modifies NoteRepository or tool-handlers
+THEN verify: snapshot notes reject updates, append-only notes reject rewrites,
+     LifecycleViolationError is thrown (not swallowed)
+BECAUSE lifecycle rules are server-enforced invariants (PR #96, schema v6).
+
+R3. STRUCTURAL KIND GUARD
+WHEN code touches handleStore or handleMaintain
+THEN verify: STRUCTURAL_KINDS (index, log) skip navigation hooks to prevent
+     infinite loops. Auto-generated notes cannot be manually created.
+BECAUSE PR #99 introduced navigation hooks — missing guards cause infinite recursion.
+
+R4. DUAL STORAGE CONSISTENCY
+WHEN code modifies note content or metadata
+THEN verify: both filesystem (.md) and SQLite index are updated. Filesystem is
+     source of truth — DB is rebuilt from files via rebuildFromFiles().
+BECAUSE split-brain between file and DB causes silent data inconsistency.
+
+R5. CONFIG FILE SAFETY
+WHEN code modifies .toml, .yaml, or .json configuration files
+THEN verify: no TOML section shadowing (new [section] captures subsequent keys),
+     no type mismatches, all new config keys have sensible defaults in config.ts
+BECAUSE TOML section scoping is silent — misplaced keys end up in wrong sections.
+     Real bug: Cubic caught this on PR #100.
+
+R6. GITHUB ACTIONS SECURITY
+WHEN code modifies .github/workflows/*.yml
+THEN verify: actions pinned to SHA (not tags), secrets not exposed to forks,
+     minimal permissions, no pull_request_target without careful checkout handling
+BECAUSE public repo workflows are attack surface for secret exfiltration.
+
+R7. OWNERSHIP MODEL COMPLIANCE
+WHEN a PR adds server-side behavior
+THEN verify: server returns data with annotations (not directives), no auto-modify
+     of stored content beyond what caller requested, no skill instructions asking
+     agents to replicate server computation
+BECAUSE ownership policy (#93) — "server computes, agent judges."
+
+## File-Type-Specific Checks
+
+TOML files: Verify section scoping, check that keys land in intended section.
+YAML files: Check for hardcoded secrets, overly permissive permissions, unpinned actions.
+Markdown files (.md): This repo treats .md as first-class policy content (AGENTS.md,
+     architecture.md). Review for accuracy, consistency with code, and stale references.
+Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTestHarness(),
+     no .skip without justification.
+"""
+
+# ---------------------------------------------------------------------------
+# Code Suggestions Tool
+# ---------------------------------------------------------------------------
 [pr_code_suggestions]
-extra_instructions = """\
-Focus on: type safety, SQLite query correctness, MCP protocol compliance, Bun API usage.
-Ignore: import ordering, trailing commas, minor formatting.
-Do NOT suggest adding comments to code that is already clear.
-Do NOT suggest Node.js APIs — this project uses Bun exclusively.
-"""
 focus_only_on_problems = true
 suggestions_score_threshold = 5
-num_code_suggestions_per_chunk = 3
+num_code_suggestions_per_chunk = 4
 commitable_code_suggestions = false
+auto_extended_mode = true
+max_number_of_calls = 3
+parallel_calls = true
 
+extra_instructions = """\
+Focus suggestions on these open-zk-kb-specific anti-patterns:
+
+1. CONSOLE IN SERVER: Replace console.log/warn/error with logToFile() from
+   src/logger.ts. MCP stdio requires clean stdout. Exception: src/setup.ts
+   and scripts/ (CLI output is fine).
+
+2. TYPE SAFETY: Flag `as any`, `@ts-ignore`, `@ts-expect-error`. Suggest
+   proper types or generics instead.
+
+3. MISSING TIMEOUT: Any fetch(), database query, or external service call
+   without an explicit timeout is a bug.
+
+4. RESOURCE LEAK: Ensure context managers are used for file handles and
+   database connections. Flag bare resource acquisition without cleanup.
+
+5. FTS5 TRIGGER: Never add SQLite FTS5 triggers. Manual FTS management
+   (ftsInsert/ftsDelete/ftsUpdate) is intentional for TEXT primary key reliability.
+
+6. NODE.JS API: Flag any Node.js API usage (fs, path, crypto, http).
+   This project uses Bun APIs exclusively (Bun.file, Bun.write, etc.).
+
+7. LIFECYCLE VIOLATION: Flag any code that mutates snapshot notes or
+   overwrites append-only note content without using appendToLogContent().
+
+Do NOT suggest:
+- Import reordering or formatting changes (ESLint handles this)
+- Adding comments to self-explanatory code
+- Node.js alternatives to Bun APIs
+"""
+
+# ---------------------------------------------------------------------------
+# Description Tool
+# ---------------------------------------------------------------------------
+[pr_description]
+generate_ai_title = false
+use_bullet_points = true
+add_original_user_description = true
+enable_semantic_files_types = true
+publish_labels = true
+
+extra_instructions = """\
+Structure the description to include:
+- **Modules affected**: storage, tool-handlers, mcp-server, config, setup, prompts, docs
+- **Backward compatibility**: whether existing APIs, config keys, or note formats changed
+- **Ownership boundary**: which layer owns this change (server/agent/behavioral guidance)
+Use technical language appropriate for a library/SDK project.
+"""
+
+# ---------------------------------------------------------------------------
+# Best Practices
+# ---------------------------------------------------------------------------
 [best_practices]
 content = """\
-- Use factory pattern: export createXxx() instead of exporting class directly
-- Never use console.log in server code — MCP requires clean stdout
-- SQLite: always use parameterized queries, handle SQLITE_BUSY with retries
+- Factory pattern: export createXxx() instead of exporting class directly
+- Never console.log in server code — MCP requires clean stdout; use logToFile()
+- SQLite: parameterized queries only, handle SQLITE_BUSY with retries
 - Dual storage: Markdown files are source of truth, DB is index only
-- Note lifecycle: fleeting -> permanent -> archived (enforce transitions)
-- Snapshot notes are immutable after creation
-- Append-only notes (index, log) can only have content appended
+- Note status transitions: fleeting -> permanent -> archived
+- Note lifecycle values: living (mutable) | snapshot (immutable) | append-only (additive)
+- Snapshot notes are immutable after creation — reject updates with LifecycleViolationError
+- Append-only notes (index, log) require new content to strictly extend existing content
+- STRUCTURAL_KINDS (index, log) are auto-generated — block manual creation in handleStore
 - XDG paths for all storage: vault, config, logs
-- Tests use bun:test (describe/it/expect)
+- Tests use bun:test with createTestHarness()/cleanupTestHarness()
 - Commits: capitalized imperative, no prefix, no trailing period
+- Ownership: server surfaces data with annotations, never returns directives
 """
