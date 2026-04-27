@@ -11,6 +11,7 @@ response_language = "en-US"
 patch_extra_lines_before = 8
 patch_extra_lines_after = 3
 allow_dynamic_context = true
+ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
 
 [github_action_config]
 pr_actions = ["opened", "reopened", "ready_for_review", "synchronize"]
@@ -28,9 +29,6 @@ glob = [
     "*.svg",
     "*.map",
 ]
-
-# Skip bot PRs
-ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
 
 # ---------------------------------------------------------------------------
 # Review Tool

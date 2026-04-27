@@ -114,7 +114,7 @@ For any new feature, ask in order:
 3. **NEVER** use FTS5 triggers — manually managed for TEXT primary key reliability
 4. **NEVER** call `removeVault` without `confirm: true` — irreversible deletion
 5. **NEVER** auto-modify stored content beyond what the caller explicitly requested — server surfaces data, agent decides actions
-6. **NEVER** return directives in tool responses ("you should X") — return data with annotations, let the agent judge
+6. **NEVER** return directives in tool responses ("you should X") — return data with annotations, let the agent judge (target-state: existing handler output is being migrated, see [#93 violations](https://github.com/mrosnerr/open-zk-kb/issues/93))
 7. **NEVER** add skill instructions that ask the agent to compute what the server already computes — if the server has the data, surface it in the response
 
 ## Conventions
