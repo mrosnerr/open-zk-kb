@@ -10,9 +10,9 @@ import {
   formatSuccessMessage,
 } from '../src/obsidian.js';
 import { handleOpen } from '../src/tool-handlers.js';
+import { handleStore } from '../src/tool-handlers.js';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
-import { getConfig } from '../src/config.js';
 
 describe('Obsidian Detection', () => {
   it('should return installed=false for unknown platforms', () => {
@@ -69,10 +69,9 @@ describe('Vault Registry', () => {
     const vaultDir = path.join(tempDir, 'test-vault');
     fs.mkdirSync(vaultDir);
 
-    const registryDir = path.join(tempDir, 'obsidian-config');
-    fs.mkdirSync(registryDir, { recursive: true });
-    const registryFile = path.join(registryDir, 'obsidian.json');
-    fs.writeFileSync(registryFile, JSON.stringify({
+    const configDir = path.join(tempDir, '.config', 'obsidian');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'obsidian.json'), JSON.stringify({
       vaults: {
         'abc123': { path: vaultDir, ts: Date.now() },
       },
@@ -80,15 +79,13 @@ describe('Vault Registry', () => {
 
     const origHome = process.env.HOME;
     process.env.HOME = tempDir;
-    const origGetRegistryPath = getRegistryPath;
 
-    const registered = isVaultRegistered(vaultDir, 'linux');
-
-    process.env.HOME = origHome;
-    fs.rmSync(tempDir, { recursive: true, force: true });
-
-    if (fs.existsSync(path.join(tempDir, '.config', 'obsidian', 'obsidian.json'))) {
+    try {
+      const registered = isVaultRegistered(vaultDir, 'linux');
       expect(registered).toBe(true);
+    } finally {
+      process.env.HOME = origHome;
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 
@@ -107,11 +104,14 @@ describe('Vault Registry', () => {
 
     const origHome = process.env.HOME;
     process.env.HOME = tempDir;
-    const result = isVaultRegistered(vaultDir, 'linux');
-    process.env.HOME = origHome;
-    fs.rmSync(tempDir, { recursive: true, force: true });
 
-    expect(result).toBe(false);
+    try {
+      const result = isVaultRegistered(vaultDir, 'linux');
+      expect(result).toBe(false);
+    } finally {
+      process.env.HOME = origHome;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('should handle malformed registry gracefully', () => {
@@ -122,11 +122,14 @@ describe('Vault Registry', () => {
 
     const origHome = process.env.HOME;
     process.env.HOME = tempDir;
-    const result = isVaultRegistered('/any/vault', 'linux');
-    process.env.HOME = origHome;
-    fs.rmSync(tempDir, { recursive: true, force: true });
 
-    expect(result).toBe(false);
+    try {
+      const result = isVaultRegistered('/any/vault', 'linux');
+      expect(result).toBe(false);
+    } finally {
+      process.env.HOME = origHome;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   it('should handle registry with no vaults key', () => {
@@ -137,11 +140,30 @@ describe('Vault Registry', () => {
 
     const origHome = process.env.HOME;
     process.env.HOME = tempDir;
-    const result = isVaultRegistered('/any/vault', 'linux');
-    process.env.HOME = origHome;
-    fs.rmSync(tempDir, { recursive: true, force: true });
 
-    expect(result).toBe(false);
+    try {
+      const result = isVaultRegistered('/any/vault', 'linux');
+      expect(result).toBe(false);
+    } finally {
+      process.env.HOME = origHome;
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it('should return null for macOS registry when HOME is empty', () => {
+    const origHome = process.env.HOME;
+    process.env.HOME = '';
+    const result = getRegistryPath('darwin');
+    process.env.HOME = origHome;
+    expect(result).toBeNull();
+  });
+
+  it('should return null for linux registry when HOME is empty', () => {
+    const origHome = process.env.HOME;
+    process.env.HOME = '';
+    const result = getRegistryPath('linux');
+    process.env.HOME = origHome;
+    expect(result).toBeNull();
   });
 });
 
@@ -198,14 +220,14 @@ describe('handleOpen', () => {
   });
 
   it('should handle project parameter with index note', () => {
-    ctx.engine.store('Test content', {
+    handleStore({
       title: 'Test Note',
+      content: 'Test content for project',
       kind: 'reference',
-      status: 'permanent',
-      tags: ['project:myapp'],
       summary: 'A test note',
       guidance: 'Test guidance',
-    });
+      project: 'myapp',
+    }, ctx.engine, null, ctx.config);
 
     const result = handleOpen({ project: 'myapp' }, ctx.config, ctx.engine);
 
@@ -213,6 +235,16 @@ describe('handleOpen', () => {
       expect(result).toContain('Focused on project: myapp');
     } else {
       expect(result).toContain('Obsidian is not installed');
+    }
+  });
+
+  it('should not claim project focus when no index note exists', () => {
+    const result = handleOpen({ project: 'nonexistent' }, ctx.config, ctx.engine);
+
+    if (!detectObsidian().installed) {
+      expect(result).toContain('Obsidian is not installed');
+    } else {
+      expect(result).not.toContain('Focused on project');
     }
   });
 

@@ -289,7 +289,7 @@ server.registerTool(
     try {
       const result = handleOpen({
         project: args.project,
-      }, config, getOrCreateRepo());
+      }, config, args.project ? getOrCreateRepo() : repo ?? undefined);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-open failed', {

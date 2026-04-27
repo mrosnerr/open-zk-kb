@@ -1160,14 +1160,19 @@ export function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteReposit
   }
 
   let filePath: string | undefined;
+  let resolvedProject: string | undefined;
   if (args.project && repo) {
     const indexNote = repo.getIndexNote(args.project);
     if (indexNote?.path) {
       const noteFilename = path.basename(indexNote.path);
       filePath = noteFilename.replace(/\.md$/, '');
+      resolvedProject = args.project;
     }
   }
 
-  launchObsidian(detection, vaultPath, filePath);
-  return formatSuccessMessage(vaultPath, args.project);
+  const error = launchObsidian(detection, vaultPath, filePath);
+  if (error) {
+    return `Failed to launch Obsidian: ${error}`;
+  }
+  return formatSuccessMessage(vaultPath, resolvedProject);
 }

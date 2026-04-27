@@ -17,21 +17,27 @@ export interface ObsidianDetection {
 // ---- Platform detection ----
 
 function detectMacOS(): ObsidianDetection {
-  const appPath = '/Applications/Obsidian.app';
-  if (fs.existsSync(appPath)) {
-    return { installed: true, binaryPath: `${appPath}/Contents/MacOS/Obsidian` };
+  const candidates = [
+    '/Applications/Obsidian.app',
+    path.join(process.env.HOME || '', 'Applications/Obsidian.app'),
+  ];
+  for (const appPath of candidates) {
+    if (appPath && fs.existsSync(appPath)) {
+      return { installed: true, binaryPath: `${appPath}/Contents/MacOS/Obsidian` };
+    }
   }
   return { installed: false };
 }
 
 function detectLinux(): ObsidianDetection {
+  const home = process.env.HOME || '';
   const candidates = [
     '/usr/bin/obsidian',
     '/snap/bin/obsidian',
-    path.join(process.env.HOME || '', '.local/bin/obsidian'),
+    ...(home ? [path.join(home, '.local/bin/obsidian')] : []),
   ];
   for (const p of candidates) {
-    if (p && fs.existsSync(p)) {
+    if (fs.existsSync(p)) {
       return { installed: true, binaryPath: p };
     }
   }
@@ -68,9 +74,9 @@ export function getRegistryPath(platform?: string): string | null {
   const home = process.env.HOME || '';
   switch (plat) {
     case 'darwin':
-      return path.join(home, 'Library', 'Application Support', 'obsidian', 'obsidian.json');
+      return home ? path.join(home, 'Library', 'Application Support', 'obsidian', 'obsidian.json') : null;
     case 'linux':
-      return path.join(home, '.config', 'obsidian', 'obsidian.json');
+      return home ? path.join(home, '.config', 'obsidian', 'obsidian.json') : null;
     case 'win32': {
       const appData = process.env.APPDATA || '';
       return appData ? path.join(appData, 'obsidian', 'obsidian.json') : null;
@@ -119,8 +125,8 @@ export function isVaultRegistered(vaultPath: string, platform?: string): boolean
 
 // ---- Launch ----
 
-/** Open a URI using the platform's default handler (open/xdg-open/start). */
-function openUri(uri: string, platform?: string): void {
+/** Open a URI using the platform's default handler. Returns error message or null. */
+function openUri(uri: string, platform?: string): string | null {
   const plat = platform || process.platform;
 
   let cmd: string;
@@ -145,20 +151,21 @@ function openUri(uri: string, platform?: string): void {
       stdio: ['ignore', 'ignore', 'ignore'],
     });
     proc.unref();
+    return null;
   } catch (error) {
-    logToFile('WARN', 'Failed to open URI', {
-      uri, error: error instanceof Error ? error.message : String(error),
-    });
+    const msg = error instanceof Error ? error.message : String(error);
+    logToFile('WARN', 'Failed to open URI', { uri, error: msg });
+    return msg;
   }
 }
 
-/** Launch Obsidian: URI scheme (vault=) if registered, binary spawn otherwise. */
+/** Launch Obsidian: URI scheme (vault=) if registered, binary spawn otherwise. Returns error or null. */
 export function launchObsidian(
   detection: ObsidianDetection,
   vaultPath: string,
   filePath?: string,
   platform?: string,
-): void {
+): string | null {
   const plat = platform || process.platform;
   const vaultName = path.basename(vaultPath);
   const registered = isVaultRegistered(vaultPath, plat);
@@ -172,7 +179,7 @@ export function launchObsidian(
       uri = `obsidian://open?vault=${encodeURIComponent(vaultName)}`;
     }
     logToFile('DEBUG', 'Launching Obsidian via URI scheme', { uri });
-    openUri(uri, plat);
+    return openUri(uri, plat);
   } else if (detection.binaryPath) {
     logToFile('DEBUG', 'Launching Obsidian binary', {
       binary: detection.binaryPath,
@@ -193,9 +200,9 @@ export function launchObsidian(
         proc.unref();
       }
     } catch (error) {
-      logToFile('WARN', 'Failed to spawn Obsidian', {
-        error: error instanceof Error ? error.message : String(error),
-      });
+      const msg = error instanceof Error ? error.message : String(error);
+      logToFile('WARN', 'Failed to spawn Obsidian', { error: msg });
+      return msg;
     }
 
     // Best-effort: navigate to file after vault has time to register
@@ -203,7 +210,9 @@ export function launchObsidian(
       const fileUri = `obsidian://open?vault=${encodeURIComponent(vaultName)}&file=${encodeURIComponent(filePath)}`;
       setTimeout(() => openUri(fileUri, plat), 2000);
     }
+    return null;
   }
+  return null;
 }
 
 // ---- Message formatting ----

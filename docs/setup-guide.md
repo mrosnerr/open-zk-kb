@@ -67,6 +67,7 @@ bun run setup install --client opencode
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML
    - `knowledge-overview` -- project entry point with auto-generated index and recent log
+   - `knowledge-open` -- open the vault in Obsidian for visual browsing
 
 ## Agent Instructions
 
