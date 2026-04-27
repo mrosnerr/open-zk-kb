@@ -191,8 +191,12 @@ function openUri(uri: string, platform?: string): string | null {
   }
 
   try {
+    const abort = new AbortController();
+    const timeout = setTimeout(() => abort.abort(), 5000);
     const proc = Bun.spawn([cmd, ...args], {
       stdio: ['ignore', 'ignore', 'ignore'],
+      signal: abort.signal,
+      onExit: () => clearTimeout(timeout),
     });
     proc.unref();
     return null;
