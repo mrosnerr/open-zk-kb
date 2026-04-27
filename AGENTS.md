@@ -79,6 +79,32 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 | `installSkill` | function | `setup.ts` | Copies skill files to `~/.claude/skills/open-zk-kb/` |
 | `CLIENT_CONFIGS` | const | `setup.ts` | Maps client → config paths, MCP format, skill/agentDocs paths |
 
+## Ownership Model
+
+> **Server computes, agent judges.** The MCP server owns anything computable from data it already has. The agent owns anything requiring judgment, intent, or task context. Behavioral guidance (skills, AGENTS.md) bridges the gap. Full policy: [#93](https://github.com/mrosnerr/open-zk-kb/issues/93).
+
+### Layer Responsibilities
+
+| Layer | Owns | Examples |
+|-------|------|----------|
+| **Server** | Storage, indexing, computation, validation | CRUD, FTS5, embeddings, lifecycle enforcement, dedup detection |
+| **Behavioral Guidance** | When to call, how to interpret, quality standards | Storage triggers, kind selection, response interpretation |
+| **Agent** | All decisions about intent, relevance, content | What to store, which suggestions to act on, link creation |
+
+### Boundaries
+
+- ✅ **Always**: Surface computed data in tool responses (similarity scores, dedup warnings, staleness metrics). Return data with annotations, not directives. Let the agent decide what to act on.
+- ⚠️ **Ask first**: Adding server-side automation that fires without explicit agent request. Behavioral guidance is advisory ("a request, not a guarantee") — deterministic enforcement requires hooks/plugins.
+- 🚫 **Never**: Auto-modify stored content beyond what the caller requested. Return directives ("you should X") in tool responses. Add skill instructions asking agents to replicate server computation. Gate tool behavior on missing optional parameters.
+
+### Decision Framework
+
+For any new feature, ask in order:
+1. Computable from existing DB data? → **Server** owns it (surface in response)
+2. Requires understanding intent or context? → **Agent** owns it (skill guides when/how)
+3. Requires runtime state MCP can't access? → **Plugin** owns it (calls MCP tools)
+4. Guides agent behavior across sessions? → **Behavioral guidance** owns it
+
 ## Anti-Patterns (This Project)
 
 1. **NEVER** use `console.log()`, `console.warn()`, `console.error()` in server code
@@ -87,6 +113,9 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 2. **NEVER** skip rebuild after source changes — `dist/` is what actually runs
 3. **NEVER** use FTS5 triggers — manually managed for TEXT primary key reliability
 4. **NEVER** call `removeVault` without `confirm: true` — irreversible deletion
+5. **NEVER** auto-modify stored content beyond what the caller explicitly requested — server surfaces data, agent decides actions
+6. **NEVER** return directives in tool responses ("you should X") — return data with annotations, let the agent judge (target-state: existing handler output is being migrated, see [#93 violations](https://github.com/mrosnerr/open-zk-kb/issues/93))
+7. **NEVER** add skill instructions that ask the agent to compute what the server already computes — if the server has the data, surface it in the response
 
 ## Conventions
 
@@ -101,6 +130,9 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 - **ESM only**: `"type": "module"` — no CommonJS
 - **Strict TS**: `strict: true`, ES2022 target, NodeNext resolution
 - **Commit messages**: Capitalized imperative, no prefix, no trailing period (e.g. `Add feature`, `Fix bug`, `Update docs`)
+- **Server surfaces, agent acts**: Every computed insight (similarity, dedup, staleness) appears in the tool response. The agent decides what to do with it.
+- **Hints, not directives**: Server responses include computed metrics (word count, similarity score, staleness days). Never phrased as recommendations.
+- **Behavioral guidance is advisory**: Instructions are "a request, not a guarantee" ([Anthropic](https://docs.anthropic.com/en/docs/claude-code/features-overview)). Deterministic enforcement requires hooks/plugins.
 
 ## Commands
 

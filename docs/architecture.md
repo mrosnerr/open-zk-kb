@@ -18,7 +18,7 @@ Knowledge capture is driven by the calling agent's instructions (e.g., a Claude 
 ┌──────────▼──────────┐
 │   MCP Server        │
 │   (mcp-server.ts)   │
-│   - 4 tool handlers │
+│   - 5 tool handlers │
 │   - stdio transport │
 └──────────┬──────────┘
            │
@@ -29,6 +29,7 @@ Knowledge capture is driven by the calling agent's instructions (e.g., a Claude 
 │   handleSearch()    │
 │   handleMaintain()  │
 │   handleIngest()    │
+│   handleOverview()  │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
@@ -62,7 +63,7 @@ The system employs a hybrid storage strategy to balance portability with perform
 The MCP server provides a reactive interface to the knowledge base:
 
 * **Transport**: Uses `@modelcontextprotocol/sdk` with stdio transport.
-* **Tools**: Registers four core tools: `knowledge-store`, `knowledge-search`, `knowledge-maintain`, and `knowledge-ingest`.
+* **Tools**: Registers five core tools: `knowledge-store`, `knowledge-search`, `knowledge-maintain`, `knowledge-ingest`, and `knowledge-overview`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).
     * **Model**: `Xenova/all-MiniLM-L6-v2` (quantized q8, ~23MB).
@@ -105,6 +106,7 @@ The SQLite schema is versioned and managed programmatically:
 3. **Bun Runtime**: Chosen for its built-in SQLite support (eliminating native compilation issues) and high-performance test runner.
 4. **Wiki-links**: Adopts the Obsidian-compatible `[[slug|display]]` format to ensure interoperability with popular personal knowledge management tools.
 5. **Agent-Driven Capture**: Eliminates complex heuristic-based auto-capture in favor of explicit tool use by the calling model, guided by system instructions.
+6. **Ownership Model ("Server Computes, Agent Judges")**: The server handles storage, indexing, computation, and validation. The calling agent handles all decisions about intent, relevance, and action. Behavioral guidance (skills, AGENTS.md instructions) bridges the gap by teaching the agent when and how to use server capabilities. See [#93](https://github.com/mrosnerr/open-zk-kb/issues/93) for the full policy.
 
 ---
 For implementation details, see [src/AGENTS.md](../src/AGENTS.md) and [tests/AGENTS.md](../tests/AGENTS.md).

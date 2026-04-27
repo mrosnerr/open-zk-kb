@@ -8,10 +8,12 @@ TypeScript source for the MCP server (`mcp-server.ts`), with core logic in `tool
 
 ```
 src/
-├── mcp-server.ts          # MCP stdio server — 4 tools via @modelcontextprotocol/sdk
-├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleMaintain, handleIngest
+├── mcp-server.ts          # MCP stdio server — 5 tools via @modelcontextprotocol/sdk
+├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleMaintain, handleIngest, handleOverview
 ├── storage/
-│   └── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
+│   ├── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
+│   ├── IndexBuilder.ts    # Auto-generates per-project index notes
+│   └── LogAppender.ts     # Auto-appends to per-project log notes
 ├── utils/
 │   ├── path.ts             # ~ expansion, XDG path resolution
 │   ├── wikilink.ts         # [[slug|display]] parsing, Obsidian-compatible
@@ -31,7 +33,7 @@ src/
 ```
 Client request → mcp-server.ts
                         ↓
-               tool-handlers.ts (handleStore/Search/Maintain/Ingest)
+               tool-handlers.ts (handleStore/Search/Maintain/Ingest/Overview)
                         ↓
                NoteRepository.store/search/getStats/...
                     ↓              ↓
