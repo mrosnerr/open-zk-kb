@@ -14,6 +14,7 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 │   ├── storage/            # NoteRepository — SQLite+FTS5+filesystem
 │   │   ├── IndexBuilder.ts # Auto-generates per-project index notes
 │   │   └── LogAppender.ts  # Auto-appends to per-project log notes
+│   ├── obsidian.ts         # Obsidian detection, vault registry, launch
 │   └── utils/              # Path resolution, wikilink parsing
 ├── skills/                # Skill templates for Claude Code
 │   └── open-zk-kb/        # Copied to ~/.claude/skills/open-zk-kb/ on install
@@ -58,6 +59,9 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
 | `handleMaintain` | function | `tool-handlers.ts` | knowledge-maintain implementation |
 | `handleIngest` | function | `tool-handlers.ts` | knowledge-ingest implementation |
 | `handleOverview` | function | `tool-handlers.ts` | knowledge-overview implementation |
+| `handleOpen` | function | `tool-handlers.ts` | knowledge-open implementation |
+| `detectObsidian` | function | `obsidian.ts` | Platform-specific Obsidian installation detection |
+| `launchObsidian` | function | `obsidian.ts` | URI scheme or binary spawn to open vault |
 | `NoteMetadata` | interface | `storage/NoteRepository.ts` | Domain model for notes |
 | `NoteKind` | type | `types.ts` | 9 kinds: personalization, reference, decision, procedure, resource, observation, domain, index, log |
 | `NavigationConfig` | interface | `types.ts` | Config shape for navigation: enableProjectIndex, enableProjectLog, overviewLogEntryLimit |
@@ -156,5 +160,5 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 - **Knowledge capture**: Claude Code uses skills (`~/.claude/skills/open-zk-kb/`); other clients use injected `AGENTS.md` instructions. Calling models use `knowledge-store` directly.
 - **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
-- **5 MCP tools**: knowledge-store, knowledge-search, knowledge-maintain, knowledge-ingest, knowledge-overview
+- **6 MCP tools**: knowledge-store, knowledge-search, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open
 - **Auto-generated notes**: `index` (per-project catalog, wikilinks grouped by kind) and `log` (per-project append-only event log) are auto-generated on project-scoped events. Agents cannot create them manually.

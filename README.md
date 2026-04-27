@@ -43,7 +43,7 @@ Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Ze
 
 ## How It Works
 
-Your AI assistant gets five MCP tools:
+Your AI assistant gets six MCP tools:
 
 | Tool | What it does |
 |------|-------------|
@@ -52,6 +52,7 @@ Your AI assistant gets five MCP tools:
 | `knowledge-maintain` | Review, promote, archive, and rebuild notes |
 | `knowledge-ingest` | Extract article content from URLs or HTML into structured markdown |
 | `knowledge-overview` | Get a project overview with auto-generated index and recent log |
+| `knowledge-open` | Open the vault in Obsidian for visual browsing and graph view |
 
 The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
 

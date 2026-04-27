@@ -19,6 +19,7 @@ tests/
 ├── config.test.ts         # Config loading: defaults, YAML override, partial, malformed
 ├── schema.test.ts         # DB schema: fresh creation, migrations v1→v6
 ├── setup.test.ts          # CLI installer: install, uninstall, skill + instruction injection
+├── obsidian.test.ts       # Obsidian detection, vault registry, launch, handleOpen
 ├── knowledge-quality-assessment.test.ts  # Content quality scoring
 ├── injection-quality-test.ts  # Agent self-search quality via MCP
 ├── docker/                # Docker-based integration tests

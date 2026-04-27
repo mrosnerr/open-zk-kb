@@ -35,7 +35,7 @@ For rapid iteration:
 ```
 src/
 ├── mcp-server.ts       # MCP server entry point (stdio transport)
-├── tool-handlers.ts    # Shared logic for all 5 tools
+├── tool-handlers.ts    # Shared logic for all 6 tools
 ├── storage/
 │   ├── NoteRepository.ts  # Core CRUD, FTS5, link tracking
 │   ├── IndexBuilder.ts    # Auto-generates per-project index notes
