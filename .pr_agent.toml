@@ -40,10 +40,10 @@ num_max_findings = 8
 require_score_review = true
 require_security_review = true
 require_tests_review = true
-require_estimate_effort_to_review = true
+require_estimate_effort_to_review = false
 require_ticket_analysis_review = false
 enable_review_labels_security = true
-enable_review_labels_effort = true
+enable_review_labels_effort = false
 publish_output_no_suggestions = false
 
 extra_instructions = """\
@@ -64,6 +64,61 @@ previous feedback correctly, acknowledge resolution and approve.
 
 CONVERGE TO APPROVAL: After 1-2 rounds of feedback, the review should either approve
 or clearly state the remaining blocking items. Do not keep finding new nits indefinitely.
+
+## Output Format (MANDATORY — follow this structure exactly)
+
+### 1. Verdict (first line, bold)
+
+**✅ Approved** or **⚠️ Needs Work (N blockers)**
+
+One sentence explaining why.
+
+### 2. Quality Scorecard (table, always present)
+
+| Metric | Grade | Notes |
+|--------|-------|-------|
+| **Scope** | A-F | Does the PR do what the issue/description says? Missing pieces? Out-of-scope changes? |
+| **Code Quality** | A-F | Bugs, error handling, type safety, patterns match codebase conventions? |
+| **Testing** | A-F | Test coverage for new code, edge cases, mocks where needed, no side effects in tests? |
+| **Security** | A-F or N/A | Secrets, injection, auth, MCP stdout safety? |
+
+Grades: A = excellent, B = good (minor gaps), C = adequate, D = significant gaps, F = failing.
+One-line "Notes" per row — not paragraphs.
+
+### 3. Findings (if any)
+
+Group by priority. Use headers + bullet points — NO paragraphs.
+
+#### 🔴 Must Fix
+- **[Title]** — `file.ts:N` — one-line description
+
+#### 🟡 Should Fix
+- **[Title]** — `file.ts:N` — one-line description
+
+#### ⚪ Nits (max 2)
+- **[Title]** — `file.ts:N` — one-line description
+
+If suggesting a fix, include a minimal code diff under the bullet.
+If no findings in a tier, omit that header entirely.
+
+### 4. Focus Areas (concise)
+
+Bullet list of 1-3 areas worth a human reviewer's attention. One line each.
+- `src/obsidian.ts` — Platform detection edge cases
+- `tests/obsidian.test.ts` — Test isolation (side effects)
+
+Do NOT write paragraphs here. Headers and line items only.
+
+### 5. Review Log (persists across rounds)
+
+| Round | Commit | Findings | Verdict |
+|-------|--------|----------|---------|
+| 1 | `abc1234` | 3 (1 🔴, 2 🟡) | Needs Work |
+| 2 | `def5678` | 1 new, 2 resolved | Approved |
+
+This log MUST persist and accumulate — never delete previous entries.
+
+---
 
 ## Priority Tiers (exactly ONE per finding)
 
@@ -116,13 +171,13 @@ THEN verify: STRUCTURAL_KINDS (index, log) skip navigation hooks to prevent
      infinite loops. Auto-generated notes cannot be manually created.
 BECAUSE PR #99 introduced navigation hooks — missing guards cause infinite recursion.
 
-R4. DUAL STORAGE CONSISTENCY
+R4. DUAL STORAGE SYNC
 WHEN code modifies note content or metadata
 THEN verify: both filesystem (.md) and SQLite index are updated. Filesystem is
      source of truth — DB is rebuilt from files via rebuildFromFiles().
 BECAUSE split-brain between file and DB causes silent data inconsistency.
 
-R5. CONFIG FILE SAFETY
+R5. CONFIG INTEGRITY
 WHEN code modifies .toml, .yaml, or .json configuration files
 THEN verify: no TOML section shadowing (new [section] captures subsequent keys),
      no type mismatches, all new config keys have sensible defaults in config.ts
@@ -142,35 +197,14 @@ THEN verify: server returns data with annotations (not directives), no auto-modi
      agents to replicate server computation
 BECAUSE ownership policy (#93) — "server computes, agent judges."
 
-## File-Type-Specific Checks
+## Filetype-Specific Checks
 
 TOML files: Verify section scoping, check that keys land in intended section.
 YAML files: Check for hardcoded secrets, overly permissive permissions, unpinned actions.
 Markdown files (.md): This repo treats .md as first-class policy content (AGENTS.md,
      architecture.md). Review for accuracy, consistency with code, and stale references.
 Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTestHarness(),
-     no .skip without justification.
-
-## Output Format
-
-Start with a one-line summary: "**N issues found** across N files" or "**No issues found** across N files."
-
-For each finding, use this format:
-🔴/🟡/⚪ **[Title]** — one-line summary
-File: `path/to/file.ts` line N
-[Explanation with specific variable/function names]
-[If suggesting a fix, include a minimal code diff]
-
-Group findings by priority — all 🔴 first, then 🟡, then ⚪ (max 2 nits).
-If no 🔴 findings: state "No blocking issues. Approve with optional fixes below."
-
-End with a review log section:
-## Review Log
-| Round | Commit | Findings | Status |
-Round 1: [short SHA] — N findings (X 🔴, Y 🟡, Z ⚪)
-Round 2: [short SHA] — N new, M resolved, [remaining blockers or "ready to merge"]
-
-This log must persist and accumulate across rounds — never delete previous entries.
+     no .skip without justification, no real side effects (mock OS interactions).
 """
 
 # ---------------------------------------------------------------------------
