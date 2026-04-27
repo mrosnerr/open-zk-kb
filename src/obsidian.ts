@@ -152,9 +152,11 @@ export function registerVault(vaultPath: string, platform?: string): boolean {
     const alreadyRegistered = Object.values(vaults).some(v => v.path === resolvedPath);
     if (alreadyRegistered) return true;
 
-    const id = Array.from({ length: 16 }, () => Math.floor(Math.random() * 16).toString(16)).join('');
+    const id = crypto.randomUUID().replace(/-/g, '').slice(0, 16);
     vaults[id] = { path: resolvedPath, ts: Date.now() };
-    fs.writeFileSync(registryPath, JSON.stringify(data, null, 2));
+    const tmpPath = registryPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2));
+    fs.renameSync(tmpPath, registryPath);
     logToFile('INFO', 'Registered vault in Obsidian', { vaultPath, registryPath });
     return true;
   } catch (error) {
@@ -180,7 +182,7 @@ function openUri(uri: string, platform?: string): string | null {
       break;
     case 'win32':
       cmd = 'cmd';
-      args = ['/c', 'start', '', uri];
+      args = ['/c', 'start', '', `"${uri}"`];
       break;
     default: // linux and others
       cmd = 'xdg-open';
@@ -213,7 +215,9 @@ export function launchObsidian(
   const registered = isVaultRegistered(vaultPath, plat);
 
   if (!registered) {
-    registerVault(vaultPath, plat);
+    if (!registerVault(vaultPath, plat)) {
+      return 'Failed to register vault in Obsidian — check vault path and permissions';
+    }
   }
 
   // vault= opens by name; file= navigates within it (path= is for files only, not directories)
