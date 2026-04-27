@@ -37,6 +37,7 @@ glob = [
 persistent_comment = true
 final_update_message = true
 num_max_findings = 8
+inline_code_comments = true
 require_score_review = true
 require_security_review = true
 require_tests_review = true
@@ -67,6 +68,8 @@ or clearly state the remaining blocking items. Do not keep finding new nits inde
 
 ## Output Format (MANDATORY — follow this structure exactly)
 
+IMPORTANT: Your review comment title MUST be "## PR Review" (not "PR Reviewer Guide").
+
 ### 1. Verdict (first line, bold)
 
 **✅ Approved** or **⚠️ Needs Work (N blockers)**
@@ -85,31 +88,26 @@ One sentence explaining why.
 Grades: A = excellent, B = good (minor gaps), C = adequate, D = significant gaps, F = failing.
 One-line "Notes" per row — not paragraphs.
 
-### 3. Findings (if any)
+### 3. Findings
 
-Group by priority. Use headers + bullet points — NO paragraphs.
+Post each finding as an INLINE CODE COMMENT on the specific line in the PR diff.
+Format per inline comment: 🔴/🟡/⚪ **[Title]** — one-line description.
+Include a minimal code diff if suggesting a fix.
+
+In the summary comment, list findings as a reference:
 
 #### 🔴 Must Fix
-- **[Title]** — `file.ts:N` — one-line description
+- **[Title]** — `file.ts:N`
 
 #### 🟡 Should Fix
-- **[Title]** — `file.ts:N` — one-line description
+- **[Title]** — `file.ts:N`
 
 #### ⚪ Nits (max 2)
-- **[Title]** — `file.ts:N` — one-line description
+- **[Title]** — `file.ts:N`
 
-If suggesting a fix, include a minimal code diff under the bullet.
 If no findings in a tier, omit that header entirely.
 
-### 4. Focus Areas (concise)
-
-Bullet list of 1-3 areas worth a human reviewer's attention. One line each.
-- `src/obsidian.ts` — Platform detection edge cases
-- `tests/obsidian.test.ts` — Test isolation (side effects)
-
-Do NOT write paragraphs here. Headers and line items only.
-
-### 5. Review Log (persists across rounds)
+### 4. Review Log (persists across rounds)
 
 | Round | Commit | Findings | Verdict |
 |-------|--------|----------|---------|
