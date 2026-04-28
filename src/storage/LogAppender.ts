@@ -19,9 +19,9 @@ export function appendToLogContent(existingContent: string, entry: string): stri
   return `${existingContent.trimEnd()}\n${entry}`;
 }
 
-export function buildGlobalLogEntry(project: string, event: string, date: Date = new Date()): string {
+export function buildGlobalLogEntry(project: string | null, event: string, date: Date = new Date()): string {
   const sanitized = event.replace(/[\r\n]+/g, ' ').trim();
-  return `- **${formatDate(date)}** — [${project}] ${sanitized}`;
+  return `- **${formatDate(date)}** — [${project ?? 'system'}] ${sanitized}`;
 }
 
 export function buildInitialGlobalLogContent(entry: string): string {

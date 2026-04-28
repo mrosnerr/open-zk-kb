@@ -47,6 +47,24 @@ function formatDateTime(date: Date = new Date()): string {
   return date.toISOString().replace('T', ' ').substring(0, 16);
 }
 
+function groupNotesByKind(notes: NoteMetadata[]): Map<string, NoteMetadata[]> {
+  const byKind = new Map<string, NoteMetadata[]>();
+  for (const note of notes) {
+    const kind = note.kind || 'observation';
+    const bucket = byKind.get(kind);
+    if (bucket) {
+      bucket.push(note);
+    } else {
+      byKind.set(kind, [note]);
+    }
+  }
+  return byKind;
+}
+
+function getSectionHeader(kind: string): string {
+  return SECTION_HEADERS[kind] || kind.charAt(0).toUpperCase() + kind.slice(1);
+}
+
 export function buildIndexContent(
   project: string,
   notes: NoteMetadata[],
@@ -60,26 +78,25 @@ export function buildIndexContent(
   lines.push(`# ${projectName} Index (${notes.length} notes)`);
   lines.push('');
 
-  const byKind = new Map<string, NoteMetadata[]>();
-  for (const note of notes) {
-    const kind = note.kind || 'observation';
-    const bucket = byKind.get(kind);
-    if (bucket) {
-      bucket.push(note);
-    } else {
-      byKind.set(kind, [note]);
-    }
-  }
+  const byKind = groupNotesByKind(notes);
 
   for (const kind of INDEX_SECTION_ORDER) {
     const kindNotes = byKind.get(kind);
     if (!kindNotes || kindNotes.length === 0) continue;
 
-    const header = SECTION_HEADERS[kind] || kind;
+    const header = getSectionHeader(kind);
     const count = kindNotes.length;
     const dirName = KIND_DIR_MAP[kind] || `${kind}s`;
 
-    // Split to sub-MOC: project exceeds threshold AND kind has 5+ notes
+    if (kind !== 'domain') {
+      subMocs.push({
+        kind,
+        dirName,
+        content: buildKindSubMocContent(project, kind, header, kindNotes),
+      });
+    }
+
+    // Split threshold controls preview-vs-inline rendering in parent index.
     if (shouldSplit && kind !== 'domain' && count >= 5) {
       const subMocPath = `projects/${project}/${dirName}/index`;
       const previewCount = splitConfig.previewCount;
@@ -96,11 +113,6 @@ export function buildIndexContent(
       }
       lines.push('');
 
-      subMocs.push({
-        kind,
-        dirName,
-        content: buildKindSubMocContent(project, kind, header, kindNotes),
-      });
       continue;
     }
 
@@ -119,7 +131,15 @@ export function buildIndexContent(
 
   for (const [kind, kindNotes] of byKind) {
     if (INDEX_SECTION_ORDER.includes(kind)) continue;
-    const header = kind.charAt(0).toUpperCase() + kind.slice(1);
+    const header = getSectionHeader(kind);
+    const dirName = KIND_DIR_MAP[kind] || `${kind}s`;
+
+    subMocs.push({
+      kind,
+      dirName,
+      content: buildKindSubMocContent(project, kind, header, kindNotes),
+    });
+
     lines.push(`## ${header} (${kindNotes.length})`);
     for (const note of kindNotes) {
       renderNoteInIndex(lines, note, kind);
@@ -197,7 +217,7 @@ export function buildGlobalIndexContent(
   }
 
   if (preferencesCount > 0) {
-    lines.push(`## Preferences — ${preferencesCount} notes`);
+    lines.push(`## [[preferences/index|Preferences]] — ${preferencesCount} notes`);
     lines.push('');
   }
 
@@ -223,22 +243,13 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
   lines.push('# General Knowledge');
   lines.push('');
 
-  const byKind = new Map<string, NoteMetadata[]>();
-  for (const note of notes) {
-    const kind = note.kind || 'observation';
-    const bucket = byKind.get(kind);
-    if (bucket) {
-      bucket.push(note);
-    } else {
-      byKind.set(kind, [note]);
-    }
-  }
+  const byKind = groupNotesByKind(notes);
 
   for (const kind of INDEX_SECTION_ORDER) {
     const kindNotes = byKind.get(kind);
     if (!kindNotes || kindNotes.length === 0) continue;
 
-    const header = SECTION_HEADERS[kind] || kind;
+    const header = getSectionHeader(kind);
     lines.push(`## ${header} (${kindNotes.length})`);
     for (const note of kindNotes) {
       const link = formatNoteLink(note);
@@ -248,6 +259,47 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
     lines.push('');
   }
 
+  lines.push('---');
+  lines.push(`Last rebuilt: ${formatDateTime()}`);
+
+  return lines.join('\n');
+}
+
+export function buildPreferencesIndexContent(notes: NoteMetadata[]): string {
+  const lines: string[] = [];
+
+  lines.push(`# Preferences (${notes.length} notes)`);
+  lines.push('');
+
+  for (const note of notes) {
+    const link = formatNoteLink(note);
+    const summary = note.summary || '';
+    lines.push(`- ${link}${summary ? ` — ${summary}` : ''}`);
+  }
+
+  lines.push('');
+  lines.push(`↑ [[index|Back to Knowledge Base]]`);
+  lines.push('');
+  lines.push('---');
+  lines.push(`Last rebuilt: ${formatDateTime()}`);
+
+  return lines.join('\n');
+}
+
+export function buildGeneralKindIndexContent(kind: string, notes: NoteMetadata[]): string {
+  const header = getSectionHeader(kind);
+  const lines: string[] = [];
+
+  lines.push(`# General — ${header} (${notes.length})`);
+  lines.push('');
+
+  for (const note of notes) {
+    renderNoteInIndex(lines, note, kind);
+  }
+
+  lines.push('');
+  lines.push('↑ [[general/index|Back to General]]');
+  lines.push('');
   lines.push('---');
   lines.push(`Last rebuilt: ${formatDateTime()}`);
 
