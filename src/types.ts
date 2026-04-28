@@ -52,6 +52,11 @@ export interface SearchConfig {
 export interface NavigationConfig {
   enableProjectIndex: boolean;
   enableProjectLog: boolean;
+  enableGlobalIndex: boolean;
+  enableGlobalLog: boolean;
+  enableReviewMoc: boolean;
+  mocSplitThreshold: number;
+  mocPreviewCount: number;
   overviewLogEntryLimit: number;
 }
 
