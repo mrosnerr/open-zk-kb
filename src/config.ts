@@ -41,6 +41,11 @@ interface RawConfig {
   navigation?: {
     enableProjectIndex?: boolean;
     enableProjectLog?: boolean;
+    enableGlobalIndex?: boolean;
+    enableGlobalLog?: boolean;
+    enableReviewMoc?: boolean;
+    mocSplitThreshold?: number;
+    mocPreviewCount?: number;
     overviewLogEntryLimit?: number;
   };
   embeddings?: EmbeddingsConfig;
@@ -68,6 +73,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   navigation: {
     enableProjectIndex: true,
     enableProjectLog: true,
+    enableGlobalIndex: true,
+    enableGlobalLog: true,
+    enableReviewMoc: true,
+    mocSplitThreshold: 30,
+    mocPreviewCount: 5,
     overviewLogEntryLimit: 10,
   },
 };
@@ -136,6 +146,21 @@ export function getConfig(): AppConfig {
       enableProjectLog: typeof raw?.navigation?.enableProjectLog === 'boolean'
         ? raw.navigation.enableProjectLog
         : DEFAULT_CONFIG.navigation.enableProjectLog,
+      enableGlobalIndex: typeof raw?.navigation?.enableGlobalIndex === 'boolean'
+        ? raw.navigation.enableGlobalIndex
+        : DEFAULT_CONFIG.navigation.enableGlobalIndex,
+      enableGlobalLog: typeof raw?.navigation?.enableGlobalLog === 'boolean'
+        ? raw.navigation.enableGlobalLog
+        : DEFAULT_CONFIG.navigation.enableGlobalLog,
+      enableReviewMoc: typeof raw?.navigation?.enableReviewMoc === 'boolean'
+        ? raw.navigation.enableReviewMoc
+        : DEFAULT_CONFIG.navigation.enableReviewMoc,
+      mocSplitThreshold: typeof raw?.navigation?.mocSplitThreshold === 'number'
+        ? raw.navigation.mocSplitThreshold
+        : DEFAULT_CONFIG.navigation.mocSplitThreshold,
+      mocPreviewCount: typeof raw?.navigation?.mocPreviewCount === 'number'
+        ? raw.navigation.mocPreviewCount
+        : DEFAULT_CONFIG.navigation.mocPreviewCount,
       overviewLogEntryLimit: typeof raw?.navigation?.overviewLogEntryLimit === 'number'
         ? raw.navigation.overviewLogEntryLimit
         : DEFAULT_CONFIG.navigation.overviewLogEntryLimit,

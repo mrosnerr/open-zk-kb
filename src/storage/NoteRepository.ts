@@ -12,6 +12,7 @@ import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
 import type { NoteKind, NoteStatus, Lifecycle } from '../types.js';
 import { VALID_LIFECYCLES } from '../types.js';
+import { resolveNotePath, extractProjectFromTags, walkMarkdownFiles, SINGLETON_KINDS } from './path-resolver.js';
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -351,7 +352,33 @@ export class NoteRepository {
     const title = options.title || this.extractTitle(content);
     const id = options.existingId || this.generateId();
     const slug = this.slugify(title);
-    const filePath = path.join(this.docsPath, `${id}-${slug}.md`);
+    const noteKindForPath = options.kind || 'observation';
+    const project = extractProjectFromTags(options.tags || []);
+    const isUpdate = !!options.existingId;
+
+    let filePath: string;
+    if (isUpdate) {
+      const existing = this.getById(id);
+      if (existing) {
+        // Birthplace-only: keep existing directory, allow filename change within it
+        if (SINGLETON_KINDS.has(noteKindForPath)) {
+          filePath = existing.path;
+        } else {
+          const existingDir = path.dirname(existing.path);
+          filePath = path.join(existingDir, `${id}-${slug}.md`);
+        }
+      } else {
+        filePath = resolveNotePath(this.docsPath, noteKindForPath, project, id, slug);
+      }
+    } else {
+      filePath = resolveNotePath(this.docsPath, noteKindForPath, project, id, slug);
+    }
+
+    const targetDir = path.dirname(filePath);
+    if (!fs.existsSync(targetDir)) {
+      fs.mkdirSync(targetDir, { recursive: true });
+    }
+
     const wordCount = this.countWords(content);
     const noteType = options.type || 'atomic';
     const noteKind = options.kind || 'observation';
@@ -360,8 +387,6 @@ export class NoteRepository {
     const summaryStr = options.summary || '';
     const guidanceStr = options.guidance || '';
     const contextStr = options.context || '';
-
-    const isUpdate = !!options.existingId;
 
     if (isUpdate) {
       const existing = this.getById(id);
@@ -871,6 +896,61 @@ export class NoteRepository {
     return [...projects].sort();
   }
 
+  getProjectStats(): Array<{ project: string; noteCount: number; lastActive: number }> {
+    const projects = this.getAllProjects();
+    return projects.map(project => {
+      const notes = this.getProjectNotes(project);
+      const lastActive = notes.reduce((max, n) => Math.max(max, n.updated_at), 0);
+      return { project, noteCount: notes.length, lastActive };
+    });
+  }
+
+  getUnscopedNotes(): NoteMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE tags NOT LIKE '%"project:%'
+        AND status != 'archived'
+        AND kind NOT IN ('index', 'log')
+        AND kind != 'personalization'
+      ORDER BY kind, created_at DESC
+    `);
+    const results = stmt.all() as NoteMetadata[];
+    return results.map(r => ({
+      ...r,
+      kind: (r.kind || 'observation') as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
+  getPersonalizationNotes(): NoteMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE kind = 'personalization' AND status != 'archived'
+      ORDER BY created_at DESC
+    `);
+    const results = stmt.all() as NoteMetadata[];
+    return results.map(r => ({
+      ...r,
+      kind: 'personalization' as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
+  getFleetingNotes(): NoteMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE status = 'fleeting'
+        AND kind NOT IN ('index', 'log')
+      ORDER BY created_at ASC
+    `);
+    const results = stmt.all() as NoteMetadata[];
+    return results.map(r => ({
+      ...r,
+      kind: (r.kind || 'observation') as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
   getByStatus(status: NoteStatus, limit: number = 50): NoteMetadata[] {
     const stmt = this.db.prepare(`
       SELECT * FROM notes
@@ -1104,6 +1184,11 @@ export class NoteRepository {
     return true;
   }
 
+  updatePath(id: string, newPath: string): boolean {
+    const result = this.db.prepare('UPDATE notes SET path = ? WHERE id = ?').run(newPath, id);
+    return result.changes > 0;
+  }
+
   updateTags(id: string, tags: string[]): boolean {
     const note = this.getById(id);
     if (!note) return false;
@@ -1189,12 +1274,11 @@ export class NoteRepository {
     this.db.run('DELETE FROM notes');
     this.db.run('DELETE FROM notes_fts');
 
-    // Scan all .md files
-    const files = fs.readdirSync(this.docsPath).filter(f => f.endsWith('.md'));
+    const filePaths = walkMarkdownFiles(this.docsPath);
 
-    for (const file of files) {
+    for (const filePath of filePaths) {
+      const file = path.basename(filePath);
       try {
-        const filePath = path.join(this.docsPath, file);
         const rawContent = fs.readFileSync(filePath, 'utf-8');
         const { frontmatter, body } = this.parseFrontmatter(rawContent);
 

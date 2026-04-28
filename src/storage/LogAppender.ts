@@ -18,3 +18,12 @@ export function buildInitialLogContent(project: string, entry: string): string {
 export function appendToLogContent(existingContent: string, entry: string): string {
   return `${existingContent.trimEnd()}\n${entry}`;
 }
+
+export function buildGlobalLogEntry(project: string, event: string, date: Date = new Date()): string {
+  const sanitized = event.replace(/[\r\n]+/g, ' ').trim();
+  return `- **${formatDate(date)}** — [${project}] ${sanitized}`;
+}
+
+export function buildInitialGlobalLogContent(entry: string): string {
+  return `# Operations Log\n\n${entry}`;
+}
