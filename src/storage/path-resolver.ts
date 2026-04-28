@@ -79,7 +79,8 @@ export function extractProjectFromTags(tags: string[]): string | null {
   for (const tag of tags) {
     if (tag.startsWith('project:')) {
       const val = tag.slice(8);
-      return val && val.trim() === val && !val.includes('/') && !val.includes('\\') && val !== '..' && val !== '.' ? val : null;
+      const trimmed = val?.trim();
+      return trimmed && !trimmed.includes('/') && !trimmed.includes('\\') && trimmed !== '..' && trimmed !== '.' ? trimmed : null;
     }
   }
   return null;

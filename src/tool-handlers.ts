@@ -675,7 +675,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += '- MigrationAvailable: true (action: migrate-layout)\n';
         } else if (flatCount > 0 && structuredCount > 0) {
           output += `- Layout: mixed (${structuredCount} structured, ${flatCount} flat)\n`;
-          output += `- Migration: available (action: migrate-layout, ${flatCount} flat notes remaining)\n`;
+          output += `- MigrationAvailable: true (action: migrate-layout, ${flatCount} flat notes remaining)\n`;
         } else {
           output += `- Layout: structured (${structuredCount} notes in kind-based directories)\n`;
         }
