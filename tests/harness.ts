@@ -75,8 +75,9 @@ export function readNoteFile(context: TestContext, filenameOrRelPath: string): s
   if (fs.existsSync(directPath)) return fs.readFileSync(directPath, 'utf-8');
 
   const allFiles = walkMarkdownFiles(context.tempDir);
-  const match = allFiles.find(p => path.basename(p) === filenameOrRelPath);
-  if (match) return fs.readFileSync(match, 'utf-8');
+  const matches = allFiles.filter(p => path.basename(p) === filenameOrRelPath);
+  if (matches.length === 1) return fs.readFileSync(matches[0], 'utf-8');
+  if (matches.length > 1) throw new Error(`Ambiguous note lookup: ${filenameOrRelPath} matches ${matches.length} files`);
 
   throw new Error(`Note file not found: ${filenameOrRelPath}`);
 }
@@ -85,7 +86,7 @@ export function noteFileExists(context: TestContext, filenameOrRelPath: string):
   if (fs.existsSync(path.join(context.tempDir, filenameOrRelPath))) return true;
 
   const allFiles = walkMarkdownFiles(context.tempDir);
-  return allFiles.some(p => path.basename(p) === filenameOrRelPath);
+  return allFiles.filter(p => path.basename(p) === filenameOrRelPath).length === 1;
 }
 
 export function listNoteFiles(context: TestContext): string[] {

@@ -288,6 +288,20 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
         fs.writeFileSync(path.join(subMocDir, 'index.md'), subMoc.content, 'utf-8');
       }
     }
+
+    if (config?.vault) {
+      const projectDir = path.join(config.vault, 'projects', project);
+      const activeSubMocs = new Set(subMocs.map(subMoc => subMoc.dirName));
+      if (fs.existsSync(projectDir)) {
+        for (const entry of fs.readdirSync(projectDir, { withFileTypes: true })) {
+          if (!entry.isDirectory()) continue;
+          const subIndexPath = path.join(projectDir, entry.name, 'index.md');
+          if (!activeSubMocs.has(entry.name) && fs.existsSync(subIndexPath)) {
+            fs.unlinkSync(subIndexPath);
+          }
+        }
+      }
+    }
   } catch (error) {
     logToFile('WARN', 'Failed to rebuild project index', {
       project,
@@ -355,13 +369,25 @@ function updateGlobalNavigation(
 ): void {
   const vaultPath = config?.vault;
   if (!vaultPath) return;
+  let fleetingNotes: NoteMetadata[] | null = null;
+  let unscopedNotes: NoteMetadata[] | null = null;
+
+  const getFleetingNotes = (): NoteMetadata[] => {
+    if (!fleetingNotes) fleetingNotes = repo.getFleetingNotes();
+    return fleetingNotes;
+  };
+
+  const getUnscopedNotes = (): NoteMetadata[] => {
+    if (!unscopedNotes) unscopedNotes = repo.getUnscopedNotes();
+    return unscopedNotes;
+  };
 
   if (config?.navigation?.enableGlobalIndex !== false) {
     try {
       const projectStats = repo.getProjectStats();
       const prefsCount = repo.getPersonalizationNotes().length;
-      const generalCount = repo.getUnscopedNotes().length;
-      const fleetingCount = repo.getFleetingNotes().length;
+      const generalCount = getUnscopedNotes().length;
+      const fleetingCount = getFleetingNotes().length;
       const content = buildGlobalIndexContent(projectStats, prefsCount, generalCount, fleetingCount);
       fs.writeFileSync(path.join(vaultPath, 'index.md'), content, 'utf-8');
     } catch (error) {
@@ -390,8 +416,7 @@ function updateGlobalNavigation(
 
   if (config?.navigation?.enableReviewMoc !== false) {
     try {
-      const fleetingNotes = repo.getFleetingNotes();
-      const content = buildReviewContent(fleetingNotes);
+      const content = buildReviewContent(getFleetingNotes());
       fs.writeFileSync(path.join(vaultPath, 'review.md'), content, 'utf-8');
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild review MOC', {
@@ -402,12 +427,16 @@ function updateGlobalNavigation(
 
   if (config?.navigation?.enableGlobalIndex !== false) {
     try {
-      const unscopedNotes = repo.getUnscopedNotes();
+      const unscopedNotes = getUnscopedNotes();
+      const generalDir = path.join(vaultPath, 'general');
       if (unscopedNotes.length > 0) {
         const content = buildGeneralIndexContent(unscopedNotes);
-        const generalDir = path.join(vaultPath, 'general');
         if (!fs.existsSync(generalDir)) fs.mkdirSync(generalDir, { recursive: true });
         fs.writeFileSync(path.join(generalDir, 'index.md'), content, 'utf-8');
+      }
+      if (unscopedNotes.length === 0) {
+        const generalIndex = path.join(generalDir, 'index.md');
+        if (fs.existsSync(generalIndex)) fs.unlinkSync(generalIndex);
       }
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild general index', {
@@ -643,10 +672,10 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n## Vault Layout\n';
         if (flatCount > 0 && structuredCount === 0) {
           output += `- Layout: flat (all ${allNotes.length} notes in vault root)\n`;
-          output += '- Run `migrate-layout` (with dryRun first) to move to kind-based directories\n';
+          output += '- Migration: available (action: migrate-layout, dryRun recommended)\n';
         } else if (flatCount > 0 && structuredCount > 0) {
           output += `- Layout: mixed (${structuredCount} structured, ${flatCount} flat)\n`;
-          output += '- Run `migrate-layout` to move remaining flat notes into directories\n';
+          output += `- Migration: available (action: migrate-layout, ${flatCount} flat notes remaining)\n`;
         } else {
           output += `- Layout: structured (${structuredCount} notes in kind-based directories)\n`;
         }
@@ -1087,7 +1116,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
       }
 
-      output += 'Use `dryRun: false` to apply conservative repairs.';
+      output += 'dryRun: true — no changes applied. Set dryRun: false to apply repairs.';
       return output;
     }
     case 'scope-audit': {
@@ -1159,7 +1188,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       if (misScoped.length > 0 && dryRun) {
-        output += '\nUse `dryRun: false` to apply fixes for mis-scoped notes.';
+        output += '\ndryRun: true — no changes applied. Set dryRun: false to fix mis-scoped notes.';
       } else if (misScoped.length > 0) {
         output += `\nFixed ${misScoped.length} mis-scoped note(s).`;
       }
@@ -1231,9 +1260,13 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
             if (!fs.existsSync(targetDir)) {
               fs.mkdirSync(targetDir, { recursive: true });
             }
-            if (fs.existsSync(note.path)) {
-              fs.renameSync(note.path, targetPath);
+            if (!fs.existsSync(note.path)) {
+              throw new Error(`Source missing: ${note.path}`);
             }
+            if (fs.existsSync(targetPath)) {
+              throw new Error(`Target already exists: ${targetPath}`);
+            }
+            fs.renameSync(note.path, targetPath);
             repo.updatePath(note.id, targetPath);
             moved++;
           }
@@ -1263,7 +1296,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       if (dryRun && moves.length > 0) {
-        output += '\nUse `dryRun: false` to apply the migration.';
+        output += '\ndryRun: true — no changes applied. Set dryRun: false to apply migration.';
       } else if (!dryRun && moved > 0) {
         const rebuildResult = repo.rebuildFromFiles();
         const projects = repo.getAllProjects();
@@ -1271,6 +1304,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           rebuildProjectIndex(proj, repo, config);
         }
         output += `\nPost-migration rebuild: indexed ${rebuildResult.indexed} notes, rebuilt ${projects.length} project index(es).`;
+        updateGlobalNavigation(null, 'Layout migration completed', repo, config);
       }
 
       return output;

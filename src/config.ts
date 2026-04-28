@@ -107,6 +107,10 @@ function loadYamlConfig(): RawConfig | null {
 
 // ── Public API ──
 
+function positiveInt(value: unknown, fallback: number): number {
+  return Number.isInteger(value) && (value as number) > 0 ? (value as number) : fallback;
+}
+
 export function getConfig(): AppConfig {
   const raw = loadYamlConfig();
 
@@ -155,12 +159,8 @@ export function getConfig(): AppConfig {
       enableReviewMoc: typeof raw?.navigation?.enableReviewMoc === 'boolean'
         ? raw.navigation.enableReviewMoc
         : DEFAULT_CONFIG.navigation.enableReviewMoc,
-      mocSplitThreshold: typeof raw?.navigation?.mocSplitThreshold === 'number'
-        ? raw.navigation.mocSplitThreshold
-        : DEFAULT_CONFIG.navigation.mocSplitThreshold,
-      mocPreviewCount: typeof raw?.navigation?.mocPreviewCount === 'number'
-        ? raw.navigation.mocPreviewCount
-        : DEFAULT_CONFIG.navigation.mocPreviewCount,
+      mocSplitThreshold: positiveInt(raw?.navigation?.mocSplitThreshold, DEFAULT_CONFIG.navigation.mocSplitThreshold),
+      mocPreviewCount: positiveInt(raw?.navigation?.mocPreviewCount, DEFAULT_CONFIG.navigation.mocPreviewCount),
       overviewLogEntryLimit: typeof raw?.navigation?.overviewLogEntryLimit === 'number'
         ? raw.navigation.overviewLogEntryLimit
         : DEFAULT_CONFIG.navigation.overviewLogEntryLimit,

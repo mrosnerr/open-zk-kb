@@ -30,8 +30,12 @@ export function buildReviewContent(fleetingNotes: NoteMetadata[]): string {
   const byProject = new Map<string, NoteMetadata[]>();
   for (const note of fleetingNotes) {
     const project = extractProjectFromTags(note.tags) || '_unscoped';
-    if (!byProject.has(project)) byProject.set(project, []);
-    byProject.get(project)!.push(note);
+    const bucket = byProject.get(project);
+    if (bucket) {
+      bucket.push(note);
+    } else {
+      byProject.set(project, [note]);
+    }
   }
 
   const sortedProjects = [...byProject.keys()].sort((a, b) => {
@@ -41,7 +45,9 @@ export function buildReviewContent(fleetingNotes: NoteMetadata[]): string {
   });
 
   for (const project of sortedProjects) {
-    const notes = byProject.get(project)!;
+    const notes = byProject.get(project);
+    if (!notes) continue;
+    notes.sort((a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id));
     const label = project === '_unscoped' ? 'Unscoped' : project;
     lines.push(`## ${label} (${notes.length})`);
 

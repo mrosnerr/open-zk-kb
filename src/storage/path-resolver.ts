@@ -2,6 +2,7 @@
 // Pure functions: kind + project + id + slug → absolute file path
 // Implements birthplace-only placement rules from #91
 
+import * as fs from 'fs';
 import * as path from 'path';
 import type { NoteKind } from '../types.js';
 
@@ -19,6 +20,14 @@ const KIND_DIR_MAP: Record<string, string> = {
 
 /** Directories to skip during recursive file scanning */
 const SKIP_DIRS = new Set(['.index', '.obsidian', 'templates', '.git', 'node_modules']);
+
+function sanitizeProjectSegment(project: string): string {
+  const trimmed = project.trim();
+  if (!trimmed || trimmed === '.' || trimmed === '..' || /[/\\]/.test(trimmed)) {
+    throw new Error(`Invalid project name: "${project}"`);
+  }
+  return trimmed;
+}
 
 /**
  * Resolve the absolute file path for a note based on placement rules.
@@ -44,10 +53,12 @@ export function resolveNotePath(
     return path.join(docsPath, 'preferences', `${id}-${slug}.md`);
   }
 
+  const safeProject = project ? sanitizeProjectSegment(project) : null;
+
   // Singleton kinds: fixed filename, no ID prefix
   if (SINGLETON_KINDS.has(kind)) {
-    if (project) {
-      return path.join(docsPath, 'projects', project, `${kind}.md`);
+    if (safeProject) {
+      return path.join(docsPath, 'projects', safeProject, `${kind}.md`);
     }
     // Global structural note (no project) — lives at vault root
     return path.join(docsPath, `${kind}.md`);
@@ -56,8 +67,8 @@ export function resolveNotePath(
   // Regular kinds: {id}-{slug}.md in kind directory
   const dirName = KIND_DIR_MAP[kind] || `${kind}s`;
 
-  if (project) {
-    return path.join(docsPath, 'projects', project, dirName, `${id}-${slug}.md`);
+  if (safeProject) {
+    return path.join(docsPath, 'projects', safeProject, dirName, `${id}-${slug}.md`);
   }
 
   // No project → general/
@@ -66,7 +77,10 @@ export function resolveNotePath(
 
 export function extractProjectFromTags(tags: string[]): string | null {
   for (const tag of tags) {
-    if (tag.startsWith('project:')) return tag.slice(8);
+    if (tag.startsWith('project:')) {
+      const val = tag.slice(8);
+      return val && !val.includes('/') && !val.includes('\\') && val !== '..' ? val : null;
+    }
   }
   return null;
 }
@@ -76,7 +90,6 @@ export function extractProjectFromTags(tags: string[]): string | null {
  * Skips .index/, .obsidian/, templates/, .git/, node_modules/.
  */
 export function walkMarkdownFiles(dirPath: string): string[] {
-  const fs = require('fs') as typeof import('fs');
   const results: string[] = [];
 
   function walk(dir: string): void {

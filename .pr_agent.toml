@@ -8,9 +8,13 @@ fallback_models = ["openrouter/moonshotai/kimi-k2.6"]
 custom_model_max_tokens = 128000
 ai_timeout = 300
 response_language = "en-US"
-patch_extra_lines_before = 8
+reasoning_effort = "high"
+add_repo_metadata = true
+add_repo_metadata_file_list = ["AGENTS.md"]
+patch_extra_lines_before = 10
 patch_extra_lines_after = 3
 allow_dynamic_context = true
+max_extra_lines_before_dynamic_context = 20
 ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
 
 [github_action_config]
@@ -36,7 +40,7 @@ glob = [
 [pr_reviewer]
 persistent_comment = true
 final_update_message = true
-num_max_findings = 8
+num_max_findings = 12
 inline_code_comments = true
 require_score_review = true
 require_security_review = true
@@ -210,7 +214,7 @@ Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTest
 # ---------------------------------------------------------------------------
 [pr_code_suggestions]
 focus_only_on_problems = true
-suggestions_score_threshold = 5
+suggestions_score_threshold = 3
 num_code_suggestions_per_chunk = 4
 commitable_code_suggestions = false
 publish_output_no_suggestions = false

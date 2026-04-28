@@ -4,8 +4,6 @@ import * as path from 'path';
 import {
   createTestHarness,
   cleanupTestHarness,
-  listAllNoteFiles,
-  readNoteFile,
   createNoteFile,
 } from './harness.js';
 import type { TestContext } from './harness.js';

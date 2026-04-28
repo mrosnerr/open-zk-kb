@@ -2,15 +2,8 @@
 // Pure SQL → markdown rendering. No LLM, no judgment.
 
 import type { NoteMetadata } from './NoteRepository.js';
+import { KIND_DIR_MAP } from './path-resolver.js';
 import { formatNoteLink } from '../utils/wikilink.js';
-
-const KIND_DIR_MAP: Record<string, string> = {
-  decision: 'decisions',
-  reference: 'references',
-  procedure: 'procedures',
-  observation: 'observations',
-  resource: 'resources',
-};
 
 export interface MocSplitConfig {
   threshold: number;
@@ -70,8 +63,12 @@ export function buildIndexContent(
   const byKind = new Map<string, NoteMetadata[]>();
   for (const note of notes) {
     const kind = note.kind || 'observation';
-    if (!byKind.has(kind)) byKind.set(kind, []);
-    byKind.get(kind)!.push(note);
+    const bucket = byKind.get(kind);
+    if (bucket) {
+      bucket.push(note);
+    } else {
+      byKind.set(kind, [note]);
+    }
   }
 
   for (const kind of INDEX_SECTION_ORDER) {
@@ -85,16 +82,17 @@ export function buildIndexContent(
     // Split to sub-MOC: project exceeds threshold AND kind has 5+ notes
     if (shouldSplit && kind !== 'domain' && count >= 5) {
       const subMocPath = `projects/${project}/${dirName}/index`;
-      lines.push(`## [[${subMocPath}\\|${header}]] (${count})`);
+      const previewCount = splitConfig.previewCount;
+      lines.push(`## [[${subMocPath}|${header}]] (${count})`);
 
-      const preview = kindNotes.slice(0, splitConfig!.previewCount);
+      const preview = kindNotes.slice(0, previewCount);
       for (const note of preview) {
         const link = formatNoteLink(note);
         const summary = note.summary || '';
         lines.push(`- ${link}${summary ? ` — ${summary}` : ''}`);
       }
-      if (count > splitConfig!.previewCount) {
-        lines.push(`→ *[[${subMocPath}\\|View all ${count}]]*`);
+      if (count > previewCount) {
+        lines.push(`→ *[[${subMocPath}|View all ${count}]]*`);
       }
       lines.push('');
 
@@ -161,7 +159,7 @@ function buildKindSubMocContent(project: string, kind: string, header: string, n
   }
 
   lines.push('');
-  lines.push(`↑ [[projects/${project}/index\\|Back to ${projectName}]]`);
+  lines.push(`↑ [[projects/${project}/index|Back to ${projectName}]]`);
   lines.push('');
   lines.push('---');
   lines.push(`Last rebuilt: ${formatDateTime()}`);
@@ -193,7 +191,7 @@ export function buildGlobalIndexContent(
     lines.push('|---------|-------|-------------|');
     for (const stat of sorted) {
       const date = stat.lastActive ? formatDate(stat.lastActive) : '—';
-      lines.push(`| [[projects/${stat.project}/index\\|${stat.project}]] | ${stat.noteCount} | ${date} |`);
+      lines.push(`| [[projects/${stat.project}/index|${stat.project}]] | ${stat.noteCount} | ${date} |`);
     }
     lines.push('');
   }
@@ -204,12 +202,12 @@ export function buildGlobalIndexContent(
   }
 
   if (generalCount > 0) {
-    lines.push(`## [[general/index\\|General]] — ${generalCount} notes`);
+    lines.push(`## [[general/index|General]] — ${generalCount} notes`);
     lines.push('');
   }
 
   if (fleetingCount > 0) {
-    lines.push(`## [[review\\|📝 Needs Review]] — ${fleetingCount} fleeting notes`);
+    lines.push(`## [[review|📝 Needs Review]] — ${fleetingCount} fleeting notes`);
     lines.push('');
   }
 
@@ -228,8 +226,12 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
   const byKind = new Map<string, NoteMetadata[]>();
   for (const note of notes) {
     const kind = note.kind || 'observation';
-    if (!byKind.has(kind)) byKind.set(kind, []);
-    byKind.get(kind)!.push(note);
+    const bucket = byKind.get(kind);
+    if (bucket) {
+      bucket.push(note);
+    } else {
+      byKind.set(kind, [note]);
+    }
   }
 
   for (const kind of INDEX_SECTION_ORDER) {

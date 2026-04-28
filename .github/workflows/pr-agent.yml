@@ -39,16 +39,8 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          config.model: "openrouter/deepseek/deepseek-v4-pro"
-          config.fallback_models: '["openrouter/moonshotai/kimi-k2.6"]'
-          config.custom_model_max_tokens: "128000"
+          # Model + review config lives in .pr_agent.toml (repo root)
+          # Only secrets and action-level config set here
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "true"
-          github_action_config.pr_actions: '["opened", "reopened", "ready_for_review", "synchronize"]'
-          pr_reviewer.require_ticket_analysis_review: "false"
-          pr_reviewer.require_estimate_effort_to_review: "false"
-          pr_reviewer.enable_review_labels_effort: "false"
-          pr_reviewer.inline_code_comments: "true"
-          pr_code_suggestions.publish_output_no_suggestions: "false"
-          pr_reviewer.publish_output_no_suggestions: "false"

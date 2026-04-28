@@ -12,7 +12,7 @@ import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
 import type { NoteKind, NoteStatus, Lifecycle } from '../types.js';
 import { VALID_LIFECYCLES } from '../types.js';
-import { resolveNotePath, extractProjectFromTags, walkMarkdownFiles, SINGLETON_KINDS } from './path-resolver.js';
+import { resolveNotePath, extractProjectFromTags, walkMarkdownFiles } from './path-resolver.js';
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -360,13 +360,8 @@ export class NoteRepository {
     if (isUpdate) {
       const existing = this.getById(id);
       if (existing) {
-        // Birthplace-only: keep existing directory, allow filename change within it
-        if (SINGLETON_KINDS.has(noteKindForPath)) {
-          filePath = existing.path;
-        } else {
-          const existingDir = path.dirname(existing.path);
-          filePath = path.join(existingDir, `${id}-${slug}.md`);
-        }
+        // Birthplace-only: preserve original path for all updates
+        filePath = existing.path;
       } else {
         filePath = resolveNotePath(this.docsPath, noteKindForPath, project, id, slug);
       }
@@ -434,15 +429,15 @@ export class NoteRepository {
 
     const fullContent = frontmatter + content;
 
-    // If updating, remove old file at different path
+    // Write new file first, then clean up old path (write-before-delete for safety)
+    fs.writeFileSync(filePath, fullContent, 'utf-8');
+
     if (isUpdate) {
       const oldNote = this.getById(id);
       if (oldNote && oldNote.path !== filePath && fs.existsSync(oldNote.path)) {
         fs.unlinkSync(oldNote.path);
       }
     }
-
-    fs.writeFileSync(filePath, fullContent, 'utf-8');
 
     // Update FTS before the INSERT OR REPLACE (delete old entry if exists)
     if (isUpdate) {
@@ -897,12 +892,35 @@ export class NoteRepository {
   }
 
   getProjectStats(): Array<{ project: string; noteCount: number; lastActive: number }> {
-    const projects = this.getAllProjects();
-    return projects.map(project => {
-      const notes = this.getProjectNotes(project);
-      const lastActive = notes.reduce((max, n) => Math.max(max, n.updated_at), 0);
-      return { project, noteCount: notes.length, lastActive };
-    });
+    const stmt = this.db.prepare(`
+      SELECT tags, COUNT(*) as cnt, MAX(updated_at) as lastActive
+      FROM notes
+      WHERE tags LIKE '%"project:%' AND status != 'archived'
+      GROUP BY (
+        SELECT value FROM json_each(tags) WHERE value LIKE 'project:%' LIMIT 1
+      )
+    `);
+    const rows = stmt.all() as Array<{ tags: string; cnt: number; lastActive: number }>;
+    const stats = new Map<string, { noteCount: number; lastActive: number }>();
+    for (const row of rows) {
+      const parsedTags: string[] = JSON.parse(row.tags);
+      for (const tag of parsedTags) {
+        if (tag.startsWith('project:')) {
+          const project = tag.replace('project:', '');
+          const existing = stats.get(project);
+          if (existing) {
+            existing.noteCount += row.cnt;
+            existing.lastActive = Math.max(existing.lastActive, row.lastActive);
+          } else {
+            stats.set(project, { noteCount: row.cnt, lastActive: row.lastActive });
+          }
+          break;
+        }
+      }
+    }
+    return [...stats.entries()]
+      .map(([project, s]) => ({ project, ...s }))
+      .sort((a, b) => a.project.localeCompare(b.project));
   }
 
   getUnscopedNotes(): NoteMetadata[] {
@@ -1283,6 +1301,11 @@ export class NoteRepository {
         const { frontmatter, body } = this.parseFrontmatter(rawContent);
 
         const id = (frontmatter.id as string) || file.match(/^(\d{16}|\d{12})/)?.[1] || '';
+        // Skip auto-generated structural files (no frontmatter ID expected)
+        const basename = path.basename(filePath);
+        if (/^(index|log|review)\.md$/i.test(basename) && !id) {
+          continue;
+        }
         if (!id) {
           errors++;
           continue;
@@ -1326,9 +1349,9 @@ export class NoteRepository {
             const project = projectTag.replace('project:', '');
             const noteMap = kind === 'domain' ? domainNotes : kind === 'index' ? indexNotes : logNotes;
             if (noteMap.has(project)) {
-              warnings.push(`Duplicate ${kind} note for project "${project}": ${file} (first: ${noteMap.get(project)})`);
+              warnings.push(`Duplicate ${kind} note for project "${project}": ${path.relative(this.docsPath, filePath)} (first: ${noteMap.get(project)})`);
             } else {
-              noteMap.set(project, file);
+              noteMap.set(project, path.relative(this.docsPath, filePath));
             }
           }
         }
