@@ -191,7 +191,7 @@ export function buildGlobalIndexContent(
     lines.push('|---------|-------|-------------|');
     for (const stat of sorted) {
       const date = stat.lastActive ? formatDate(stat.lastActive) : '—';
-      lines.push(`| [[projects/${stat.project}/index|${stat.project}]] | ${stat.noteCount} | ${date} |`);
+      lines.push(`| [[projects/${stat.project}/index\\|${stat.project}]] | ${stat.noteCount} | ${date} |`);
     }
     lines.push('');
   }

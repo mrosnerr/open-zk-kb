@@ -672,7 +672,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n## Vault Layout\n';
         if (flatCount > 0 && structuredCount === 0) {
           output += `- Layout: flat (all ${allNotes.length} notes in vault root)\n`;
-          output += '- Migration: available (action: migrate-layout, dryRun recommended)\n';
+          output += '- MigrationAvailable: true (action: migrate-layout)\n';
         } else if (flatCount > 0 && structuredCount > 0) {
           output += `- Layout: mixed (${structuredCount} structured, ${flatCount} flat)\n`;
           output += `- Migration: available (action: migrate-layout, ${flatCount} flat notes remaining)\n`;
@@ -1116,7 +1116,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
       }
 
-      output += 'dryRun: true — no changes applied. Set dryRun: false to apply repairs.';
+      output += `dryRun: ${dryRun} — ${dryRun ? 'no changes applied. Set dryRun: false to apply repairs.' : 'repairs applied.'}`;
       return output;
     }
     case 'scope-audit': {
@@ -1261,6 +1261,11 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
               fs.mkdirSync(targetDir, { recursive: true });
             }
             if (!fs.existsSync(note.path)) {
+              if (fs.existsSync(targetPath)) {
+                repo.updatePath(note.id, targetPath);
+                moved++;
+                continue;
+              }
               throw new Error(`Source missing: ${note.path}`);
             }
             if (fs.existsSync(targetPath)) {

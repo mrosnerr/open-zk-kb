@@ -893,14 +893,10 @@ export class NoteRepository {
 
   getProjectStats(): Array<{ project: string; noteCount: number; lastActive: number }> {
     const stmt = this.db.prepare(`
-      SELECT tags, COUNT(*) as cnt, MAX(updated_at) as lastActive
-      FROM notes
+      SELECT tags, updated_at FROM notes
       WHERE tags LIKE '%"project:%' AND status != 'archived'
-      GROUP BY (
-        SELECT value FROM json_each(tags) WHERE value LIKE 'project:%' LIMIT 1
-      )
     `);
-    const rows = stmt.all() as Array<{ tags: string; cnt: number; lastActive: number }>;
+    const rows = stmt.all() as Array<{ tags: string; updated_at: number }>;
     const stats = new Map<string, { noteCount: number; lastActive: number }>();
     for (const row of rows) {
       const parsedTags: string[] = JSON.parse(row.tags);
@@ -909,12 +905,11 @@ export class NoteRepository {
           const project = tag.replace('project:', '');
           const existing = stats.get(project);
           if (existing) {
-            existing.noteCount += row.cnt;
-            existing.lastActive = Math.max(existing.lastActive, row.lastActive);
+            existing.noteCount += 1;
+            existing.lastActive = Math.max(existing.lastActive, row.updated_at);
           } else {
-            stats.set(project, { noteCount: row.cnt, lastActive: row.lastActive });
+            stats.set(project, { noteCount: 1, lastActive: row.updated_at });
           }
-          break;
         }
       }
     }
