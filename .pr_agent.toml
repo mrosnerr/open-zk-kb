@@ -22,7 +22,9 @@ max_extra_lines_before_dynamic_context = 20
 ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
 
 [github_action_config]
-pr_actions = ["opened", "reopened", "ready_for_review", "synchronize"]
+# `synchronize` omitted: Action variant can't pass `-i` to auto_review.
+# For incremental re-review on push, post `/review -i` as a PR comment.
+pr_actions = ["opened", "reopened", "ready_for_review"]
 
 [ignore]
 glob = [
