@@ -187,10 +187,21 @@ function getInstalledClients(): McpClient[] {
   return ALL_CLIENTS.filter(isClientInstalled);
 }
 
-function getNestedValue(obj: any, path: string[]): any {
-  let current = obj;
+type JsonObject = Record<string, unknown>;
+
+function isJsonObject(value: unknown): value is JsonObject {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function parseJsonObject(content: string): JsonObject {
+  const parsed: unknown = JSON.parse(content);
+  return isJsonObject(parsed) ? parsed : {};
+}
+
+function getNestedValue(obj: JsonObject, path: string[]): unknown {
+  let current: unknown = obj;
   for (const key of path) {
-    if (current && typeof current === 'object' && key in current) {
+    if (isJsonObject(current) && key in current) {
       current = current[key];
     } else {
       return undefined;
@@ -199,24 +210,28 @@ function getNestedValue(obj: any, path: string[]): any {
   return current;
 }
 
-function setNestedValue(obj: any, path: string[], value: any): void {
+function setNestedValue(obj: JsonObject, path: string[], value: unknown): void {
   let current = obj;
   for (let i = 0; i < path.length - 1; i++) {
-    if (!(path[i] in current)) {
-      current[path[i]] = {};
+    const key = path[i];
+    const next = current[key];
+    if (!isJsonObject(next)) {
+      current[key] = {};
     }
-    current = current[path[i]];
+    const updated = current[key];
+    if (isJsonObject(updated)) current = updated;
   }
   current[path[path.length - 1]] = value;
 }
 
-function deleteNestedValue(obj: any, path: string[]): boolean {
+function deleteNestedValue(obj: JsonObject, path: string[]): boolean {
   let current = obj;
   for (let i = 0; i < path.length - 1; i++) {
-    if (!(path[i] in current)) {
+    const next = current[path[i]];
+    if (!isJsonObject(next)) {
       return false;
     }
-    current = current[path[i]];
+    current = next;
   }
   const lastKey = path[path.length - 1];
   if (lastKey in current) {
@@ -626,12 +641,12 @@ export function install(args: InstallArgs): string {
     throw new Error(`Server not found at: ${serverPath}`);
   }
   
-  let config: any = {};
+  let config: JsonObject = {};
   
   if (fs.existsSync(clientConfig.configPath)) {
     try {
       const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
-      config = JSON.parse(content);
+      config = parseJsonObject(content);
     } catch (e) {
       throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`, { cause: e });
     }
@@ -726,10 +741,10 @@ export function uninstall(args: UninstallArgs): string {
     return `No config found for ${clientConfig.name} at ${clientConfig.configPath}`;
   }
   
-  let config: any;
+  let config: JsonObject;
   try {
     const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
-    config = JSON.parse(content);
+    config = parseJsonObject(content);
   } catch (e) {
     throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`, { cause: e });
   }
