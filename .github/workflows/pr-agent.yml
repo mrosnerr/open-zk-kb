@@ -42,8 +42,9 @@ jobs:
           # Model + review config lives in .pr_agent.toml (repo root)
           # Only secrets and action-level config set here
           # Phase 0 cost reduction (2026-04-28): /improve disabled on auto-run.
-          # /review still runs on every push event (anti-onion-peeling prompt
-          # constrains it to "only flag newly introduced issues" per .pr_agent.toml).
+          # /review runs on opened/reopened/ready_for_review only — synchronize is
+          # excluded via pr_actions in .pr_agent.toml so push events no longer
+          # auto-trigger /review. Re-run manually via `/review -i` PR comment.
           # User can manually invoke /improve via PR comment when wanted.
           # Rationale: agent-architecture/04-references/cost-analysis-by-tier.md
           github_action_config.auto_review: "true"
