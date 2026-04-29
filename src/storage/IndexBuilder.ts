@@ -278,7 +278,7 @@ export function buildPreferencesIndexContent(notes: NoteMetadata[]): string {
   }
 
   lines.push('');
-  lines.push(`↑ [[index|Back to Knowledge Base]]`);
+  lines.push('↑ [Back to Knowledge Base](../index.md)');
   lines.push('');
   lines.push('---');
   lines.push(`Last rebuilt: ${formatDateTime()}`);
