@@ -205,12 +205,28 @@ function formatTelemetryNumber(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
 }
 
+function scheduleTelemetryWrite(label: string, fn: () => void): void {
+  queueMicrotask(() => {
+    try {
+      fn();
+    } catch (e) {
+      logToFile('WARN', `Telemetry write failed in ${label}`, { error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+}
+
 function formatTelemetryStats(repo: NoteRepository): string {
   const telemetry = repo.getTelemetryAggregates(30);
   const avgSearches = telemetry.sessions > 0 ? telemetry.searches / telemetry.sessions : 0;
   const avgStores = telemetry.sessions > 0 ? telemetry.stores / telemetry.sessions : 0;
   const storeSearchRatio = telemetry.searches > 0 ? telemetry.stores / telemetry.searches : 0;
+  const avgDurationMs = telemetry.sessionDurations.length > 0
+    ? telemetry.sessionDurations.reduce((sum, duration) => sum + duration, 0) / telemetry.sessionDurations.length
+    : 0;
+  const avgDurationMin = avgDurationMs / 60000;
   const mostStored = Object.entries(telemetry.storesByKind)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  const mostUsedAction = Object.entries(telemetry.maintainByAction)
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
 
   let output = '\n## Tool Telemetry\n\n';
@@ -219,6 +235,8 @@ function formatTelemetryStats(repo: NoteRepository): string {
   output += `  Stores: ${telemetry.stores} (avg ${formatTelemetryNumber(avgStores)} per session)\n`;
   output += `  Store / search ratio: ${storeSearchRatio.toFixed(2)}\n`;
   output += `  Most-stored kind: ${mostStored ? `${mostStored[0]} (${mostStored[1]})` : 'none (0)'}\n`;
+  output += `  Most-used action: ${mostUsedAction ? `${mostUsedAction[0]} (${mostUsedAction[1]})` : 'none (0)'}\n`;
+  output += `  Avg session duration: ${formatTelemetryNumber(avgDurationMin)} min\n`;
   output += '\n';
   output += '  Search-to-store ratio interpretation:\n';
   output += '    High capture (≥ 0.30): suggestions probably unnecessary\n';
@@ -646,9 +664,7 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     related: args.related,
   });
 
-  try { repo.recordToolInvocation('store', args.kind, 1); } catch (e) {
-    logToFile('WARN', 'Telemetry write failed in store', { error: e instanceof Error ? e.message : String(e) });
-  }
+  scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', args.kind, 1));
 
   const hashContent = args.summary || args.content || args.title;
   const hash = computeSimHash(hashContent);
@@ -748,12 +764,8 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   }
 
   const accessedIds = [...(domainNote ? [domainNote.id] : []), ...results.map(note => note.id)];
-  try {
-    repo.recordToolInvocation('search', undefined, accessedIds.length);
-    repo.updateLastAccessed(accessedIds);
-  } catch (e) {
-    logToFile('WARN', 'Telemetry write failed in search', { error: e instanceof Error ? e.message : String(e) });
-  }
+  scheduleTelemetryWrite('search invocation', () => repo.recordToolInvocation('search', undefined, accessedIds.length));
+  scheduleTelemetryWrite('search access update', () => repo.updateLastAccessed(accessedIds));
 
   if (results.length === 0 && !domainNote) {
     return 'No matching notes found. Try broader keywords or remove filters.' + clientWarning;
@@ -773,9 +785,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
 }
 
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string): Promise<string> {
-  try { repo.recordToolInvocation('maintain', args.action); } catch (e) {
-    logToFile('WARN', 'Telemetry write failed in maintain', { error: e instanceof Error ? e.message : String(e) });
-  }
+  scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action));
   switch (args.action) {
     case 'stats': {
       const stats = repo.getStats();
@@ -1503,7 +1513,7 @@ export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?
   if (domainNote) {
     output += '### Domain\n';
     output += renderNoteForAgent(domainNote) + '\n\n';
-    try { repo.recordAccess(domainNote.id); } catch { /* non-fatal */ }
+    scheduleTelemetryWrite('overview access', () => repo.recordAccess(domainNote.id));
   }
 
   if (indexNote) {
