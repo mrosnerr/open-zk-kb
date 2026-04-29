@@ -596,7 +596,7 @@ function updateGlobalNavigation(
 
 // ---- Handlers ----
 
-export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): string {
+export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): Promise<string> {
   const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
   const lifecycleDefaults = config?.lifecycleDefaults;
   const kindDefault = (lifecycleDefaults?.defaultForKind?.[args.kind] as Lifecycle | undefined) || KIND_DEFAULT_LIFECYCLE[args.kind];
@@ -666,18 +666,80 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
   const hash = computeSimHash(hashContent);
   repo.updateContentHash(result.id, hash);
 
+  // Race embedding generation against 500ms timeout for related notes search.
+  // If timeout wins, the embedding still persists in the background (no data loss).
+  let noteEmbedding: number[] | null = null;
   if (embeddingConfig) {
     const text = buildEmbeddingText(args.title, args.summary, args.content);
-    void generateEmbedding(text, embeddingConfig).then(embResult => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const embeddingPromise = generateEmbedding(text, embeddingConfig);
+      const embResult = await Promise.race([
+        embeddingPromise,
+        new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 500); }),
+      ]);
       if (embResult) {
         repo.storeEmbedding(result.id, embResult.embedding, embResult.model);
+        noteEmbedding = embResult.embedding;
+      } else {
+        void embeddingPromise.then(slowResult => {
+          if (slowResult) {
+            repo.storeEmbedding(result.id, slowResult.embedding, slowResult.model);
+          }
+        }).catch(error => {
+          logToFile('WARN', 'Background embedding generation failed', {
+            noteId: result.id,
+            error: error instanceof Error ? error.message : String(error),
+          });
+        });
       }
-    }).catch(error => {
+    } catch (error) {
       logToFile('WARN', 'Embedding generation failed', {
         noteId: result.id,
         error: error instanceof Error ? error.message : String(error),
       });
-    });
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  const relatedConfig = config?.store?.relatedNotes;
+  const relatedEnabled = relatedConfig?.enabled !== false;
+  const maxResults = relatedConfig?.maxResults ?? 5;
+  const minSimilarity = relatedConfig?.minSimilarity ?? 0.70;
+  const excludeKinds = new Set<string>(relatedConfig?.excludeKinds ?? ['domain', 'index', 'log']);
+
+  interface RelatedNote {
+    id: string;
+    title: string;
+    kind: string;
+    similarity?: number;
+  }
+
+  let relatedNotes: RelatedNote[] = [];
+
+  if (relatedEnabled) {
+    const isCandidate = (n: { id: string; kind: string; status?: string }) =>
+      n.id !== result.id && !excludeKinds.has(n.kind) && n.status !== 'archived';
+
+    if (noteEmbedding) {
+      // Embedding-based similarity search
+      const vecResults = repo.searchVector(noteEmbedding, { limit: maxResults + 10 });
+      relatedNotes = vecResults
+        .filter(n => isCandidate(n) && n.similarity >= minSimilarity)
+        .slice(0, maxResults)
+        .map(n => ({ id: n.id, title: n.title, kind: n.kind, similarity: n.similarity }));
+    } else {
+      // FTS5 fallback — use title + summary as query
+      const queryText = [args.title, args.summary].filter(Boolean).join(' ');
+      if (queryText.trim()) {
+        const ftsResults = repo.search(queryText, { limit: maxResults + 10 });
+        relatedNotes = ftsResults
+          .filter(n => isCandidate(n))
+          .slice(0, maxResults)
+          .map(n => ({ id: n.id, title: n.title, kind: n.kind }));
+      }
+    }
   }
 
   let output = `Knowledge stored (${result.action})\n`;
@@ -691,6 +753,14 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
   const warning = atomicityWarning(args.kind, wordCount);
   if (warning) {
     output += warning;
+  }
+
+  if (relatedNotes.length > 0) {
+    output += '\n\nRelated notes:';
+    for (const rn of relatedNotes) {
+      const sim = rn.similarity != null ? `, similarity: ${rn.similarity.toFixed(2)}` : '';
+      output += `\n- [${rn.id}] "${rn.title}" (${rn.kind}${sim})`;
+    }
   }
 
   if (args.client && !isKnownClient(args.client)) {
