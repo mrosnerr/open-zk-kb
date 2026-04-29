@@ -79,7 +79,31 @@ export interface TelemetryAggregates {
   stores: number;
   maintains: number;
   storesByKind: Record<string, number>;
+  maintainByAction: Record<string, number>;
   sessionDurations: number[];
+}
+
+export interface TelemetryRow {
+  session_id: string;
+  tool_name: TelemetryToolName;
+  arg_kind: string | null;
+  timestamp: number;
+  result_count: number | null;
+}
+
+function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return fn();
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('SQLITE_BUSY') && i < maxRetries - 1) {
+        Bun.sleepSync(50);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error('unreachable');
 }
 
 // Monotonic timestamp tracking to avoid ID collisions within a process
@@ -1283,10 +1307,12 @@ export class NoteRepository {
 
   recordToolInvocation(toolName: TelemetryToolName, argKind?: string, resultCount?: number): void {
     if (!this.telemetryEnabled) return;
-    this.db.prepare(`
-      INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null);
+    withBusyRetry(() => {
+      this.db.prepare(`
+        INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null);
+    });
   }
 
   updateLastAccessed(noteIds: string[]): void {
@@ -1302,7 +1328,7 @@ export class NoteRepository {
     const transaction = this.db.transaction((ids: string[]) => {
       for (const id of ids) update.run(now, id);
     });
-    transaction(uniqueIds);
+    withBusyRetry(() => transaction(uniqueIds));
   }
 
   getTelemetryAggregates(days: number = 30): TelemetryAggregates {
@@ -1328,6 +1354,17 @@ export class NoteRepository {
       storesByKind[row.arg_kind] = row.count;
     }
 
+    const maintainRows = this.db.prepare(`
+      SELECT arg_kind, COUNT(*) as count
+      FROM tool_telemetry
+      WHERE timestamp >= ? AND tool_name = 'maintain' AND arg_kind IS NOT NULL
+      GROUP BY arg_kind
+    `).all(cutoff) as Array<{ arg_kind: string; count: number }>;
+    const maintainByAction: Record<string, number> = {};
+    for (const row of maintainRows) {
+      maintainByAction[row.arg_kind] = row.count;
+    }
+
     const durationRows = this.db.prepare(`
       SELECT MAX(timestamp) - MIN(timestamp) as duration
       FROM tool_telemetry
@@ -1341,6 +1378,7 @@ export class NoteRepository {
       stores: counts.stores ?? 0,
       maintains: counts.maintains ?? 0,
       storesByKind,
+      maintainByAction,
       sessionDurations: durationRows.map(row => row.duration ?? 0),
     };
   }
@@ -1348,12 +1386,22 @@ export class NoteRepository {
   recordAccess(id: string): void {
     if (!this.telemetryEnabled) return;
     const now = Date.now();
-    this.db.prepare(`
-      UPDATE notes
-      SET access_count = COALESCE(access_count, 0) + 1,
-          last_accessed_at = ?
-      WHERE id = ?
-    `).run(now, id);
+    withBusyRetry(() => {
+      this.db.prepare(`
+        UPDATE notes
+        SET access_count = COALESCE(access_count, 0) + 1,
+            last_accessed_at = ?
+        WHERE id = ?
+      `).run(now, id);
+    });
+  }
+
+  getTelemetryRows(): TelemetryRow[] {
+    return this.db.prepare(`
+      SELECT session_id, tool_name, arg_kind, timestamp, result_count
+      FROM tool_telemetry
+      ORDER BY id
+    `).all() as TelemetryRow[];
   }
 
   rebuildFromFiles(): { indexed: number; errors: number; warnings: string[] } {
