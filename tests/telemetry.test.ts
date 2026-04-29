@@ -115,8 +115,6 @@ describe('local tool telemetry', () => {
     expect(output).toContain('  Most-stored kind: observation (1)');
     expect(output).toContain('  Most-used action: stats (1)');
     expect(output).toContain('  Avg session duration:');
-    expect(output).toContain('  Search-to-store ratio interpretation:');
-    expect(output).toContain('    High capture (≥ 0.30): suggestions probably unnecessary');
-    expect(output).toContain('    Low capture (< 0.30):  detection-as-suggestion would help');
+    expect(output).not.toContain('interpretation');
   });
 });

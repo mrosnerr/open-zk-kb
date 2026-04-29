@@ -237,10 +237,6 @@ function formatTelemetryStats(repo: NoteRepository): string {
   output += `  Most-stored kind: ${mostStored ? `${mostStored[0]} (${mostStored[1]})` : 'none (0)'}\n`;
   output += `  Most-used action: ${mostUsedAction ? `${mostUsedAction[0]} (${mostUsedAction[1]})` : 'none (0)'}\n`;
   output += `  Avg session duration: ${formatTelemetryNumber(avgDurationMin)} min\n`;
-  output += '\n';
-  output += '  Search-to-store ratio interpretation:\n';
-  output += '    High capture (≥ 0.30): suggestions probably unnecessary\n';
-  output += '    Low capture (< 0.30):  detection-as-suggestion would help\n';
   return output;
 }
 
