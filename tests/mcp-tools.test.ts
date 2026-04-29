@@ -210,6 +210,205 @@ describe('MCP Tool: knowledge-store', () => {
   });
 });
 
+describe('MCP Tool: knowledge-store — related notes', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should surface FTS5-matched related notes in response', async () => {
+    ctx.engine.store('React hooks provide a way to use state in functional components', {
+      title: 'React Hooks Guide',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Guide to React hooks',
+      guidance: 'Use hooks for state management',
+    });
+
+    const output = await handleStore({
+      title: 'React State Management',
+      content: 'React hooks are the preferred way to manage state',
+      kind: 'reference',
+      summary: 'State management with React hooks',
+      guidance: 'Prefer hooks over class components',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Related notes:');
+    expect(output).toContain('React Hooks Guide');
+  });
+
+  it('should exclude structural kinds from related notes', async () => {
+    await handleStore({
+      title: 'MyApp Decision',
+      content: 'We chose PostgreSQL for persistence',
+      kind: 'decision',
+      project: 'myapp',
+      summary: 'Chose PostgreSQL',
+      guidance: 'Use PostgreSQL',
+    }, ctx.engine, null, ctx.config);
+
+    const indexNote = ctx.engine.getIndexNote('myapp');
+    expect(indexNote).toBeTruthy();
+
+    const output = await handleStore({
+      title: 'Database Choice',
+      content: 'PostgreSQL was selected for persistence layer',
+      kind: 'decision',
+      project: 'myapp',
+      summary: 'PostgreSQL decision',
+      guidance: 'Use PostgreSQL',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Related notes:');
+    expect(output).toContain('MyApp Decision');
+    const relatedSection = output.split('Related notes:')[1];
+    expect(relatedSection).not.toContain('Index');
+    expect(relatedSection).not.toContain('Operations Log');
+  });
+
+  it('should exclude domain kind from related notes', async () => {
+    await handleStore({
+      title: 'MyApp Domain',
+      content: 'MyApp is a web application for task management',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp domain guide',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const output = await handleStore({
+      title: 'Task Management Features',
+      content: 'Task management application with web interface',
+      kind: 'reference',
+      project: 'myapp',
+      summary: 'Task features',
+      guidance: 'Feature reference',
+    }, ctx.engine, null, ctx.config);
+
+    if (output.includes('Related notes:')) {
+      expect(output).not.toContain('MyApp Domain');
+    }
+  });
+
+  it('should exclude archived notes from related notes', async () => {
+    const storeResult = ctx.engine.store('Archived note about PostgreSQL databases', {
+      title: 'Old DB Reference',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Old PostgreSQL reference',
+      guidance: 'Outdated DB info',
+    });
+    ctx.engine.archive(storeResult.id);
+
+    ctx.engine.store('Current guide to PostgreSQL databases', {
+      title: 'Current DB Guide',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Current PostgreSQL guide',
+      guidance: 'Use for DB work',
+    });
+
+    const output = await handleStore({
+      title: 'PostgreSQL Best Practices',
+      content: 'PostgreSQL database best practices and patterns',
+      kind: 'reference',
+      summary: 'PostgreSQL practices',
+      guidance: 'Follow these practices',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Related notes:');
+    expect(output).toContain('Current DB Guide');
+    expect(output).not.toContain('Old DB Reference');
+  });
+
+  it('should not show related notes when disabled', async () => {
+    ctx.engine.store('Existing note about testing', {
+      title: 'Testing Guide',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Guide to testing',
+      guidance: 'Follow testing best practices',
+    });
+
+    const disabledConfig = {
+      ...ctx.config,
+      store: { relatedNotes: { ...ctx.config.store.relatedNotes, enabled: false } },
+    };
+
+    const output = await handleStore({
+      title: 'Testing Best Practices',
+      content: 'Testing is essential for code quality',
+      kind: 'reference',
+      summary: 'Testing practices',
+      guidance: 'Always write tests',
+    }, ctx.engine, null, disabledConfig);
+
+    expect(output).not.toContain('Related notes:');
+  });
+
+  it('should not show related notes when no matches exist', async () => {
+    const output = await handleStore({
+      title: 'First Note Ever',
+      content: 'This is the very first note in an empty vault',
+      kind: 'observation',
+      summary: 'First note',
+      guidance: 'Starting point',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).not.toContain('Related notes:');
+  });
+
+  it('should respect maxResults config', async () => {
+    for (let i = 0; i < 8; i++) {
+      ctx.engine.store(`TypeScript pattern number ${i} for advanced usage`, {
+        title: `TypeScript Pattern ${i}`,
+        kind: 'reference',
+        status: 'permanent',
+        summary: `Pattern ${i} for TypeScript`,
+        guidance: `Use pattern ${i}`,
+      });
+    }
+
+    const limitedConfig = {
+      ...ctx.config,
+      store: { relatedNotes: { ...ctx.config.store.relatedNotes, maxResults: 2 } },
+    };
+
+    const output = await handleStore({
+      title: 'TypeScript Advanced Patterns',
+      content: 'Advanced TypeScript patterns for type-safe development',
+      kind: 'reference',
+      summary: 'Advanced TS patterns',
+      guidance: 'Use these patterns',
+    }, ctx.engine, null, limitedConfig);
+
+    expect(output).toContain('Related notes:');
+    const relatedLines = output.split('\n').filter(l => l.startsWith('- ['));
+    expect(relatedLines.length).toBeLessThanOrEqual(2);
+  });
+
+  it('should not include the stored note itself in related notes', async () => {
+    ctx.engine.store('Existing reference about databases', {
+      title: 'Database Reference',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Database info',
+      guidance: 'Use for DB work',
+    });
+
+    const output = await handleStore({
+      title: 'Database Patterns',
+      content: 'Common database patterns and references',
+      kind: 'reference',
+      summary: 'DB patterns',
+      guidance: 'Reference for DB patterns',
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('Related notes:');
+    expect(output).not.toContain('"Database Patterns"');
+  });
+});
+
 describe('MCP Tool: knowledge-search', () => {
   let ctx: TestContext;
 
@@ -1064,8 +1263,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should add client tag when client param provided', () => {
-    handleStore({
+  it('should add client tag when client param provided', async () => {
+    await handleStore({
       title: 'Claude Code Workflow',
       content: 'Use skills directory for prompts',
       kind: 'procedure',
@@ -1079,8 +1278,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).toContain('client:claude-code');
   });
 
-  it('should auto-detect client from .opencode/ in content', () => {
-    handleStore({
+  it('should auto-detect client from .opencode/ in content', async () => {
+    await handleStore({
       title: 'OpenCode Config',
       content: 'Edit .opencode/config.json to change settings',
       kind: 'reference',
@@ -1092,8 +1291,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).toContain('client:opencode');
   });
 
-  it('should auto-detect client from .claude/ in guidance', () => {
-    handleStore({
+  it('should auto-detect client from .claude/ in guidance', async () => {
+    await handleStore({
       title: 'Claude Instructions',
       content: 'Project instructions go in the root',
       kind: 'reference',
@@ -1105,8 +1304,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).toContain('client:claude-code');
   });
 
-  it('should NOT auto-tag universal content', () => {
-    handleStore({
+  it('should NOT auto-tag universal content', async () => {
+    await handleStore({
       title: 'General Preference',
       content: 'User prefers TypeScript',
       kind: 'personalization',
@@ -1119,8 +1318,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(clientTags).toHaveLength(0);
   });
 
-  it('should warn on unrecognized client name', () => {
-    const output = handleStore({
+  it('should warn on unrecognized client name', async () => {
+    const output = await handleStore({
       title: 'Unknown Client Note',
       content: 'Some content',
       kind: 'reference',
@@ -1133,8 +1332,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(output).toContain('Known clients:');
   });
 
-  it('should NOT warn on recognized client name', () => {
-    const output = handleStore({
+  it('should NOT warn on recognized client name', async () => {
+    const output = await handleStore({
       title: 'Known Client Note',
       content: 'Some content',
       kind: 'reference',
@@ -1146,8 +1345,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(output).not.toContain('Unrecognized client');
   });
 
-  it('should use explicit client over auto-detection', () => {
-    handleStore({
+  it('should use explicit client over auto-detection', async () => {
+    await handleStore({
       title: 'Cross-Client Note',
       content: 'Edit .opencode/config for opencode',
       kind: 'reference',
@@ -1161,8 +1360,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).not.toContain('client:opencode');
   });
 
-  it('should not auto-tag when multiple clients detected (ambiguous)', () => {
-    handleStore({
+  it('should not auto-tag when multiple clients detected (ambiguous)', async () => {
+    await handleStore({
       title: 'Client Comparison',
       content: 'Compare .opencode/config.json vs .claude/settings.json',
       kind: 'reference',
@@ -1175,8 +1374,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(clientTags).toHaveLength(0);
   });
 
-  it('should coexist client and project tags', () => {
-    handleStore({
+  it('should coexist client and project tags', async () => {
+    await handleStore({
       title: 'Project-Client Note',
       content: 'Edit .cursor/rules for project config',
       kind: 'reference',
@@ -1746,8 +1945,8 @@ describe('MCP Tool: lifecycle field', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should default lifecycle based on kind', () => {
-    const output = handleStore({
+  it('should default lifecycle based on kind', async () => {
+    const output = await handleStore({
       title: 'A Decision',
       content: 'We chose X',
       kind: 'decision',
@@ -1758,8 +1957,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(output).toContain('Lifecycle: snapshot');
   });
 
-  it('should default to living for personalization', () => {
-    const output = handleStore({
+  it('should default to living for personalization', async () => {
+    const output = await handleStore({
       title: 'Dark Mode',
       content: 'I prefer dark mode',
       kind: 'personalization',
@@ -1770,8 +1969,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(output).toContain('Lifecycle: living');
   });
 
-  it('should accept explicit lifecycle override', () => {
-    const output = handleStore({
+  it('should accept explicit lifecycle override', async () => {
+    const output = await handleStore({
       title: 'Living Decision',
       content: 'An evolving decision',
       kind: 'decision',
@@ -1783,8 +1982,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(output).toContain('Lifecycle: living');
   });
 
-  it('should auto-detect snapshot from date in title', () => {
-    const output = handleStore({
+  it('should auto-detect snapshot from date in title', async () => {
+    const output = await handleStore({
       title: 'Analysis 2025-04-25',
       content: 'Point-in-time analysis',
       kind: 'observation',
@@ -1795,8 +1994,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(output).toContain('Lifecycle: snapshot');
   });
 
-  it('should not auto-detect snapshot when explicit lifecycle given', () => {
-    const output = handleStore({
+  it('should not auto-detect snapshot when explicit lifecycle given', async () => {
+    const output = await handleStore({
       title: 'Log 2025-04-25',
       content: 'Append-only log',
       kind: 'observation',
@@ -1862,8 +2061,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(updated.action).toBe('updated');
   });
 
-  it('should persist lifecycle in frontmatter', () => {
-    const output = handleStore({
+  it('should persist lifecycle in frontmatter', async () => {
+    const output = await handleStore({
       title: 'Snapshot Note',
       content: 'Frozen content',
       kind: 'decision',
@@ -1881,8 +2080,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(fileContent).toContain('lifecycle: snapshot');
   });
 
-  it('should persist lifecycle in DB and read back', () => {
-    handleStore({
+  it('should persist lifecycle in DB and read back', async () => {
+    await handleStore({
       title: 'Append Log',
       content: 'Log entry',
       kind: 'observation',
@@ -1896,12 +2095,12 @@ describe('MCP Tool: lifecycle field', () => {
     expect(results[0].lifecycle).toBe('append-only');
   });
 
-  it('should disable slug detection when config says so', () => {
+  it('should disable slug detection when config says so', async () => {
     const noDetectConfig = {
       ...ctx.config,
       lifecycleDefaults: { ...ctx.config.lifecycleDefaults, detectSnapshotFromSlug: false },
     };
-    const output = handleStore({
+    const output = await handleStore({
       title: 'Procedure 2025-04-25',
       content: 'Dated procedure',
       kind: 'procedure',
@@ -1912,8 +2111,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(output).toContain('Lifecycle: living');
   });
 
-  it('should slug-detect snapshot for kind that defaults to living', () => {
-    const output = handleStore({
+  it('should slug-detect snapshot for kind that defaults to living', async () => {
+    const output = await handleStore({
       title: 'Procedure 2025-04-25',
       content: 'Dated procedure',
       kind: 'procedure',
@@ -1924,8 +2123,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(output).toContain('Lifecycle: snapshot');
   });
 
-  it('should fall back to kind default for invalid lifecycle value', () => {
-    const output = handleStore({
+  it('should fall back to kind default for invalid lifecycle value', async () => {
+    const output = await handleStore({
       title: 'Bad Lifecycle',
       content: 'Invalid lifecycle value',
       kind: 'decision',
@@ -1937,8 +2136,8 @@ describe('MCP Tool: lifecycle field', () => {
     expect(output).toContain('Lifecycle: snapshot');
   });
 
-  it('should filter search results by lifecycle', () => {
-    handleStore({
+  it('should filter search results by lifecycle', async () => {
+    await handleStore({
       title: 'Living Reference',
       content: 'A living reference note about search',
       kind: 'reference',
@@ -1947,7 +2146,7 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Use it',
     }, ctx.engine, null, ctx.config);
 
-    handleStore({
+    await handleStore({
       title: 'Snapshot Reference',
       content: 'A snapshot reference note about search',
       kind: 'reference',
@@ -2017,8 +2216,8 @@ describe('MCP Tool: lifecycle field', () => {
     ).toThrow(new RegExp(result.id));
   });
 
-  it('should render lifecycle attribute in XML only for non-living notes', () => {
-    handleStore({
+  it('should render lifecycle attribute in XML only for non-living notes', async () => {
+    await handleStore({
       title: 'Snapshot for Render',
       content: 'Frozen for rendering test',
       kind: 'decision',
@@ -2027,7 +2226,7 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Check XML',
     }, ctx.engine, null, ctx.config);
 
-    handleStore({
+    await handleStore({
       title: 'Living for Render',
       content: 'Living for rendering test',
       kind: 'procedure',
@@ -2075,8 +2274,8 @@ describe('MCP Tool: lifecycle field', () => {
     ).toThrow(LifecycleViolationError);
   });
 
-  it('should preserve lifecycle through rebuildFromFiles', () => {
-    handleStore({
+  it('should preserve lifecycle through rebuildFromFiles', async () => {
+    await handleStore({
       title: 'Rebuild Test Note',
       content: 'Content for rebuild lifecycle test',
       kind: 'observation',
@@ -2103,8 +2302,8 @@ describe('Domain note kind', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should store domain note with permanent status by default', () => {
-    const output = handleStore({
+  it('should store domain note with permanent status by default', async () => {
+    const output = await handleStore({
       title: 'MyApp Domain',
       content: 'Core domain knowledge for MyApp.',
       kind: 'domain',
@@ -2116,8 +2315,8 @@ describe('Domain note kind', () => {
     expect(output).toContain('Status: permanent');
   });
 
-  it('should store domain note with living lifecycle by default', () => {
-    const output = handleStore({
+  it('should store domain note with living lifecycle by default', async () => {
+    const output = await handleStore({
       title: 'MyApp Domain',
       content: 'Core domain knowledge for MyApp.',
       kind: 'domain',
@@ -2129,8 +2328,8 @@ describe('Domain note kind', () => {
     expect(output).toContain('Lifecycle: living');
   });
 
-  it('should reject domain note without project', () => {
-    const output = handleStore({
+  it('should reject domain note without project', async () => {
+    const output = await handleStore({
       title: 'Unscoped Domain',
       content: 'Missing project scope.',
       kind: 'domain',
@@ -2141,8 +2340,8 @@ describe('Domain note kind', () => {
     expect(output).toContain('require a project');
   });
 
-  it('should reject duplicate domain note for same project', () => {
-    const first = handleStore({
+  it('should reject duplicate domain note for same project', async () => {
+    const first = await handleStore({
       title: 'MyApp Domain',
       content: 'Primary domain note.',
       kind: 'domain',
@@ -2154,7 +2353,7 @@ describe('Domain note kind', () => {
     const firstId = first.match(/ID: (\d+)/)?.[1];
     expect(firstId).toBeDefined();
 
-    const second = handleStore({
+    const second = await handleStore({
       title: 'MyApp Domain Duplicate',
       content: 'Duplicate domain note.',
       kind: 'domain',
@@ -2167,8 +2366,8 @@ describe('Domain note kind', () => {
     expect(second).toContain(firstId!);
   });
 
-  it('should allow domain notes for different projects', () => {
-    const outputA = handleStore({
+  it('should allow domain notes for different projects', async () => {
+    const outputA = await handleStore({
       title: 'MyApp Domain',
       content: 'Domain note for MyApp.',
       kind: 'domain',
@@ -2177,7 +2376,7 @@ describe('Domain note kind', () => {
       guidance: 'Use for MyApp work',
     }, ctx.engine, null, ctx.config);
 
-    const outputB = handleStore({
+    const outputB = await handleStore({
       title: 'OtherApp Domain',
       content: 'Domain note for OtherApp.',
       kind: 'domain',
@@ -2191,8 +2390,8 @@ describe('Domain note kind', () => {
     expect(ctx.engine.getByKind('domain')).toHaveLength(2);
   });
 
-  it('should auto-add project tag to domain note', () => {
-    handleStore({
+  it('should auto-add project tag to domain note', async () => {
+    await handleStore({
       title: 'MyApp Domain',
       content: 'Tagged domain note.',
       kind: 'domain',
@@ -2206,8 +2405,8 @@ describe('Domain note kind', () => {
     expect(note!.tags).toContain('project:myapp');
   });
 
-  it('should always-include domain note in project-scoped search', () => {
-    handleStore({
+  it('should always-include domain note in project-scoped search', async () => {
+    await handleStore({
       title: 'MyApp Domain',
       content: 'Canonical operating manual for MyApp.',
       kind: 'domain',
@@ -2216,7 +2415,7 @@ describe('Domain note kind', () => {
       guidance: 'Read first',
     }, ctx.engine, null, ctx.config);
 
-    handleStore({
+    await handleStore({
       title: 'MyApp Query Match',
       content: 'Contains onboarding keyword for project search.',
       kind: 'observation',
@@ -2235,8 +2434,8 @@ describe('Domain note kind', () => {
     expect(domainIndex).toBeLessThan(regularIndex);
   });
 
-  it('should return domain note even with zero FTS matches', () => {
-    handleStore({
+  it('should return domain note even with zero FTS matches', async () => {
+    await handleStore({
       title: 'MyApp Domain',
       content: 'Canonical operating manual for MyApp.',
       kind: 'domain',
@@ -2252,8 +2451,8 @@ describe('Domain note kind', () => {
     expect(output).toContain('MyApp operating manual');
   });
 
-  it('should not duplicate domain note if it matches search', () => {
-    handleStore({
+  it('should not duplicate domain note if it matches search', async () => {
+    await handleStore({
       title: 'MyApp Domain',
       content: 'This domain note documents foobar workflows.',
       kind: 'domain',
@@ -2269,8 +2468,8 @@ describe('Domain note kind', () => {
     expect(occurrences).toHaveLength(1);
   });
 
-  it('should not include domain note without project filter', () => {
-    handleStore({
+  it('should not include domain note without project filter', async () => {
+    await handleStore({
       title: 'MyApp Domain',
       content: 'Canonical operating manual for MyApp.',
       kind: 'domain',
@@ -2285,8 +2484,8 @@ describe('Domain note kind', () => {
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
   });
 
-  it('should respect alwaysIncludeDomainNote=false config', () => {
-    handleStore({
+  it('should respect alwaysIncludeDomainNote=false config', async () => {
+    await handleStore({
       title: 'MyApp Domain',
       content: 'Canonical operating manual for MyApp.',
       kind: 'domain',
@@ -2301,8 +2500,8 @@ describe('Domain note kind', () => {
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
   });
 
-  it('should not include archived domain note', () => {
-    const storeOutput = handleStore({
+  it('should not include archived domain note', async () => {
+    const storeOutput = await handleStore({
       title: 'MyApp Domain',
       content: 'Canonical operating manual for MyApp.',
       kind: 'domain',
@@ -2321,8 +2520,8 @@ describe('Domain note kind', () => {
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
   });
 
-  it('should find domain note via getDomainNote()', () => {
-    handleStore({
+  it('should find domain note via getDomainNote()', async () => {
+    await handleStore({
       title: 'MyApp Domain',
       content: 'Canonical operating manual for MyApp.',
       kind: 'domain',
@@ -2374,12 +2573,12 @@ describe('Index and log note kinds', () => {
     };
   };
 
-  const storeProjectNote = (
+  const storeProjectNote = async (
     title: string,
     project: string = 'myapp',
     config = makeConfig(),
     kind: 'observation' | 'domain' = 'observation',
-  ) => handleStore({
+   ) => await handleStore({
     title,
     content: `${title} content for ${project}`,
     kind,
@@ -2394,16 +2593,16 @@ describe('Index and log note kinds', () => {
     return noteId!;
   };
 
-  it('should auto-generate an index note for project-scoped notes', () => {
-    storeProjectNote('Alpha Note');
+  it('should auto-generate an index note for project-scoped notes', async () => {
+    await storeProjectNote('Alpha Note');
 
     const indexNote = ctx.engine.getIndexNote('myapp');
     expect(indexNote).not.toBeNull();
     expect(indexNote!.kind).toBe('index');
   });
 
-  it('should include wikilinks to stored notes in index content', () => {
-    storeProjectNote('Linked Note');
+  it('should include wikilinks to stored notes in index content', async () => {
+    await storeProjectNote('Linked Note');
 
     const indexNote = ctx.engine.getIndexNote('myapp');
     expect(indexNote).not.toBeNull();
@@ -2411,26 +2610,26 @@ describe('Index and log note kinds', () => {
     expect(indexNote!.content).toContain('Linked Note');
   });
 
-  it('should exclude index notes from default search results', () => {
-    storeProjectNote('Index Search Hidden');
+  it('should exclude index notes from default search results', async () => {
+    await storeProjectNote('Index Search Hidden');
 
     const output = handleSearch({ query: 'Index Search Hidden' }, ctx.engine, null, makeConfig());
     expect(output).not.toContain('myapp Index');
   });
 
-  it('should return index notes when explicitly filtered by kind', () => {
-    storeProjectNote('Index Search Visible');
+  it('should return index notes when explicitly filtered by kind', async () => {
+    await storeProjectNote('Index Search Visible');
 
     const output = handleSearch({ query: 'Index Search Visible', kind: 'index' }, ctx.engine, null, makeConfig());
     expect(output).toContain('# Myapp Index');
   });
 
-  it('should rebuild the index when a second project note is stored', () => {
-    storeProjectNote('First Indexed Note');
+  it('should rebuild the index when a second project note is stored', async () => {
+    await storeProjectNote('First Indexed Note');
     const before = ctx.engine.getIndexNote('myapp');
     expect(before).not.toBeNull();
 
-    storeProjectNote('Second Indexed Note');
+    await storeProjectNote('Second Indexed Note');
     const after = ctx.engine.getIndexNote('myapp');
     expect(after).not.toBeNull();
     expect(after!.content.length).toBeGreaterThan(before!.content.length);
@@ -2438,8 +2637,8 @@ describe('Index and log note kinds', () => {
   });
 
   it('should exclude archived notes from the index after archive', async () => {
-    const keepOutput = storeProjectNote('Keep In Index');
-    const archiveOutput = storeProjectNote('Archive From Index');
+    const keepOutput = await storeProjectNote('Keep In Index');
+    const archiveOutput = await storeProjectNote('Archive From Index');
     const archiveId = extractId(archiveOutput);
 
     expect(keepOutput).toContain('Knowledge stored');
@@ -2451,48 +2650,48 @@ describe('Index and log note kinds', () => {
     expect(indexNote!.content).not.toContain('Archive From Index');
   });
 
-  it('should keep exactly one index note per project', () => {
-    storeProjectNote('Project Note One');
-    storeProjectNote('Project Note Two');
-    storeProjectNote('Project Note Three');
+  it('should keep exactly one index note per project', async () => {
+    await storeProjectNote('Project Note One');
+    await storeProjectNote('Project Note Two');
+    await storeProjectNote('Project Note Three');
 
     const indexNotes = ctx.engine.getByKind('index').filter(note => note.tags.includes('project:myapp'));
     expect(indexNotes).toHaveLength(1);
   });
 
-  it('should auto-generate a log note with a Created entry', () => {
-    storeProjectNote('Created Log Note');
+  it('should auto-generate a log note with a Created entry', async () => {
+    await storeProjectNote('Created Log Note');
 
     const logNote = ctx.engine.getLogNote('myapp');
     expect(logNote).not.toBeNull();
     expect(logNote!.content).toContain('Created observation: "Created Log Note"');
   });
 
-  it('should format log entries with bold dates', () => {
-    storeProjectNote('Bold Date Log');
+  it('should format log entries with bold dates', async () => {
+    await storeProjectNote('Bold Date Log');
 
     const logNote = ctx.engine.getLogNote('myapp');
     expect(logNote).not.toBeNull();
     expect(logNote!.content).toMatch(/- \*\*\d{4}-\d{2}-\d{2}\*\* — Created observation: "Bold Date Log"/);
   });
 
-  it('should exclude log notes from default search results', () => {
-    storeProjectNote('Log Search Hidden');
+  it('should exclude log notes from default search results', async () => {
+    await storeProjectNote('Log Search Hidden');
 
     const output = handleSearch({ query: 'Log Search Hidden' }, ctx.engine, null, makeConfig());
     expect(output).not.toContain('Operations Log');
   });
 
-  it('should return log notes when explicitly filtered by kind', () => {
-    storeProjectNote('Log Search Visible');
+  it('should return log notes when explicitly filtered by kind', async () => {
+    await storeProjectNote('Log Search Visible');
 
     const output = handleSearch({ query: 'Log Search Visible', kind: 'log' }, ctx.engine, null, makeConfig());
     expect(output).toContain('# Myapp Operations Log');
   });
 
-  it('should accumulate log entries across multiple project note stores', () => {
-    storeProjectNote('First Log Entry');
-    storeProjectNote('Second Log Entry');
+  it('should accumulate log entries across multiple project note stores', async () => {
+    await storeProjectNote('First Log Entry');
+    await storeProjectNote('Second Log Entry');
 
     const logNote = ctx.engine.getLogNote('myapp');
     expect(logNote).not.toBeNull();
@@ -2501,7 +2700,7 @@ describe('Index and log note kinds', () => {
   });
 
   it('should append a Promoted entry to the log', async () => {
-    const output = storeProjectNote('Promote Me');
+    const output = await storeProjectNote('Promote Me');
     const noteId = extractId(output);
 
     await handleMaintain({ action: 'promote', noteId }, ctx.engine, makeConfig());
@@ -2512,7 +2711,7 @@ describe('Index and log note kinds', () => {
   });
 
   it('should append an Archived entry to the log', async () => {
-    const output = storeProjectNote('Archive Me');
+    const output = await storeProjectNote('Archive Me');
     const noteId = extractId(output);
 
     await handleMaintain({ action: 'archive', noteId }, ctx.engine, makeConfig());
@@ -2523,7 +2722,7 @@ describe('Index and log note kinds', () => {
   });
 
   it('should append a Deleted entry to the log', async () => {
-    const output = storeProjectNote('Delete Me');
+    const output = await storeProjectNote('Delete Me');
     const noteId = extractId(output);
 
     await handleMaintain({ action: 'delete', noteId }, ctx.engine, makeConfig());
@@ -2533,16 +2732,16 @@ describe('Index and log note kinds', () => {
     expect(logNote!.content).toContain('Deleted "Delete Me"');
   });
 
-  it('should store log notes with append-only lifecycle', () => {
-    storeProjectNote('Append Only Log');
+  it('should store log notes with append-only lifecycle', async () => {
+    await storeProjectNote('Append Only Log');
 
     const logNote = ctx.engine.getLogNote('myapp');
     expect(logNote).not.toBeNull();
     expect(logNote!.lifecycle).toBe('append-only');
   });
 
-  it('should reject manual creation of structural kinds', () => {
-    const indexOutput = handleStore({
+  it('should reject manual creation of structural kinds', async () => {
+    const indexOutput = await handleStore({
       title: 'Manual Index',
       content: 'Should fail',
       kind: 'index',
@@ -2550,7 +2749,7 @@ describe('Index and log note kinds', () => {
       guidance: 'Do not create manually',
     }, ctx.engine, null, makeConfig());
 
-    const logOutput = handleStore({
+    const logOutput = await handleStore({
       title: 'Manual Log',
       content: 'Should fail',
       kind: 'log',
@@ -2562,9 +2761,9 @@ describe('Index and log note kinds', () => {
     expect(logOutput).toContain('Error: log notes are auto-generated');
   });
 
-  it('should return project overview with domain, index, and log sections', () => {
-    storeProjectNote('MyApp Domain', 'myapp', makeConfig(), 'domain');
-    storeProjectNote('Overview Note');
+  it('should return project overview with domain, index, and log sections', async () => {
+    await storeProjectNote('MyApp Domain', 'myapp', makeConfig(), 'domain');
+    await storeProjectNote('Overview Note');
 
     const output = handleOverview({ project: 'myapp' }, ctx.engine, makeConfig());
     expect(output).toContain('## Project Overview: myapp');
