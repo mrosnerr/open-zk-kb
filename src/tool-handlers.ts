@@ -1382,7 +1382,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\ndryRun: true — no changes applied. Set dryRun: false to apply migration.';
         output += '\n\n## Impact Preview\n';
         output += '- Post-migration: full DB rebuild + project index regeneration + global navigation update\n';
-        output += '- Embeddings: will need backfill after migration (semantic search temporarily unavailable)\n';
+        if (embeddingConfig) {
+          output += '- Embeddings: will need backfill after migration (semantic search temporarily unavailable)\n';
+        }
         output += '- Navigation: index.md, log.md, review.md, and per-directory indexes will be auto-generated\n';
       } else if (!dryRun && moved > 0) {
         let emptyDirsRemoved = 0;

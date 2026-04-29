@@ -299,10 +299,12 @@ Decision content`, flatFilename);
 
     context.engine.rebuildFromFiles();
 
+    const embeddingConfig = { provider: 'local', model: 'all-MiniLM-L6-v2', dimensions: 384 } as any;
     const output = await handleMaintain(
       { action: 'migrate-layout', dryRun: true } as any,
       context.engine,
       context.config,
+      embeddingConfig,
     );
 
     expect(output).toContain('Dry Run');
@@ -314,7 +316,35 @@ Decision content`, flatFilename);
     expect(fs.existsSync(flatPath)).toBe(true);
   });
 
-   it('actual migration moves files, cleans empty dirs, and reports health summary', async () => {
+  it('dry run omits embedding warning when embeddings are not configured', async () => {
+    createNoteFile(context, '2026042700000005', `---
+id: 2026042700000005
+title: No Embeddings Note
+kind: decision
+status: permanent
+lifecycle: snapshot
+type: atomic
+tags:
+  - project:myproject
+created: 2026-04-27
+updated: 2026-04-27
+---
+
+Content`, '2026042700000005-no-embeddings.md');
+    context.engine.rebuildFromFiles();
+
+    const output = await handleMaintain(
+      { action: 'migrate-layout', dryRun: true } as any,
+      context.engine,
+      context.config,
+    );
+
+    expect(output).toContain('## Impact Preview');
+    expect(output).not.toContain('Embeddings: will need backfill');
+    expect(output).toContain('Navigation: index.md, log.md, review.md, and per-directory indexes will be auto-generated');
+  });
+
+  it('actual migration moves files, cleans empty dirs, and reports health summary', async () => {
     createNoteFile(context, '2026042700000002', `---
 id: 2026042700000002
 title: Moveable Note
@@ -586,8 +616,7 @@ describe('Structured navigation regressions', () => {
 
   it('reports out-of-vault traversal targets as broken (no filesystem bypass)', async () => {
     // Security: an existing sibling outside the vault must NOT silence broken links via path-traversal.
-    const outsideDir = path.join(context.tempDir, '..', 'outside-vault');
-    fs.mkdirSync(outsideDir, { recursive: true });
+    const outsideDir = fs.mkdtempSync(path.join(path.dirname(context.tempDir), 'outside-vault-'));
     fs.writeFileSync(path.join(outsideDir, 'secret.md'), '# secret', 'utf-8');
 
     try {
