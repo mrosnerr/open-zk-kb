@@ -453,8 +453,8 @@ describe('Global Navigation', () => {
     cleanupTestHarness(context);
   });
 
-  it('generates global index.md on store', () => {
-    handleStore(
+  it('generates global index.md on store', async () => {
+    await handleStore(
       { title: 'Test Note', content: 'Content', kind: 'decision', project: 'myproject', summary: 'A decision', guidance: 'Use it' } as any,
       context.engine,
       null,
@@ -468,8 +468,8 @@ describe('Global Navigation', () => {
     expect(content).toContain('myproject');
   });
 
-  it('generates global log.md on store', () => {
-    handleStore(
+  it('generates global log.md on store', async () => {
+    await handleStore(
       { title: 'Logged Note', content: 'Content', kind: 'observation', project: 'proj', summary: 'Obs', guidance: 'Note it' } as any,
       context.engine,
       null,
@@ -483,8 +483,8 @@ describe('Global Navigation', () => {
     expect(content).toContain('[proj]');
   });
 
-  it('generates review.md with fleeting notes', () => {
-    handleStore(
+  it('generates review.md with fleeting notes', async () => {
+    await handleStore(
       { title: 'Fleeting Obs', content: 'Content', kind: 'observation', project: 'proj', summary: 'Temp', guidance: 'Review' } as any,
       context.engine,
       null,
@@ -498,8 +498,8 @@ describe('Global Navigation', () => {
     expect(content).toContain('observation');
   });
 
-  it('generates general/index.md for unscoped notes', () => {
-    handleStore(
+  it('generates general/index.md for unscoped notes', async () => {
+    await handleStore(
       { title: 'General Note', content: 'Unscoped content', kind: 'reference', summary: 'General ref', guidance: 'Use it' } as any,
       context.engine,
       null,
@@ -512,14 +512,14 @@ describe('Global Navigation', () => {
     expect(content).toContain('# General Knowledge');
   });
 
-  it('appends to global log on subsequent stores', () => {
-    handleStore(
+  it('appends to global log on subsequent stores', async () => {
+    await handleStore(
       { title: 'First', content: 'A', kind: 'decision', project: 'p1', summary: 'First', guidance: 'G' } as any,
       context.engine,
       null,
       context.config,
     );
-    handleStore(
+    await handleStore(
       { title: 'Second', content: 'B', kind: 'observation', project: 'p2', summary: 'Second', guidance: 'G' } as any,
       context.engine,
       null,
@@ -681,8 +681,8 @@ describe('Structured navigation regressions', () => {
     expect(content).toContain('[system] Full DB rebuild');
   });
 
-  it('generates preferences/index.md when personalization notes exist', () => {
-    handleStore(
+  it('generates preferences/index.md when personalization notes exist', async () => {
+    await handleStore(
       { title: 'Pref', content: 'Pref content', kind: 'personalization', summary: 'User prefers Bun', guidance: 'Use Bun' } as any,
       context.engine,
       null,
@@ -700,8 +700,8 @@ describe('Structured navigation regressions', () => {
     expect(globalIndex).toContain('[[preferences/index|Preferences]]');
   });
 
-  it('generates general kind subdir indexes for unscoped notes', () => {
-    handleStore(
+  it('generates general kind subdir indexes for unscoped notes', async () => {
+    await handleStore(
       { title: 'General Decision', content: 'Decide', kind: 'decision', summary: 'General summary', guidance: 'Use it' } as any,
       context.engine,
       null,
@@ -740,14 +740,14 @@ Flat content`;
     expect(fs.existsSync(path.join(context.tempDir, 'general', vaultBasename))).toBe(false);
   });
 
-  it('creates sub-MOC files for small project kinds below split threshold', () => {
-    handleStore(
+  it('creates sub-MOC files for small project kinds below split threshold', async () => {
+    await handleStore(
       { title: 'Decision One', content: 'One', kind: 'decision', project: 'smallproj', summary: 'One', guidance: 'Use one' } as any,
       context.engine,
       null,
       context.config,
     );
-    handleStore(
+    await handleStore(
       { title: 'Decision Two', content: 'Two', kind: 'decision', project: 'smallproj', summary: 'Two', guidance: 'Use two' } as any,
       context.engine,
       null,
