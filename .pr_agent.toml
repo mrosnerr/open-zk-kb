@@ -70,7 +70,7 @@ require_estimate_effort_to_review = false
 require_ticket_analysis_review = false
 enable_review_labels_security = true
 enable_review_labels_effort = false
-publish_output_no_suggestions = false
+publish_output_no_suggestions = true
 
 extra_instructions = """\
 You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
@@ -192,9 +192,19 @@ num_code_suggestions_per_chunk = 5
 # pr-agent itself never commits. Source: pr_code_suggestions.py L573-L575 +
 # github_provider.py:417 (calls pr.create_review, not git_commit).
 commitable_code_suggestions = true
-publish_output_no_suggestions = false
-auto_extended_mode = true
-max_number_of_calls = 3
+publish_output_no_suggestions = true
+# auto_extended_mode + max_number_of_calls > 1 causes timeouts on Kimi K2.6
+# with reasoning_effort=high. Empirical evidence (PR #108, 2026-04-29):
+# auto_extended_mode=true + max_number_of_calls=3 produced 70K total tokens
+# (Kimi K2.6 33K + GLM 5.1 fallback 37K) in 15min before the 15-min workflow
+# timeout killed it — pr-agent batches all extended-mode predictions before
+# publishing, so partial results never surface. Single-pass mode finishes
+# in ~3-5 min and produces actionable per-line suggestions.
+# To re-enable extended mode later: bump pr-agent.yml timeout-minutes to 30,
+# OR swap to a faster model (Sonnet 4.6 ~3-5x faster), OR drop reasoning_effort
+# to "medium" for /improve specifically (no per-tool override mechanism in OSS).
+auto_extended_mode = false
+max_number_of_calls = 1
 parallel_calls = true
 
 extra_instructions = """\
