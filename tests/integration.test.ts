@@ -12,7 +12,7 @@ describe('Knowledge Capture Integration Tests', () => {
   let context: TestContext;
 
   beforeEach(() => {
-    context = createTestHarness();
+    context = createTestHarness({ telemetryEnabled: true });
   });
 
   afterEach(() => {

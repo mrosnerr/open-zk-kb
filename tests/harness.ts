@@ -13,7 +13,11 @@ export interface TestContext {
   config: AppConfig;
 }
 
-export function createTestHarness(): TestContext {
+export interface TestHarnessOptions {
+  telemetryEnabled?: boolean;
+}
+
+export function createTestHarness(options: TestHarnessOptions = {}): TestContext {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-test-'));
 
   const config: AppConfig = {
@@ -44,7 +48,7 @@ export function createTestHarness(): TestContext {
       overviewLogEntryLimit: 10,
     },
     telemetry: {
-      enabled: true,
+      enabled: options.telemetryEnabled ?? false,
     },
   };
 

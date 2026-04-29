@@ -36,8 +36,9 @@
 
 # ─── Telemetry ────────────────────────────────────────────────────────────────
 # Local-only SQLite counters for tool invocation rates. No content or queries are recorded.
+# Disabled by default — uncomment and set true to opt in.
 # telemetry:
-#   enabled: true                         # Set false to disable counters and access timestamps
+#   enabled: false                        # Set true to enable counters and access timestamps
 
 # ─── Navigation ───────────────────────────────────────────────────────────────
 # Auto-generated per-project index and operations log.

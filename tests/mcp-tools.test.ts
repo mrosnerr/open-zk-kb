@@ -263,7 +263,7 @@ describe('MCP Tool: knowledge-maintain', () => {
   };
 
   beforeEach(() => {
-    ctx = createTestHarness();
+    ctx = createTestHarness({ telemetryEnabled: true });
     ctx.engine.store('Pref 1', { title: 'P1', kind: 'personalization', status: 'permanent' });
     ctx.engine.store('Ref 1', { title: 'R1', kind: 'reference', status: 'fleeting' });
     ctx.engine.store('Dec 1', { title: 'D1', kind: 'decision', status: 'permanent' });

@@ -84,7 +84,7 @@ export const DEFAULT_CONFIG: AppConfig = {
     overviewLogEntryLimit: 10,
   },
   telemetry: {
-    enabled: true,
+    enabled: false,
   },
 };
 

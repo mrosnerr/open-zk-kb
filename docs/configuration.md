@@ -35,7 +35,7 @@ embeddings:
 | lifecycle.reviewAfterDays | number | 14 | Days until a note is surfaced for review |
 | lifecycle.promotionThreshold | number | 2 | Accesses needed to recommend promotion to permanent |
 | lifecycle.exemptKinds | string[] | ["personalization", "decision"] | Note kinds exempt from the review queue |
-| telemetry.enabled | boolean | true | Enable local-only tool invocation counters and access timestamps |
+| telemetry.enabled | boolean | false | Enable local-only tool invocation counters and access timestamps (opt-in) |
 | embeddings.enabled | boolean | true | Enable vector embeddings |
 | embeddings.provider | string | local | Embedding provider: local or api |
 | embeddings.model | string | all-MiniLM-L6-v2 | Embedding model (local or API) |
@@ -50,16 +50,16 @@ Embeddings work **out of the box** with zero configuration using a local model (
 - To override with an API provider (for higher-quality embeddings), configure the `embeddings` section with `provider: api`.
 - To disable embeddings entirely, set `enabled: false`.
 
-## Telemetry (Local-Only)
+## Telemetry (Local-Only, Opt-In)
 
-Telemetry is enabled by default and is stored only in the local SQLite database under the vault. It records coarse tool invocation counters for `knowledge-maintain stats` when called with `telemetry: true`.
+Telemetry is **disabled by default** and must be explicitly opted into. When enabled, it is stored only in the local SQLite database under the vault — nothing is ever sent remotely. It records coarse tool invocation counters for `knowledge-maintain stats` when called with `telemetry: true`.
 
 ```yaml
 telemetry:
-  enabled: false
+  enabled: true
 ```
 
-When disabled, open-zk-kb records no telemetry rows and also skips note access tracking (`last_accessed_at` and `access_count`). This treats access timestamps as privacy-sensitive metadata and makes opt-out comprehensive.
+When disabled (the default), open-zk-kb records no telemetry rows and also skips note access tracking (`last_accessed_at` and `access_count`). This treats access timestamps as privacy-sensitive metadata and makes the default posture maximally private.
 
 Recorded fields:
 - Synthetic per-connection session ID
