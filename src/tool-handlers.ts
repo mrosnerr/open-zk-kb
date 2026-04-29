@@ -110,6 +110,35 @@ function filterFalsePositiveBrokenLinks(broken: BrokenLink[], vaultPath: string 
   });
 }
 
+function removeEmptyDirsRecursive(dir: string, isRoot: boolean): number {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (isRoot && entry.name.startsWith('.')) continue;
+    removed += removeEmptyDirsRecursive(path.join(dir, entry.name), false);
+  }
+
+  if (!isRoot) {
+    try {
+      if (fs.readdirSync(dir).length === 0) {
+        fs.rmdirSync(dir);
+        removed++;
+      }
+    } catch {
+      // Non-fatal: another process may have removed the directory.
+    }
+  }
+
+  return removed;
+}
+
 // ---- Arg types ----
 
 export interface StoreArgs {
@@ -1388,20 +1417,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         output += '- Navigation: index.md, log.md, review.md, and per-directory indexes will be auto-generated\n';
       } else if (!dryRun && moved > 0) {
-        let emptyDirsRemoved = 0;
-        if (config.vault) {
-          const vaultEntries = fs.readdirSync(config.vault, { withFileTypes: true });
-          for (const entry of vaultEntries) {
-            if (!entry.isDirectory()) continue;
-            if (entry.name.startsWith('.')) continue;
-            const dirPath = path.join(config.vault, entry.name);
-            const contents = fs.readdirSync(dirPath);
-            if (contents.length === 0) {
-              fs.rmdirSync(dirPath);
-              emptyDirsRemoved++;
-            }
-          }
-        }
+        const emptyDirsRemoved = config.vault ? removeEmptyDirsRecursive(config.vault, true) : 0;
         if (emptyDirsRemoved > 0) {
           output += `Empty directories removed: ${emptyDirsRemoved}\n`;
         }

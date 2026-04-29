@@ -390,6 +390,41 @@ Observation content with [[missing-note]]`, '2026042700000002-moveable-note.md')
     expect(fs.existsSync(note!.path)).toBe(true);
   });
 
+  it('recursively removes nested empty directories during cleanup', async () => {
+    createNoteFile(context, '2026042700000010', `---
+id: 2026042700000010
+title: Trigger Migration
+kind: decision
+status: permanent
+lifecycle: snapshot
+type: atomic
+tags:
+  - project:cleanproj
+created: 2026-04-27
+updated: 2026-04-27
+---
+
+content`, '2026042700000010-trigger-migration.md');
+
+    fs.mkdirSync(path.join(context.tempDir, 'legacy', 'level2', 'level3'), { recursive: true });
+    const keepDir = path.join(context.tempDir, 'keep-this');
+    fs.mkdirSync(keepDir, { recursive: true });
+    fs.writeFileSync(path.join(keepDir, 'note.md'), 'content', 'utf-8');
+
+    context.engine.rebuildFromFiles();
+
+    const output = await handleMaintain(
+      { action: 'migrate-layout', dryRun: false } as any,
+      context.engine,
+      context.config,
+    );
+
+    expect(output).toContain('Empty directories removed: 3');
+    expect(fs.existsSync(path.join(context.tempDir, 'legacy'))).toBe(false);
+    expect(fs.existsSync(keepDir)).toBe(true);
+    expect(fs.existsSync(path.join(keepDir, 'note.md'))).toBe(true);
+  });
+
   it('skips notes already in correct location', async () => {
     context.engine.store('Already structured', {
       title: 'Structured Note',
