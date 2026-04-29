@@ -680,6 +680,31 @@ describe('Structured navigation regressions', () => {
     expect(content).toContain('Back to General');
   });
 
+  it('groups general kind subdirs by note kind, not by filesystem path (flat-vault safe)', async () => {
+    // Regression: pre-migration flat vaults must not pollute general/ with vault-name dirs.
+    const flatNote = `---
+id: 2026042700000099
+title: Flat Unscoped Decision
+kind: decision
+status: permanent
+lifecycle: snapshot
+type: atomic
+created: 2026-04-27
+updated: 2026-04-27
+---
+
+Flat content`;
+    createNoteFile(context, '2026042700000099', flatNote, '2026042700000099-flat-unscoped.md');
+    context.engine.rebuildFromFiles();
+
+    await handleMaintain({ action: 'rebuild' }, context.engine, context.config);
+
+    expect(fs.existsSync(path.join(context.tempDir, 'general', 'decisions', 'index.md'))).toBe(true);
+
+    const vaultBasename = path.basename(context.tempDir);
+    expect(fs.existsSync(path.join(context.tempDir, 'general', vaultBasename))).toBe(false);
+  });
+
   it('creates sub-MOC files for small project kinds below split threshold', () => {
     handleStore(
       { title: 'Decision One', content: 'One', kind: 'decision', project: 'smallproj', summary: 'One', guidance: 'Use one' } as any,

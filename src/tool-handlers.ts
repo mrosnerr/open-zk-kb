@@ -22,7 +22,7 @@ import { renderNoteForSearch, renderNoteForAgent } from './prompts.js';
 import { buildIndexContent, buildGlobalIndexContent, buildGeneralIndexContent, buildPreferencesIndexContent, buildGeneralKindIndexContent } from './storage/IndexBuilder.js';
 import { buildLogEntry, buildInitialLogContent, appendToLogContent, buildGlobalLogEntry, buildInitialGlobalLogContent } from './storage/LogAppender.js';
 import { buildReviewContent } from './storage/ReviewBuilder.js';
-import { resolveNotePath, extractProjectFromTags as extractProjectTag } from './storage/path-resolver.js';
+import { resolveNotePath, extractProjectFromTags as extractProjectTag, KIND_DIR_MAP } from './storage/path-resolver.js';
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash } from './utils/simhash.js';
@@ -461,23 +461,24 @@ function updateGlobalNavigation(
         if (!fs.existsSync(generalDir)) fs.mkdirSync(generalDir, { recursive: true });
         fs.writeFileSync(path.join(generalDir, 'index.md'), content, 'utf-8');
 
-        const notesByDir = new Map<string, NoteMetadata[]>();
+        const notesByKindDir = new Map<string, { kind: string; notes: NoteMetadata[] }>();
         for (const note of unscopedNotes) {
-          const dirName = path.basename(path.dirname(note.path));
-          const bucket = notesByDir.get(dirName);
+          const kind = note.kind;
+          const dirName = KIND_DIR_MAP[kind] || `${kind}s`;
+          const bucket = notesByKindDir.get(dirName);
           if (bucket) {
-            bucket.push(note);
+            bucket.notes.push(note);
           } else {
-            notesByDir.set(dirName, [note]);
+            notesByKindDir.set(dirName, { kind, notes: [note] });
           }
         }
 
-        for (const [dirName, kindNotes] of notesByDir) {
+        for (const [dirName, { kind, notes: kindNotes }] of notesByKindDir) {
           const kindDir = path.join(generalDir, dirName);
           if (!fs.existsSync(kindDir)) fs.mkdirSync(kindDir, { recursive: true });
           fs.writeFileSync(
             path.join(kindDir, 'index.md'),
-            buildGeneralKindIndexContent(kindNotes[0].kind, kindNotes),
+            buildGeneralKindIndexContent(kind, kindNotes),
             'utf-8',
           );
         }
@@ -486,7 +487,7 @@ function updateGlobalNavigation(
           for (const entry of fs.readdirSync(generalDir, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
             const kindIndex = path.join(generalDir, entry.name, 'index.md');
-            if (!notesByDir.has(entry.name) && fs.existsSync(kindIndex)) {
+            if (!notesByKindDir.has(entry.name) && fs.existsSync(kindIndex)) {
               fs.unlinkSync(kindIndex);
             }
           }
