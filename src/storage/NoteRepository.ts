@@ -98,7 +98,7 @@ export class NoteRepository {
     try {
       // Telemetry is configured once per repository/MCP connection. Opt-out disables both
       // tool_telemetry inserts and note access metadata writes for privacy consistency.
-      this.telemetryEnabled = options.telemetryEnabled !== false;
+      this.telemetryEnabled = options.telemetryEnabled === true;
       this.sessionId = crypto.randomUUID();
       const originalPath = docsPath;
       this.docsPath = expandPath(docsPath);

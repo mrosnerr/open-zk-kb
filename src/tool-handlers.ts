@@ -646,7 +646,9 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     related: args.related,
   });
 
-  repo.recordToolInvocation('store', args.kind, 1);
+  try { repo.recordToolInvocation('store', args.kind, 1); } catch (e) {
+    logToFile('WARN', 'Telemetry write failed in store', { error: e instanceof Error ? e.message : String(e) });
+  }
 
   const hashContent = args.summary || args.content || args.title;
   const hash = computeSimHash(hashContent);
@@ -746,8 +748,12 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   }
 
   const accessedIds = [...(domainNote ? [domainNote.id] : []), ...results.map(note => note.id)];
-  repo.recordToolInvocation('search', undefined, accessedIds.length);
-  repo.updateLastAccessed(accessedIds);
+  try {
+    repo.recordToolInvocation('search', undefined, accessedIds.length);
+    repo.updateLastAccessed(accessedIds);
+  } catch (e) {
+    logToFile('WARN', 'Telemetry write failed in search', { error: e instanceof Error ? e.message : String(e) });
+  }
 
   if (results.length === 0 && !domainNote) {
     return 'No matching notes found. Try broader keywords or remove filters.' + clientWarning;
@@ -767,7 +773,9 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
 }
 
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string): Promise<string> {
-  repo.recordToolInvocation('maintain', args.action);
+  try { repo.recordToolInvocation('maintain', args.action); } catch (e) {
+    logToFile('WARN', 'Telemetry write failed in maintain', { error: e instanceof Error ? e.message : String(e) });
+  }
   switch (args.action) {
     case 'stats': {
       const stats = repo.getStats();
