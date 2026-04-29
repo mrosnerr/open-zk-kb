@@ -41,12 +41,18 @@ jobs:
           OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
           # Model + review config lives in .pr_agent.toml (repo root)
           # Only secrets and action-level config set here
-          # Phase 0 cost reduction (2026-04-28): /improve disabled on auto-run.
-          # /review runs on opened/reopened/ready_for_review only — synchronize is
-          # excluded via pr_actions in .pr_agent.toml so push events no longer
-          # auto-trigger /review. Re-run manually via `/review -i` PR comment.
-          # User can manually invoke /improve via PR comment when wanted.
-          # Rationale: agent-architecture/04-references/cost-analysis-by-tier.md
+          #
+          # 2026-04-29 update: re-enabled /improve to get per-line inline
+          # suggestion comments (Greptile/CodeRabbit-style) which `/review`
+          # cannot produce. /improve posts comments with native GitHub
+          # ```suggestion``` blocks; pr-agent NEVER auto-commits. Source-verified
+          # in agent-architecture/04-References/pr-agent-extra-instructions-scope.md.
+          # The pr_actions filter in .pr_agent.toml restricts /improve and /review
+          # to opened/reopened/ready_for_review only — synchronize events do NOT
+          # auto-fire either tool. Use `/improve` or `/review -i` PR comment to
+          # re-run manually. Cost rises ~$3.65/mo → ~$7-12/mo (still below
+          # CodeRabbit's $24).
+          # Rationale: agent-architecture/04-References/cost-analysis-by-tier.md
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
-          github_action_config.auto_improve: "false"
+          github_action_config.auto_improve: "true"

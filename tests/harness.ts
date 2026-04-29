@@ -13,7 +13,11 @@ export interface TestContext {
   config: AppConfig;
 }
 
-export function createTestHarness(): TestContext {
+export interface TestHarnessOptions {
+  telemetryEnabled?: boolean;
+}
+
+export function createTestHarness(options: TestHarnessOptions = {}): TestContext {
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-test-'));
 
   const config: AppConfig = {
@@ -43,9 +47,12 @@ export function createTestHarness(): TestContext {
       mocPreviewCount: 5,
       overviewLogEntryLimit: 10,
     },
+    telemetry: {
+      enabled: options.telemetryEnabled ?? false,
+    },
   };
 
-  const engine = new NoteRepository(tempDir);
+  const engine = new NoteRepository(tempDir, { telemetryEnabled: config.telemetry.enabled });
 
   return { tempDir, engine, config };
 }

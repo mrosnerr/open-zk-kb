@@ -174,6 +174,7 @@ export interface MaintainArgs {
   filter?: 'fleeting' | 'permanent';
   days?: number;
   limit?: number;
+  telemetry?: boolean;
   dryRun?: boolean;
   model?: string;
 }
@@ -198,6 +199,45 @@ export interface OpenArgs {
 
 function sanitizeMetadata(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function formatTelemetryNumber(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+function scheduleTelemetryWrite(label: string, fn: () => void): void {
+  queueMicrotask(() => {
+    try {
+      fn();
+    } catch (e) {
+      logToFile('WARN', `Telemetry write failed in ${label}`, { error: e instanceof Error ? e.message : String(e) });
+    }
+  });
+}
+
+function formatTelemetryStats(repo: NoteRepository): string {
+  const telemetry = repo.getTelemetryAggregates(30);
+  const avgSearches = telemetry.sessions > 0 ? telemetry.searches / telemetry.sessions : 0;
+  const avgStores = telemetry.sessions > 0 ? telemetry.stores / telemetry.sessions : 0;
+  const storeSearchRatio = telemetry.searches > 0 ? telemetry.stores / telemetry.searches : 0;
+  const avgDurationMs = telemetry.sessionDurations.length > 0
+    ? telemetry.sessionDurations.reduce((sum, duration) => sum + duration, 0) / telemetry.sessionDurations.length
+    : 0;
+  const avgDurationMin = avgDurationMs / 60000;
+  const mostStored = Object.entries(telemetry.storesByKind)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  const mostUsedAction = Object.entries(telemetry.maintainByAction)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+
+  let output = '\n## Tool Telemetry\n\n';
+  output += `Last 30 days (${telemetry.sessions} sessions):\n`;
+  output += `  Searches: ${telemetry.searches} (avg ${formatTelemetryNumber(avgSearches)} per session)\n`;
+  output += `  Stores: ${telemetry.stores} (avg ${formatTelemetryNumber(avgStores)} per session)\n`;
+  output += `  Store / search ratio: ${storeSearchRatio.toFixed(2)}\n`;
+  output += `  Most-stored kind: ${mostStored ? `${mostStored[0]} (${mostStored[1]})` : 'none (0)'}\n`;
+  output += `  Most-used action: ${mostUsedAction ? `${mostUsedAction[0]} (${mostUsedAction[1]})` : 'none (0)'}\n`;
+  output += `  Avg session duration: ${formatTelemetryNumber(avgDurationMin)} min\n`;
+  return output;
 }
 
 const MAX_HTML_BYTES = 5 * 1024 * 1024; // 5MB
@@ -620,6 +660,8 @@ export function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConf
     related: args.related,
   });
 
+  scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', args.kind, 1));
+
   const hashContent = args.summary || args.content || args.title;
   const hash = computeSimHash(hashContent);
   repo.updateContentHash(result.id, hash);
@@ -717,6 +759,10 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     }
   }
 
+  const accessedIds = [...(domainNote ? [domainNote.id] : []), ...results.map(note => note.id)];
+  scheduleTelemetryWrite('search invocation', () => repo.recordToolInvocation('search', undefined, accessedIds.length));
+  scheduleTelemetryWrite('search access update', () => repo.updateLastAccessed(accessedIds));
+
   if (results.length === 0 && !domainNote) {
     return 'No matching notes found. Try broader keywords or remove filters.' + clientWarning;
   }
@@ -726,31 +772,16 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
 
   if (domainNote) {
     output += renderNoteForSearch(domainNote) + '\n';
-    try {
-      repo.recordAccess(domainNote.id);
-    } catch (error) {
-      logToFile('WARN', 'Failed to record access', {
-        noteId: domainNote.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   }
 
   for (const note of results) {
     output += renderNoteForSearch(note) + '\n';
-    try {
-      repo.recordAccess(note.id);
-    } catch (error) {
-      logToFile('WARN', 'Failed to record access', {
-        noteId: note.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
   }
   return output + clientWarning;
 }
 
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string): Promise<string> {
+  scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action));
   switch (args.action) {
     case 'stats': {
       const stats = repo.getStats();
@@ -846,6 +877,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         if (latest && isNewerVersion(currentVersion, latest)) {
           output += `\n**Update**: \`bunx open-zk-kb@latest install --client <name> --force\`\n`;
         }
+      }
+      if (args.telemetry) {
+        output += formatTelemetryStats(repo);
       }
       return output;
     }
@@ -1475,7 +1509,7 @@ export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?
   if (domainNote) {
     output += '### Domain\n';
     output += renderNoteForAgent(domainNote) + '\n\n';
-    try { repo.recordAccess(domainNote.id); } catch { /* non-fatal */ }
+    scheduleTelemetryWrite('overview access', () => repo.recordAccess(domainNote.id));
   }
 
   if (indexNote) {

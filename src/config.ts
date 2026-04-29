@@ -48,6 +48,9 @@ interface RawConfig {
     mocPreviewCount?: number;
     overviewLogEntryLimit?: number;
   };
+  telemetry?: {
+    enabled?: boolean;
+  };
   embeddings?: EmbeddingsConfig;
 }
 
@@ -79,6 +82,9 @@ export const DEFAULT_CONFIG: AppConfig = {
     mocSplitThreshold: 30,
     mocPreviewCount: 5,
     overviewLogEntryLimit: 10,
+  },
+  telemetry: {
+    enabled: false,
   },
 };
 
@@ -164,6 +170,11 @@ export function getConfig(): AppConfig {
       overviewLogEntryLimit: typeof raw?.navigation?.overviewLogEntryLimit === 'number'
         ? raw.navigation.overviewLogEntryLimit
         : DEFAULT_CONFIG.navigation.overviewLogEntryLimit,
+    },
+    telemetry: {
+      enabled: typeof raw?.telemetry?.enabled === 'boolean'
+        ? raw.telemetry.enabled
+        : DEFAULT_CONFIG.telemetry.enabled,
     },
   };
 }

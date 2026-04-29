@@ -1,6 +1,21 @@
 # PR Agent configuration for open-zk-kb
 # Docs: https://www.pr-agent.ai
-# Model config also set via workflow env vars (TOML is read from base branch only)
+#
+# CONFIG LOADING: pr-agent reads this file from the repo's DEFAULT branch (= dev),
+# not main, not the PR base. Source: qodo-ai/pr-agent github_provider.py:730
+# (`get_repo_settings` calls `get_contents(".pr_agent.toml")` without a ref,
+# defaulting to the default branch). So changes here take effect for all PRs
+# once they merge to dev.
+#
+# WORKFLOW ENV VARS in .github/workflows/pr-agent.yml only set
+# [github_action_config] flags (auto_review, auto_describe, auto_improve).
+# Model + reviewer config lives here.
+#
+# extra_instructions SCOPE: controls what the LLM thinks about (categories,
+# severity language, what NOT to flag, WHEN/THEN/BECAUSE rules) but CANNOT
+# override pr-agent's hardcoded output format/title. Title `## PR Reviewer
+# Guide 🔍` is a Python enum constant; output schema is rigid Pydantic.
+# See: agent-architecture/04-References/pr-agent-extra-instructions-scope.md
 
 [config]
 # Phase 0 swap rationale: agent-architecture/04-references/openzkkb-pr-review-current-state.md
@@ -75,58 +90,6 @@ previous feedback correctly, acknowledge resolution and approve.
 
 CONVERGE TO APPROVAL: After 1-2 rounds of feedback, the review should either approve
 or clearly state the remaining blocking items. Do not keep finding new nits indefinitely.
-
-## Output Format (MANDATORY — follow this structure exactly)
-
-IMPORTANT: Your review comment title MUST be "## PR Review" (not "PR Reviewer Guide").
-
-### 1. Verdict (first line, bold)
-
-**✅ Approved** or **⚠️ Needs Work (N blockers)**
-
-One sentence explaining why.
-
-### 2. Quality Scorecard (table, always present)
-
-| Metric | Grade | Notes |
-|--------|-------|-------|
-| **Scope** | A-F | Does the PR do what the issue/description says? Missing pieces? Out-of-scope changes? |
-| **Code Quality** | A-F | Bugs, error handling, type safety, patterns match codebase conventions? |
-| **Testing** | A-F | Test coverage for new code, edge cases, mocks where needed, no side effects in tests? |
-| **Security** | A-F or N/A | Secrets, injection, auth, MCP stdout safety? |
-
-Grades: A = excellent, B = good (minor gaps), C = adequate, D = significant gaps, F = failing.
-One-line "Notes" per row — not paragraphs.
-
-### 3. Findings
-
-Post each finding as an INLINE CODE COMMENT on the specific line in the PR diff.
-Format per inline comment: 🔴/🟡/⚪ **[Title]** — one-line description.
-Include a minimal code diff if suggesting a fix.
-
-In the summary comment, list findings as a reference:
-
-#### 🔴 Must Fix
-- **[Title]** — `file.ts:N`
-
-#### 🟡 Should Fix
-- **[Title]** — `file.ts:N`
-
-#### ⚪ Nits (max 2)
-- **[Title]** — `file.ts:N`
-
-If no findings in a tier, omit that header entirely.
-
-### 4. Review Log (persists across rounds)
-
-| Round | Commit | Findings | Verdict |
-|-------|--------|----------|---------|
-| 1 | `abc1234` | 3 (1 🔴, 2 🟡) | Needs Work |
-| 2 | `def5678` | 1 new, 2 resolved | Approved |
-
-This log MUST persist and accumulate — never delete previous entries.
-
----
 
 ## Priority Tiers (exactly ONE per finding)
 
@@ -221,8 +184,14 @@ Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTest
 [pr_code_suggestions]
 focus_only_on_problems = true
 suggestions_score_threshold = 3
-num_code_suggestions_per_chunk = 4
-commitable_code_suggestions = false
+num_code_suggestions_per_chunk = 5
+# commitable_code_suggestions = true posts each suggestion as a separate inline
+# GitHub review comment with a native ```suggestion``` block (the "Commit
+# suggestion" button you see on Greptile/CodeRabbit comments). Clicking that
+# button is a manual action that creates a commit authored by the clicker —
+# pr-agent itself never commits. Source: pr_code_suggestions.py L573-L575 +
+# github_provider.py:417 (calls pr.create_review, not git_commit).
+commitable_code_suggestions = true
 publish_output_no_suggestions = false
 auto_extended_mode = true
 max_number_of_calls = 3

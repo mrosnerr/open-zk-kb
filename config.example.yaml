@@ -34,6 +34,12 @@
 #   alwaysIncludeDomainNote: true         # Prepend domain note to project-scoped searches
 #   excludeLogFromSearch: true            # Exclude structural log notes from default search results
 
+# ─── Telemetry ────────────────────────────────────────────────────────────────
+# Local-only SQLite counters for tool invocation rates. No content or queries are recorded.
+# Disabled by default — uncomment and set true to opt in.
+# telemetry:
+#   enabled: false                        # Set true to enable counters and access timestamps
+
 # ─── Navigation ───────────────────────────────────────────────────────────────
 # Auto-generated per-project index and operations log.
 # navigation:

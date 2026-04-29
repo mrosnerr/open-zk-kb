@@ -71,6 +71,41 @@ export interface StoreOptions {
   related?: string[];
 }
 
+export type TelemetryToolName = 'search' | 'store' | 'maintain';
+
+export interface TelemetryAggregates {
+  sessions: number;
+  searches: number;
+  stores: number;
+  maintains: number;
+  storesByKind: Record<string, number>;
+  maintainByAction: Record<string, number>;
+  sessionDurations: number[];
+}
+
+export interface TelemetryRow {
+  session_id: string;
+  tool_name: TelemetryToolName;
+  arg_kind: string | null;
+  timestamp: number;
+  result_count: number | null;
+}
+
+function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return fn();
+    } catch (e: unknown) {
+      if (e instanceof Error && e.message.includes('SQLITE_BUSY') && i < maxRetries - 1) {
+        Bun.sleepSync(50);
+        continue;
+      }
+      throw e;
+    }
+  }
+  throw new Error('unreachable');
+}
+
 // Monotonic timestamp tracking to avoid ID collisions within a process
 let idCounter = 0;
 let lastIdTimestamp = '';
@@ -80,9 +115,15 @@ export class NoteRepository {
   protected docsPath: string;
   protected dbPath: string;
   protected schemaManager: SchemaManager;
+  private readonly sessionId: string;
+  private readonly telemetryEnabled: boolean;
 
-  constructor(docsPath: string = '~/.local/share/open-zk-kb') {
+  constructor(docsPath: string = '~/.local/share/open-zk-kb', options: { telemetryEnabled?: boolean } = {}) {
     try {
+      // Telemetry is configured once per repository/MCP connection. Opt-out disables both
+      // tool_telemetry inserts and note access metadata writes for privacy consistency.
+      this.telemetryEnabled = options.telemetryEnabled === true;
+      this.sessionId = crypto.randomUUID();
       const originalPath = docsPath;
       this.docsPath = expandPath(docsPath);
 
@@ -1235,10 +1276,10 @@ export class NoteRepository {
     const stmt = this.db.prepare(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'fleeting' THEN 1 ELSE 0 END) as fleeting,
-        SUM(CASE WHEN status = 'permanent' THEN 1 ELSE 0 END) as permanent,
-        SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END) as archived,
-        SUM(CASE WHEN status NOT IN ('fleeting', 'permanent', 'archived') THEN 1 ELSE 0 END) as other
+        COALESCE(SUM(CASE WHEN status = 'fleeting' THEN 1 ELSE 0 END), 0) as fleeting,
+        COALESCE(SUM(CASE WHEN status = 'permanent' THEN 1 ELSE 0 END), 0) as permanent,
+        COALESCE(SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END), 0) as archived,
+        COALESCE(SUM(CASE WHEN status NOT IN ('fleeting', 'permanent', 'archived') THEN 1 ELSE 0 END), 0) as other
       FROM notes
     `);
 
@@ -1264,14 +1305,103 @@ export class NoteRepository {
     return result;
   }
 
-  recordAccess(id: string): void {
+  recordToolInvocation(toolName: TelemetryToolName, argKind?: string, resultCount?: number): void {
+    if (!this.telemetryEnabled) return;
+    withBusyRetry(() => {
+      this.db.prepare(`
+        INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null);
+    });
+  }
+
+  updateLastAccessed(noteIds: string[]): void {
+    if (!this.telemetryEnabled || noteIds.length === 0) return;
+    const uniqueIds = [...new Set(noteIds)];
     const now = Date.now();
-    this.db.prepare(`
+    const update = this.db.prepare(`
       UPDATE notes
       SET access_count = COALESCE(access_count, 0) + 1,
           last_accessed_at = ?
       WHERE id = ?
-    `).run(now, id);
+    `);
+    const transaction = this.db.transaction((ids: string[]) => {
+      for (const id of ids) update.run(now, id);
+    });
+    withBusyRetry(() => transaction(uniqueIds));
+  }
+
+  getTelemetryAggregates(days: number = 30): TelemetryAggregates {
+    const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const counts = this.db.prepare(`
+      SELECT
+        COUNT(DISTINCT session_id) as sessions,
+        SUM(CASE WHEN tool_name = 'search' THEN 1 ELSE 0 END) as searches,
+        SUM(CASE WHEN tool_name = 'store' THEN 1 ELSE 0 END) as stores,
+        SUM(CASE WHEN tool_name = 'maintain' THEN 1 ELSE 0 END) as maintains
+      FROM tool_telemetry
+      WHERE timestamp >= ?
+    `).get(cutoff) as { sessions: number | null; searches: number | null; stores: number | null; maintains: number | null };
+
+    const storeRows = this.db.prepare(`
+      SELECT arg_kind, COUNT(*) as count
+      FROM tool_telemetry
+      WHERE timestamp >= ? AND tool_name = 'store' AND arg_kind IS NOT NULL
+      GROUP BY arg_kind
+    `).all(cutoff) as Array<{ arg_kind: string; count: number }>;
+    const storesByKind: Record<string, number> = {};
+    for (const row of storeRows) {
+      storesByKind[row.arg_kind] = row.count;
+    }
+
+    const maintainRows = this.db.prepare(`
+      SELECT arg_kind, COUNT(*) as count
+      FROM tool_telemetry
+      WHERE timestamp >= ? AND tool_name = 'maintain' AND arg_kind IS NOT NULL
+      GROUP BY arg_kind
+    `).all(cutoff) as Array<{ arg_kind: string; count: number }>;
+    const maintainByAction: Record<string, number> = {};
+    for (const row of maintainRows) {
+      maintainByAction[row.arg_kind] = row.count;
+    }
+
+    const durationRows = this.db.prepare(`
+      SELECT MAX(timestamp) - MIN(timestamp) as duration
+      FROM tool_telemetry
+      WHERE timestamp >= ?
+      GROUP BY session_id
+    `).all(cutoff) as Array<{ duration: number | null }>;
+
+    return {
+      sessions: counts.sessions ?? 0,
+      searches: counts.searches ?? 0,
+      stores: counts.stores ?? 0,
+      maintains: counts.maintains ?? 0,
+      storesByKind,
+      maintainByAction,
+      sessionDurations: durationRows.map(row => row.duration ?? 0),
+    };
+  }
+
+  recordAccess(id: string): void {
+    if (!this.telemetryEnabled) return;
+    const now = Date.now();
+    withBusyRetry(() => {
+      this.db.prepare(`
+        UPDATE notes
+        SET access_count = COALESCE(access_count, 0) + 1,
+            last_accessed_at = ?
+        WHERE id = ?
+      `).run(now, id);
+    });
+  }
+
+  getTelemetryRows(): TelemetryRow[] {
+    return this.db.prepare(`
+      SELECT session_id, tool_name, arg_kind, timestamp, result_count
+      FROM tool_telemetry
+      ORDER BY id
+    `).all() as TelemetryRow[];
   }
 
   rebuildFromFiles(): { indexed: number; errors: number; warnings: string[] } {

@@ -35,6 +35,7 @@ embeddings:
 | lifecycle.reviewAfterDays | number | 14 | Days until a note is surfaced for review |
 | lifecycle.promotionThreshold | number | 2 | Accesses needed to recommend promotion to permanent |
 | lifecycle.exemptKinds | string[] | ["personalization", "decision"] | Note kinds exempt from the review queue |
+| telemetry.enabled | boolean | false | Enable local-only tool invocation counters and access timestamps (opt-in) |
 | embeddings.enabled | boolean | true | Enable vector embeddings |
 | embeddings.provider | string | local | Embedding provider: local or api |
 | embeddings.model | string | all-MiniLM-L6-v2 | Embedding model (local or API) |
@@ -48,6 +49,33 @@ Embeddings work **out of the box** with zero configuration using a local model (
 - ~23MB model downloaded on first use, cached in `~/.cache/open-zk-kb/models/`
 - To override with an API provider (for higher-quality embeddings), configure the `embeddings` section with `provider: api`.
 - To disable embeddings entirely, set `enabled: false`.
+
+## Telemetry (Local-Only, Opt-In)
+
+Telemetry is **disabled by default** and must be explicitly opted into. When enabled, it is stored only in the local SQLite database under the vault — nothing is ever sent remotely. It records coarse tool invocation counters for `knowledge-maintain stats` when called with `telemetry: true`.
+
+```yaml
+telemetry:
+  enabled: true
+```
+
+When disabled (the default), open-zk-kb records no telemetry rows and also skips note access tracking (`last_accessed_at` and `access_count`). This treats access timestamps as privacy-sensitive metadata and makes the default posture maximally private.
+
+Recorded fields:
+- Synthetic per-connection session ID
+- Tool name (`search`, `store`, `maintain`)
+- Store kind or maintain action
+- Timestamp
+- Result count for searches and successful stores
+
+Not recorded:
+- Note content
+- Note bodies
+- Search query strings
+- Search result snippets
+- File paths
+- User identifiers, client identifiers, hostnames, or account names
+- API keys, tokens, credentials, or other secrets
 
 ## Example Configurations
 
@@ -72,6 +100,12 @@ embeddings:
 ### d) Embeddings disabled
 ```yaml
 embeddings:
+  enabled: false
+```
+
+### e) Telemetry disabled
+```yaml
+telemetry:
   enabled: false
 ```
 

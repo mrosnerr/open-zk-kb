@@ -32,7 +32,7 @@ let repo: NoteRepositoryType | null = null;
 
 function getOrCreateRepo(): NoteRepositoryType {
   if (!repo) {
-    repo = new NoteRepository(config.vault);
+    repo = new NoteRepository(config.vault, { telemetryEnabled: config.telemetry.enabled });
     logToFile('INFO', 'MCP server: repository opened', { vault: config.vault }, config);
   }
   return repo;
@@ -312,6 +312,7 @@ const maintainSchema = z.object({
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
   limit: z.number().optional().describe('Max notes to show (default: 3 for review)'),
+  telemetry: z.boolean().optional().describe('Include 30-day local-only tool invocation aggregates in stats output'),
   dryRun: z.boolean().optional().describe('Preview changes without applying'),
   model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
 });
@@ -330,6 +331,7 @@ server.registerTool(
         filter: args.filter as 'fleeting' | 'permanent' | undefined,
         days: args.days,
         limit: args.limit,
+        telemetry: args.telemetry,
         dryRun: args.dryRun,
         model: args.model,
       }, getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION);

@@ -32,7 +32,7 @@ describe('schema.ts', () => {
     return Boolean(row);
   }
 
-  it('sets schema version 6 for a fresh database after initialize and repair', () => {
+  it('sets schema version 7 for a fresh database after initialize and repair', () => {
     const db = new Database(':memory:');
     const schema = new SchemaManager(db);
 
@@ -41,11 +41,11 @@ describe('schema.ts', () => {
 
     expect(result.valid).toBe(true);
     expect(result.needsRebuild).toBe(false);
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
     db.close();
   });
 
-  it('creates required tables notes, notes_fts, and note_links', () => {
+  it('creates required tables notes, notes_fts, note_links, and tool_telemetry', () => {
     const db = new Database(':memory:');
     const schema = new SchemaManager(db);
 
@@ -55,6 +55,7 @@ describe('schema.ts', () => {
     expect(tableExists(db, 'notes')).toBe(true);
     expect(tableExists(db, 'notes_fts')).toBe(true);
     expect(tableExists(db, 'note_links')).toBe(true);
+    expect(tableExists(db, 'tool_telemetry')).toBe(true);
     db.close();
   });
 
@@ -121,7 +122,7 @@ describe('schema.ts', () => {
 
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('kind');
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
     db.close();
   });
 
@@ -156,7 +157,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('summary');
     expect(columns).toContain('guidance');
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
     db.close();
   });
 
@@ -193,7 +194,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('embedding');
     expect(columns).toContain('embedding_model');
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
     db.close();
   });
 
@@ -233,7 +234,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('content_hash');
     expect(tableExists(db, 'capture_metrics')).toBe(false);
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
     db.close();
   });
 
@@ -272,7 +273,47 @@ describe('schema.ts', () => {
 
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('lifecycle');
-    expect(getUserVersion(db)).toBe(6);
+    expect(getUserVersion(db)).toBe(7);
+    db.close();
+  });
+
+  it('migrates from v6 to v7: adds telemetry table and last_accessed_at when missing', () => {
+    const db = new Database(':memory:');
+
+    db.run(`
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY,
+        path TEXT UNIQUE,
+        title TEXT,
+        content TEXT,
+        kind TEXT DEFAULT 'observation',
+        status TEXT DEFAULT 'fleeting',
+        type TEXT DEFAULT 'atomic',
+        tags TEXT DEFAULT '[]',
+        context TEXT DEFAULT '',
+        created_at INTEGER,
+        updated_at INTEGER,
+        word_count INTEGER DEFAULT 0,
+        access_count INTEGER DEFAULT 0,
+        summary TEXT DEFAULT '',
+        guidance TEXT DEFAULT '',
+        embedding BLOB DEFAULT NULL,
+        embedding_model TEXT DEFAULT NULL,
+        content_hash TEXT DEFAULT NULL,
+        lifecycle TEXT DEFAULT 'living'
+      )
+    `);
+    db.run("CREATE VIRTUAL TABLE notes_fts USING fts5(note_id, title, content, tags, context, tokenize='porter')");
+    db.run('CREATE TABLE note_links (source_id TEXT, target_id TEXT, link_text TEXT, created_at INTEGER, PRIMARY KEY (source_id, target_id))');
+    db.run('PRAGMA user_version = 6');
+
+    const schema = new SchemaManager(db);
+    schema.checkAndRepair();
+
+    const columns = getColumns(db, 'notes');
+    expect(columns).toContain('last_accessed_at');
+    expect(tableExists(db, 'tool_telemetry')).toBe(true);
+    expect(getUserVersion(db)).toBe(7);
     db.close();
   });
 });

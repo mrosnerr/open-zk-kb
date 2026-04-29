@@ -5,7 +5,7 @@ import { Database } from 'bun:sqlite';
 import { logToFile } from './logger.js';
 
 export class SchemaManager {
-  static readonly SCHEMA_VERSION = 6;
+  static readonly SCHEMA_VERSION = 7;
 
   private static readonly MIGRATIONS: Array<{
     version: number;
@@ -97,7 +97,34 @@ export class SchemaManager {
         }
       },
     },
+    {
+      version: 7,
+      description: 'Add local tool telemetry and last access index',
+      migrate: (db) => {
+        const columns = db.prepare('PRAGMA table_info(notes)').all() as Array<{ name: string }>;
+        if (!columns.some(c => c.name === 'last_accessed_at')) {
+          db.run('ALTER TABLE notes ADD COLUMN last_accessed_at INTEGER');
+        }
+        db.run('CREATE INDEX IF NOT EXISTS idx_notes_last_accessed_at ON notes(last_accessed_at)');
+        SchemaManager.createTelemetryTable(db);
+      },
+    },
   ];
+
+  private static createTelemetryTable(db: Database): void {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tool_telemetry (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        arg_kind TEXT,
+        timestamp INTEGER NOT NULL,
+        result_count INTEGER
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON tool_telemetry(timestamp)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_session ON tool_telemetry(session_id)');
+  }
 
   private db: Database;
 
@@ -183,6 +210,8 @@ export class SchemaManager {
     `);
 
     this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_last_accessed_at ON notes(last_accessed_at)');
+    SchemaManager.createTelemetryTable(this.db);
 
     this.db.run(`
       CREATE TABLE IF NOT EXISTS note_links (

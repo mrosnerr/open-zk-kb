@@ -473,7 +473,7 @@ describe('Embeddings API', () => {
 describe('NoteRepository — Coverage Boost', () => {
   let ctx: TestContext;
 
-  beforeEach(() => { ctx = createTestHarness(); });
+  beforeEach(() => { ctx = createTestHarness({ telemetryEnabled: true }); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
   describe('extractTitle', () => {
