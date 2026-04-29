@@ -3,8 +3,12 @@
 # Model config also set via workflow env vars (TOML is read from base branch only)
 
 [config]
-model = "openrouter/deepseek/deepseek-v4-pro"
-fallback_models = ["openrouter/moonshotai/kimi-k2.6"]
+# Phase 0 swap rationale: agent-architecture/04-references/openzkkb-pr-review-current-state.md
+model = "openrouter/moonshotai/kimi-k2.6"
+fallback_models = [
+    "openrouter/anthropic/claude-sonnet-4.6",
+    "openrouter/z-ai/glm-5.1",
+]
 custom_model_max_tokens = 128000
 ai_timeout = 300
 response_language = "en-US"
@@ -18,7 +22,9 @@ max_extra_lines_before_dynamic_context = 20
 ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
 
 [github_action_config]
-pr_actions = ["opened", "reopened", "ready_for_review", "synchronize"]
+# `synchronize` omitted: Action variant can't pass `-i` to auto_review.
+# For incremental re-review on push, post `/review -i` as a PR comment.
+pr_actions = ["opened", "reopened", "ready_for_review"]
 
 [ignore]
 glob = [

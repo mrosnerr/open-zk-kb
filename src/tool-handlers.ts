@@ -19,10 +19,10 @@ function toLifecycle(lifecycle: string | undefined, fallback: Lifecycle): Lifecy
 import type { NoteRepository, NoteMetadata } from './storage/NoteRepository.js';
 import { formatWikiLink } from './utils/wikilink.js';
 import { renderNoteForSearch, renderNoteForAgent } from './prompts.js';
-import { buildIndexContent, buildGlobalIndexContent, buildGeneralIndexContent } from './storage/IndexBuilder.js';
+import { buildIndexContent, buildGlobalIndexContent, buildGeneralIndexContent, buildPreferencesIndexContent, buildGeneralKindIndexContent } from './storage/IndexBuilder.js';
 import { buildLogEntry, buildInitialLogContent, appendToLogContent, buildGlobalLogEntry, buildInitialGlobalLogContent } from './storage/LogAppender.js';
 import { buildReviewContent } from './storage/ReviewBuilder.js';
-import { resolveNotePath, extractProjectFromTags as extractProjectTag } from './storage/path-resolver.js';
+import { resolveNotePath, extractProjectFromTags as extractProjectTag, KIND_DIR_MAP } from './storage/path-resolver.js';
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash } from './utils/simhash.js';
@@ -82,6 +82,61 @@ function getRecommendation(note: NoteMetadata, daysOld: number, promotionThresho
   if (accesses >= promotionThreshold) return '2caa Promote';
   if (accesses === 0 && daysOld > 30) return '1f44 Archive';
   return '1f914 Review';
+}
+
+type BrokenLink = {
+  sourceId: string;
+  sourceTitle: string;
+  brokenTarget: string;
+  line: number;
+};
+
+function filterFalsePositiveBrokenLinks(broken: BrokenLink[], vaultPath: string | undefined): BrokenLink[] {
+  if (!vaultPath) return broken;
+  const resolvedVault = path.resolve(vaultPath);
+  const vaultPrefix = resolvedVault + path.sep;
+  const insideVault = (candidate: string): boolean => {
+    const resolved = path.resolve(vaultPath, candidate);
+    return resolved === resolvedVault || resolved.startsWith(vaultPrefix);
+  };
+  return broken.filter(({ brokenTarget }) => {
+    const notePathRel = `${brokenTarget}.md`;
+    const dirIndexPathRel = path.join(brokenTarget, 'index.md');
+    const noteResolves = insideVault(notePathRel)
+      && fs.existsSync(path.resolve(vaultPath, notePathRel));
+    const dirResolves = insideVault(dirIndexPathRel)
+      && fs.existsSync(path.resolve(vaultPath, dirIndexPathRel));
+    return !noteResolves && !dirResolves;
+  });
+}
+
+function removeEmptyDirsRecursive(dir: string, isRoot: boolean): number {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+
+  let removed = 0;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    if (isRoot && entry.name.startsWith('.')) continue;
+    removed += removeEmptyDirsRecursive(path.join(dir, entry.name), false);
+  }
+
+  if (!isRoot) {
+    try {
+      if (fs.readdirSync(dir).length === 0) {
+        fs.rmdirSync(dir);
+        removed++;
+      }
+    } catch {
+      // Non-fatal: another process may have removed the directory.
+    }
+  }
+
+  return removed;
 }
 
 // ---- Arg types ----
@@ -397,7 +452,7 @@ function updateGlobalNavigation(
     }
   }
 
-  if (config?.navigation?.enableGlobalLog !== false && project) {
+  if (config?.navigation?.enableGlobalLog !== false) {
     try {
       const globalLogPath = path.join(vaultPath, 'log.md');
       const entry = buildGlobalLogEntry(project, event);
@@ -428,15 +483,68 @@ function updateGlobalNavigation(
   if (config?.navigation?.enableGlobalIndex !== false) {
     try {
       const unscopedNotes = getUnscopedNotes();
+      const personalizationNotes = repo.getPersonalizationNotes();
       const generalDir = path.join(vaultPath, 'general');
       if (unscopedNotes.length > 0) {
         const content = buildGeneralIndexContent(unscopedNotes);
         if (!fs.existsSync(generalDir)) fs.mkdirSync(generalDir, { recursive: true });
         fs.writeFileSync(path.join(generalDir, 'index.md'), content, 'utf-8');
+
+        const notesByKindDir = new Map<string, { kind: string; notes: NoteMetadata[] }>();
+        for (const note of unscopedNotes) {
+          const kind = note.kind;
+          const dirName = KIND_DIR_MAP[kind] || `${kind}s`;
+          const bucket = notesByKindDir.get(dirName);
+          if (bucket) {
+            bucket.notes.push(note);
+          } else {
+            notesByKindDir.set(dirName, { kind, notes: [note] });
+          }
+        }
+
+        for (const [dirName, { kind, notes: kindNotes }] of notesByKindDir) {
+          const kindDir = path.join(generalDir, dirName);
+          if (!fs.existsSync(kindDir)) fs.mkdirSync(kindDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(kindDir, 'index.md'),
+            buildGeneralKindIndexContent(kind, kindNotes),
+            'utf-8',
+          );
+        }
+
+        if (fs.existsSync(generalDir)) {
+          for (const entry of fs.readdirSync(generalDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const kindIndex = path.join(generalDir, entry.name, 'index.md');
+            if (!notesByKindDir.has(entry.name) && fs.existsSync(kindIndex)) {
+              fs.unlinkSync(kindIndex);
+            }
+          }
+        }
       }
       if (unscopedNotes.length === 0) {
         const generalIndex = path.join(generalDir, 'index.md');
         if (fs.existsSync(generalIndex)) fs.unlinkSync(generalIndex);
+        if (fs.existsSync(generalDir)) {
+          for (const entry of fs.readdirSync(generalDir, { withFileTypes: true })) {
+            if (!entry.isDirectory()) continue;
+            const kindIndex = path.join(generalDir, entry.name, 'index.md');
+            if (fs.existsSync(kindIndex)) fs.unlinkSync(kindIndex);
+          }
+        }
+      }
+
+      const preferencesDir = path.join(vaultPath, 'preferences');
+      if (personalizationNotes.length > 0) {
+        if (!fs.existsSync(preferencesDir)) fs.mkdirSync(preferencesDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(preferencesDir, 'index.md'),
+          buildPreferencesIndexContent(personalizationNotes),
+          'utf-8',
+        );
+      } else {
+        const preferencesIndex = path.join(preferencesDir, 'index.md');
+        if (fs.existsSync(preferencesIndex)) fs.unlinkSync(preferencesIndex);
       }
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild general index', {
@@ -1213,7 +1321,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'broken-links': {
-      const broken = repo.getBrokenLinks();
+      const broken = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
       if (broken.length === 0) {
         return 'No broken wikilinks found. All links resolve to existing notes.';
       }
@@ -1302,7 +1410,18 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       if (dryRun && moves.length > 0) {
         output += '\ndryRun: true — no changes applied. Set dryRun: false to apply migration.';
+        output += '\n\n## Impact Preview\n';
+        output += '- Post-migration: full DB rebuild + project index regeneration + global navigation update\n';
+        if (embeddingConfig) {
+          output += '- Embeddings: will need backfill after migration (semantic search temporarily unavailable)\n';
+        }
+        output += '- Navigation: index.md, log.md, review.md, and per-directory indexes will be auto-generated\n';
       } else if (!dryRun && moved > 0) {
+        const emptyDirsRemoved = config.vault ? removeEmptyDirsRecursive(config.vault, true) : 0;
+        if (emptyDirsRemoved > 0) {
+          output += `Empty directories removed: ${emptyDirsRemoved}\n`;
+        }
+
         const rebuildResult = repo.rebuildFromFiles();
         const projects = repo.getAllProjects();
         for (const proj of projects) {
@@ -1310,6 +1429,26 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         output += `\nPost-migration rebuild: indexed ${rebuildResult.indexed} notes, rebuilt ${projects.length} project index(es).`;
         updateGlobalNavigation(null, 'Layout migration completed', repo, config);
+
+        const embeddingStats = repo.getEmbeddingStats();
+        const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
+
+        output += '\n\n## Health Summary\n';
+        if (embeddingStats.withoutEmbedding > 0) {
+          output += `Embeddings: ${embeddingStats.withoutEmbedding}/${embeddingStats.total} notes need backfill (run \`knowledge-maintain embed\`)\n`;
+        }
+        if (brokenLinks.length > 0) {
+          output += `Link health: ${brokenLinks.length} broken wikilinks found (run \`knowledge-maintain broken-links\` for details)\n`;
+        } else {
+          output += 'Link health: all links resolve ✓\n';
+        }
+
+        output += '\n## Next Steps\n';
+        if (embeddingStats.withoutEmbedding > 0) {
+          output += '- Backfill embeddings: knowledge-maintain embed\n';
+        }
+        output += '- Check link health: knowledge-maintain broken-links\n';
+        output += '- View vault stats: knowledge-maintain stats\n';
       }
 
       return output;

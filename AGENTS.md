@@ -4,6 +4,30 @@
 
 Shared, persistent memory for AI assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients. TypeScript/Bun, SQLite FTS5, Markdown files with YAML frontmatter. Entry point: `mcp-server.ts` (MCP stdio).
 
+## Commands
+
+```bash
+bun run build              # Compile TS → dist/ (REQUIRED after every change)
+bun test                   # Run all tests
+bun test --watch           # Watch mode
+bun test --coverage        # Coverage report
+bun run lint               # ESLint check
+bun run lint:fix           # Auto-fix lint
+rm -rf dist/ && bun run build  # Clean rebuild
+EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
+```
+
+## Testing
+
+> Six-areas template per <https://github.blog/ai-and-ml/github-copilot/how-to-write-a-great-agents-md-lessons-from-over-2500-repositories/>
+
+- **Framework**: `bun:test` with custom harness (`tests/harness.ts`) and fixtures
+- **Run all**: `bun test`; pre-commit also runs `bun run typecheck`
+- **Coverage**: `bun test --coverage`
+- **Eval suite**: `EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000` (agent-quality regression tests)
+- **CI**: `.github/workflows/ci.yml` runs Bun build + lint + test + coverage on every PR
+- **Conventions**: tests use `createTestHarness()` / `cleanupTestHarness()`; never use `.skip` without justification; mock OS-level interactions, never real side effects
+
 ## Structure
 
 ```
@@ -109,17 +133,33 @@ For any new feature, ask in order:
 3. Requires runtime state MCP can't access? → **Plugin** owns it (calls MCP tools)
 4. Guides agent behavior across sessions? → **Behavioral guidance** owns it
 
-## Anti-Patterns (This Project)
+## Boundaries
 
-1. **NEVER** use `console.log()`, `console.warn()`, `console.error()` in server code
-   - **USE** `logToFile()` from `src/logger.ts` — MCP stdio requires clean stdout
-   - Exception: `src/setup.ts` and `scripts/` CLI commands (user-facing output is OK)
-2. **NEVER** skip rebuild after source changes — `dist/` is what actually runs
-3. **NEVER** use FTS5 triggers — manually managed for TEXT primary key reliability
-4. **NEVER** call `removeVault` without `confirm: true` — irreversible deletion
-5. **NEVER** auto-modify stored content beyond what the caller explicitly requested — server surfaces data, agent decides actions
-6. **NEVER** return directives in tool responses ("you should X") — return data with annotations, let the agent judge (target-state: existing handler output is being migrated, see [#93 violations](https://github.com/mrosnerr/open-zk-kb/issues/93))
-7. **NEVER** add skill instructions that ask the agent to compute what the server already computes — if the server has the data, surface it in the response
+> Three-tier format follows: <https://github.blog/ai-and-ml/github-copilot/how-to-write-a-great-agents-md-lessons-from-over-2500-repositories/>
+
+### ✅ Always
+- Run `bun run build` after every source change — `dist/` is what actually runs
+- Run `bun test` and `bun run typecheck` before committing
+- Use `logToFile()` from `src/logger.ts` for any logging in server code (`src/`)
+- Use parameterized SQL queries (handle `SQLITE_BUSY` with retries)
+- Surface computed data with annotations (similarity, dedup, staleness) — server returns data, agent decides
+
+### ⚠️ Ask first
+- Schema migrations (PRAGMA `user_version`-based; see `src/schema.ts`)
+- Adding new MCP capability advertisements (server capability negotiation)
+- Adding dependencies to `package.json`
+- Renaming top-level directories or changing the dual-storage layout
+
+### 🚫 Never
+- Use `console.log()`, `console.warn()`, `console.error()` in `src/` — MCP stdio requires clean stdout. Use `logToFile()`. (Exception: `src/setup.ts` and `scripts/` CLI commands.)
+- Skip the rebuild after source changes — `dist/` is what actually runs
+- Use FTS5 triggers — manually managed for TEXT primary key reliability
+- Call `removeVault` without `confirm: true` — irreversible deletion
+- Auto-modify stored content beyond what the caller explicitly requested — server surfaces data, agent decides actions
+- Return directives in tool responses ("you should X") — return data with annotations, let the agent judge ([#93 violations](https://github.com/mrosnerr/open-zk-kb/issues/93))
+- Add skill instructions that ask the agent to compute what the server already computes
+- Commit secrets (`.env`, credentials, API keys, tokens)
+- Suppress TypeScript errors with `as any`, `@ts-ignore`, `@ts-expect-error`
 
 ## Conventions
 
@@ -137,19 +177,6 @@ For any new feature, ask in order:
 - **Server surfaces, agent acts**: Every computed insight (similarity, dedup, staleness) appears in the tool response. The agent decides what to do with it.
 - **Hints, not directives**: Server responses include computed metrics (word count, similarity score, staleness days). Never phrased as recommendations.
 - **Behavioral guidance is advisory**: Instructions are "a request, not a guarantee" ([Anthropic](https://docs.anthropic.com/en/docs/claude-code/features-overview)). Deterministic enforcement requires hooks/plugins.
-
-## Commands
-
-```bash
-bun run build              # Compile TS → dist/ (REQUIRED after every change)
-bun test                   # Run all tests
-bun test --watch           # Watch mode
-bun test --coverage        # Coverage report
-bun run lint               # ESLint check
-bun run lint:fix           # Auto-fix lint
-rm -rf dist/ && bun run build  # Clean rebuild
-EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
-```
 
 ## Notes
 
