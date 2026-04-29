@@ -43,9 +43,12 @@ export function createTestHarness(): TestContext {
       mocPreviewCount: 5,
       overviewLogEntryLimit: 10,
     },
+    telemetry: {
+      enabled: true,
+    },
   };
 
-  const engine = new NoteRepository(tempDir);
+  const engine = new NoteRepository(tempDir, { telemetryEnabled: config.telemetry.enabled });
 
   return { tempDir, engine, config };
 }

@@ -80,6 +80,7 @@ describe('config.ts', () => {
     expect(cfg.lifecycle.promotionThreshold).toBe(2);
     expect(cfg.lifecycle.exemptKinds).toEqual(['personalization', 'decision']);
     expect(cfg.lifecycle.autoArchiveFleetingDays).toBe(90);
+    expect(cfg.telemetry.enabled).toBe(true);
   });
 
   it('reads vault path from YAML config', async () => {
@@ -105,6 +106,7 @@ describe('config.ts', () => {
     expect(cfg.lifecycle.exemptKinds).toEqual(['personalization', 'decision']);
     expect(cfg.lifecycle.autoArchiveFleetingDays).toBe(90);
     expect(cfg.vault).toBe(path.join(isolated.dataDir, 'open-zk-kb'));
+    expect(cfg.telemetry.enabled).toBe(true);
   });
 
   it('handles malformed YAML by returning defaults', async () => {
@@ -117,6 +119,27 @@ describe('config.ts', () => {
     expect(cfg.logLevel).toBe('INFO');
     expect(cfg.vault).toBe(path.join(isolated.dataDir, 'open-zk-kb'));
     expect(cfg.lifecycle.reviewAfterDays).toBe(14);
+    expect(cfg.telemetry.enabled).toBe(true);
+  });
+
+  it('reads telemetry opt-out config', async () => {
+    const isolated = createIsolatedConfigHome();
+    fs.writeFileSync(isolated.configPath, 'telemetry:\n  enabled: false\n', 'utf-8');
+
+    const configModule = await loadFreshConfigModule();
+    const cfg = configModule.getConfig();
+
+    expect(cfg.telemetry.enabled).toBe(false);
+  });
+
+  it('falls back to enabled telemetry for malformed telemetry config', async () => {
+    const isolated = createIsolatedConfigHome();
+    fs.writeFileSync(isolated.configPath, 'telemetry:\n  enabled: nope\n', 'utf-8');
+
+    const configModule = await loadFreshConfigModule();
+    const cfg = configModule.getConfig();
+
+    expect(cfg.telemetry.enabled).toBe(true);
   });
 
   it('returns null from getEmbeddingsConfig when section is missing', async () => {

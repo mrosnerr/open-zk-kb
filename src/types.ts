@@ -60,6 +60,10 @@ export interface NavigationConfig {
   overviewLogEntryLimit: number;
 }
 
+export interface TelemetryConfig {
+  enabled: boolean;
+}
+
 export interface AppConfig {
   logLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
   vault: string;
@@ -72,6 +76,7 @@ export interface AppConfig {
   lifecycleDefaults: LifecycleDefaults;
   search: SearchConfig;
   navigation: NavigationConfig;
+  telemetry: TelemetryConfig;
 }
 
 // NOTE: NoteMetadata and StoreResult are defined in storage/NoteRepository.ts
