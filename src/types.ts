@@ -64,6 +64,17 @@ export interface TelemetryConfig {
   enabled: boolean;
 }
 
+export interface RelatedNotesConfig {
+  enabled: boolean;
+  maxResults: number;
+  minSimilarity: number;
+  excludeKinds: NoteKind[];
+}
+
+export interface StoreConfig {
+  relatedNotes: RelatedNotesConfig;
+}
+
 export interface AppConfig {
   logLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
   vault: string;
@@ -75,6 +86,7 @@ export interface AppConfig {
   };
   lifecycleDefaults: LifecycleDefaults;
   search: SearchConfig;
+  store: StoreConfig;
   navigation: NavigationConfig;
   telemetry: TelemetryConfig;
 }
