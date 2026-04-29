@@ -93,10 +93,20 @@ type BrokenLink = {
 
 function filterFalsePositiveBrokenLinks(broken: BrokenLink[], vaultPath: string | undefined): BrokenLink[] {
   if (!vaultPath) return broken;
+  const resolvedVault = path.resolve(vaultPath);
+  const vaultPrefix = resolvedVault + path.sep;
+  const insideVault = (candidate: string): boolean => {
+    const resolved = path.resolve(vaultPath, candidate);
+    return resolved === resolvedVault || resolved.startsWith(vaultPrefix);
+  };
   return broken.filter(({ brokenTarget }) => {
-    const notePath = path.join(vaultPath, `${brokenTarget}.md`);
-    const directoryIndexPath = path.join(vaultPath, brokenTarget, 'index.md');
-    return !fs.existsSync(notePath) && !fs.existsSync(directoryIndexPath);
+    const notePathRel = `${brokenTarget}.md`;
+    const dirIndexPathRel = path.join(brokenTarget, 'index.md');
+    const noteResolves = insideVault(notePathRel)
+      && fs.existsSync(path.resolve(vaultPath, notePathRel));
+    const dirResolves = insideVault(dirIndexPathRel)
+      && fs.existsSync(path.resolve(vaultPath, dirIndexPathRel));
+    return !noteResolves && !dirResolves;
   });
 }
 

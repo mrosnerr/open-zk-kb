@@ -584,6 +584,27 @@ describe('Structured navigation regressions', () => {
     expect(output).toContain('No broken wikilinks found');
   });
 
+  it('reports out-of-vault traversal targets as broken (no filesystem bypass)', async () => {
+    // Security: an existing sibling outside the vault must NOT silence broken links via path-traversal.
+    const outsideDir = path.join(context.tempDir, '..', 'outside-vault');
+    fs.mkdirSync(outsideDir, { recursive: true });
+    fs.writeFileSync(path.join(outsideDir, 'secret.md'), '# secret', 'utf-8');
+
+    try {
+      const traversalTarget = `../${path.basename(outsideDir)}/secret`;
+      context.engine.store(`Bad link [[${traversalTarget}]]`, {
+        title: 'Traversal Link',
+        kind: 'observation',
+      });
+
+      const output = await handleMaintain({ action: 'broken-links' }, context.engine, context.config);
+      expect(output).toContain('Broken Wikilinks');
+      expect(output).toContain(traversalTarget);
+    } finally {
+      fs.rmSync(outsideDir, { recursive: true, force: true });
+    }
+  });
+
   it('creates global log for null-project events with system label', async () => {
     context.engine.store('Seed note', { title: 'Seed', kind: 'observation' });
 
@@ -608,7 +629,8 @@ describe('Structured navigation regressions', () => {
     expect(fs.existsSync(preferencesIndex)).toBe(true);
     const content = fs.readFileSync(preferencesIndex, 'utf-8');
     expect(content).toContain('# Preferences (1 notes)');
-    expect(content).toContain('Back to Knowledge Base');
+    expect(content).toContain('[Back to Knowledge Base](../index.md)');
+    expect(content).not.toContain('[[index|Back to Knowledge Base]]');
 
     const globalIndex = fs.readFileSync(path.join(context.tempDir, 'index.md'), 'utf-8');
     expect(globalIndex).toContain('[[preferences/index|Preferences]]');
