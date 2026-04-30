@@ -941,22 +941,31 @@ describe('computeStaleness', () => {
   });
 
   it('should return correct days for older notes', () => {
-    const thirtyDaysAgo = Date.now() - (30 * 24 * 60 * 60 * 1000);
+    const DAY = 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = Date.now() - (30 * DAY) - 1000;
     const note = { ...baseNote, created_at: thirtyDaysAgo };
     expect(computeStaleness(note)).toBe(30);
   });
 
   it('should use last_accessed_at when available', () => {
-    const ninetyDaysAgo = Date.now() - (90 * 24 * 60 * 60 * 1000);
-    const fiveDaysAgo = Date.now() - (5 * 24 * 60 * 60 * 1000);
+    const DAY = 24 * 60 * 60 * 1000;
+    const ninetyDaysAgo = Date.now() - (90 * DAY) - 1000;
+    const fiveDaysAgo = Date.now() - (5 * DAY) - 1000;
     const note = { ...baseNote, created_at: ninetyDaysAgo, last_accessed_at: fiveDaysAgo };
     expect(computeStaleness(note)).toBe(5);
   });
 
   it('should fall back to created_at when last_accessed_at is undefined', () => {
-    const fortyFiveDaysAgo = Date.now() - (45 * 24 * 60 * 60 * 1000);
+    const DAY = 24 * 60 * 60 * 1000;
+    const fortyFiveDaysAgo = Date.now() - (45 * DAY) - 1000;
     const note = { ...baseNote, created_at: fortyFiveDaysAgo, last_accessed_at: undefined };
     expect(computeStaleness(note)).toBe(45);
+  });
+
+  it('should clamp to zero for future timestamps', () => {
+    const tomorrow = Date.now() + (24 * 60 * 60 * 1000);
+    const note = { ...baseNote, created_at: tomorrow };
+    expect(computeStaleness(note)).toBe(0);
   });
 });
 
@@ -979,7 +988,7 @@ describe('staleness_days in XML rendering', () => {
   });
 
   it('should include staleness_days attribute in renderNoteForSearch', () => {
-    const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000);
+    const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000) - 1000;
     const xml = renderNoteForSearch({
       id: '202602110848',
       path: '/tmp/test.md',
@@ -997,8 +1006,8 @@ describe('staleness_days in XML rendering', () => {
   });
 
   it('should reflect last_accessed_at in XML staleness', () => {
-    const ninetyDaysAgo = Date.now() - (90 * 24 * 60 * 60 * 1000);
-    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000);
+    const ninetyDaysAgo = Date.now() - (90 * 24 * 60 * 60 * 1000) - 1000;
+    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000) - 1000;
     const xml = renderNoteForAgent({
       id: '202602110848',
       path: '/tmp/test.md',
@@ -2029,6 +2038,16 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Already Archived');
+  });
+
+  it('should not flag recently accessed notes as stale even if created long ago', async () => {
+    const result = ctx.engine.store('Old but active', { title: 'Recently Accessed', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(200));
+    const recentAccess = Date.now() - (2 * 24 * 60 * 60 * 1000);
+    (ctx.engine as any).db.prepare('UPDATE notes SET last_accessed_at = ? WHERE id = ?').run(recentAccess, result.id);
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Stale Fleeting Notes');
   });
 
   it('should respect custom autoArchiveFleetingDays config', async () => {

@@ -32,7 +32,7 @@ const CONTENT_PREVIEW_MAX_CHARS = 150;
  */
 export function computeStaleness(note: { created_at: number; last_accessed_at?: number }): number {
   const anchor = note.last_accessed_at ?? note.created_at;
-  return Math.floor((Date.now() - anchor) / (1000 * 60 * 60 * 24));
+  return Math.max(0, Math.floor((Date.now() - anchor) / (1000 * 60 * 60 * 24)));
 }
 
 // ---- Shared note attributes ----

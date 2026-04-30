@@ -1072,7 +1072,6 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.promotionThreshold, config.lifecycle.exemptKinds);
 
       const archiveDays = Math.max(1, config.lifecycle.autoArchiveFleetingDays);
-      const archiveCutoff = Date.now() - (archiveDays * 24 * 60 * 60 * 1000);
       
       let output = '## Review Queue\n\n';
       
@@ -1084,7 +1083,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
       
       if (hasFleeting) {
-        const nonStaleNotes = queue.fleeting.notes.filter(n => n.created_at >= archiveCutoff);
+        const nonStaleNotes = queue.fleeting.notes.filter(n => computeStaleness(n) < archiveDays);
         const staleInQueue = queue.fleeting.notes.length - nonStaleNotes.length;
 
         if (nonStaleNotes.length > 0) {
@@ -1146,7 +1145,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       const staleForArchive = allNotes
-        .filter(n => n.status === 'fleeting' && n.created_at < archiveCutoff);
+        .filter(n => n.status === 'fleeting' && computeStaleness(n) >= archiveDays);
 
       if (staleForArchive.length > 0) {
         output += `### Stale Fleeting Notes (${staleForArchive.length} older than ${archiveDays} days)\n`;
