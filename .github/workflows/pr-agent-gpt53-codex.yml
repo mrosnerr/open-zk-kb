@@ -25,6 +25,7 @@ jobs:
        startsWith(github.event.comment.body, '/review') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'pull_request_review_comment' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
        startsWith(github.event.comment.body, '/review') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
@@ -44,6 +45,10 @@ jobs:
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "false"
+          # KEEP IN SYNC: Lines below duplicate .pr_agent.toml [pr_reviewer].extra_instructions
+          # with only the MODEL IDENTIFICATION prefix changed. pr-agent env vars shadow TOML
+          # values entirely (no merge), so the full instructions must be repeated here.
+          # If review policy changes, update .pr_agent.toml AND both GPT workflow files.
           pr_reviewer.extra_instructions: |
             MODEL IDENTIFICATION: Always begin your security_concerns text with exactly '[GPT-5.3 Codex] ' (brackets, model name, space) before your assessment. This is required for multi-model comparison across concurrent reviewers.
 

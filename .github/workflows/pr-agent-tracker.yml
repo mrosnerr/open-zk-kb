@@ -25,6 +25,7 @@ jobs:
        startsWith(github.event.comment.body, '/') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'pull_request_review_comment' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
        startsWith(github.event.comment.body, '/') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
@@ -303,8 +304,10 @@ jobs:
             }
 
             if (!haveAllExpectedModels(latestByModel, expectedModels)) {
-              core.warning(`Expected models not all present after wait window: ${expectedModels.join(', ')}`);
-              return;
+              const present = Object.keys(latestByModel);
+              const missing = expectedModels.filter((m) => !latestByModel[m]);
+              core.warning(`Updating tracker with partial results; missing: ${missing.join(', ')}; present: ${present.join(', ')}`);
+              // Fall through — update with whatever models responded rather than discarding all results
             }
 
             if (changedModels.length === 0 && trackerComment) {
