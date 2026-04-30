@@ -9,7 +9,8 @@
 #
 # WORKFLOW ENV VARS in .github/workflows/pr-agent.yml only set
 # [github_action_config] flags (auto_review, auto_describe, auto_improve).
-# Model + reviewer config lives here.
+# The GPT comparison workflows also override config.model, config.fallback_models,
+# and pr_reviewer.extra_instructions via env vars for per-model labeling.
 #
 # extra_instructions SCOPE: controls what the LLM thinks about (categories,
 # severity language, what NOT to flag, WHEN/THEN/BECAUSE rules) but CANNOT

@@ -34,7 +34,7 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Update PR-Agent review tracker
-        uses: actions/github-script@d7906e3d71dcedee5f2a35c0b1ea74c45c3c0e3f
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd
         with:
           script: |
             const TRACKER_MARKER = '<!-- pr-agent-review-tracker:v1 -->';
@@ -273,7 +273,8 @@ jobs:
             const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
             const headSha = pr.data.head.sha;
             const expectedModels = getExpectedModels(context.eventName, context.payload.comment?.body);
-            const cutoffTime = new Date(context.payload.comment?.created_at || new Date().toISOString());
+            const cutoffSource = context.payload.pull_request?.updated_at || context.payload.comment?.created_at || null;
+            const cutoffTime = cutoffSource ? new Date(cutoffSource) : null;
 
             let comments = await listComments(owner, repo, prNumber);
             let trackerComment = latestMatchingComment(comments, TRACKER_MARKER);
