@@ -276,6 +276,14 @@ describe('MCP Tool: knowledge-store — related notes', () => {
       guidance: 'Read first',
     }, ctx.engine, null, ctx.config);
 
+    ctx.engine.store('Task management workflows and sprint planning', {
+      title: 'Task Workflows',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Task management workflows',
+      guidance: 'Follow task workflows',
+    });
+
     const output = await handleStore({
       title: 'Task Management Features',
       content: 'Task management application with web interface',
@@ -285,9 +293,9 @@ describe('MCP Tool: knowledge-store — related notes', () => {
       guidance: 'Feature reference',
     }, ctx.engine, null, ctx.config);
 
-    if (output.includes('Related notes:')) {
-      expect(output).not.toContain('MyApp Domain');
-    }
+    expect(output).toContain('Related notes:');
+    expect(output).toContain('Task Workflows');
+    expect(output).not.toContain('MyApp Domain');
   });
 
   it('should exclude archived notes from related notes', async () => {
@@ -406,6 +414,64 @@ describe('MCP Tool: knowledge-store — related notes', () => {
 
     expect(output).toContain('Related notes:');
     expect(output).not.toContain('"Database Patterns"');
+  });
+
+  it('should apply minSimilarity threshold and render similarity scores via vector path', () => {
+    const r1 = ctx.engine.store('Very similar content about React hooks', {
+      title: 'React Hooks Deep Dive',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Deep dive into React hooks',
+      guidance: 'Use hooks',
+    });
+    const r2 = ctx.engine.store('Completely unrelated cooking content', {
+      title: 'Pasta Recipes',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Italian cooking',
+      guidance: 'Cook pasta',
+    });
+    const r3 = ctx.engine.store('Domain note for myapp', {
+      title: 'MyApp Domain',
+      kind: 'domain',
+      status: 'permanent',
+      summary: 'MyApp guide',
+      guidance: 'Read first',
+      tags: ['project:myapp'],
+    });
+    const r4 = ctx.engine.store('Archived old hooks guide', {
+      title: 'Old Hooks Guide',
+      kind: 'reference',
+      status: 'permanent',
+      summary: 'Outdated hooks',
+      guidance: 'Outdated',
+    });
+    ctx.engine.archive(r4.id);
+
+    ctx.engine.storeEmbedding(r1.id, [0.9, 0.1, 0.0], 'test');
+    ctx.engine.storeEmbedding(r2.id, [0.0, 0.1, 0.9], 'test');
+    ctx.engine.storeEmbedding(r3.id, [0.8, 0.2, 0.0], 'test');
+    ctx.engine.storeEmbedding(r4.id, [0.85, 0.15, 0.0], 'test');
+
+    const queryEmbedding = [1.0, 0.0, 0.0];
+    const vecResults = ctx.engine.searchVector(queryEmbedding, { limit: 15 });
+
+    const excludeKinds = new Set(['domain', 'index', 'log']);
+    const minSimilarity = 0.70;
+    const filtered = vecResults
+      .filter(n => !excludeKinds.has(n.kind) && n.status !== 'archived' && n.similarity >= minSimilarity);
+
+    expect(filtered.length).toBeGreaterThanOrEqual(1);
+    expect(filtered.some(n => n.title === 'React Hooks Deep Dive')).toBe(true);
+    expect(filtered.every(n => n.kind !== 'domain')).toBe(true);
+    expect(filtered.every(n => n.status !== 'archived')).toBe(true);
+    expect(filtered.every(n => n.title !== 'Pasta Recipes')).toBe(true);
+
+    const topResult = filtered[0];
+    expect(topResult.similarity).toBeGreaterThan(0.7);
+    const formatted = `- [${topResult.id}] "${topResult.title}" (${topResult.kind}, similarity: ${topResult.similarity.toFixed(2)})`;
+    expect(formatted).toContain('similarity:');
+    expect(formatted).toContain('React Hooks Deep Dive');
   });
 });
 
