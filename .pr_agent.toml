@@ -65,8 +65,13 @@ glob = [
 # Review Tool
 # ---------------------------------------------------------------------------
 [pr_reviewer]
-persistent_comment = true
-final_update_message = true
+# persistent_comment=true edits the review comment in-place on re-review,
+# destroying the initial findings with no edit history in the API.
+# PR #110 showed this: initial review (commits 1-4, Kimi K2.6) was overwritten
+# by re-review (commits 1-7) after fixes landed — findings lost irrecoverably.
+# With false, each /review creates a separate comment preserving full history.
+persistent_comment = false
+final_update_message = false
 num_max_findings = 12
 inline_code_comments = true
 require_score_review = true
