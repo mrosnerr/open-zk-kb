@@ -13,7 +13,7 @@ on:
 
 permissions:
   issues: write
-  pull-requests: read
+  pull-requests: write
   contents: read
 
 jobs:
@@ -34,12 +34,11 @@ jobs:
       cancel-in-progress: false
     steps:
       - name: Update PR-Agent review tracker
-        uses: actions/github-script@v8
+        uses: actions/github-script@d7906e3d71dcedee5f2a35c0b1ea74c45c3c0e3f
         with:
           script: |
             const TRACKER_MARKER = '<!-- pr-agent-review-tracker:v1 -->';
             const STATE_START = '<!-- pr-agent-review-tracker-state';
-            const STATE_END = '-->';
             const HEADER_PATTERN = /^## (Incremental )?PR Reviewer Guide 🔍/;
             const MODEL_ORDER = ['Claude Sonnet 4.6', 'GPT-5.3 Codex', 'GPT-5.4', 'Unknown PR-Agent'];
             const MODEL_MARKERS = [
@@ -47,6 +46,7 @@ jobs:
               ['[GPT-5.3 Codex]', 'GPT-5.3 Codex'],
               ['[GPT-5.4]', 'GPT-5.4'],
             ];
+            const BOT_LOGINS = new Set(['github-actions', 'github-actions[bot]']);
 
             const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
             const shortSha = (sha) => sha ? sha.slice(0, 7) : 'unknown';
@@ -99,7 +99,7 @@ jobs:
             }
 
             function isPrAgentReviewComment(comment) {
-              return HEADER_PATTERN.test(comment.body || '');
+              return BOT_LOGINS.has(comment.user?.login || '') && HEADER_PATTERN.test(comment.body || '');
             }
 
             function detectModel(body) {
@@ -148,11 +148,15 @@ jobs:
               });
             }
 
-            function getLatestCommentsByModel(comments) {
+            function getLatestCommentsByModel(comments, cutoffTime) {
               const latest = {};
 
               for (const comment of comments) {
                 if (!isPrAgentReviewComment(comment)) {
+                  continue;
+                }
+
+                if (cutoffTime && new Date(comment.created_at) < cutoffTime) {
                   continue;
                 }
 
@@ -164,6 +168,29 @@ jobs:
               }
 
               return latest;
+            }
+
+            function getExpectedModels(eventName, commentBody) {
+              if (eventName === 'pull_request') {
+                return ['Claude Sonnet 4.6', 'GPT-5.3 Codex', 'GPT-5.4'];
+              }
+
+              const normalized = String(commentBody || '').trim().toLowerCase();
+              if (normalized.startsWith('/review')) {
+                return ['Claude Sonnet 4.6', 'GPT-5.3 Codex', 'GPT-5.4'];
+              }
+
+              return ['Claude Sonnet 4.6'];
+            }
+
+            function haveAllExpectedModels(latestByModel, expectedModels) {
+              return expectedModels.every((model) => Boolean(latestByModel[model]));
+            }
+
+            function latestMatchingComment(comments, marker) {
+              return comments
+                .filter((comment) => (comment.body || '').includes(marker))
+                .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))[0];
             }
 
             function getChangedModels(latestByModel, state) {
@@ -245,15 +272,17 @@ jobs:
             const { owner, repo } = context.repo;
             const pr = await github.rest.pulls.get({ owner, repo, pull_number: prNumber });
             const headSha = pr.data.head.sha;
+            const expectedModels = getExpectedModels(context.eventName, context.payload.comment?.body);
+            const cutoffTime = new Date(context.payload.comment?.created_at || new Date().toISOString());
 
             let comments = await listComments(owner, repo, prNumber);
-            let trackerComment = comments.find((comment) => (comment.body || '').includes(TRACKER_MARKER));
+            let trackerComment = latestMatchingComment(comments, TRACKER_MARKER);
             let state = parseTrackerState(trackerComment?.body || '');
-            let latestByModel = getLatestCommentsByModel(comments);
+            let latestByModel = getLatestCommentsByModel(comments, cutoffTime);
             let changedModels = getChangedModels(latestByModel, state);
 
             for (let attempt = 0; attempt < 12; attempt += 1) {
-              const shouldWait = Object.keys(latestByModel).length === 0 || changedModels.length === 0;
+              const shouldWait = !haveAllExpectedModels(latestByModel, expectedModels);
               if (!shouldWait) {
                 break;
               }
@@ -261,14 +290,19 @@ jobs:
               core.info(`Waiting for PR-Agent comments to settle (attempt ${attempt + 1}/12)...`);
               await sleep(15000);
               comments = await listComments(owner, repo, prNumber);
-              trackerComment = comments.find((comment) => (comment.body || '').includes(TRACKER_MARKER));
+              trackerComment = latestMatchingComment(comments, TRACKER_MARKER);
               state = parseTrackerState(trackerComment?.body || '');
-              latestByModel = getLatestCommentsByModel(comments);
+              latestByModel = getLatestCommentsByModel(comments, cutoffTime);
               changedModels = getChangedModels(latestByModel, state);
             }
 
             if (Object.keys(latestByModel).length === 0) {
               core.info('No PR-Agent review comments found; skipping tracker update.');
+              return;
+            }
+
+            if (!haveAllExpectedModels(latestByModel, expectedModels)) {
+              core.warning(`Expected models not all present after wait window: ${expectedModels.join(', ')}`);
               return;
             }
 
