@@ -3,7 +3,9 @@ import * as path from 'path';
 import YAML from 'yaml';
 import { expandPath } from './utils/path.js';
 import type { AppConfig, NoteKind } from './types.js';
-import { KIND_DEFAULT_LIFECYCLE, VALID_LIFECYCLES } from './types.js';
+import { KIND_DEFAULT_STATUS, KIND_DEFAULT_LIFECYCLE, VALID_LIFECYCLES } from './types.js';
+
+const VALID_NOTE_KINDS = new Set<string>(Object.keys(KIND_DEFAULT_STATUS));
 
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
@@ -37,6 +39,14 @@ interface RawConfig {
   search?: {
     alwaysIncludeDomainNote?: boolean;
     excludeLogFromSearch?: boolean;
+  };
+  store?: {
+    relatedNotes?: {
+      enabled?: boolean;
+      maxResults?: number;
+      minSimilarity?: number;
+      excludeKinds?: string[];
+    };
   };
   navigation?: {
     enableProjectIndex?: boolean;
@@ -72,6 +82,14 @@ export const DEFAULT_CONFIG: AppConfig = {
   search: {
     alwaysIncludeDomainNote: true,
     excludeLogFromSearch: true,
+  },
+  store: {
+    relatedNotes: {
+      enabled: true,
+      maxResults: 5,
+      minSimilarity: 0.70,
+      excludeKinds: ['domain', 'index', 'log'],
+    },
   },
   navigation: {
     enableProjectIndex: true,
@@ -148,6 +166,20 @@ export function getConfig(): AppConfig {
       excludeLogFromSearch: typeof raw?.search?.excludeLogFromSearch === 'boolean'
         ? raw.search.excludeLogFromSearch
         : DEFAULT_CONFIG.search.excludeLogFromSearch,
+    },
+    store: {
+      relatedNotes: {
+        enabled: typeof raw?.store?.relatedNotes?.enabled === 'boolean'
+          ? raw.store.relatedNotes.enabled
+          : DEFAULT_CONFIG.store.relatedNotes.enabled,
+        maxResults: positiveInt(raw?.store?.relatedNotes?.maxResults, DEFAULT_CONFIG.store.relatedNotes.maxResults),
+        minSimilarity: typeof raw?.store?.relatedNotes?.minSimilarity === 'number' && Number.isFinite(raw.store.relatedNotes.minSimilarity)
+          ? Math.max(0, Math.min(1, raw.store.relatedNotes.minSimilarity))
+          : DEFAULT_CONFIG.store.relatedNotes.minSimilarity,
+        excludeKinds: Array.isArray(raw?.store?.relatedNotes?.excludeKinds)
+          ? raw.store.relatedNotes.excludeKinds.filter((k: string) => VALID_NOTE_KINDS.has(k)) as NoteKind[]
+          : DEFAULT_CONFIG.store.relatedNotes.excludeKinds,
+      },
     },
     navigation: {
       enableProjectIndex: typeof raw?.navigation?.enableProjectIndex === 'boolean'

@@ -37,6 +37,14 @@ export function createTestHarness(options: TestHarnessOptions = {}): TestContext
       alwaysIncludeDomainNote: true,
       excludeLogFromSearch: true,
     },
+    store: {
+      relatedNotes: {
+        enabled: true,
+        maxResults: 5,
+        minSimilarity: 0.70,
+        excludeKinds: ['domain', 'index', 'log'],
+      },
+    },
     navigation: {
       enableProjectIndex: true,
       enableProjectLog: true,

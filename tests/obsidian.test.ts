@@ -324,8 +324,8 @@ describe('handleOpen', () => {
     expect(result).toContain('Opened vault in Obsidian');
   });
 
-  it('should include project focus when index note exists', () => {
-    handleStore({
+  it('should include project focus when index note exists', async () => {
+    await handleStore({
       title: 'Test Note',
       content: 'Test content for project',
       kind: 'reference',
