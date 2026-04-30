@@ -657,7 +657,7 @@ export function install(args: InstallArgs): string {
 
   const existing = getNestedValue(config, clientConfig.mcpPath);
 
-  if (clientConfig.pluginPackage) {
+  if (clientConfig.pluginPackage && !args.dryRun) {
     const plugins = Array.isArray(config['plugin']) ? config['plugin'] as string[] : [];
     if (!plugins.includes(clientConfig.pluginPackage)) {
       plugins.push(clientConfig.pluginPackage);
