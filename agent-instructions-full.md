@@ -37,6 +37,8 @@ Notes exceeding the target will trigger a soft warning — heed it and split if 
 
 **Lifecycle**: Notes have a `lifecycle` field — `living` (mutable, default), `snapshot` (immutable), or `append-only`. Decisions and observations default to `snapshot`; titles with dates auto-detect as `snapshot`. The server enforces immutability — snapshot updates and append-only rewrites are rejected.
 
+**Staleness**: Every note includes a `staleness_days` metric — days since last access (or creation if never accessed). If staleness > 90 days and the note's claim might be outdated, verify before relying on it. The server surfaces this metric; you decide whether to act on it.
+
 **Client scoping**: Notes containing client-specific paths (e.g., `.cursor/`, `.claude/`) are auto-tagged at store time. You don't need to pass `client` on store — it's auto-detected.
 
 ### Ingesting URLs
