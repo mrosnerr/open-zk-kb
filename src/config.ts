@@ -173,7 +173,7 @@ export function getConfig(): AppConfig {
           ? raw.store.relatedNotes.enabled
           : DEFAULT_CONFIG.store.relatedNotes.enabled,
         maxResults: positiveInt(raw?.store?.relatedNotes?.maxResults, DEFAULT_CONFIG.store.relatedNotes.maxResults),
-        minSimilarity: typeof raw?.store?.relatedNotes?.minSimilarity === 'number'
+        minSimilarity: typeof raw?.store?.relatedNotes?.minSimilarity === 'number' && Number.isFinite(raw.store.relatedNotes.minSimilarity)
           ? Math.max(0, Math.min(1, raw.store.relatedNotes.minSimilarity))
           : DEFAULT_CONFIG.store.relatedNotes.minSimilarity,
         excludeKinds: Array.isArray(raw?.store?.relatedNotes?.excludeKinds)
