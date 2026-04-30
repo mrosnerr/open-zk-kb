@@ -45,5 +45,8 @@ Thumbs.db
 .sisyphus/
 CONTEXT_*.md
 
+# Local test workspace (isolated OpenCode sessions for plugin dev)
+.test-workspace/
+
 # Runtime artifacts
 NoteRepository

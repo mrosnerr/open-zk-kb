@@ -47,6 +47,8 @@ export interface ClientConfig {
   instructionSize?: InstructionSize;
   /** Path where a Claude Code skill directory should be installed (e.g. ~/.claude/skills/open-zk-kb) */
   skillPath?: string;
+  /** npm package name to register in the client's plugin array (OpenCode only) */
+  pluginPackage?: string;
 }
 
 export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
@@ -58,6 +60,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpFormat: 'opencode',
     agentDocsPath: path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
     instructionSize: 'full',
+    pluginPackage: 'open-zk-kb',
   },
   'claude-code': {
     name: 'Claude Code',
@@ -670,6 +673,14 @@ export function install(args: InstallArgs): string {
   }
   
   setNestedValue(config, clientConfig.mcpPath, mcpEntry);
+
+  if (clientConfig.pluginPackage) {
+    const plugins = Array.isArray(config['plugin']) ? config['plugin'] as string[] : [];
+    if (!plugins.includes(clientConfig.pluginPackage)) {
+      plugins.push(clientConfig.pluginPackage);
+    }
+    config['plugin'] = plugins;
+  }
   
   const configDir = path.dirname(clientConfig.configPath);
   if (!fs.existsSync(configDir)) {
@@ -794,6 +805,18 @@ export function uninstall(args: UninstallArgs): string {
   }
   
   deleteNestedValue(config, clientConfig.mcpPath);
+
+  if (clientConfig.pluginPackage && Array.isArray(config['plugin'])) {
+    const plugins = config['plugin'] as string[];
+    const idx = plugins.indexOf(clientConfig.pluginPackage);
+    if (idx !== -1) {
+      plugins.splice(idx, 1);
+    }
+    if (plugins.length === 0) {
+      delete config['plugin'];
+    }
+  }
+
   fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
 
   // Remove skill or agent docs depending on client

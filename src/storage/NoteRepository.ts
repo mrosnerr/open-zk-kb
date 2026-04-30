@@ -118,11 +118,12 @@ export class NoteRepository {
   private readonly sessionId: string;
   private readonly telemetryEnabled: boolean;
 
-  constructor(docsPath: string = '~/.local/share/open-zk-kb', options: { telemetryEnabled?: boolean } = {}) {
+  constructor(docsPath: string = '~/.local/share/open-zk-kb', options: { telemetryEnabled?: boolean; readonly?: boolean } = {}) {
     try {
-      // Telemetry is configured once per repository/MCP connection. Opt-out disables both
-      // tool_telemetry inserts and note access metadata writes for privacy consistency.
-      this.telemetryEnabled = options.telemetryEnabled === true;
+      const isReadonly = options.readonly === true;
+
+      // Read-only mode forces telemetry off.
+      this.telemetryEnabled = isReadonly ? false : options.telemetryEnabled === true;
       this.sessionId = crypto.randomUUID();
       const originalPath = docsPath;
       this.docsPath = expandPath(docsPath);
@@ -135,6 +136,16 @@ export class NoteRepository {
       }
 
       this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
+
+      if (isReadonly) {
+        if (!fs.existsSync(this.dbPath)) {
+          throw new Error(`Database not found at ${this.dbPath} — vault may not be initialized`);
+        }
+        this.db = new Database(this.dbPath, { readonly: true });
+        this.schemaManager = new SchemaManager(this.db);
+        return;
+      }
+
       const dbDir = path.dirname(this.dbPath);
 
       try {
@@ -1860,8 +1871,8 @@ export class NoteRepository {
   }
 }
 
-export function createNoteRepository(docsPath?: string): NoteRepository {
-  return new NoteRepository(docsPath);
+export function createNoteRepository(docsPath?: string, options?: { telemetryEnabled?: boolean; readonly?: boolean }): NoteRepository {
+  return new NoteRepository(docsPath, options);
 }
 
 export default createNoteRepository;
