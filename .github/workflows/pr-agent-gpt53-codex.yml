@@ -1,0 +1,64 @@
+# GPT-5.3 Codex reviewer — part of three-model A/B/C comparison
+# (Claude Sonnet 4.6 + GPT-5.3 Codex + GPT-5.4)
+#
+# TEMPORARY: Remove this workflow after the comparison period.
+#
+# Design:
+# - Uses same OPENROUTER_API_KEY as Claude workflow (shared provider)
+# - Shares review rules from .pr_agent.toml (no extra_instructions override)
+# - Review only — no /describe or /improve (Claude handles those)
+# - Manual commands: responds ONLY to /review (not /improve, /describe)
+# - Unique concurrency group prevents mutual cancellation with other models
+#
+# Identification: All three reviews post as github-actions[bot] with identical
+# headers (## PR Reviewer Guide). Distinguish by:
+# 1. GitHub Actions tab → workflow run name
+# 2. Timing: Codex ~60-90s TTFT (reasoning), Claude ~1-3s, GPT-5.4 ~5-15s
+# 3. Content quality/style differences
+#
+# Model: openrouter/openai/gpt-5.3-codex
+#   Context: 400K | Input: $1.75/M | Output: $14.00/M
+#   Reasoning model (no "none" effort mode) | ~62-82 tok/s throughput
+#   Strengths: Terminal-Bench leader (77.3%), cybersecurity CTF (77.6%)
+
+name: PR Agent Review (GPT-5.3 Codex)
+
+on:
+  pull_request:
+    types: [opened, reopened, ready_for_review]
+    branches:
+      - main
+      - dev
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  pull-requests: write
+  contents: read
+
+jobs:
+  pr_agent_gpt53:
+    if: >
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       startsWith(github.event.comment.body, '/review') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: pr-agent-gpt53-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    name: PR Agent (GPT-5.3 Codex)
+    steps:
+      - name: Run PR Agent
+        uses: qodo-ai/pr-agent@eb4cdbb115dfb711375a24eccc75e3ef73ec03bc # v0.30
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          config.model: "openrouter/openai/gpt-5.3-codex"
+          config.fallback_models: '["openrouter/openai/gpt-5.2-codex"]'
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"

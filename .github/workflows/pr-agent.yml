@@ -1,4 +1,4 @@
-name: PR Agent Review
+name: PR Agent Review (Claude Sonnet 4.6)
 
 on:
   pull_request:
@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: pr-agent-claude-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
     name: PR Agent
     steps:
