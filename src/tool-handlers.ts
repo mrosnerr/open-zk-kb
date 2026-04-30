@@ -197,6 +197,13 @@ export interface OpenArgs {
   _launchObsidian?: typeof launchObsidian;
 }
 
+interface RelatedNote {
+  id: string;
+  title: string;
+  kind: string;
+  similarity?: number;
+}
+
 function sanitizeMetadata(value: string): string {
   return value.replace(/[\r\n]+/g, ' ').replace(/\s+/g, ' ').trim();
 }
@@ -709,36 +716,36 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   const minSimilarity = relatedConfig?.minSimilarity ?? 0.70;
   const excludeKinds = new Set<string>(relatedConfig?.excludeKinds ?? ['domain', 'index', 'log']);
 
-  interface RelatedNote {
-    id: string;
-    title: string;
-    kind: string;
-    similarity?: number;
-  }
-
   let relatedNotes: RelatedNote[] = [];
 
   if (relatedEnabled) {
     const isCandidate = (n: { id: string; kind: string; status?: string }) =>
       n.id !== result.id && !excludeKinds.has(n.kind) && n.status !== 'archived';
 
-    if (noteEmbedding) {
-      // Embedding-based similarity search
-      const vecResults = repo.searchVector(noteEmbedding, { limit: maxResults + 10 });
-      relatedNotes = vecResults
-        .filter(n => isCandidate(n) && n.similarity >= minSimilarity)
-        .slice(0, maxResults)
-        .map(n => ({ id: n.id, title: n.title, kind: n.kind, similarity: n.similarity }));
-    } else {
-      // FTS5 fallback — use title + summary as query
-      const queryText = [args.title, args.summary].filter(Boolean).join(' ');
-      if (queryText.trim()) {
-        const ftsResults = repo.search(queryText, { limit: maxResults + 10 });
-        relatedNotes = ftsResults
-          .filter(n => isCandidate(n))
+    try {
+      if (noteEmbedding) {
+        // Embedding-based similarity search
+        const vecResults = repo.searchVector(noteEmbedding, { limit: maxResults + 10 });
+        relatedNotes = vecResults
+          .filter(n => isCandidate(n) && n.similarity >= minSimilarity)
           .slice(0, maxResults)
-          .map(n => ({ id: n.id, title: n.title, kind: n.kind }));
+          .map(n => ({ id: n.id, title: n.title, kind: n.kind, similarity: n.similarity }));
+      } else {
+        // FTS5 fallback — use title + summary as query
+        const queryText = [args.title, args.summary].filter(Boolean).join(' ');
+        if (queryText.trim()) {
+          const ftsResults = repo.search(queryText, { limit: maxResults + 10 });
+          relatedNotes = ftsResults
+            .filter(n => isCandidate(n))
+            .slice(0, maxResults)
+            .map(n => ({ id: n.id, title: n.title, kind: n.kind }));
+        }
       }
+    } catch (error) {
+      logToFile('WARN', 'Related notes lookup failed', {
+        noteId: result.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 
