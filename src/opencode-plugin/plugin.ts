@@ -69,7 +69,7 @@ export function createKbPlugin(): (ctx: PluginContext) => Promise<PluginHooks> {
         if (event.type === 'session.created') {
           const info = event.properties?.info as { id?: string } | undefined;
           const sessionID = info?.id;
-          if (!sessionID || !repo) return;
+          if (!sessionID) return;
 
           try {
             const kbContext = fetchKbContext(repo, project);
@@ -121,8 +121,6 @@ export function createKbPlugin(): (ctx: PluginContext) => Promise<PluginHooks> {
         input: CompactingInput,
         output: CompactingOutput,
       ): Promise<void> => {
-        if (!repo) return;
-
         try {
           const kbContext = fetchKbContext(repo, project);
           const formatted = formatContext(kbContext);

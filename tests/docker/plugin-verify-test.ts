@@ -22,7 +22,7 @@ async function run() {
 
     repo.store('Domain: test-workspace conventions and scope', {
       title: 'test-workspace domain',
-      kind: 'domain' as any,
+      kind: 'domain',
       status: 'permanent',
       tags: ['project:test-workspace'],
       summary: 'Test workspace for plugin verification',
@@ -60,9 +60,8 @@ async function run() {
     const readonlyRepo = new NoteRepository(tmpDir, { readonly: true });
     check('readonly repo opens existing DB', readonlyRepo !== null);
 
-    const projectNotes = readonlyRepo.getByTag('project:test-workspace');
-    const domain = projectNotes.find(n => (n.kind as string) === 'domain') ?? null;
-    check('readonly repo finds domain note', domain !== null && (domain.kind as string) === 'domain');
+    const domain = readonlyRepo.getDomainNote('test-workspace');
+    check('readonly repo finds domain note', domain !== null && domain.kind === 'domain');
 
     const results = readonlyRepo.search('FTS5', { tags: ['project:test-workspace'] });
     check('readonly repo search returns results', results.length > 0);
@@ -105,6 +104,7 @@ async function run() {
     check('noop plugin injects nothing', noopOutput.system.length === 0);
 
     // 7. Plugin lifecycle — inject on session.created → system.transform
+    process.env.NODE_ENV = 'test';
     process.env.__OPEN_ZK_KB_TEST_VAULT = tmpDir;
     const factory = createKbPlugin();
     const hooks = await factory({
@@ -112,6 +112,7 @@ async function run() {
       client: { app: { log: () => {} } },
     });
     delete process.env.__OPEN_ZK_KB_TEST_VAULT;
+    delete process.env.NODE_ENV;
 
     await hooks.event({
       event: { type: 'session.created', properties: { info: { id: 'ses_inject' } } },

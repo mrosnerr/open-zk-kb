@@ -12,8 +12,9 @@ export interface KbContext {
 
 export function createReadonlyRepo(vaultOverride?: string): NoteRepository | null {
   try {
+    const testVault = process.env.NODE_ENV === 'test' ? process.env.__OPEN_ZK_KB_TEST_VAULT : undefined;
     const vault = vaultOverride
-      || process.env.__OPEN_ZK_KB_TEST_VAULT
+      || testVault
       || getConfig().vault;
     return new NoteRepository(vault, { readonly: true });
   } catch {
@@ -24,9 +25,7 @@ export function createReadonlyRepo(vaultOverride?: string): NoteRepository | nul
 
 export function fetchKbContext(repo: NoteRepository, project: string): KbContext {
   const tag = `project:${project}`;
-  const projectNotes = repo.getByTag(tag, 20);
-
-  const domainNote = projectNotes.find(n => (n.kind as string) === 'domain') ?? null;
+  const domainNote = repo.getDomainNote(project);
 
   const ftsQuery = domainNote
     ? `${domainNote.title} ${domainNote.summary || ''}`
@@ -35,12 +34,15 @@ export function fetchKbContext(repo: NoteRepository, project: string): KbContext
   let recentNotes = repo.search(ftsQuery, {
     tags: [tag],
     status: 'permanent' as const,
-    limit: 5,
+    limit: 6,
   });
 
   if (domainNote) {
     recentNotes = recentNotes.filter(n => n.id !== domainNote.id);
   }
+
+  recentNotes = recentNotes.filter(n => n.kind !== 'index' && n.kind !== 'log');
+  recentNotes = recentNotes.slice(0, 5);
 
   return { domainNote, recentNotes, project };
 }

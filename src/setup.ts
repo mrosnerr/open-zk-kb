@@ -656,6 +656,17 @@ export function install(args: InstallArgs): string {
   }
 
   const existing = getNestedValue(config, clientConfig.mcpPath);
+
+  if (clientConfig.pluginPackage) {
+    const plugins = Array.isArray(config['plugin']) ? config['plugin'] as string[] : [];
+    if (!plugins.includes(clientConfig.pluginPackage)) {
+      plugins.push(clientConfig.pluginPackage);
+      config['plugin'] = plugins;
+      fs.mkdirSync(path.dirname(clientConfig.configPath), { recursive: true });
+      fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
+    }
+  }
+
   if (existing && !args.force) {
     return `Already installed for ${clientConfig.name}. Use --force to overwrite.`;
   }
@@ -673,14 +684,6 @@ export function install(args: InstallArgs): string {
   }
   
   setNestedValue(config, clientConfig.mcpPath, mcpEntry);
-
-  if (clientConfig.pluginPackage) {
-    const plugins = Array.isArray(config['plugin']) ? config['plugin'] as string[] : [];
-    if (!plugins.includes(clientConfig.pluginPackage)) {
-      plugins.push(clientConfig.pluginPackage);
-    }
-    config['plugin'] = plugins;
-  }
   
   const configDir = path.dirname(clientConfig.configPath);
   if (!fs.existsSync(configDir)) {

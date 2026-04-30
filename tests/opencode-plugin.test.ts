@@ -78,20 +78,20 @@ describe('NoteRepository readonly mode', () => {
     readonlyRepo.close();
   });
 
-  it('getByTag works on readonly connection', () => {
-    ctx.engine.store('Decision content for myapp', {
-      title: 'myapp decision',
-      kind: 'decision',
+  it('getDomainNote works on readonly connection', () => {
+    ctx.engine.store('Domain content for myapp', {
+      title: 'myapp domain',
+      kind: 'domain',
       status: 'permanent',
       tags: ['project:myapp'],
-      summary: 'Decision for myapp',
+      summary: 'Domain note for myapp',
       guidance: 'Follow these conventions',
     });
 
     const readonlyRepo = new NoteRepository(ctx.tempDir, { readonly: true });
-    const results = readonlyRepo.getByTag('project:myapp');
-    expect(results.length).toBeGreaterThan(0);
-    expect(results[0].kind).toBe('decision');
+    const domain = readonlyRepo.getDomainNote('myapp');
+    expect(domain).not.toBeNull();
+    expect(domain!.kind).toBe('domain');
     readonlyRepo.close();
   });
 
@@ -122,7 +122,7 @@ describe('fetchKbContext', () => {
   it('returns domain note and relevant permanent notes', () => {
     ctx.engine.store('Domain: conventions for myapp', {
       title: 'myapp domain',
-      kind: 'domain' as any,
+      kind: 'domain',
       status: 'permanent',
       tags: ['project:myapp'],
       summary: 'Project conventions',
@@ -148,7 +148,7 @@ describe('fetchKbContext', () => {
   it('excludes domain note from recent results', () => {
     ctx.engine.store('Domain content', {
       title: 'myapp domain',
-      kind: 'domain' as any,
+      kind: 'domain',
       status: 'permanent',
       tags: ['project:myapp'],
       summary: 'Domain note',
@@ -200,7 +200,7 @@ describe('formatContext', () => {
       domainNote: {
         id: '2026043000000000',
         title: 'myapp domain',
-        kind: 'domain' as any,
+        kind: 'domain',
         status: 'permanent',
         lifecycle: 'living',
         type: 'atomic',
@@ -254,7 +254,7 @@ describe('createKbPlugin lifecycle', () => {
   it('injects context on first LLM turn after session.created', async () => {
     ctx.engine.store('Domain rules for testproject', {
       title: 'testproject domain',
-      kind: 'domain' as any,
+      kind: 'domain',
       status: 'permanent',
       tags: ['project:testproject'],
       summary: 'Test project domain',
@@ -293,7 +293,7 @@ describe('createKbPlugin lifecycle', () => {
   it('only injects once per session (consume marker)', async () => {
     ctx.engine.store('Domain content', {
       title: 'testproject domain',
-      kind: 'domain' as any,
+      kind: 'domain',
       status: 'permanent',
       tags: ['project:testproject'],
       summary: 'Domain note',
@@ -333,7 +333,7 @@ describe('createKbPlugin lifecycle', () => {
   it('re-injects on compaction and resets marker', async () => {
     ctx.engine.store('Domain content', {
       title: 'testproject domain',
-      kind: 'domain' as any,
+      kind: 'domain',
       status: 'permanent',
       tags: ['project:testproject'],
       summary: 'Domain note',
@@ -381,7 +381,7 @@ describe('createKbPlugin lifecycle', () => {
   it('cleans up state on session.deleted', async () => {
     ctx.engine.store('Domain content', {
       title: 'testproject domain',
-      kind: 'domain' as any,
+      kind: 'domain',
       status: 'permanent',
       tags: ['project:testproject'],
       summary: 'Domain note',
