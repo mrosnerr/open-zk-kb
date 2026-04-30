@@ -18,16 +18,22 @@
 # See: agent-architecture/04-References/pr-agent-extra-instructions-scope.md
 
 [config]
-# Phase 0 swap rationale: agent-architecture/04-references/openzkkb-pr-review-current-state.md
-model = "openrouter/moonshotai/kimi-k2.6"
+# Model swap: Kimi K2.6 → Claude Sonnet 4.6 (2026-04-30)
+# Rationale: Kimi K2.6 + reasoning_effort=high takes 13+ min on 500-line PRs
+# (35K tokens, super-linear latency scaling). Sonnet 4.6 completes in 2-3 min
+# at 90 tok/s, ranks #4 on CR-Bench (F1 0.62, 14% critical FNR), and is the
+# recommended model for high-volume code review per BestLLM/Git AutoReview.
+# Cost delta: ~$0.19 → ~$0.55 per review (+$10.80/mo at 30 PRs).
+# Prior rationale: agent-architecture/04-references/openzkkb-pr-review-current-state.md
+model = "openrouter/anthropic/claude-sonnet-4.6"
 fallback_models = [
-    "openrouter/anthropic/claude-sonnet-4.6",
+    "openrouter/google/gemini-2.5-pro",
     "openrouter/z-ai/glm-5.1",
 ]
-custom_model_max_tokens = 128000
+custom_model_max_tokens = 200000
 ai_timeout = 300
 response_language = "en-US"
-reasoning_effort = "high"
+reasoning_effort = "medium"
 add_repo_metadata = true
 add_repo_metadata_file_list = ["AGENTS.md"]
 patch_extra_lines_before = 10
