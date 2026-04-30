@@ -722,10 +722,12 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     const isCandidate = (n: { id: string; kind: string; status?: string }) =>
       n.id !== result.id && !excludeKinds.has(n.kind) && n.status !== 'archived';
 
+    const fetchLimit = maxResults * 3 + excludeKinds.size;
+
     try {
       if (noteEmbedding) {
         // Embedding-based similarity search
-        const vecResults = repo.searchVector(noteEmbedding, { limit: maxResults + 10 });
+        const vecResults = repo.searchVector(noteEmbedding, { limit: fetchLimit });
         relatedNotes = vecResults
           .filter(n => isCandidate(n) && n.similarity >= minSimilarity)
           .slice(0, maxResults)
@@ -734,7 +736,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         // FTS5 fallback — use title + summary as query
         const queryText = [args.title, args.summary].filter(Boolean).join(' ');
         if (queryText.trim()) {
-          const ftsResults = repo.search(queryText, { limit: maxResults + 10 });
+          const ftsResults = repo.search(queryText, { limit: fetchLimit });
           relatedNotes = ftsResults
             .filter(n => isCandidate(n))
             .slice(0, maxResults)
