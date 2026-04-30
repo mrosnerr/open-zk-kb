@@ -1749,23 +1749,24 @@ export class NoteRepository {
       : '';
 
     const queryFleeting = (lim: number) => {
-      const params: (string | number)[] = [cutoff, promotionThreshold, ...exemptKinds, lim];
+      const params: (string | number)[] = [cutoff, ...exemptKinds, lim];
       return this.db.prepare(`
-        SELECT * FROM notes 
-        WHERE status = 'fleeting' 
-          AND created_at < ?
-          AND access_count < ?
+        SELECT n.*, COALESCE(bl.cnt, 0) as backlinks_count
+        FROM notes n
+        LEFT JOIN (SELECT target_id, COUNT(*) as cnt FROM note_links GROUP BY target_id) bl ON bl.target_id = n.id
+        WHERE n.status = 'fleeting' 
+          AND n.created_at < ?
           ${exemptPlaceholders}
-        ORDER BY access_count ASC, created_at ASC
+        ORDER BY n.access_count ASC, n.created_at ASC
         LIMIT ?
       `).all(...params) as NoteMetadata[];
     };
 
     const countFleeting = () => {
-      const params: (string | number)[] = [cutoff, promotionThreshold, ...exemptKinds];
+      const params: (string | number)[] = [cutoff, ...exemptKinds];
       return this.db.prepare(`
         SELECT COUNT(*) as count FROM notes 
-        WHERE status = 'fleeting' AND created_at < ? AND access_count < ?
+        WHERE status = 'fleeting' AND created_at < ?
         ${exemptPlaceholders}
       `).get(...params) as { count: number };
     };
@@ -1773,12 +1774,14 @@ export class NoteRepository {
     const queryPermanent = (lim: number) => {
       const params: (string | number)[] = [cutoff, ...exemptKinds, lim];
       return this.db.prepare(`
-        SELECT * FROM notes 
-        WHERE status = 'permanent' 
-          AND created_at < ?
-          AND access_count = 0
+        SELECT n.*, COALESCE(bl.cnt, 0) as backlinks_count
+        FROM notes n
+        LEFT JOIN (SELECT target_id, COUNT(*) as cnt FROM note_links GROUP BY target_id) bl ON bl.target_id = n.id
+        WHERE n.status = 'permanent' 
+          AND n.created_at < ?
+          AND n.access_count = 0
           ${exemptPlaceholders}
-        ORDER BY created_at ASC
+        ORDER BY n.created_at ASC
         LIMIT ?
       `).all(...params) as NoteMetadata[];
     };
@@ -1796,6 +1799,7 @@ export class NoteRepository {
       ...r,
       kind: (r.kind || 'observation') as NoteKind,
       tags: JSON.parse(r.tags as unknown as string),
+      backlinks_count: r.backlinks_count || 0,
     });
 
     if (filter === 'fleeting') {

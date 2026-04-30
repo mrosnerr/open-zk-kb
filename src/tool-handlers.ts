@@ -71,17 +71,23 @@ function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
   return null;
 }
 
-function formatDate(timestamp: number): string {
-  const date = new Date(timestamp);
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-  return `${months[date.getMonth()]} ${date.getDate()}, ${date.getFullYear()}`;
-}
-
-function getRecommendation(note: NoteMetadata, daysOld: number, promotionThreshold: number = 2): string {
+function getRecommendation(
+  note: NoteMetadata,
+  daysOld: number,
+  promotionThreshold: number = 2,
+): { action: 'promote' | 'archive' | 'review'; rationale: string } {
   const accesses = note.access_count || 0;
-  if (accesses >= promotionThreshold) return '2caa Promote';
-  if (accesses === 0 && daysOld > 30) return '1f44 Archive';
-  return '1f914 Review';
+  const backlinks = note.backlinks_count || 0;
+  if (accesses >= promotionThreshold) {
+    return { action: 'promote', rationale: `Accessed ${accesses} times (threshold: ${promotionThreshold})` };
+  }
+  if (accesses === 0 && daysOld > 30 && backlinks === 0) {
+    return { action: 'archive', rationale: `Zero accesses, ${daysOld} days old, no backlinks — likely stale` };
+  }
+  if (accesses === 0 && daysOld > 30) {
+    return { action: 'review', rationale: `Zero accesses but ${backlinks} backlink(s) — referenced by other notes` };
+  }
+  return { action: 'review', rationale: `${daysOld} days old, ${accesses} accesses — needs manual review` };
 }
 
 type BrokenLink = {
@@ -1072,61 +1078,50 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.promotionThreshold, config.lifecycle.exemptKinds);
 
       const archiveDays = Math.max(1, config.lifecycle.autoArchiveFleetingDays);
-      
-      let output = '## Review Queue\n\n';
-      
+
       const hasFleeting = queue.fleeting.total > 0;
       const hasPermanent = queue.permanent.total > 0;
-      
+
       if (!hasFleeting && !hasPermanent) {
         return 'No notes pending review. All notes are up to date!';
       }
-      
-      if (hasFleeting) {
-        const nonStaleNotes = queue.fleeting.notes.filter(n => computeStaleness(n) < archiveDays);
-        const staleInQueue = queue.fleeting.notes.length - nonStaleNotes.length;
 
-        if (nonStaleNotes.length > 0) {
-          output += `### Fleeting Notes for Review (${nonStaleNotes.length} total`;
-          output += ')\n';
+      const nonStaleFleeting = queue.fleeting.notes.filter(n => computeStaleness(n) < archiveDays);
+      const candidates = [...nonStaleFleeting, ...queue.permanent.notes];
+      const candidateIds = new Set(candidates.map(n => n.id));
+      const totalCandidates = queue.fleeting.total + queue.permanent.total;
+      let output = `## Review Candidates (${candidates.length} of ${totalCandidates})\n\n`;
 
-          for (let i = 0; i < nonStaleNotes.length; i++) {
-            const note = nonStaleNotes[i];
-            const staleness = computeStaleness(note);
-            const accessInfo = note.access_count === 0 ? 'never accessed' : `${note.access_count} access${note.access_count === 1 ? '' : 'es'}`;
-            const rec = getRecommendation(note, staleness, config.lifecycle.promotionThreshold);
-            output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | ${staleness} days old | ${accessInfo} | ${rec}\n`;
-          }
+      for (let i = 0; i < candidates.length; i++) {
+        const note = candidates[i];
+        const staleness = computeStaleness(note);
+        const accesses = note.access_count || 0;
+        const backlinks = note.backlinks_count || 0;
+        const wordCount = countWords(note.content);
+        const guide = KIND_WORD_GUIDELINES[note.kind as NoteKind];
+        const wordSignal = guide && wordCount > guide.warn
+          ? `${wordCount} (oversized, target: ~${guide.target})`
+          : `${wordCount}`;
+        const backlinkSignal = backlinks === 0 ? '0 (unlinked)' : `${backlinks}`;
+        const rec = getRecommendation(note, staleness, config.lifecycle.promotionThreshold);
 
-          if (staleInQueue > 0) {
-            output += `\n${staleInQueue} older note(s) moved to "Stale Fleeting Notes" below.\n`;
-          }
-          output += '\n';
-        }
+        output += `### [${i + 1}] "${note.title}" (${note.id})\n`;
+        output += `kind: ${note.kind} | status: ${note.status} | staleness: ${staleness} days\n`;
+        output += `Accesses: ${accesses} | Backlinks: ${backlinkSignal} | Words: ${wordSignal}\n`;
+        output += `⮕ Suggested: ${rec.action.toUpperCase()} — ${rec.rationale}\n\n`;
       }
-      
-      if (hasPermanent) {
-        output += `### Permanent Notes for Review (${queue.permanent.total} total`;
-        if (queue.permanent.notes.length < queue.permanent.total) {
-          output += `, showing ${queue.permanent.notes.length}`;
-        }
-        output += ')\n';
-        
-        for (let i = 0; i < queue.permanent.notes.length; i++) {
-          const note = queue.permanent.notes[i];
-          output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | never accessed | 2999 Review relevance\n`;
-        }
-        
-        if (queue.permanent.total > queue.permanent.notes.length) {
-          output += `\n... ${queue.permanent.total - queue.permanent.notes.length} more. Use \`--filter permanent --limit 10\` to see all.\n`;
-        }
+
+      const staleInQueue = queue.fleeting.notes.length - nonStaleFleeting.length;
+      if (staleInQueue > 0) {
+        output += `${staleInQueue} older note(s) moved to "Stale Fleeting Notes" below.\n`;
         output += '\n';
       }
-      
+
       // Flag oversized notes that may need splitting
       const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
       const oversized = allNotes
         .filter(n => n.status !== 'archived')
+        .filter(n => !candidateIds.has(n.id))
         .map(n => ({ ...n, wordCount: countWords(n.content) }))
         .filter(n => {
           const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
@@ -1156,14 +1151,13 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n';
       }
 
-      output += '## Next Steps:\n';
-      let stepIdx = 65;
-      if (hasFleeting) output += `[${String.fromCharCode(stepIdx++)}] Show all fleeting notes for review\n`;
-      if (hasPermanent) output += `[${String.fromCharCode(stepIdx++)}] Show all permanent notes for review\n`;
-      output += `[${String.fromCharCode(stepIdx++)}] Promote specific note to permanent (requires --noteId)\n`;
-      output += `[${String.fromCharCode(stepIdx++)}] Archive specific note (requires --noteId)\n`;
-      if (oversized.length > 0) output += `[${String.fromCharCode(stepIdx++)}] Split an oversized note into atomic notes\n`;
-      if (staleForArchive.length > 0) output += `[${String.fromCharCode(stepIdx)}] Archive stale fleeting notes\n`;
+      output += '---\n';
+      output += 'Actions: `knowledge-maintain promote/archive/delete` with noteId=<id>\n';
+      const staleCount = queue.fleeting.notes.length - nonStaleFleeting.length;
+      const remaining = Math.max(0, totalCandidates - candidates.length - staleCount);
+      if (remaining > 0) {
+        output += `Remaining: ${remaining} more candidates (increase limit to see more)\n`;
+      }
 
       return output;
     }

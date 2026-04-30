@@ -882,7 +882,8 @@ describe('Tool Handlers — Coverage Boost', () => {
       ).run(oldTime, r.id);
 
       const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
-      expect(output).toContain('Permanent Notes for Review');
+      expect(output).toContain('## Review Candidates');
+      expect(output).toContain('status: permanent');
       expect(output).toContain('OldPerm');
     });
   });

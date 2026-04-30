@@ -217,7 +217,7 @@ describe('Knowledge Capture Integration Tests', () => {
       expect(queue.fleeting.notes).toHaveLength(0);
     });
 
-    it('excludes fleeting notes with access_count >= promotionThreshold', () => {
+    it('includes well-used fleeting notes for promotion review', () => {
       const result = context.engine.store('Well-used fleeting note', {
         title: 'Well-used Fleeting',
         kind: 'observation',
@@ -239,8 +239,8 @@ describe('Knowledge Capture Integration Tests', () => {
         context.config.lifecycle.exemptKinds,
       );
 
-      expect(queue.fleeting.total).toBe(0);
-      expect(queue.fleeting.notes.some(n => n.id === note.id)).toBe(false);
+      expect(queue.fleeting.total).toBe(1);
+      expect(queue.fleeting.notes.some(n => n.id === note.id)).toBe(true);
     });
 
     it('excludes exemptKinds from both fleeting and permanent review', () => {

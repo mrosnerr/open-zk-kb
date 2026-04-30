@@ -123,6 +123,26 @@ Use `knowledge-overview` at the start of a project session to orient yourself:
 - Optional: `logEntries` (number, default 10) to control how many log entries are shown
 
 ### Maintenance
-- `knowledge-maintain stats` — KB health | `knowledge-maintain review` — stale notes
+- `knowledge-maintain stats` — KB health
+- `knowledge-maintain review` — curate stale notes (see below)
+
+### Review & Curate
+`knowledge-maintain review` returns numbered candidates with signals and suggested actions:
+
+```
+### [1] "Note Title" (noteId)
+kind: observation | status: fleeting | staleness: 45 days
+Accesses: 0 | Backlinks: 0 (unlinked) | Words: 89
+⮕ Suggested: ARCHIVE — Zero accesses, 45 days old, no backlinks — likely stale
+```
+
+**Workflow**: review → decide per note → act:
+1. Run `knowledge-maintain review` (optional: `limit`, `filter`, `days`)
+2. For each candidate, decide: **promote** (valuable), **archive** (stale), **delete** (wrong), or **skip**
+3. Act: `knowledge-maintain promote/archive/delete` with `noteId=<id>`
+
+**Signals per candidate**: kind, status, staleness days, access count, backlinks (0 = "unlinked"), word count (flags "oversized" against kind target).
+
+**Suggested actions are hints, not commands** — always apply your own judgment.
 
 For detailed kind descriptions and examples, see [kinds-reference.md](kinds-reference.md).
