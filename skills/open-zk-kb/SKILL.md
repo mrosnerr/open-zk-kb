@@ -102,6 +102,8 @@ Notes have a `lifecycle` field controlling mutability. The server enforces it.
 - **Enforcement**: snapshot updates and append-only rewrites are rejected by the server. Create a new note instead.
 - **Migration**: notes without `lifecycle` default to `living`. No action needed; the field is added on next update.
 
+**Staleness**: Every note includes a `staleness_days` metric — days since last access (or creation if never accessed). If staleness > 90 days and the note's claim might be outdated, verify before relying on it. The server surfaces this metric; you decide whether to act on it.
+
 **Server vs agent**: The server surfaces data and enforces constraints (lifecycle immutability, atomicity warnings, duplicate detection). You decide whether and how to act on surfaced information.
 
 ### Capture Checkpoints

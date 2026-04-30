@@ -8,7 +8,7 @@ import {
   cleanupTestHarness,
 } from './harness.js';
 import type { TestContext } from './harness.js';
-import { renderNoteForAgent, renderNoteForSearch } from '../src/prompts.js';
+import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
 import { handleStore, handleSearch, handleMaintain, handleOverview } from '../src/tool-handlers.js';
@@ -916,6 +916,113 @@ describe('renderNoteForAgent', () => {
     expect(xml).toContain('<guidance>Use Tailwind when suggesting CSS frameworks</guidance>');
     // No tags attribute when empty
     expect(xml).not.toContain('tags=');
+  });
+});
+
+// ---- Staleness metric tests ----
+
+describe('computeStaleness', () => {
+  const baseNote = {
+    id: '202602110848',
+    path: '/tmp/test.md',
+    title: 'Test',
+    kind: 'reference' as const,
+    status: 'fleeting' as const,
+    type: 'atomic' as const,
+    tags: [],
+    content: '',
+    updated_at: Date.now(),
+    created_at: Date.now(),
+    word_count: 0,
+  };
+
+  it('should return 0 for a note created today', () => {
+    expect(computeStaleness(baseNote)).toBe(0);
+  });
+
+  it('should return correct days for older notes', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const thirtyDaysAgo = Date.now() - (30 * DAY) - 1000;
+    const note = { ...baseNote, created_at: thirtyDaysAgo };
+    expect(computeStaleness(note)).toBe(30);
+  });
+
+  it('should use last_accessed_at when available', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const ninetyDaysAgo = Date.now() - (90 * DAY) - 1000;
+    const fiveDaysAgo = Date.now() - (5 * DAY) - 1000;
+    const note = { ...baseNote, created_at: ninetyDaysAgo, last_accessed_at: fiveDaysAgo };
+    expect(computeStaleness(note)).toBe(5);
+  });
+
+  it('should fall back to created_at when last_accessed_at is undefined', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const fortyFiveDaysAgo = Date.now() - (45 * DAY) - 1000;
+    const note = { ...baseNote, created_at: fortyFiveDaysAgo, last_accessed_at: undefined };
+    expect(computeStaleness(note)).toBe(45);
+  });
+
+  it('should clamp to zero for future timestamps', () => {
+    const tomorrow = Date.now() + (24 * 60 * 60 * 1000);
+    const note = { ...baseNote, created_at: tomorrow };
+    expect(computeStaleness(note)).toBe(0);
+  });
+});
+
+describe('staleness_days in XML rendering', () => {
+  it('should include staleness_days attribute in renderNoteForAgent', () => {
+    const xml = renderNoteForAgent({
+      id: '202602110848',
+      path: '/tmp/test.md',
+      title: 'Test',
+      kind: 'reference',
+      status: 'fleeting',
+      type: 'atomic',
+      tags: [],
+      content: '',
+      updated_at: Date.now(),
+      created_at: Date.now(),
+      word_count: 0,
+    });
+    expect(xml).toContain('staleness_days="0"');
+  });
+
+  it('should include staleness_days attribute in renderNoteForSearch', () => {
+    const tenDaysAgo = Date.now() - (10 * 24 * 60 * 60 * 1000) - 1000;
+    const xml = renderNoteForSearch({
+      id: '202602110848',
+      path: '/tmp/test.md',
+      title: 'Test',
+      kind: 'reference',
+      status: 'fleeting',
+      type: 'atomic',
+      tags: [],
+      content: 'Some content',
+      updated_at: tenDaysAgo,
+      created_at: tenDaysAgo,
+      word_count: 2,
+    });
+    expect(xml).toContain('staleness_days="10"');
+  });
+
+  it('should reflect last_accessed_at in XML staleness', () => {
+    const ninetyDaysAgo = Date.now() - (90 * 24 * 60 * 60 * 1000) - 1000;
+    const twoDaysAgo = Date.now() - (2 * 24 * 60 * 60 * 1000) - 1000;
+    const xml = renderNoteForAgent({
+      id: '202602110848',
+      path: '/tmp/test.md',
+      title: 'Test',
+      kind: 'reference',
+      status: 'fleeting',
+      type: 'atomic',
+      tags: [],
+      content: '',
+      updated_at: ninetyDaysAgo,
+      created_at: ninetyDaysAgo,
+      last_accessed_at: twoDaysAgo,
+      word_count: 0,
+    });
+    expect(xml).toContain('staleness_days="2"');
   });
 });
 
@@ -1931,6 +2038,16 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Already Archived');
+  });
+
+  it('should not flag recently accessed notes as stale even if created long ago', async () => {
+    const result = ctx.engine.store('Old but active', { title: 'Recently Accessed', kind: 'observation' });
+    setCreatedAt(result.id, daysAgo(200));
+    const recentAccess = Date.now() - (2 * 24 * 60 * 60 * 1000);
+    (ctx.engine as any).db.prepare('UPDATE notes SET last_accessed_at = ? WHERE id = ?').run(recentAccess, result.id);
+
+    const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('Stale Fleeting Notes');
   });
 
   it('should respect custom autoArchiveFleetingDays config', async () => {

@@ -18,7 +18,7 @@ function toLifecycle(lifecycle: string | undefined, fallback: Lifecycle): Lifecy
 }
 import type { NoteRepository, NoteMetadata } from './storage/NoteRepository.js';
 import { formatWikiLink } from './utils/wikilink.js';
-import { renderNoteForSearch, renderNoteForAgent } from './prompts.js';
+import { renderNoteForSearch, renderNoteForAgent, computeStaleness } from './prompts.js';
 import { buildIndexContent, buildGlobalIndexContent, buildGeneralIndexContent, buildPreferencesIndexContent, buildGeneralKindIndexContent } from './storage/IndexBuilder.js';
 import { buildLogEntry, buildInitialLogContent, appendToLogContent, buildGlobalLogEntry, buildInitialGlobalLogContent } from './storage/LogAppender.js';
 import { buildReviewContent } from './storage/ReviewBuilder.js';
@@ -202,6 +202,8 @@ interface RelatedNote {
   title: string;
   kind: string;
   similarity?: number;
+  created_at: number;
+  last_accessed_at?: number;
 }
 
 function sanitizeMetadata(value: string): string {
@@ -731,7 +733,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         relatedNotes = vecResults
           .filter(n => isCandidate(n) && n.similarity >= minSimilarity)
           .slice(0, maxResults)
-          .map(n => ({ id: n.id, title: n.title, kind: n.kind, similarity: n.similarity }));
+          .map(n => ({ id: n.id, title: n.title, kind: n.kind, similarity: n.similarity, created_at: n.created_at, last_accessed_at: n.last_accessed_at }));
       } else {
         // FTS5 fallback — use title + summary as query
         const queryText = [args.title, args.summary].filter(Boolean).join(' ');
@@ -740,7 +742,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
           relatedNotes = ftsResults
             .filter(n => isCandidate(n))
             .slice(0, maxResults)
-            .map(n => ({ id: n.id, title: n.title, kind: n.kind }));
+            .map(n => ({ id: n.id, title: n.title, kind: n.kind, created_at: n.created_at, last_accessed_at: n.last_accessed_at }));
         }
       }
     } catch (error) {
@@ -768,7 +770,8 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     output += '\n\nRelated notes:';
     for (const rn of relatedNotes) {
       const sim = rn.similarity != null ? `, similarity: ${rn.similarity.toFixed(2)}` : '';
-      output += `\n- [${rn.id}] "${rn.title}" (${rn.kind}${sim})`;
+      const staleness = computeStaleness(rn);
+      output += `\n- [${rn.id}] "${rn.title}" (${rn.kind}${sim}, ${staleness} days old)`;
     }
   }
 
@@ -1069,7 +1072,6 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.promotionThreshold, config.lifecycle.exemptKinds);
 
       const archiveDays = Math.max(1, config.lifecycle.autoArchiveFleetingDays);
-      const archiveCutoff = Date.now() - (archiveDays * 24 * 60 * 60 * 1000);
       
       let output = '## Review Queue\n\n';
       
@@ -1081,7 +1083,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
       
       if (hasFleeting) {
-        const nonStaleNotes = queue.fleeting.notes.filter(n => n.created_at >= archiveCutoff);
+        const nonStaleNotes = queue.fleeting.notes.filter(n => computeStaleness(n) < archiveDays);
         const staleInQueue = queue.fleeting.notes.length - nonStaleNotes.length;
 
         if (nonStaleNotes.length > 0) {
@@ -1090,10 +1092,10 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
           for (let i = 0; i < nonStaleNotes.length; i++) {
             const note = nonStaleNotes[i];
-            const daysOld = Math.floor((Date.now() - note.created_at) / (1000 * 60 * 60 * 24));
+            const staleness = computeStaleness(note);
             const accessInfo = note.access_count === 0 ? 'never accessed' : `${note.access_count} access${note.access_count === 1 ? '' : 'es'}`;
-            const rec = getRecommendation(note, daysOld, config.lifecycle.promotionThreshold);
-            output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | ${accessInfo} | ${rec}\n`;
+            const rec = getRecommendation(note, staleness, config.lifecycle.promotionThreshold);
+            output += `${i + 1}. "${note.title}" | ${formatDate(note.created_at)} | ${staleness} days old | ${accessInfo} | ${rec}\n`;
           }
 
           if (staleInQueue > 0) {
@@ -1143,14 +1145,13 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       const staleForArchive = allNotes
-        .filter(n => n.status === 'fleeting' && n.created_at < archiveCutoff);
+        .filter(n => n.status === 'fleeting' && computeStaleness(n) >= archiveDays);
 
       if (staleForArchive.length > 0) {
         output += `### Stale Fleeting Notes (${staleForArchive.length} older than ${archiveDays} days)\n`;
         output += 'These fleeting notes were never promoted. Consider archiving:\n\n';
         for (const n of staleForArchive) {
-          const daysOld = Math.floor((Date.now() - n.created_at) / (1000 * 60 * 60 * 24));
-          output += `- "${n.title}" (${n.kind}) — ${daysOld} days old [${n.id}]\n`;
+          output += `- "${n.title}" (${n.kind}) — ${computeStaleness(n)} days old [${n.id}]\n`;
         }
         output += '\n';
       }
