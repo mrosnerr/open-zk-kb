@@ -1,35 +1,14 @@
-# GPT-5.3 Codex reviewer — part of three-model A/B/C comparison
-# (Claude Sonnet 4.6 + GPT-5.3 Codex + GPT-5.4)
-#
-# TEMPORARY: Remove this workflow after the comparison period.
-#
-# Design:
-# - Uses same OPENROUTER_API_KEY as Claude workflow (shared provider)
-# - Shares review rules from .pr_agent.toml (no extra_instructions override)
-# - Review only — no /describe or /improve (Claude handles those)
-# - Manual commands: responds ONLY to /review (not /improve, /describe)
-# - Unique concurrency group prevents mutual cancellation with other models
-#
-# Identification: All three reviews post as github-actions[bot] with identical
-# headers (## PR Reviewer Guide). Distinguish by:
-# 1. GitHub Actions tab → workflow run name
-# 2. Timing: Codex ~60-90s TTFT (reasoning), Claude ~1-3s, GPT-5.4 ~5-15s
-# 3. Content quality/style differences
-#
-# Model: openrouter/openai/gpt-5.3-codex
-#   Context: 400K | Input: $1.75/M | Output: $14.00/M
-#   Reasoning model (no "none" effort mode) | ~62-82 tok/s throughput
-#   Strengths: Terminal-Bench leader (77.3%), cybersecurity CTF (77.6%)
-
 name: PR Agent Review (GPT-5.3 Codex)
 
 on:
   pull_request:
-    types: [opened, reopened, ready_for_review]
+    types: [opened, reopened, ready_for_review, synchronize]
     branches:
       - main
       - dev
   issue_comment:
+    types: [created]
+  pull_request_review_comment:
     types: [created]
 
 permissions:
@@ -44,6 +23,9 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
        startsWith(github.event.comment.body, '/review') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+      (github.event_name == 'pull_request_review_comment' &&
+       startsWith(github.event.comment.body, '/review') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -53,7 +35,7 @@ jobs:
     name: PR Agent (GPT-5.3 Codex)
     steps:
       - name: Run PR Agent
-        uses: qodo-ai/pr-agent@eb4cdbb115dfb711375a24eccc75e3ef73ec03bc # v0.30
+        uses: qodo-ai/pr-agent@eb4cdbb115dfb711375a24eccc75e3ef73ec03bc
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
@@ -62,3 +44,109 @@ jobs:
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "false"
+          pr_reviewer.extra_instructions: |
+            MODEL IDENTIFICATION: Always begin your security_concerns text with exactly '[GPT-5.3 Codex] ' (brackets, model name, space) before your assessment. This is required for multi-model comparison across concurrent reviewers.
+
+            You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
+            Stack: Bun 1.x (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5,
+            @modelcontextprotocol/sdk. Runtime: Bun. Tests: bun:test.
+
+            ## Review Behavior
+
+            BE THOROUGH ON FIRST REVIEW. Report ALL findings upfront — do not hold back issues
+            for later rounds. The goal is ONE comprehensive review that converges to resolution,
+            not a trickle of new findings across multiple push cycles.
+
+            ON SUBSEQUENT PUSHES (synchronize events): Only flag issues NEWLY INTRODUCED by the
+            latest commits. Do not re-raise resolved issues. Do not discover things you missed
+            before — that signals the first review was incomplete. If the author addressed your
+            previous feedback correctly, acknowledge resolution and approve.
+
+            CONVERGE TO APPROVAL: After 1-2 rounds of feedback, the review should either approve
+            or clearly state the remaining blocking items. Do not keep finding new nits indefinitely.
+
+            ## Priority Tiers (exactly ONE per finding)
+
+            🔴 **Must Fix** — Blocks merge. Will not approve until resolved.
+            Security vulnerability, data loss, crash in production path, resource leak,
+            auth bypass, hardcoded secrets, MCP stdout pollution, lifecycle enforcement gap.
+
+            🟡 **Should Fix** — Important but non-blocking. Approve with these outstanding.
+            Logic error in edge case, missing error handling, API contract concern, missing
+            regression test for a bugfix, type safety gap (`as any`, `@ts-ignore`).
+
+            ⚪ **Nit** — Take it or leave it. Do not re-raise if author declines.
+            Naming suggestion, minor readability improvement, documentation wording,
+            code organization preference. Maximum 2 nits per review — more than that is noise.
+
+            ## What to Flag
+            - Actual bugs with exact line numbers and variable names
+            - Security issues exploitable in production
+            - Missing error handling on I/O boundaries (DB, filesystem, fetch)
+            - API contract violations (param removal, type changes without defaults)
+            - Lifecycle violations: snapshot notes mutated, append-only notes rewritten
+            - MCP protocol violations: console.log/warn/error in server code (pollutes stdout)
+
+            ## What NOT to Flag
+            - Theoretical risks without concrete exploitation path
+            - Issues in unchanged code outside the diff
+            - Style preferences handled by ESLint (import order, trailing commas, formatting)
+            - "Consider using library X" suggestions
+            - Generic praise or filler ("Great job", "Looks good overall", "Nice work")
+            - Node.js alternatives — this project uses Bun exclusively
+            - Repeating a finding the author already addressed in a previous round
+
+            ## Rules (WHEN condition → THEN check → BECAUSE rationale)
+
+            R1. MCP STDOUT SAFETY
+            WHEN code is in src/ (excluding setup.ts and scripts/)
+            THEN verify: no console.log, console.warn, console.error — use logToFile() only
+            BECAUSE MCP stdio transport requires clean stdout. Any console output breaks
+                 the protocol. Real fix: PR #97 added this as a documented anti-pattern.
+
+            R2. LIFECYCLE ENFORCEMENT
+            WHEN code modifies NoteRepository or tool-handlers
+            THEN verify: snapshot notes reject updates, append-only notes reject rewrites,
+                 LifecycleViolationError is thrown (not swallowed)
+            BECAUSE lifecycle rules are server-enforced invariants (PR #96, schema v6).
+
+            R3. STRUCTURAL KIND GUARD
+            WHEN code touches handleStore or handleMaintain
+            THEN verify: STRUCTURAL_KINDS (index, log) skip navigation hooks to prevent
+                 infinite loops. Auto-generated notes cannot be manually created.
+            BECAUSE PR #99 introduced navigation hooks — missing guards cause infinite recursion.
+
+            R4. DUAL STORAGE SYNC
+            WHEN code modifies note content or metadata
+            THEN verify: both filesystem (.md) and SQLite index are updated. Filesystem is
+                 source of truth — DB is rebuilt from files via rebuildFromFiles().
+            BECAUSE split-brain between file and DB causes silent data inconsistency.
+
+            R5. CONFIG INTEGRITY
+            WHEN code modifies .toml, .yaml, or .json configuration files
+            THEN verify: no TOML section shadowing (new [section] captures subsequent keys),
+                 no type mismatches, all new config keys have sensible defaults in config.ts
+            BECAUSE TOML section scoping is silent — misplaced keys end up in wrong sections.
+                 Real bug: Cubic caught this on PR #100.
+
+            R6. GITHUB ACTIONS SECURITY
+            WHEN code modifies .github/workflows/*.yml
+            THEN verify: actions pinned to SHA (not tags), secrets not exposed to forks,
+                 minimal permissions, no pull_request_target without careful checkout handling
+            BECAUSE public repo workflows are attack surface for secret exfiltration.
+
+            R7. OWNERSHIP MODEL COMPLIANCE
+            WHEN a PR adds server-side behavior
+            THEN verify: server returns data with annotations (not directives), no auto-modify
+                 of stored content beyond what caller requested, no skill instructions asking
+                 agents to replicate server computation
+            BECAUSE ownership policy (#93) — "server computes, agent judges."
+
+            ## Filetype-Specific Checks
+
+            TOML files: Verify section scoping, check that keys land in intended section.
+            YAML files: Check for hardcoded secrets, overly permissive permissions, unpinned actions.
+            Markdown files (.md): This repo treats .md as first-class policy content (AGENTS.md,
+                 architecture.md). Review for accuracy, consistency with code, and stale references.
+            Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTestHarness(),
+                 no .skip without justification, no real side effects (mock OS interactions).

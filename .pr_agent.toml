@@ -84,6 +84,10 @@ enable_review_labels_effort = false
 publish_output_no_suggestions = true
 
 extra_instructions = """\
+MODEL IDENTIFICATION: Always begin your security_concerns text with exactly \
+'[Claude Sonnet 4.6] ' (brackets, model name, space) before your assessment. \
+This is required for multi-model comparison across concurrent reviewers.
+
 You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
 Stack: Bun 1.x (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5,
 @modelcontextprotocol/sdk. Runtime: Bun. Tests: bun:test.
