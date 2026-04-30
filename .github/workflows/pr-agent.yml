@@ -1,4 +1,4 @@
-name: PR Agent Review
+name: PR Agent Review (Claude Sonnet 4.6)
 
 on:
   pull_request:
@@ -25,12 +25,13 @@ jobs:
        startsWith(github.event.comment.body, '/') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
       (github.event_name == 'pull_request_review_comment' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
        startsWith(github.event.comment.body, '/') &&
        contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
     runs-on: ubuntu-latest
     timeout-minutes: 15
     concurrency:
-      group: pr-agent-${{ github.event.pull_request.number || github.event.issue.number }}
+      group: pr-agent-claude-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
     name: PR Agent
     steps:

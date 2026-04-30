@@ -9,7 +9,8 @@
 #
 # WORKFLOW ENV VARS in .github/workflows/pr-agent.yml only set
 # [github_action_config] flags (auto_review, auto_describe, auto_improve).
-# Model + reviewer config lives here.
+# The GPT comparison workflows also override config.model, config.fallback_models,
+# and pr_reviewer.extra_instructions via env vars for per-model labeling.
 #
 # extra_instructions SCOPE: controls what the LLM thinks about (categories,
 # severity language, what NOT to flag, WHEN/THEN/BECAUSE rules) but CANNOT
@@ -84,6 +85,10 @@ enable_review_labels_effort = false
 publish_output_no_suggestions = true
 
 extra_instructions = """\
+MODEL IDENTIFICATION: Always begin your security_concerns text with exactly \
+'[Claude Sonnet 4.6] ' (brackets, model name, space) before your assessment. \
+This is required for multi-model comparison across concurrent reviewers.
+
 You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
 Stack: Bun 1.x (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5,
 @modelcontextprotocol/sdk. Runtime: Bun. Tests: bun:test.
