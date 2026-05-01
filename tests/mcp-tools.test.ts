@@ -698,18 +698,19 @@ describe('MCP Tool: knowledge-maintain', () => {
     setCreatedAt(fleeting.id, daysAgo(20));
     setCreatedAt(permanent.id, daysAgo(20));
 
-    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
+    const customConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, exemptKinds: [] } };
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, customConfig);
 
-    expect(output).toContain('## Review Queue');
-    expect(output).toContain('### Fleeting Notes for Review (1 total)');
-    expect(output).toContain('### Permanent Notes for Review (1 total)');
+    expect(output).toContain('## Review Candidates (2 of 2)');
+    expect(output).toContain('### [1]');
+    expect(output).toContain('### [2]');
     expect(output).toContain('"Review Fleeting"');
     expect(output).toContain('"Review Permanent"');
-    expect(output).toContain('## Next Steps:');
+    expect(output).toContain('Actions: `knowledge-maintain promote/archive/delete` with noteId=<id>');
     expect(output).not.toContain('Oversized Notes');
   });
 
-  it('should include archive/review recommendations and exclude promote-threshold notes', async () => {
+  it('should include archive/review/promote recommendations', async () => {
     ctx.engine.clearAll();
 
     const promoteCandidate = ctx.engine.store('Promote candidate', {
@@ -728,8 +729,8 @@ describe('MCP Tool: knowledge-maintain', () => {
       status: 'fleeting',
     });
 
-    setCreatedAt(promoteCandidate.id, daysAgo(40));
-    setCreatedAt(archiveCandidate.id, daysAgo(40));
+    setCreatedAt(promoteCandidate.id, daysAgo(50));
+    setCreatedAt(archiveCandidate.id, daysAgo(50));
     setCreatedAt(reviewCandidate.id, daysAgo(20));
 
     for (let i = 0; i < ctx.config.lifecycle.promotionThreshold; i++) {
@@ -743,13 +744,13 @@ describe('MCP Tool: knowledge-maintain', () => {
       ctx.config,
     );
 
-    expect(output).not.toContain('"Promote Candidate"');
+    expect(output).toContain('"Promote Candidate"');
     expect(output).toContain('"Archive Candidate"');
     expect(output).toContain('"Review Candidate"');
-    expect(output).not.toContain('| Promote');
-    expect(output).toContain('Archive');
-    expect(output).toContain('Review');
-    expect(output).toContain('### Fleeting Notes for Review (2 total)');
+    expect(output).toContain('⮕ Suggested: PROMOTE');
+    expect(output).toContain('⮕ Suggested: ARCHIVE');
+    expect(output).toContain('⮕ Suggested: REVIEW');
+    expect(output).toContain('## Review Candidates (3 of 3)');
   });
 
   it('should respect review filter in handleMaintain review action', async () => {
@@ -774,16 +775,18 @@ describe('MCP Tool: knowledge-maintain', () => {
       ctx.engine,
       ctx.config,
     );
-    expect(fleetingOnly).toContain('### Fleeting Notes for Review (1 total)');
-    expect(fleetingOnly).not.toContain('### Permanent Notes for Review');
+    expect(fleetingOnly).toContain('## Review Candidates (1 of 1)');
+    expect(fleetingOnly).toContain('"Filter Fleeting"');
+    expect(fleetingOnly).not.toContain('"Filter Permanent"');
 
     const permanentOnly = await handleMaintain(
       { action: 'review', filter: 'permanent', limit: 10 },
       ctx.engine,
       ctx.config,
     );
-    expect(permanentOnly).toContain('### Permanent Notes for Review (1 total)');
-    expect(permanentOnly).not.toContain('### Fleeting Notes for Review');
+    expect(permanentOnly).toContain('## Review Candidates (1 of 1)');
+    expect(permanentOnly).toContain('"Filter Permanent"');
+    expect(permanentOnly).not.toContain('"Filter Fleeting"');
   });
 
   it('should flag oversized notes in review output', async () => {
@@ -2017,19 +2020,20 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     expect(output).toContain('Stale Duplicate Check');
 
     const staleSection = output.indexOf('Stale Fleeting Notes');
-    const fleetingSection = output.indexOf('Fleeting Notes for Review');
-    if (fleetingSection !== -1) {
-      const fleetingContent = output.substring(fleetingSection, staleSection > fleetingSection ? staleSection : undefined);
-      expect(fleetingContent).not.toContain('Stale Duplicate Check');
+    const candidatesSection = output.indexOf('Review Candidates');
+    if (candidatesSection !== -1) {
+      const candidatesContent = output.substring(candidatesSection, staleSection > candidatesSection ? staleSection : undefined);
+      expect(candidatesContent).not.toContain('Stale Duplicate Check');
     }
   });
 
-  it('should not surface permanent notes regardless of age', async () => {
-    const result = ctx.engine.store('Old permanent', { title: 'Old Perm', kind: 'decision', status: 'permanent' });
+  it('should surface old unaccessed permanent notes as review candidates', async () => {
+    const result = ctx.engine.store('Old permanent', { title: 'Old Perm', kind: 'reference', status: 'permanent' });
     setCreatedAt(result.id, daysAgo(200));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
-    expect(output).not.toContain('Old Perm');
+    expect(output).toContain('Old Perm');
+    expect(output).toContain('status: permanent');
   });
 
   it('should not surface archived notes', async () => {
@@ -2103,21 +2107,150 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     expect(output).toContain('Stale Fleeting Notes (2');
     expect(output).toContain('All Stale A');
     expect(output).toContain('All Stale B');
-    expect(output).not.toContain('Fleeting Notes for Review');
+    // No candidates section when all notes are stale
+    expect(output).not.toContain('## Review Candidates');
   });
 
-  it('should show correct moved-to-stale count when mixed ages', async () => {
+  it('should separate stale notes from review candidates when mixed ages', async () => {
     const old = ctx.engine.store('Old note', { title: 'Stale One', kind: 'observation' });
     const recent = ctx.engine.store('Recent note', { title: 'Review One', kind: 'observation' });
     setCreatedAt(old.id, daysAgo(100));
     setCreatedAt(recent.id, daysAgo(20));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
-    expect(output).toContain('Fleeting Notes for Review');
+    expect(output).toContain('## Review Candidates');
     expect(output).toContain('Review One');
     expect(output).toContain('Stale Fleeting Notes');
     expect(output).toContain('Stale One');
-    expect(output).toContain('1 older note(s) moved to');
+    // Stale notes are excluded from candidates via SQL, not post-filtered
+    expect(output).not.toMatch(/### \[\d+\].*Stale One/);  // Not in numbered candidates
+  });
+});
+
+describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
+  let ctx: TestContext;
+  const daysAgo = (days: number): number => Date.now() - (days * 24 * 60 * 60 * 1000);
+
+  type TestDb = { prepare: (sql: string) => { run: (...params: unknown[]) => unknown } };
+
+  const db = (): TestDb => (ctx.engine as unknown as { db: TestDb }).db;
+
+  const setCreatedAt = (noteId: string, timestamp: number): void => {
+    db().prepare('UPDATE notes SET created_at = ? WHERE id = ?').run(timestamp, noteId);
+  };
+
+  const sectionFor = (output: string, title: string): string => {
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const headerPattern = new RegExp(`### \\[\\d+\\][^\\n]*"${escaped}"`);
+    const match = headerPattern.exec(output);
+    if (!match) return '';
+    const start = match.index;
+    const next = output.indexOf('\n### [', start + 1);
+    return output.slice(start, next === -1 ? undefined : next);
+  };
+
+  beforeEach(() => { ctx = createTestHarness({ telemetryEnabled: true }); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should show backlink signals in review output', async () => {
+    const noteA = ctx.engine.store('Links to another note', { title: 'Source Note', kind: 'observation' });
+    const noteB = ctx.engine.store('Linked note', { title: 'Target Note', kind: 'observation' });
+    ctx.engine.syncLinks(noteA.id, `[[${noteB.id}|test]]`);
+    setCreatedAt(noteA.id, daysAgo(20));
+    setCreatedAt(noteB.id, daysAgo(20));
+
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
+
+    expect(sectionFor(output, 'Target Note')).toContain('Backlinks: 1');
+    expect(sectionFor(output, 'Source Note')).toContain('Backlinks: 0 (unlinked)');
+  });
+
+  it('should recommend promote when accesses meet the threshold', async () => {
+    const note = ctx.engine.store('Accessed note', { title: 'Promotion Candidate', kind: 'observation' });
+    setCreatedAt(note.id, daysAgo(50));
+    for (let i = 0; i < ctx.config.lifecycle.promotionThreshold; i++) {
+      ctx.engine.recordAccess(note.id);
+    }
+
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
+
+    expect(output).toContain('PROMOTE');
+    expect(output).toContain(`Accessed ${ctx.config.lifecycle.promotionThreshold} times`);
+  });
+
+  it('should recommend archive for zero-access old unlinked notes', async () => {
+    const note = ctx.engine.store('Stale note', { title: 'Unlinked Archive Candidate', kind: 'observation' });
+    setCreatedAt(note.id, daysAgo(50));
+
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
+
+    expect(output).toContain('ARCHIVE');
+    expect(output).toContain('no backlinks');
+  });
+
+  it('should recommend review (not archive) when backlinks exist', async () => {
+    const noteA = ctx.engine.store('Source content', { title: 'Backlink Source', kind: 'observation' });
+    const noteB = ctx.engine.store('Target content', { title: 'Backlinked Review Candidate', kind: 'observation' });
+    ctx.engine.syncLinks(noteA.id, `[[${noteB.id}|test]]`);
+    setCreatedAt(noteA.id, daysAgo(10));
+    setCreatedAt(noteB.id, daysAgo(50));
+
+    const customConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, exemptKinds: [] } };
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, customConfig);
+    const targetSection = sectionFor(output, 'Backlinked Review Candidate');
+
+    expect(targetSection).toContain('REVIEW');
+    expect(targetSection).toContain('backlink(s)');
+    expect(targetSection).not.toContain('ARCHIVE');
+  });
+
+  it('should recommend review for young notes', async () => {
+    const note = ctx.engine.store('Needs judgment', { title: 'Manual Review Candidate', kind: 'observation' });
+    setCreatedAt(note.id, daysAgo(16));
+    ctx.engine.recordAccess(note.id);
+
+    const output = await handleMaintain({ action: 'review', days: 14, limit: 10 }, ctx.engine, ctx.config);
+
+    expect(output).toContain('REVIEW');
+    expect(output).toContain('needs manual review');
+  });
+
+  it('should use numbered candidate format', async () => {
+    const first = ctx.engine.store('First note', { title: 'Numbered One', kind: 'observation' });
+    const second = ctx.engine.store('Second note', { title: 'Numbered Two', kind: 'reference' });
+    setCreatedAt(first.id, daysAgo(20));
+    setCreatedAt(second.id, daysAgo(20));
+
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
+
+    expect(output).toContain('## Review Candidates');
+    expect(output).toContain('### [1]');
+    expect(output).toContain('### [2]');
+  });
+
+  it('should show oversized signal inline', async () => {
+    const content = Array(120).fill('word').join(' ');
+    const note = ctx.engine.store(content, { title: 'Inline Oversized', kind: 'personalization' });
+    setCreatedAt(note.id, daysAgo(20));
+
+    const customConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, exemptKinds: [] } };
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, customConfig);
+
+    expect(sectionFor(output, 'Inline Oversized')).toContain('oversized');
+    expect(sectionFor(output, 'Inline Oversized')).toContain('target: ~50');
+  });
+
+  it('should combine fleeting and permanent candidates in one numbered list', async () => {
+    const fleeting = ctx.engine.store('Fleeting content', { title: 'Combined Fleeting', kind: 'observation' });
+    const permanent = ctx.engine.store('Permanent content', { title: 'Combined Permanent', kind: 'reference', status: 'permanent' });
+    setCreatedAt(fleeting.id, daysAgo(20));
+    setCreatedAt(permanent.id, daysAgo(20));
+
+    const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
+
+    expect(output).toContain('## Review Candidates (2 of 2)');
+    expect(output).toContain('### [1] "Combined Fleeting"');
+    expect(output).toContain('### [2] "Combined Permanent"');
   });
 });
 

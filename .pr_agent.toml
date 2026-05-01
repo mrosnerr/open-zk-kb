@@ -7,10 +7,20 @@
 # defaulting to the default branch). So changes here take effect for all PRs
 # once they merge to dev.
 #
-# WORKFLOW ENV VARS in .github/workflows/pr-agent.yml only set
-# [github_action_config] flags (auto_review, auto_describe, auto_improve).
-# The GPT comparison workflows also override config.model, config.fallback_models,
-# and pr_reviewer.extra_instructions via env vars for per-model labeling.
+# ENV VAR OVERRIDE MECHANISM (2026-04-30):
+# pr-agent uses Dynaconf for config. Both dotted (config.model) and
+# double-underscore (CONFIG__MODEL) env var formats work — Dynaconf's
+# _dotted_set handles both via dynaconf/base.py L1172-1178.
+#
+# CRITICAL: apply_repo_settings() (git_providers/utils.py) loads this TOML
+# and calls get_settings().set(section, merged_dict, merge=False) which
+# OVERWRITES any env-var-set values for keys present in the TOML. Only keys
+# NOT present in this TOML survive as env var overrides. Therefore model,
+# fallback_models, and pr_reviewer.extra_instructions are set per-workflow
+# via env vars and MUST NOT appear in this file. See PR #114 root-cause.
+#
+# GITHUB_ACTION_CONFIG.* settings survive because github_action_runner.py
+# re-reads them via get_setting_or_env() AFTER apply_repo_settings().
 #
 # extra_instructions SCOPE: controls what the LLM thinks about (categories,
 # severity language, what NOT to flag, WHEN/THEN/BECAUSE rules) but CANNOT
@@ -19,18 +29,9 @@
 # See: agent-architecture/04-References/pr-agent-extra-instructions-scope.md
 
 [config]
-# Model swap: Kimi K2.6 → Claude Sonnet 4.6 (2026-04-30)
-# Rationale: Kimi K2.6 + reasoning_effort=high takes 13+ min on 500-line PRs
-# (35K tokens, super-linear latency scaling). Sonnet 4.6 completes in 2-3 min
-# at 90 tok/s, ranks #4 on CR-Bench (F1 0.62, 14% critical FNR), and is the
-# recommended model for high-volume code review per BestLLM/Git AutoReview.
-# Cost delta: ~$0.19 → ~$0.55 per review (+$10.80/mo at 30 PRs).
-# Prior rationale: agent-architecture/04-references/openzkkb-pr-review-current-state.md
-model = "openrouter/anthropic/claude-sonnet-4.6"
-fallback_models = [
-    "openrouter/google/gemini-2.5-pro",
-    "openrouter/z-ai/glm-5.1",
-]
+# model + fallback_models: set per-workflow via CONFIG__MODEL / CONFIG__FALLBACK_MODELS
+# env vars. DO NOT add them here — apply_repo_settings() would clobber the env vars.
+# See header comment and PR #114 for the root-cause analysis.
 custom_model_max_tokens = 200000
 ai_timeout = 300
 response_language = "en-US"
@@ -83,116 +84,9 @@ require_ticket_analysis_review = false
 enable_review_labels_security = true
 enable_review_labels_effort = false
 publish_output_no_suggestions = true
-
-extra_instructions = """\
-MODEL IDENTIFICATION: Always begin your security_concerns text with exactly \
-'[Claude Sonnet 4.6] ' (brackets, model name, space) before your assessment. \
-This is required for multi-model comparison across concurrent reviewers.
-
-You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
-Stack: Bun 1.x (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5,
-@modelcontextprotocol/sdk. Runtime: Bun. Tests: bun:test.
-
-## Review Behavior
-
-BE THOROUGH ON FIRST REVIEW. Report ALL findings upfront — do not hold back issues
-for later rounds. The goal is ONE comprehensive review that converges to resolution,
-not a trickle of new findings across multiple push cycles.
-
-ON SUBSEQUENT PUSHES (synchronize events): Only flag issues NEWLY INTRODUCED by the
-latest commits. Do not re-raise resolved issues. Do not discover things you missed
-before — that signals the first review was incomplete. If the author addressed your
-previous feedback correctly, acknowledge resolution and approve.
-
-CONVERGE TO APPROVAL: After 1-2 rounds of feedback, the review should either approve
-or clearly state the remaining blocking items. Do not keep finding new nits indefinitely.
-
-## Priority Tiers (exactly ONE per finding)
-
-🔴 **Must Fix** — Blocks merge. Will not approve until resolved.
-Security vulnerability, data loss, crash in production path, resource leak,
-auth bypass, hardcoded secrets, MCP stdout pollution, lifecycle enforcement gap.
-
-🟡 **Should Fix** — Important but non-blocking. Approve with these outstanding.
-Logic error in edge case, missing error handling, API contract concern, missing
-regression test for a bugfix, type safety gap (`as any`, `@ts-ignore`).
-
-⚪ **Nit** — Take it or leave it. Do not re-raise if author declines.
-Naming suggestion, minor readability improvement, documentation wording,
-code organization preference. Maximum 2 nits per review — more than that is noise.
-
-## What to Flag
-- Actual bugs with exact line numbers and variable names
-- Security issues exploitable in production
-- Missing error handling on I/O boundaries (DB, filesystem, fetch)
-- API contract violations (param removal, type changes without defaults)
-- Lifecycle violations: snapshot notes mutated, append-only notes rewritten
-- MCP protocol violations: console.log/warn/error in server code (pollutes stdout)
-
-## What NOT to Flag
-- Theoretical risks without concrete exploitation path
-- Issues in unchanged code outside the diff
-- Style preferences handled by ESLint (import order, trailing commas, formatting)
-- "Consider using library X" suggestions
-- Generic praise or filler ("Great job", "Looks good overall", "Nice work")
-- Node.js alternatives — this project uses Bun exclusively
-- Repeating a finding the author already addressed in a previous round
-
-## Rules (WHEN condition → THEN check → BECAUSE rationale)
-
-R1. MCP STDOUT SAFETY
-WHEN code is in src/ (excluding setup.ts and scripts/)
-THEN verify: no console.log, console.warn, console.error — use logToFile() only
-BECAUSE MCP stdio transport requires clean stdout. Any console output breaks
-     the protocol. Real fix: PR #97 added this as a documented anti-pattern.
-
-R2. LIFECYCLE ENFORCEMENT
-WHEN code modifies NoteRepository or tool-handlers
-THEN verify: snapshot notes reject updates, append-only notes reject rewrites,
-     LifecycleViolationError is thrown (not swallowed)
-BECAUSE lifecycle rules are server-enforced invariants (PR #96, schema v6).
-
-R3. STRUCTURAL KIND GUARD
-WHEN code touches handleStore or handleMaintain
-THEN verify: STRUCTURAL_KINDS (index, log) skip navigation hooks to prevent
-     infinite loops. Auto-generated notes cannot be manually created.
-BECAUSE PR #99 introduced navigation hooks — missing guards cause infinite recursion.
-
-R4. DUAL STORAGE SYNC
-WHEN code modifies note content or metadata
-THEN verify: both filesystem (.md) and SQLite index are updated. Filesystem is
-     source of truth — DB is rebuilt from files via rebuildFromFiles().
-BECAUSE split-brain between file and DB causes silent data inconsistency.
-
-R5. CONFIG INTEGRITY
-WHEN code modifies .toml, .yaml, or .json configuration files
-THEN verify: no TOML section shadowing (new [section] captures subsequent keys),
-     no type mismatches, all new config keys have sensible defaults in config.ts
-BECAUSE TOML section scoping is silent — misplaced keys end up in wrong sections.
-     Real bug: Cubic caught this on PR #100.
-
-R6. GITHUB ACTIONS SECURITY
-WHEN code modifies .github/workflows/*.yml
-THEN verify: actions pinned to SHA (not tags), secrets not exposed to forks,
-     minimal permissions, no pull_request_target without careful checkout handling
-BECAUSE public repo workflows are attack surface for secret exfiltration.
-
-R7. OWNERSHIP MODEL COMPLIANCE
-WHEN a PR adds server-side behavior
-THEN verify: server returns data with annotations (not directives), no auto-modify
-     of stored content beyond what caller requested, no skill instructions asking
-     agents to replicate server computation
-BECAUSE ownership policy (#93) — "server computes, agent judges."
-
-## Filetype-Specific Checks
-
-TOML files: Verify section scoping, check that keys land in intended section.
-YAML files: Check for hardcoded secrets, overly permissive permissions, unpinned actions.
-Markdown files (.md): This repo treats .md as first-class policy content (AGENTS.md,
-     architecture.md). Review for accuracy, consistency with code, and stale references.
-Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTestHarness(),
-     no .skip without justification, no real side effects (mock OS interactions).
-"""
+# extra_instructions: set per-workflow via PR_REVIEWER__EXTRA_INSTRUCTIONS env var.
+# Each workflow carries the full instruction block with its own model badge.
+# DO NOT add extra_instructions here — apply_repo_settings() would clobber env vars.
 
 # ---------------------------------------------------------------------------
 # Code Suggestions Tool

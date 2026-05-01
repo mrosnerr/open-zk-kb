@@ -190,7 +190,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -209,7 +208,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -217,7 +215,7 @@ describe('Knowledge Capture Integration Tests', () => {
       expect(queue.fleeting.notes).toHaveLength(0);
     });
 
-    it('excludes fleeting notes with access_count >= promotionThreshold', () => {
+    it('includes well-used fleeting notes for promotion review', () => {
       const result = context.engine.store('Well-used fleeting note', {
         title: 'Well-used Fleeting',
         kind: 'observation',
@@ -235,12 +233,11 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
-      expect(queue.fleeting.total).toBe(0);
-      expect(queue.fleeting.notes.some(n => n.id === note.id)).toBe(false);
+      expect(queue.fleeting.total).toBe(1);
+      expect(queue.fleeting.notes.some(n => n.id === note.id)).toBe(true);
     });
 
     it('excludes exemptKinds from both fleeting and permanent review', () => {
@@ -262,7 +259,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -284,7 +280,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -311,7 +306,6 @@ describe('Knowledge Capture Integration Tests', () => {
         'fleeting',
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
       expect(fleetingOnly.fleeting.total).toBe(1);
@@ -321,7 +315,6 @@ describe('Knowledge Capture Integration Tests', () => {
         'permanent',
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
       expect(permanentOnly.fleeting.total).toBe(0);

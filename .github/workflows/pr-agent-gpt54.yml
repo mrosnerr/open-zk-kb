@@ -40,16 +40,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          config.model: "openrouter/openai/gpt-5.4"
-          config.fallback_models: '["openrouter/openai/gpt-4.1"]'
+          # Model override: MUST NOT appear in .pr_agent.toml — apply_repo_settings()
+          # clobbers env vars for keys present in the TOML. See PR #114.
+          CONFIG__MODEL: "openrouter/openai/gpt-5.4"
+          CONFIG__FALLBACK_MODELS: '["openrouter/openai/gpt-4.1"]'
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "false"
-          # KEEP IN SYNC: Lines below duplicate .pr_agent.toml [pr_reviewer].extra_instructions
-          # with only the MODEL IDENTIFICATION prefix changed. pr-agent env vars shadow TOML
-          # values entirely (no merge), so the full instructions must be repeated here.
-          # If review policy changes, update .pr_agent.toml AND both GPT workflow files.
-          pr_reviewer.extra_instructions: |
+          # KEEP IN SYNC: Full review instruction block with GPT-5.4 model badge.
+          # If review policy changes, update ALL three pr-agent workflow files.
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: |
             MODEL IDENTIFICATION: Always begin your security_concerns text with exactly '[GPT-5.4] ' (brackets, model name, space) before your assessment. This is required for multi-model comparison across concurrent reviewers.
 
             You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
