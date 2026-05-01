@@ -45,8 +45,10 @@ max_extra_lines_before_dynamic_context = 20
 ignore_pr_title = ["^\\[Auto\\]", "^dependabot", "^renovate"]
 
 [github_action_config]
-# `synchronize` omitted: Action variant can't pass `-i` to auto_review.
-# For incremental re-review on push, post `/review -i` as a PR comment.
+# `synchronize` omitted from pr_actions because the Action variant can't pass
+# `-i` to auto_review. Instead, pr-agent-incremental.yml posts `/review -i` as
+# a PR comment on every push, which the pr-agent workflows pick up via their
+# issue_comment trigger and run as an incremental (changes-only) review.
 pr_actions = ["opened", "reopened", "ready_for_review"]
 
 [ignore]
@@ -141,6 +143,10 @@ Focus suggestions on these open-zk-kb-specific anti-patterns:
 
 7. LIFECYCLE VIOLATION: Flag any code that mutates snapshot notes or
    overwrites append-only note content without using appendToLogContent().
+
+8. FTS5 INJECTION: Flag any user-supplied string passed directly to repo.search()
+   or FTS5 MATCH without sanitization. FTS5 operators (AND, OR, NOT, *, NEAR)
+   in candidate content can alter query semantics or expose unintended notes.
 
 Do NOT suggest:
 - Import reordering or formatting changes (ESLint handles this)

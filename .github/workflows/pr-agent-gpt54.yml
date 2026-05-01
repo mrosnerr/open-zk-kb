@@ -23,7 +23,8 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository) ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
        startsWith(github.event.comment.body, '/review') &&
-       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)) ||
+       (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) ||
+        github.event.comment.user.login == 'github-actions[bot]')) ||
       (github.event_name == 'pull_request_review_comment' &&
        github.event.pull_request.head.repo.full_name == github.repository &&
        startsWith(github.event.comment.body, '/review') &&
@@ -70,19 +71,27 @@ jobs:
             CONVERGE TO APPROVAL: After 1-2 rounds of feedback, the review should either approve
             or clearly state the remaining blocking items. Do not keep finding new nits indefinitely.
 
+            ## Model Focus Priority
+            PRIORITY FOCUS: Error propagation, silent failures, data loss paths, partial success
+            handling. You have demonstrated strength in data integrity analysis — lean into it.
+            Scrutinize try/catch blocks for swallowed errors, mixed success/failure return values
+            that callers cannot distinguish, and operations where partial completion is invisible.
+
             ## Priority Tiers (exactly ONE per finding)
 
-            🔴 **Must Fix** — Blocks merge. Will not approve until resolved.
+            Prefix EVERY finding title with its tier: "P0 — Title", "P1 — Title", or "P2 — Title".
+
+            🔴 **P0** — Critical. Blocks merge. Will not approve until resolved.
             Security vulnerability, data loss, crash in production path, resource leak,
             auth bypass, hardcoded secrets, MCP stdout pollution, lifecycle enforcement gap.
 
-            🟡 **Should Fix** — Important but non-blocking. Approve with these outstanding.
+            🟡 **P1** — Important. Should fix before merge, but non-blocking.
             Logic error in edge case, missing error handling, API contract concern, missing
             regression test for a bugfix, type safety gap (`as any`, `@ts-ignore`).
 
-            ⚪ **Nit** — Take it or leave it. Do not re-raise if author declines.
+            ⚪ **P2** — Minor. Take it or leave it. Do not re-raise if author declines.
             Naming suggestion, minor readability improvement, documentation wording,
-            code organization preference. Maximum 2 nits per review — more than that is noise.
+            code organization preference. Maximum 2 P2s per review — more than that is noise.
 
             ## What to Flag
             - Actual bugs with exact line numbers and variable names
@@ -94,7 +103,8 @@ jobs:
 
             ## What NOT to Flag
             - Theoretical risks without concrete exploitation path
-            - Issues in unchanged code outside the diff
+            - Issues in unchanged code outside the diff (EXCEPTION: missing test coverage
+              for NEW code paths introduced in this PR is always valid to flag)
             - Style preferences handled by ESLint (import order, trailing commas, formatting)
             - "Consider using library X" suggestions
             - Generic praise or filler ("Great job", "Looks good overall", "Nice work")
@@ -144,7 +154,9 @@ jobs:
             WHEN a PR adds server-side behavior
             THEN verify: server returns data with annotations (not directives), no auto-modify
                  of stored content beyond what caller requested, no skill instructions asking
-                 agents to replicate server computation
+                 agents to replicate server computation.
+                 ❌ VIOLATION: output += "remove them from the array or edit before storing"
+                 ✅ CORRECT:   output += "3 REVIEW candidates have partial matches — see above."
             BECAUSE ownership policy (#93) — "server computes, agent judges."
 
             ## Filetype-Specific Checks

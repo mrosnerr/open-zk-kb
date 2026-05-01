@@ -94,6 +94,7 @@ describe('local tool telemetry', () => {
       searches: 0,
       stores: 0,
       maintains: 0,
+      mines: 0,
       storesByKind: {},
       maintainByAction: {},
       sessionDurations: [],

@@ -25,7 +25,7 @@ import { buildReviewContent } from './storage/ReviewBuilder.js';
 import { resolveNotePath, extractProjectFromTags as extractProjectTag, KIND_DIR_MAP } from './storage/path-resolver.js';
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
-import { computeSimHash } from './utils/simhash.js';
+import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
 import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
@@ -160,6 +160,23 @@ export interface StoreArgs {
   project?: string;
   client?: string;
   related?: string[];
+  model?: string;
+}
+
+export interface MineCandidate {
+  title: string;
+  content: string;
+  kind: NoteKind;
+  summary: string;
+  guidance: string;
+  tags?: string[];
+  source?: string;
+}
+
+export interface MineArgs {
+  candidates: MineCandidate[];
+  project?: string;
+  dry_run?: boolean;
   model?: string;
 }
 
@@ -1649,4 +1666,218 @@ export function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteReposit
     return `Failed to launch Obsidian: ${error}`;
   }
   return formatSuccessMessage(vaultPath, resolvedProject);
+}
+
+type MineClassification = 'STORE' | 'SKIP' | 'REVIEW';
+
+interface MineResult {
+  index: number;
+  candidate: MineCandidate;
+  wordCount: number;
+  hash: string;
+  classification: MineClassification;
+  rationale: string;
+  matches: Array<{ id: string; title: string; similarity?: number }>;
+  storedId?: string;
+  error?: string;
+}
+
+function validateMineCandidate(candidate: MineCandidate, index: number, project?: string): string | null {
+  const required: Array<keyof MineCandidate> = ['title', 'content', 'kind', 'summary', 'guidance'];
+  for (const field of required) {
+    const value = candidate[field];
+    if (typeof value !== 'string' || value.trim() === '') {
+      return `Candidate ${index}: missing required field "${field}".`;
+    }
+  }
+  if (STRUCTURAL_KINDS.has(candidate.kind)) {
+    return `Candidate ${index}: ${candidate.kind} notes are structural and auto-generated; they cannot be mined.`;
+  }
+  if (candidate.kind === 'domain' && !project) {
+    return `Candidate ${index}: domain notes require a project parameter.`;
+  }
+  return null;
+}
+
+function formatMineWordCount(candidate: MineCandidate, wordCount: number): string {
+  const guide = KIND_WORD_GUIDELINES[candidate.kind];
+  const suffix = wordCount > guide.warn ? ` (oversized, target: ~${guide.target})` : '';
+  return `${wordCount}${suffix}`;
+}
+
+function extractStoredId(result: string): string | undefined {
+  return /ID:\s*(\S+)/.exec(result)?.[1];
+}
+
+export async function handleMine(args: MineArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): Promise<string> {
+  if (args.candidates.length === 0) {
+    return 'No mining candidates provided. Extract candidate notes first, then call knowledge-mine with at least one candidate.';
+  }
+  if (args.candidates.length > 50) {
+    return `Error: knowledge-mine accepts at most 50 candidates per batch; received ${args.candidates.length}.`;
+  }
+
+  const validationErrors: string[] = [];
+  for (let i = 0; i < args.candidates.length; i++) {
+    const validation = validateMineCandidate(args.candidates[i], i + 1, args.project);
+    if (validation) validationErrors.push(validation);
+  }
+  if (validationErrors.length > 0) {
+    return `Error: ${validationErrors.join('\n')}`;
+  }
+
+  scheduleTelemetryWrite('mine', () => repo.recordToolInvocation('mine', undefined, args.candidates.length));
+
+  const dryRun = args.dry_run ?? true;
+  const embeddingTexts = args.candidates.map(candidate => buildEmbeddingText(candidate.title, candidate.summary, candidate.content));
+  let embeddings: Array<{ embedding: number[] } | null> = args.candidates.map(() => null);
+  let embeddingsAvailable = false;
+
+  if (embeddingConfig) {
+    try {
+      const batchTimeout = Math.max(60000, args.candidates.length * 2000);
+      const batchResults = await generateEmbeddingBatch(embeddingTexts, embeddingConfig, batchTimeout);
+      embeddings = batchResults.map(result => result ? { embedding: result.embedding } : null);
+      embeddingsAvailable = embeddings.some(Boolean);
+    } catch (error) {
+      logToFile('WARN', 'Mining batch embedding failed', {
+        error: error instanceof Error ? error.message : String(error),
+        count: args.candidates.length,
+      }, config);
+    }
+  }
+
+  const hashes = args.candidates.map(candidate => computeSimHash(candidate.summary || candidate.content || candidate.title));
+  const results: MineResult[] = [];
+
+  for (let i = 0; i < args.candidates.length; i++) {
+    const candidate = args.candidates[i];
+    const hash = hashes[i];
+    const wordCount = countWords(candidate.content);
+    const priorDuplicateIndex = hashes.slice(0, i).findIndex(priorHash => isNearDuplicate(hash, priorHash));
+
+    if (priorDuplicateIndex >= 0) {
+      results.push({
+        index: i + 1,
+        candidate,
+        wordCount,
+        hash,
+        classification: 'SKIP',
+        rationale: `Duplicate of candidate ${priorDuplicateIndex + 1}`,
+        matches: [],
+      });
+      continue;
+    }
+
+    let classification: MineClassification = 'STORE';
+    let rationale = 'No similar notes found';
+    let matches: MineResult['matches'] = [];
+    const embedding = embeddings[i]?.embedding;
+
+    if (embedding) {
+      const vectorMatches = repo.searchVector(embedding, { limit: 5 }).filter(note => note.status !== 'archived');
+      const best = vectorMatches[0];
+      matches = vectorMatches.map(note => ({ id: note.id, title: note.title, similarity: note.similarity }));
+
+      if (best && best.similarity >= 0.85) {
+        classification = 'SKIP';
+        rationale = `Similar to existing note (similarity: ${best.similarity.toFixed(2)})`;
+      } else if (best && best.similarity >= 0.70) {
+        classification = 'REVIEW';
+        rationale = `Partial match (similarity: ${best.similarity.toFixed(2)})`;
+      }
+    } else {
+      const simHashMatches = repo.findNearDuplicates(hash);
+      if (simHashMatches.length > 0) {
+        classification = 'SKIP';
+        rationale = 'Similar to existing note by SimHash';
+        matches = simHashMatches.slice(0, 5).map(note => ({ id: note.id, title: note.title }));
+      } else {
+        const query = [candidate.title, candidate.summary].filter(Boolean).join(' ');
+        const ftsMatches = query.trim() ? repo.search(query, { limit: 5 }).filter(note => note.status !== 'archived') : [];
+        if (ftsMatches.length > 0) {
+          classification = 'REVIEW';
+          rationale = 'Keyword overlap found (FTS5 fallback)';
+          matches = ftsMatches.map(note => ({ id: note.id, title: note.title }));
+        }
+      }
+    }
+
+    results.push({ index: i + 1, candidate, wordCount, hash, classification, rationale, matches });
+  }
+
+  if (!dryRun) {
+    for (const result of results) {
+      if (result.classification === 'SKIP') continue;
+      const tags = [...(result.candidate.tags || [])];
+      if (result.candidate.source) tags.push(`mined:${result.candidate.source}`);
+      try {
+        const storeResult = await handleStore({
+          title: result.candidate.title,
+          content: result.candidate.content,
+          kind: result.candidate.kind,
+          tags,
+          summary: result.candidate.summary,
+          guidance: result.candidate.guidance,
+          project: args.project,
+          model: args.model,
+        }, repo, embeddingConfig, config);
+        const storedId = extractStoredId(storeResult);
+        if (storedId) {
+          result.storedId = storedId;
+        } else {
+          result.error = storeResult;
+        }
+      } catch (error) {
+        result.error = error instanceof Error ? error.message : String(error);
+      }
+    }
+  }
+
+  let output = `## Mining Candidates (${args.candidates.length})\n\n`;
+  if (!embeddingsAvailable) {
+    output += '⚠ Embeddings disabled — dedup accuracy reduced (SimHash + FTS5 only).\n\n';
+  }
+
+  for (const result of results) {
+    const tags = result.candidate.tags?.length ? ` | Tags: ${result.candidate.tags.join(', ')}` : '';
+    output += `### [${result.index}] "${result.candidate.title}" (${result.candidate.kind})\n`;
+    output += `summary: ${result.candidate.summary}\n`;
+    output += `Words: ${formatMineWordCount(result.candidate, result.wordCount)}${tags}\n`;
+    output += `⮕ ${result.classification} — ${result.rationale}\n`;
+    for (const match of result.matches) {
+      const similarity = match.similarity != null ? ` (${match.similarity.toFixed(2)})` : '';
+      output += `  ↳ [${match.id}] "${match.title}"${similarity}\n`;
+    }
+    if (result.storedId) {
+      output += `  ✅ Stored as ${result.storedId}\n`;
+    }
+    if (result.error) {
+      output += `  ⚠ Store failed: ${result.error}\n`;
+    }
+    output += '\n';
+  }
+
+  const storeCount = results.filter(result => result.classification === 'STORE').length;
+  const skipCount = results.filter(result => result.classification === 'SKIP').length;
+  const reviewCount = results.filter(result => result.classification === 'REVIEW').length;
+  output += '---\n';
+  output += `Summary: ${storeCount} STORE, ${skipCount} SKIP, ${reviewCount} REVIEW`;
+  if (dryRun) {
+    output += '\nTo store confirmed candidates: call again with dry_run=false';
+    if (reviewCount > 0) {
+      output += `\n⚠ ${reviewCount} REVIEW candidate(s) have partial matches with existing notes — see matches listed above.`;
+    }
+  } else {
+    const storedCount = results.filter(r => r.storedId).length;
+    const failedCount = results.filter(r => r.error).length;
+    output += `\nStored: ${storedCount}`;
+    if (failedCount > 0) output += ` | Failed: ${failedCount}`;
+    const storedReviewCount = results.filter(r => r.classification === 'REVIEW' && r.storedId).length;
+    if (storedReviewCount > 0) {
+      output += `\n⚠ ${storedReviewCount} of ${storedCount} stored candidate(s) had partial matches with existing notes.`;
+    }
+  }
+
+  return output;
 }

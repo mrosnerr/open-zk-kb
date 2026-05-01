@@ -71,13 +71,14 @@ export interface StoreOptions {
   related?: string[];
 }
 
-export type TelemetryToolName = 'search' | 'store' | 'maintain';
+export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine';
 
 export interface TelemetryAggregates {
   sessions: number;
   searches: number;
   stores: number;
   maintains: number;
+  mines: number;
   storesByKind: Record<string, number>;
   maintainByAction: Record<string, number>;
   sessionDurations: number[];
@@ -1349,10 +1350,11 @@ export class NoteRepository {
         COUNT(DISTINCT session_id) as sessions,
         SUM(CASE WHEN tool_name = 'search' THEN 1 ELSE 0 END) as searches,
         SUM(CASE WHEN tool_name = 'store' THEN 1 ELSE 0 END) as stores,
-        SUM(CASE WHEN tool_name = 'maintain' THEN 1 ELSE 0 END) as maintains
+        SUM(CASE WHEN tool_name = 'maintain' THEN 1 ELSE 0 END) as maintains,
+        SUM(CASE WHEN tool_name = 'mine' THEN 1 ELSE 0 END) as mines
       FROM tool_telemetry
       WHERE timestamp >= ?
-    `).get(cutoff) as { sessions: number | null; searches: number | null; stores: number | null; maintains: number | null };
+    `).get(cutoff) as { sessions: number | null; searches: number | null; stores: number | null; maintains: number | null; mines: number | null };
 
     const storeRows = this.db.prepare(`
       SELECT arg_kind, COUNT(*) as count
@@ -1388,6 +1390,7 @@ export class NoteRepository {
       searches: counts.searches ?? 0,
       stores: counts.stores ?? 0,
       maintains: counts.maintains ?? 0,
+      mines: counts.mines ?? 0,
       storesByKind,
       maintainByAction,
       sessionDurations: durationRows.map(row => row.duration ?? 0),
