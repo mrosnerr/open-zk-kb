@@ -676,7 +676,7 @@ export function install(args: InstallArgs): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const templatesDir = path.join(projectRoot, 'templates');
   const vaultTemplatesDir = path.join(vaultPath, 'templates');
-  const templateFileCount = fs.existsSync(templatesDir) ? fs.readdirSync(templatesDir).length : 0;
+  const templateFileCount = fs.existsSync(templatesDir) ? fs.readdirSync(templatesDir).filter(f => f.endsWith('.md')).length : 0;
 
   if (args.dryRun) {
     let output = `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
@@ -717,7 +717,7 @@ export function install(args: InstallArgs): string {
   let templatesCopied = 0;
   if (fs.existsSync(templatesDir)) {
     fs.mkdirSync(vaultTemplatesDir, { recursive: true });
-    for (const file of fs.readdirSync(templatesDir)) {
+    for (const file of fs.readdirSync(templatesDir).filter(f => f.endsWith('.md'))) {
       const dest = path.join(vaultTemplatesDir, file);
       if (!fs.existsSync(dest)) {
         fs.copyFileSync(path.join(templatesDir, file), dest);
