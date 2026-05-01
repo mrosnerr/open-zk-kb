@@ -26,7 +26,7 @@ Your job is to find real bugs, regressions, workflow/security issues, and repo-p
 ## How to investigate
 
 1. Start with the PR title/body and changed-file list from the prompt.
-2. Use `git diff`, `git show`, and `git log` if needed to understand the change set and nearby history.
+2. Read the provided diff artifact and the changed files directly from the workspace.
 3. For each changed file, read the full file and look for interactions with surrounding unchanged code.
 4. Follow cross-file consequences when a type, contract, workflow, or storage invariant changes.
 5. Check tests for the behavior the PR claims to add or fix.
@@ -35,6 +35,7 @@ Your job is to find real bugs, regressions, workflow/security issues, and repo-p
 
 - Do not run build, lint, or test commands. CI already covers those.
 - Do not use the network.
+- Do not rely on shell access; review should succeed from the provided prompt, diff artifact, and repository files.
 - Do not make style-only comments.
 - Do not invent findings just to appear thorough.
 
