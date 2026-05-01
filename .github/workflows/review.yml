@@ -98,11 +98,12 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           git fetch origin "$BASE_REF"
+          mkdir -p .shadow-review
 
           gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" > /tmp/pr-files.json
           jq -sr '.[] | .[] | .filename' /tmp/pr-files.json > /tmp/changed-files.txt
           git diff --stat "$BASE_SHA...$HEAD_SHA" > /tmp/diffstat.txt
-          git diff "$BASE_SHA...$HEAD_SHA" > /tmp/pr-diff.patch
+          git diff "$BASE_SHA...$HEAD_SHA" > .shadow-review/pr-diff.patch
 
           python3 <<'PY'
           import json
@@ -137,12 +138,12 @@ jobs:
               "Diff stat:",
               diffstat,
               "",
-              "A unified diff is available at /tmp/pr-diff.patch. Read it before reviewing full files.",
+              "A unified diff is available at .shadow-review/pr-diff.patch. Read it before reviewing full files.",
               "",
               "Instructions:",
               "- Read `.github/review-rules.md` first.",
               "- Read `AGENTS.md` before evaluating findings.",
-              "- Read `/tmp/pr-diff.patch` before opening full changed files.",
+              "- Read `.shadow-review/pr-diff.patch` before opening full changed files.",
               "- Review the full changed files, not just the hunk summaries.",
               "- Do not post comments or modify files.",
               "- Return the markdown report in the exact format required by the reviewer agent.",
@@ -180,7 +181,7 @@ jobs:
             /tmp/pr-files.json
             /tmp/changed-files.txt
             /tmp/diffstat.txt
-            /tmp/pr-diff.patch
+            .shadow-review/pr-diff.patch
             /tmp/review-prompt.txt
             /tmp/shadow-review.md
             /tmp/shadow-review.exit
