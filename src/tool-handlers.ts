@@ -1717,9 +1717,13 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     return `Error: knowledge-mine accepts at most 50 candidates per batch; received ${args.candidates.length}.`;
   }
 
+  const validationErrors: string[] = [];
   for (let i = 0; i < args.candidates.length; i++) {
     const validation = validateMineCandidate(args.candidates[i], i + 1, args.project);
-    if (validation) return `Error: ${validation}`;
+    if (validation) validationErrors.push(validation);
+  }
+  if (validationErrors.length > 0) {
+    return `Error: ${validationErrors.join('\n')}`;
   }
 
   scheduleTelemetryWrite('mine', () => repo.recordToolInvocation('mine', undefined, args.candidates.length));
@@ -1783,7 +1787,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
         rationale = `Partial match (similarity: ${best.similarity.toFixed(2)})`;
       }
     } else {
-      const simHashMatches = repo.findNearDuplicates(hash).filter(note => note.status !== 'archived');
+      const simHashMatches = repo.findNearDuplicates(hash);
       if (simHashMatches.length > 0) {
         classification = 'SKIP';
         rationale = 'Similar to existing note by SimHash';
@@ -1818,7 +1822,12 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
           project: args.project,
           model: args.model,
         }, repo, embeddingConfig, config);
-        result.storedId = extractStoredId(storeResult);
+        const storedId = extractStoredId(storeResult);
+        if (storedId) {
+          result.storedId = storedId;
+        } else {
+          result.error = storeResult;
+        }
       } catch (error) {
         result.error = error instanceof Error ? error.message : String(error);
       }
