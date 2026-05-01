@@ -1864,8 +1864,9 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     const failedCount = results.filter(r => r.error).length;
     output += `\nStored: ${storedCount}`;
     if (failedCount > 0) output += ` | Failed: ${failedCount}`;
-    if (reviewCount > 0) {
-      output += `\n⚠ ${reviewCount} of ${storedCount} stored candidate(s) had partial matches with existing notes.`;
+    const storedReviewCount = results.filter(r => r.classification === 'REVIEW' && r.storedId).length;
+    if (storedReviewCount > 0) {
+      output += `\n⚠ ${storedReviewCount} of ${storedCount} stored candidate(s) had partial matches with existing notes.`;
     }
   }
 
