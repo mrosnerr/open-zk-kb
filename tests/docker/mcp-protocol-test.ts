@@ -30,9 +30,10 @@ async function run() {
   try {
     const tools = await client.listTools();
     const toolNames = tools.tools.map(t => t.name);
-    check('lists all 6 tools', toolNames.length === 6);
+    check('lists all 7 tools', toolNames.length === 7);
     check('has knowledge-store', toolNames.includes('knowledge-store'));
     check('has knowledge-search', toolNames.includes('knowledge-search'));
+    check('has knowledge-mine', toolNames.includes('knowledge-mine'));
     check('has knowledge-maintain', toolNames.includes('knowledge-maintain'));
     check('has knowledge-ingest', toolNames.includes('knowledge-ingest'));
     check('has knowledge-overview', toolNames.includes('knowledge-overview'));
