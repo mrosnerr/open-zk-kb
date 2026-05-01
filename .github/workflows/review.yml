@@ -56,7 +56,7 @@ jobs:
 
       - name: Install OpenCode
         run: |
-          npm install -g opencode-ai@${OPENCODE_VERSION}
+          npm install -g "opencode-ai@${OPENCODE_VERSION}"
 
       - name: Fetch PR metadata
         id: pr_meta
@@ -99,8 +99,8 @@ jobs:
         run: |
           git fetch origin "$BASE_REF"
 
-          gh api --paginate repos/${{ github.repository }}/pulls/$PR_NUMBER/files > /tmp/pr-files.json
-          jq -r '.[].filename' /tmp/pr-files.json > /tmp/changed-files.txt
+          gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" > /tmp/pr-files.json
+          jq -sr '.[] | .[] | .filename' /tmp/pr-files.json > /tmp/changed-files.txt
           git diff --stat "$BASE_SHA...$HEAD_SHA" > /tmp/diffstat.txt
           git diff "$BASE_SHA...$HEAD_SHA" > /tmp/pr-diff.patch
 
@@ -153,17 +153,22 @@ jobs:
           PY
 
       - name: Run OpenCode shadow review
-        continue-on-error: true
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # CI intentionally denies bash entirely. The reviewer agent still documents
+          # broader interactive capabilities, but this workflow relies only on the
+          # prompt, repo files, and precomputed diff artifacts.
           OPENCODE_PERMISSION: '{"edit":"deny","webfetch":"deny","bash":"deny"}'
         run: |
           : > /tmp/shadow-review.md
+          set +e
           opencode run \
             --agent reviewer \
             --model openrouter/anthropic/claude-sonnet-4.6 \
             < /tmp/review-prompt.txt \
             > /tmp/shadow-review.md
+          echo $? > /tmp/shadow-review.exit
+          set -e
 
       - name: Upload shadow review artifacts
         if: always()
@@ -178,4 +183,19 @@ jobs:
             /tmp/pr-diff.patch
             /tmp/review-prompt.txt
             /tmp/shadow-review.md
+            /tmp/shadow-review.exit
           retention-days: 14
+
+      - name: Validate shadow review output
+        if: always()
+        run: |
+          EXIT_CODE=$(cat /tmp/shadow-review.exit)
+          if [ "$EXIT_CODE" -ne 0 ]; then
+            echo "OpenCode shadow review failed with exit code $EXIT_CODE" >&2
+            exit 1
+          fi
+
+          if ! grep -q '^# Shadow Review' /tmp/shadow-review.md; then
+            echo "Shadow review output is missing the expected markdown header" >&2
+            exit 1
+          fi
