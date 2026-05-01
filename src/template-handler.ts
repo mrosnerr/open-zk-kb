@@ -3,7 +3,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { logToFile } from './logger.js';
 
 // Distinct from STRUCTURAL_KINDS in tool-handlers.ts (auto-generated kinds) — opposite meaning.
 export const CONFORMANCE_KINDS = new Set(['decision', 'procedure', 'domain', 'reference', 'observation']);
@@ -32,7 +31,7 @@ export const CATEGORY_MAPS: Record<string, Record<string, string[]>> = {
   },
   domain: {
     role:          ['agent role', 'role', 'purpose', 'mission'],
-    scope:         ['scope', 'in scope', 'out of scope', 'boundaries'],
+    scope:         ['scope', 'in scope', 'out of scope'],
     conventions:   ['conventions', 'note conventions', 'patterns', 'standards'],
     playbook:      ['playbook', 'operations', 'workflows', 'procedures', 'how to'],
     boundaries:    ['boundaries', 'always', 'never', 'ask first', 'rules'],
@@ -57,12 +56,7 @@ export function getTemplate(kind: string, projectOverridePath?: string): string 
         const content = fs.readFileSync(projectOverridePath, 'utf-8');
         return `<template_content source="project-override">\n${content}\n</template_content>`;
       }
-    } catch (err) {
-      logToFile('WARN', 'Failed to read project template override', {
-        path: projectOverridePath,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
+    } catch { /* ignored — falls through to package default */ }
   }
 
   const packagePath = path.join(getTemplatesDir(), `${kind}.md`);

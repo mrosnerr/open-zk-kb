@@ -673,12 +673,20 @@ export function install(args: InstallArgs): string {
   
   const mcpEntry = buildMcpEntry(clientConfig, serverPath);
   
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const templatesDir = path.join(projectRoot, 'templates');
+  const vaultTemplatesDir = path.join(vaultPath, 'templates');
+  const templateFileCount = fs.existsSync(templatesDir) ? fs.readdirSync(templatesDir).length : 0;
+
   if (args.dryRun) {
     let output = `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
     if (clientConfig.skillPath) {
       output += `\nWould install skill to ${clientConfig.skillPath}`;
     } else if (clientConfig.agentDocsPath) {
       output += `\nWould inject agent docs into ${clientConfig.agentDocsPath}`;
+    }
+    if (templateFileCount > 0) {
+      output += `\nWould copy ${templateFileCount} template files to ${vaultTemplatesDir}`;
     }
     return output;
   }
@@ -697,8 +705,6 @@ export function install(args: InstallArgs): string {
     fs.mkdirSync(path.join(vaultPath, '.index'), { recursive: true });
   }
   
-  // Copy config.example.yaml → ~/.config/open-zk-kb/config.yaml if no config exists yet
-  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
   const configYamlPath = getConfigYamlPath();
   let configCopied = false;
@@ -709,17 +715,14 @@ export function install(args: InstallArgs): string {
   }
   
   let templatesCopied = 0;
-  const templatesDir = path.join(projectRoot, 'templates');
-  const vaultTemplatesDir = path.join(vaultPath, 'templates');
   if (fs.existsSync(templatesDir)) {
-    if (!args.dryRun) {
-      fs.mkdirSync(vaultTemplatesDir, { recursive: true });
-      for (const file of fs.readdirSync(templatesDir)) {
-        fs.copyFileSync(path.join(templatesDir, file), path.join(vaultTemplatesDir, file));
+    fs.mkdirSync(vaultTemplatesDir, { recursive: true });
+    for (const file of fs.readdirSync(templatesDir)) {
+      const dest = path.join(vaultTemplatesDir, file);
+      if (!fs.existsSync(dest)) {
+        fs.copyFileSync(path.join(templatesDir, file), dest);
         templatesCopied++;
       }
-    } else {
-      templatesCopied = fs.readdirSync(templatesDir).length;
     }
   }
 

@@ -145,7 +145,7 @@ export class SchemaManager {
         matched_categories TEXT NOT NULL,
         missing_categories TEXT NOT NULL,
         hint_triggered INTEGER NOT NULL,
-        timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
       )
     `);
     db.run('CREATE INDEX IF NOT EXISTS idx_conformance_kind ON template_conformance(kind)');

@@ -179,8 +179,8 @@ describe('conformance check in handleStore', () => {
       guidance: 'Use X',
     }, ctx.engine, null, ctx.config);
 
-    expect(result).toContain('no section headings');
-    expect(result).toContain('knowledge-template --kind decision');
+    expect(result).toContain('no headings found');
+    expect(result).toContain('0%');
   });
 
   it('emits hint with missing categories when coverage < 50%', async () => {
@@ -192,8 +192,8 @@ describe('conformance check in handleStore', () => {
       guidance: 'Use A',
     }, ctx.engine, null, ctx.config);
 
-    expect(result).toContain('missing common sections');
-    expect(result).toContain('knowledge-template --kind decision');
+    expect(result).toContain('Missing:');
+    expect(result).toContain('Conformance:');
   });
 
   it('no hint when coverage >= 50%', async () => {
@@ -205,8 +205,8 @@ describe('conformance check in handleStore', () => {
       guidance: 'Use A',
     }, ctx.engine, null, ctx.config);
 
-    expect(result).not.toContain('knowledge-template');
-    expect(result).not.toContain('missing common sections');
+    expect(result).not.toContain('Conformance:');
+    expect(result).not.toContain('Missing:');
   });
 
   it('no hint for exempt kinds regardless of structure', async () => {

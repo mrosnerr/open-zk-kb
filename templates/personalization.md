@@ -2,7 +2,7 @@
 kind: personalization
 lifecycle: living
 updated: YYYY-MM-DD
-scope: {global | project:{slug}}
+scope: "{global | project:{slug}}"
 tags: []
 ---
 

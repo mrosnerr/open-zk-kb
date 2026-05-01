@@ -840,11 +840,11 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         hintTriggered,
       }));
 
-      if (coverage === 0) {
-        output += `\n\nℹ This ${args.kind} note has no section headings. Run knowledge-template --kind ${args.kind} for the canonical structure.`;
+      if (actualHeaders.length === 0) {
+        output += `\n\nℹ Conformance: 0% (0/${totalCategories} categories matched, no headings found).`;
       } else if (hintTriggered) {
         const missing = Object.keys(categories).filter(c => !matched.has(c));
-        output += `\n\nℹ This ${args.kind} note is missing common sections (${missing.join(', ')}). Run knowledge-template --kind ${args.kind} for the canonical structure.`;
+        output += `\n\nℹ Conformance: ${(coverage * 100).toFixed(0)}% (${matched.size}/${totalCategories} categories matched). Missing: ${missing.join(', ')}.`;
       }
     }
   }

@@ -2,8 +2,8 @@
 kind: reference
 lifecycle: snapshot
 date: YYYY-MM-DD
-source_url: {original URL, if applicable}
-source_type: {article|paper|transcript|export|manual}
+source_url: "{original URL, if applicable}"
+source_type: "{article|paper|transcript|export|manual}"
 related: []
 tags: []
 ---

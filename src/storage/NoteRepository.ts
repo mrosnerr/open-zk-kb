@@ -1439,7 +1439,9 @@ export class NoteRepository {
   }
 
   getConformanceAggregates(days: number = 30): ConformanceAggregates {
-    const cutoffDate = new Date(Date.now() - (days * 24 * 60 * 60 * 1000)).toISOString();
+    const msAgo = days * 24 * 60 * 60 * 1000;
+    const cutoffDate = new Date(Date.now() - msAgo).toISOString();
+    const telemetryCutoff = Date.now() - msAgo;
 
     const totals = this.db.prepare(`
       SELECT
@@ -1474,7 +1476,7 @@ export class NoteRepository {
       SELECT COUNT(*) as count
       FROM tool_telemetry
       WHERE timestamp >= ? AND tool_name = 'template'
-    `).get(Date.now() - (days * 24 * 60 * 60 * 1000)) as { count: number }).count;
+    `).get(telemetryCutoff) as { count: number }).count;
 
     return {
       totalChecked: totals.total,
