@@ -71,7 +71,7 @@ export interface StoreOptions {
   related?: string[];
 }
 
-export type TelemetryToolName = 'search' | 'store' | 'maintain';
+export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine';
 
 export interface TelemetryAggregates {
   sessions: number;
