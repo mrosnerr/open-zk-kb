@@ -1110,7 +1110,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
             ? `${wordCount} (oversized, target: ~${guide.target})`
             : `${wordCount}`;
           const backlinkSignal = backlinks === 0 ? '0 (unlinked)' : `${backlinks}`;
-          const archiveSuggestionDays = Math.floor(archiveDays / 2);
+          const archiveSuggestionDays = Math.max(1, Math.floor(archiveDays / 2));
         const rec = getRecommendation(note, staleness, config.lifecycle.promotionThreshold, archiveSuggestionDays);
 
           output += `### [${i + 1}] "${note.title}" (${note.id})\n`;
