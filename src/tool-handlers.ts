@@ -74,17 +74,18 @@ function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
 function getRecommendation(
   note: NoteMetadata,
   daysOld: number,
-  promotionThreshold: number = 2,
+  promotionThreshold: number,
+  archiveAfterDays: number,
 ): { action: 'promote' | 'archive' | 'review'; rationale: string } {
   const accesses = note.access_count || 0;
   const backlinks = note.backlinks_count || 0;
   if (accesses >= promotionThreshold) {
     return { action: 'promote', rationale: `Accessed ${accesses} times (threshold: ${promotionThreshold})` };
   }
-  if (accesses === 0 && daysOld > 30 && backlinks === 0) {
+  if (accesses === 0 && daysOld > archiveAfterDays && backlinks === 0) {
     return { action: 'archive', rationale: `Zero accesses, ${daysOld} days old, no backlinks — likely stale` };
   }
-  if (accesses === 0 && daysOld > 30) {
+  if (accesses === 0 && daysOld > archiveAfterDays) {
     return { action: 'review', rationale: `Zero accesses but ${backlinks} backlink(s) — referenced by other notes` };
   }
   return { action: 'review', rationale: `${daysOld} days old, ${accesses} accesses — needs manual review` };
@@ -1075,72 +1076,74 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     case 'review': {
       const daysThreshold = args.days || config.lifecycle.reviewAfterDays;
       const limit = args.limit || 3;
-      const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.promotionThreshold, config.lifecycle.exemptKinds);
-
       const archiveDays = Math.max(1, config.lifecycle.autoArchiveFleetingDays);
+      const staleCutoff = Date.now() - (archiveDays * 24 * 60 * 60 * 1000);
+      const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.exemptKinds, staleCutoff);
 
-      const hasFleeting = queue.fleeting.total > 0;
-      const hasPermanent = queue.permanent.total > 0;
+      // Compute stale notes early — needed for the early return check
+      const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
+      const staleForArchive = allNotes
+        .filter(n => n.status === 'fleeting' && computeStaleness(n) >= archiveDays);
 
-      if (!hasFleeting && !hasPermanent) {
+      const hasCandidates = queue.fleeting.total > 0 || queue.permanent.total > 0;
+
+      if (!hasCandidates && staleForArchive.length === 0) {
         return 'No notes pending review. All notes are up to date!';
       }
 
-      const nonStaleFleeting = queue.fleeting.notes.filter(n => computeStaleness(n) < archiveDays);
-      const candidates = [...nonStaleFleeting, ...queue.permanent.notes];
-      const candidateIds = new Set(candidates.map(n => n.id));
-      const totalCandidates = queue.fleeting.total + queue.permanent.total;
-      let output = `## Review Candidates (${candidates.length} of ${totalCandidates})\n\n`;
+      let output = '';
 
-      for (let i = 0; i < candidates.length; i++) {
-        const note = candidates[i];
-        const staleness = computeStaleness(note);
-        const accesses = note.access_count || 0;
-        const backlinks = note.backlinks_count || 0;
-        const wordCount = countWords(note.content);
-        const guide = KIND_WORD_GUIDELINES[note.kind as NoteKind];
-        const wordSignal = guide && wordCount > guide.warn
-          ? `${wordCount} (oversized, target: ~${guide.target})`
-          : `${wordCount}`;
-        const backlinkSignal = backlinks === 0 ? '0 (unlinked)' : `${backlinks}`;
-        const rec = getRecommendation(note, staleness, config.lifecycle.promotionThreshold);
+      if (hasCandidates) {
+        const candidates = [...queue.fleeting.notes, ...queue.permanent.notes];
+        const candidateIds = new Set(candidates.map(n => n.id));
+        const totalCandidates = queue.fleeting.total + queue.permanent.total;
+        output += `## Review Candidates (${candidates.length} of ${totalCandidates})\n\n`;
 
-        output += `### [${i + 1}] "${note.title}" (${note.id})\n`;
-        output += `kind: ${note.kind} | status: ${note.status} | staleness: ${staleness} days\n`;
-        output += `Accesses: ${accesses} | Backlinks: ${backlinkSignal} | Words: ${wordSignal}\n`;
-        output += `⮕ Suggested: ${rec.action.toUpperCase()} — ${rec.rationale}\n\n`;
-      }
+        for (let i = 0; i < candidates.length; i++) {
+          const note = candidates[i];
+          const staleness = computeStaleness(note);
+          const accesses = note.access_count || 0;
+          const backlinks = note.backlinks_count || 0;
+          const wordCount = countWords(note.content);
+          const guide = KIND_WORD_GUIDELINES[note.kind as NoteKind];
+          const wordSignal = guide && wordCount > guide.warn
+            ? `${wordCount} (oversized, target: ~${guide.target})`
+            : `${wordCount}`;
+          const backlinkSignal = backlinks === 0 ? '0 (unlinked)' : `${backlinks}`;
+          const rec = getRecommendation(note, staleness, config.lifecycle.promotionThreshold, daysThreshold);
 
-      const staleInQueue = queue.fleeting.notes.length - nonStaleFleeting.length;
-      if (staleInQueue > 0) {
-        output += `${staleInQueue} older note(s) moved to "Stale Fleeting Notes" below.\n`;
-        output += '\n';
-      }
-
-      // Flag oversized notes that may need splitting
-      const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
-      const oversized = allNotes
-        .filter(n => n.status !== 'archived')
-        .filter(n => !candidateIds.has(n.id))
-        .map(n => ({ ...n, wordCount: countWords(n.content) }))
-        .filter(n => {
-          const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
-          return guide ? n.wordCount > guide.warn : n.wordCount > ABSOLUTE_WARN_THRESHOLD;
-        })
-        .sort((a, b) => b.wordCount - a.wordCount);
-
-      if (oversized.length > 0) {
-        output += `### Oversized Notes (${oversized.length} may need splitting)\n`;
-        for (const n of oversized) {
-          const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
-          const target = guide ? guide.target : '?';
-          output += `- "${n.title}" (${n.kind}) — ${n.wordCount} words (target: ~${target}) [${n.id}]\n`;
+          output += `### [${i + 1}] "${note.title}" (${note.id})\n`;
+          output += `kind: ${note.kind} | status: ${note.status} | staleness: ${staleness} days\n`;
+          output += `Accesses: ${accesses} | Backlinks: ${backlinkSignal} | Words: ${wordSignal}\n`;
+          output += `⮕ Suggested: ${rec.action.toUpperCase()} — ${rec.rationale}\n\n`;
         }
-        output += '\n';
-      }
 
-      const staleForArchive = allNotes
-        .filter(n => n.status === 'fleeting' && computeStaleness(n) >= archiveDays);
+        // Flag oversized notes that may need splitting (exclude already-shown candidates)
+        const oversized = allNotes
+          .filter(n => n.status !== 'archived')
+          .filter(n => !candidateIds.has(n.id))
+          .map(n => ({ ...n, wordCount: countWords(n.content) }))
+          .filter(n => {
+            const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
+            return guide ? n.wordCount > guide.warn : n.wordCount > ABSOLUTE_WARN_THRESHOLD;
+          })
+          .sort((a, b) => b.wordCount - a.wordCount);
+
+        if (oversized.length > 0) {
+          output += `### Oversized Notes (${oversized.length} may need splitting)\n`;
+          for (const n of oversized) {
+            const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
+            const target = guide ? guide.target : '?';
+            output += `- "${n.title}" (${n.kind}) — ${n.wordCount} words (target: ~${target}) [${n.id}]\n`;
+          }
+          output += '\n';
+        }
+
+        const remaining = Math.max(0, totalCandidates - candidates.length);
+        if (remaining > 0) {
+          output += `Remaining: ${remaining} more candidates (increase limit to see more)\n\n`;
+        }
+      }
 
       if (staleForArchive.length > 0) {
         output += `### Stale Fleeting Notes (${staleForArchive.length} older than ${archiveDays} days)\n`;
@@ -1153,11 +1156,6 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       output += '---\n';
       output += 'Actions: `knowledge-maintain promote/archive/delete` with noteId=<id>\n';
-      const staleCount = queue.fleeting.notes.length - nonStaleFleeting.length;
-      const remaining = Math.max(0, totalCandidates - candidates.length - staleCount);
-      if (remaining > 0) {
-        output += `Remaining: ${remaining} more candidates (increase limit to see more)\n`;
-      }
 
       return output;
     }

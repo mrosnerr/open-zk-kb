@@ -190,7 +190,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -209,7 +208,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -235,7 +233,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -262,7 +259,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -284,7 +280,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -311,7 +306,6 @@ describe('Knowledge Capture Integration Tests', () => {
         'fleeting',
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
       expect(fleetingOnly.fleeting.total).toBe(1);
@@ -321,7 +315,6 @@ describe('Knowledge Capture Integration Tests', () => {
         'permanent',
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
       expect(permanentOnly.fleeting.total).toBe(0);

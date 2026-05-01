@@ -2107,10 +2107,11 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     expect(output).toContain('Stale Fleeting Notes (2');
     expect(output).toContain('All Stale A');
     expect(output).toContain('All Stale B');
-    expect(output).toContain('## Review Candidates (0 of 2)');
+    // No candidates section when all notes are stale
+    expect(output).not.toContain('## Review Candidates');
   });
 
-  it('should show correct moved-to-stale count when mixed ages', async () => {
+  it('should separate stale notes from review candidates when mixed ages', async () => {
     const old = ctx.engine.store('Old note', { title: 'Stale One', kind: 'observation' });
     const recent = ctx.engine.store('Recent note', { title: 'Review One', kind: 'observation' });
     setCreatedAt(old.id, daysAgo(100));
@@ -2121,7 +2122,8 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     expect(output).toContain('Review One');
     expect(output).toContain('Stale Fleeting Notes');
     expect(output).toContain('Stale One');
-    expect(output).toContain('1 older note(s) moved to');
+    // Stale notes are excluded from candidates via SQL, not post-filtered
+    expect(output).not.toMatch(/### \[\d+\].*Stale One/);  // Not in numbered candidates
   });
 });
 
@@ -2138,8 +2140,11 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
   };
 
   const sectionFor = (output: string, title: string): string => {
-    const start = output.indexOf(`"${title}"`);
-    if (start === -1) return '';
+    const escaped = title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const headerPattern = new RegExp(`### \\[\\d+\\][^\\n]*"${escaped}"`);
+    const match = headerPattern.exec(output);
+    if (!match) return '';
+    const start = match.index;
     const next = output.indexOf('\n### [', start + 1);
     return output.slice(start, next === -1 ? undefined : next);
   };

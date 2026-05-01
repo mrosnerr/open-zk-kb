@@ -129,7 +129,7 @@ Use `knowledge-overview` at the start of a project session to orient yourself:
 ### Review & Curate
 `knowledge-maintain review` returns numbered candidates with signals and suggested actions:
 
-```
+```text
 ### [1] "Note Title" (noteId)
 kind: observation | status: fleeting | staleness: 45 days
 Accesses: 0 | Backlinks: 0 (unlinked) | Words: 89

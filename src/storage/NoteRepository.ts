@@ -1735,8 +1735,8 @@ export class NoteRepository {
     filter?: 'fleeting' | 'permanent',
     daysThreshold: number = 14,
     limit: number = 3,
-    promotionThreshold: number = 2,
     exemptKinds: NoteKind[] = [],
+    staleCutoff?: number,
   ): {
     fleeting: { notes: NoteMetadata[]; total: number };
     permanent: { notes: NoteMetadata[]; total: number };
@@ -1748,14 +1748,29 @@ export class NoteRepository {
       ? ` AND kind NOT IN (${exemptKinds.map(() => '?').join(',')})`
       : '';
 
+    // Exclude stale fleeting notes from candidates (they appear in a separate section)
+    const staleClause = staleCutoff != null
+      ? ' AND COALESCE(n.last_accessed_at, n.created_at) > ?'
+      : '';
+
+    // Only count live backlinks (exclude links from archived sources)
+    const backlinkSubquery = `(
+      SELECT l.target_id, COUNT(*) as cnt
+      FROM note_links l
+      JOIN notes src ON src.id = l.source_id
+      WHERE src.status != 'archived'
+      GROUP BY l.target_id
+    )`;
+
     const queryFleeting = (lim: number) => {
-      const params: (string | number)[] = [cutoff, ...exemptKinds, lim];
+      const params: (string | number)[] = [cutoff, ...(staleCutoff != null ? [staleCutoff] : []), ...exemptKinds, lim];
       return this.db.prepare(`
         SELECT n.*, COALESCE(bl.cnt, 0) as backlinks_count
         FROM notes n
-        LEFT JOIN (SELECT target_id, COUNT(*) as cnt FROM note_links GROUP BY target_id) bl ON bl.target_id = n.id
+        LEFT JOIN ${backlinkSubquery} bl ON bl.target_id = n.id
         WHERE n.status = 'fleeting' 
           AND n.created_at < ?
+          ${staleClause}
           ${exemptPlaceholders}
         ORDER BY n.access_count ASC, n.created_at ASC
         LIMIT ?
@@ -1763,10 +1778,11 @@ export class NoteRepository {
     };
 
     const countFleeting = () => {
-      const params: (string | number)[] = [cutoff, ...exemptKinds];
+      const params: (string | number)[] = [cutoff, ...(staleCutoff != null ? [staleCutoff] : []), ...exemptKinds];
       return this.db.prepare(`
-        SELECT COUNT(*) as count FROM notes 
-        WHERE status = 'fleeting' AND created_at < ?
+        SELECT COUNT(*) as count FROM notes n
+        WHERE n.status = 'fleeting' AND n.created_at < ?
+        ${staleClause}
         ${exemptPlaceholders}
       `).get(...params) as { count: number };
     };
@@ -1776,7 +1792,7 @@ export class NoteRepository {
       return this.db.prepare(`
         SELECT n.*, COALESCE(bl.cnt, 0) as backlinks_count
         FROM notes n
-        LEFT JOIN (SELECT target_id, COUNT(*) as cnt FROM note_links GROUP BY target_id) bl ON bl.target_id = n.id
+        LEFT JOIN ${backlinkSubquery} bl ON bl.target_id = n.id
         WHERE n.status = 'permanent' 
           AND n.created_at < ?
           AND n.access_count = 0
@@ -1789,8 +1805,8 @@ export class NoteRepository {
     const countPermanent = () => {
       const params: (string | number)[] = [cutoff, ...exemptKinds];
       return this.db.prepare(`
-        SELECT COUNT(*) as count FROM notes 
-        WHERE status = 'permanent' AND created_at < ? AND access_count = 0
+        SELECT COUNT(*) as count FROM notes n
+        WHERE n.status = 'permanent' AND n.created_at < ? AND n.access_count = 0
         ${exemptPlaceholders}
       `).get(...params) as { count: number };
     };
