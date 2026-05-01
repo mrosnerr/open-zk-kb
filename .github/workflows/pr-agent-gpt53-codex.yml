@@ -36,7 +36,7 @@ jobs:
     name: PR Agent (GPT-5.3 Codex)
     steps:
       - name: Run PR Agent
-        uses: qodo-ai/pr-agent@eb4cdbb115dfb711375a24eccc75e3ef73ec03bc
+        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
