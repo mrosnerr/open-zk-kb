@@ -368,7 +368,12 @@ jobs:
             let latestByModel = getLatestCommentsByModel(comments, cutoffTime);
             let changedModels = getChangedModels(latestByModel, state);
 
-            for (let attempt = 0; attempt < 12; attempt += 1) {
+            // synchronize events route through a comment chain (pr-agent-incremental
+            // posts /review -i → pr-agent workflows fire → review comments posted), so
+            // they need a longer window than direct pull_request events.
+            const maxAttempts = context.payload.action === 'synchronize' ? 20 : 12;
+
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
               const shouldWait = !haveAllExpectedModels(latestByModel, expectedModels);
               if (!shouldWait) {
                 break;
