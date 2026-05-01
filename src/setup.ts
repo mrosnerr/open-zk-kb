@@ -708,7 +708,21 @@ export function install(args: InstallArgs): string {
     configCopied = true;
   }
   
-  // Install skill or inject agent docs depending on client
+  let templatesCopied = 0;
+  const templatesDir = path.join(projectRoot, 'templates');
+  const vaultTemplatesDir = path.join(vaultPath, 'templates');
+  if (fs.existsSync(templatesDir)) {
+    if (!args.dryRun) {
+      fs.mkdirSync(vaultTemplatesDir, { recursive: true });
+      for (const file of fs.readdirSync(templatesDir)) {
+        fs.copyFileSync(path.join(templatesDir, file), path.join(vaultTemplatesDir, file));
+        templatesCopied++;
+      }
+    } else {
+      templatesCopied = fs.readdirSync(templatesDir).length;
+    }
+  }
+
   let skillResult: { action: string; skillPath: string } | null = null;
   let agentDocsResult: { action: string; filePath: string } | null = null;
   let migrationResult: { migrated: boolean; fileDeleted: boolean } | null = null;
@@ -735,6 +749,9 @@ export function install(args: InstallArgs): string {
   }
   if (migrationResult?.migrated) {
     output += `Migration: removed old CLAUDE.md managed block${migrationResult.fileDeleted ? ' (file deleted — was empty)' : ''}\n`;
+  }
+  if (templatesCopied > 0) {
+    output += `Templates: ${templatesCopied} files → ${vaultTemplatesDir}\n`;
   }
   output += `\nNext steps:\n`;
   if (configCopied) {

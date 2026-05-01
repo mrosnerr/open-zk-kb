@@ -51,6 +51,7 @@ export function formatContext(ctx: KbContext): string {
   const parts: string[] = [];
 
   parts.push(`## Knowledge Base Context (project: ${ctx.project})\n`);
+  parts.push('Before storing structured notes, run `knowledge-template --kind {kind}` for the canonical structure.\n');
 
   if (ctx.domainNote) {
     parts.push('### Domain Note');
