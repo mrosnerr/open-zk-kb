@@ -729,8 +729,8 @@ describe('MCP Tool: knowledge-maintain', () => {
       status: 'fleeting',
     });
 
-    setCreatedAt(promoteCandidate.id, daysAgo(40));
-    setCreatedAt(archiveCandidate.id, daysAgo(40));
+    setCreatedAt(promoteCandidate.id, daysAgo(50));
+    setCreatedAt(archiveCandidate.id, daysAgo(50));
     setCreatedAt(reviewCandidate.id, daysAgo(20));
 
     for (let i = 0; i < ctx.config.lifecycle.promotionThreshold; i++) {
@@ -2167,7 +2167,7 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
 
   it('should recommend promote when accesses meet the threshold', async () => {
     const note = ctx.engine.store('Accessed note', { title: 'Promotion Candidate', kind: 'observation' });
-    setCreatedAt(note.id, daysAgo(40));
+    setCreatedAt(note.id, daysAgo(50));
     for (let i = 0; i < ctx.config.lifecycle.promotionThreshold; i++) {
       ctx.engine.recordAccess(note.id);
     }
@@ -2180,7 +2180,7 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
 
   it('should recommend archive for zero-access old unlinked notes', async () => {
     const note = ctx.engine.store('Stale note', { title: 'Unlinked Archive Candidate', kind: 'observation' });
-    setCreatedAt(note.id, daysAgo(40));
+    setCreatedAt(note.id, daysAgo(50));
 
     const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
 
@@ -2193,7 +2193,7 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
     const noteB = ctx.engine.store('Target content', { title: 'Backlinked Review Candidate', kind: 'observation' });
     ctx.engine.syncLinks(noteA.id, `[[${noteB.id}|test]]`);
     setCreatedAt(noteA.id, daysAgo(10));
-    setCreatedAt(noteB.id, daysAgo(40));
+    setCreatedAt(noteB.id, daysAgo(50));
 
     const customConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, exemptKinds: [] } };
     const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, customConfig);
