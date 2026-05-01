@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // mcp-server.ts - MCP stdio server
-// Exposes knowledge-store, knowledge-search, knowledge-maintain as MCP tools.
+// Exposes knowledge-store, knowledge-search, knowledge-mine, knowledge-maintain as MCP tools.
 // Stdout is the MCP transport — use logToFile() for all logging.
 
 if (typeof globalThis.Bun === 'undefined') {
@@ -18,7 +18,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
-import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen } from './tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
@@ -338,6 +338,58 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-maintain failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ---- knowledge-mine ----
+
+const mineSchema = z.object({
+  candidates: z.array(z.object({
+    title: z.string().describe('Note title — concise, descriptive'),
+    content: z.string().describe('Note content — the extracted knowledge'),
+    kind: z.enum(STORABLE_KINDS).describe('Note kind'),
+    summary: z.string().describe('One-line present-tense key takeaway'),
+    guidance: z.string().describe('Imperative actionable instruction for agents'),
+    tags: z.array(z.string()).optional().describe('Tags for categorization'),
+    source: z.string().optional().describe('Provenance — e.g. session ID where this was found'),
+  })).describe('Array of candidate notes extracted from session history'),
+  project: z.string().optional().describe('Project scope — auto-adds project:<name> tag to all candidates'),
+  dry_run: z.boolean().optional().describe('Preview dedup results without storing (default: true)'),
+  model: z.string().optional().describe('Your model identifier for richer responses'),
+});
+
+server.registerTool(
+  'knowledge-mine',
+  {
+    description: 'Bulk-screen candidate notes for duplicates and optionally store. Accepts candidates extracted by the agent from session history or other sources. Returns each candidate annotated with STORE/SKIP/REVIEW based on similarity to existing KB notes. Default is dry-run (preview only).',
+    inputSchema: mineSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof mineSchema>) => {
+    try {
+      const result = await handleMine({
+        candidates: args.candidates.map(candidate => ({
+          title: candidate.title,
+          content: candidate.content,
+          kind: candidate.kind as NoteKind,
+          summary: candidate.summary,
+          guidance: candidate.guidance,
+          tags: candidate.tags,
+          source: candidate.source,
+        })),
+        project: args.project,
+        dry_run: args.dry_run,
+        model: args.model,
+      }, getOrCreateRepo(), getEmbeddingConfig(), config);
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-mine failed', {
         error: error instanceof Error ? error.message : String(error),
       }, config);
       return {
