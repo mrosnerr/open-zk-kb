@@ -32,6 +32,7 @@ NEVER defer storage to "after I finish the task." Store first, then work.
 
 ### Storing Knowledge
 Use `knowledge-store` with **one concept per note**. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents). If you learn multiple things, make multiple store calls — don't bundle.
+Before storing, run `knowledge-template --kind {kind}` to see the canonical structure.
 
 **Kinds** (with target word counts):
 - **personalization** (~50 words) — "User prefers Bun over Node.js for all runtime tasks"

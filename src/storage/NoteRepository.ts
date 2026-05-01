@@ -13,6 +13,7 @@ import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embedding
 import type { NoteKind, NoteStatus, Lifecycle } from '../types.js';
 import { VALID_LIFECYCLES } from '../types.js';
 import { resolveNotePath, extractProjectFromTags, walkMarkdownFiles } from './path-resolver.js';
+import type { ConformanceRecord, ConformanceAggregates } from '../template-handler.js';
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -71,7 +72,7 @@ export interface StoreOptions {
   related?: string[];
 }
 
-export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine';
+export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine' | 'template';
 
 export interface TelemetryAggregates {
   sessions: number;
@@ -1416,6 +1417,75 @@ export class NoteRepository {
       FROM tool_telemetry
       ORDER BY id
     `).all() as TelemetryRow[];
+  }
+
+  recordConformance(record: ConformanceRecord): void {
+    if (!this.telemetryEnabled) return;
+    withBusyRetry(() => {
+      this.db.prepare(`
+        INSERT INTO template_conformance (note_id, kind, action, model, coverage, matched_categories, missing_categories, hint_triggered)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        record.noteId,
+        record.kind,
+        record.action,
+        record.model,
+        record.coverage,
+        JSON.stringify(record.matchedCategories),
+        JSON.stringify(record.missingCategories),
+        record.hintTriggered ? 1 : 0,
+      );
+    });
+  }
+
+  getConformanceAggregates(days: number = 30): ConformanceAggregates {
+    const msAgo = days * 24 * 60 * 60 * 1000;
+    const cutoffDate = new Date(Date.now() - msAgo).toISOString();
+    const telemetryCutoff = Date.now() - msAgo;
+
+    const totals = this.db.prepare(`
+      SELECT
+        COUNT(*) as total,
+        AVG(coverage) as avg_coverage,
+        SUM(hint_triggered) as hint_count
+      FROM template_conformance
+      WHERE timestamp >= ?
+    `).get(cutoffDate) as { total: number; avg_coverage: number | null; hint_count: number | null };
+
+    const kindRows = this.db.prepare(`
+      SELECT
+        kind,
+        COUNT(*) as count,
+        AVG(coverage) as avg_coverage,
+        SUM(hint_triggered) as hint_count
+      FROM template_conformance
+      WHERE timestamp >= ?
+      GROUP BY kind
+    `).all(cutoffDate) as Array<{ kind: string; count: number; avg_coverage: number; hint_count: number }>;
+
+    const byKind: Record<string, { count: number; avgCoverage: number; hintCount: number }> = {};
+    for (const row of kindRows) {
+      byKind[row.kind] = {
+        count: row.count,
+        avgCoverage: row.avg_coverage,
+        hintCount: row.hint_count,
+      };
+    }
+
+    const templateRetrievals = (this.db.prepare(`
+      SELECT COUNT(*) as count
+      FROM tool_telemetry
+      WHERE timestamp >= ? AND tool_name = 'template'
+    `).get(telemetryCutoff) as { count: number }).count;
+
+    return {
+      totalChecked: totals.total,
+      avgCoverage: totals.avg_coverage ?? 0,
+      hintTriggerRate: totals.total > 0 ? (totals.hint_count ?? 0) / totals.total : 0,
+      hintCount: totals.hint_count ?? 0,
+      byKind,
+      templateRetrievals,
+    };
   }
 
   rebuildFromFiles(): { indexed: number; errors: number; warnings: string[] } {

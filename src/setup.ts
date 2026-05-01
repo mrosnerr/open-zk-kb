@@ -673,12 +673,20 @@ export function install(args: InstallArgs): string {
   
   const mcpEntry = buildMcpEntry(clientConfig, serverPath);
   
+  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const templatesDir = path.join(projectRoot, 'templates');
+  const vaultTemplatesDir = path.join(vaultPath, 'templates');
+  const templateFileCount = fs.existsSync(templatesDir) ? fs.readdirSync(templatesDir).filter(f => f.endsWith('.md')).length : 0;
+
   if (args.dryRun) {
     let output = `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
     if (clientConfig.skillPath) {
       output += `\nWould install skill to ${clientConfig.skillPath}`;
     } else if (clientConfig.agentDocsPath) {
       output += `\nWould inject agent docs into ${clientConfig.agentDocsPath}`;
+    }
+    if (templateFileCount > 0) {
+      output += `\nWould copy ${templateFileCount} template files to ${vaultTemplatesDir}`;
     }
     return output;
   }
@@ -697,8 +705,6 @@ export function install(args: InstallArgs): string {
     fs.mkdirSync(path.join(vaultPath, '.index'), { recursive: true });
   }
   
-  // Copy config.example.yaml → ~/.config/open-zk-kb/config.yaml if no config exists yet
-  const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const exampleConfigPath = path.join(projectRoot, 'config.example.yaml');
   const configYamlPath = getConfigYamlPath();
   let configCopied = false;
@@ -708,7 +714,18 @@ export function install(args: InstallArgs): string {
     configCopied = true;
   }
   
-  // Install skill or inject agent docs depending on client
+  let templatesCopied = 0;
+  if (fs.existsSync(templatesDir)) {
+    fs.mkdirSync(vaultTemplatesDir, { recursive: true });
+    for (const file of fs.readdirSync(templatesDir).filter(f => f.endsWith('.md'))) {
+      const dest = path.join(vaultTemplatesDir, file);
+      if (!fs.existsSync(dest)) {
+        fs.copyFileSync(path.join(templatesDir, file), dest);
+        templatesCopied++;
+      }
+    }
+  }
+
   let skillResult: { action: string; skillPath: string } | null = null;
   let agentDocsResult: { action: string; filePath: string } | null = null;
   let migrationResult: { migrated: boolean; fileDeleted: boolean } | null = null;
@@ -735,6 +752,9 @@ export function install(args: InstallArgs): string {
   }
   if (migrationResult?.migrated) {
     output += `Migration: removed old CLAUDE.md managed block${migrationResult.fileDeleted ? ' (file deleted — was empty)' : ''}\n`;
+  }
+  if (templatesCopied > 0) {
+    output += `Templates: ${templatesCopied} files → ${vaultTemplatesDir}\n`;
   }
   output += `\nNext steps:\n`;
   if (configCopied) {

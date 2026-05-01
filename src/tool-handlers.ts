@@ -39,6 +39,7 @@ import type { ExtractionResult } from './url-extractor.js';
 import { splitSections, extractLinks, countWords } from './content-splitter.js';
 import { detectObsidian, launchObsidian, formatNotInstalledMessage, formatSuccessMessage } from './obsidian.js';
 import { contractPath } from './utils/path.js';
+import { getTemplate, getExpectedCategories, matchCategories, extractHeaders, stripExamplesBlock, CONFORMANCE_KINDS } from './template-handler.js';
 
 // ---- Constants ----
 
@@ -270,6 +271,34 @@ function formatTelemetryStats(repo: NoteRepository): string {
   output += `  Most-stored kind: ${mostStored ? `${mostStored[0]} (${mostStored[1]})` : 'none (0)'}\n`;
   output += `  Most-used action: ${mostUsedAction ? `${mostUsedAction[0]} (${mostUsedAction[1]})` : 'none (0)'}\n`;
   output += `  Avg session duration: ${formatTelemetryNumber(avgDurationMin)} min\n`;
+  return output;
+}
+
+function formatConformanceStats(repo: NoteRepository): string {
+  const agg = repo.getConformanceAggregates(30);
+  if (agg.totalChecked === 0) return '';
+
+  let output = '\n## Template Conformance\n\n';
+  output += `Last 30 days:\n`;
+  output += `  Stores checked: ${agg.totalChecked}\n`;
+  output += `  Avg coverage: ${agg.avgCoverage.toFixed(2)}\n`;
+  output += `  Hint trigger rate: ${(agg.hintTriggerRate * 100).toFixed(0)}% (${agg.hintCount}/${agg.totalChecked})\n`;
+
+  const kindEntries = Object.entries(agg.byKind).sort((a, b) => a[0].localeCompare(b[0]));
+  if (kindEntries.length > 0) {
+    output += '  By kind:\n';
+    for (const [kind, data] of kindEntries) {
+      output += `    ${kind}: ${data.avgCoverage.toFixed(2)} avg (${data.count} notes, ${data.hintCount} hints)\n`;
+    }
+  }
+
+  output += `  Template retrieval: ${agg.templateRetrievals} calls`;
+  if (agg.totalChecked > 0) {
+    const adoption = agg.templateRetrievals / agg.totalChecked;
+    output += ` (L3 adoption: ${(adoption * 100).toFixed(0)}%)`;
+  }
+  output += '\n';
+
   return output;
 }
 
@@ -790,6 +819,36 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     output += warning;
   }
 
+  if (CONFORMANCE_KINDS.has(args.kind)) {
+    const categories = getExpectedCategories(args.kind);
+    if (categories) {
+      const strippedContent = stripExamplesBlock(args.content);
+      const actualHeaders = extractHeaders(strippedContent);
+      const matched = matchCategories(categories, actualHeaders);
+      const totalCategories = Object.keys(categories).length;
+      const coverage = totalCategories > 0 ? matched.size / totalCategories : 1;
+      const hintTriggered = coverage < 0.5;
+
+      scheduleTelemetryWrite('conformance', () => repo.recordConformance({
+        noteId: result.id,
+        kind: args.kind,
+        action: result.action,
+        model: args.model ?? null,
+        coverage,
+        matchedCategories: [...matched],
+        missingCategories: Object.keys(categories).filter(c => !matched.has(c)),
+        hintTriggered,
+      }));
+
+      if (actualHeaders.length === 0) {
+        output += `\n\nℹ Conformance: 0% (0/${totalCategories} categories matched, no headings found).`;
+      } else if (hintTriggered) {
+        const missing = Object.keys(categories).filter(c => !matched.has(c));
+        output += `\n\nℹ Conformance: ${(coverage * 100).toFixed(0)}% (${matched.size}/${totalCategories} categories matched). Missing: ${missing.join(', ')}.`;
+      }
+    }
+  }
+
   if (relatedNotes.length > 0) {
     output += '\n\nRelated notes:';
     for (const rn of relatedNotes) {
@@ -986,6 +1045,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
       if (args.telemetry) {
         output += formatTelemetryStats(repo);
+        output += formatConformanceStats(repo);
       }
       return output;
     }
@@ -1666,6 +1726,33 @@ export function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteReposit
     return `Failed to launch Obsidian: ${error}`;
   }
   return formatSuccessMessage(vaultPath, resolvedProject);
+}
+
+export interface TemplateArgs {
+  kind: string;
+  project?: string;
+  model?: string;
+}
+
+export function handleTemplate(args: TemplateArgs, repo?: NoteRepository): string {
+  let projectOverridePath: string | undefined;
+
+  if (args.project && repo) {
+    const domainNote = repo.getDomainNote(args.project);
+    if (domainNote) {
+      const vaultPath = path.dirname(domainNote.path || '');
+      const overridePath = path.join(vaultPath, 'templates', `${args.kind}.md`);
+      if (fs.existsSync(overridePath)) {
+        projectOverridePath = overridePath;
+      }
+    }
+  }
+
+  if (repo) {
+    scheduleTelemetryWrite('template', () => repo.recordToolInvocation('template', args.kind));
+  }
+
+  return getTemplate(args.kind, projectOverridePath);
 }
 
 type MineClassification = 'STORE' | 'SKIP' | 'REVIEW';

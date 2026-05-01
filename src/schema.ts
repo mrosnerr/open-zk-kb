@@ -5,7 +5,7 @@ import { Database } from 'bun:sqlite';
 import { logToFile } from './logger.js';
 
 export class SchemaManager {
-  static readonly SCHEMA_VERSION = 7;
+  static readonly SCHEMA_VERSION = 8;
 
   private static readonly MIGRATIONS: Array<{
     version: number;
@@ -109,6 +109,13 @@ export class SchemaManager {
         SchemaManager.createTelemetryTable(db);
       },
     },
+    {
+      version: 8,
+      description: 'Add template conformance tracking',
+      migrate: (db) => {
+        SchemaManager.createConformanceTable(db);
+      },
+    },
   ];
 
   private static createTelemetryTable(db: Database): void {
@@ -124,6 +131,25 @@ export class SchemaManager {
     `);
     db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON tool_telemetry(timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_session ON tool_telemetry(session_id)');
+  }
+
+  private static createConformanceTable(db: Database): void {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS template_conformance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        action TEXT NOT NULL,
+        model TEXT,
+        coverage REAL NOT NULL,
+        matched_categories TEXT NOT NULL,
+        missing_categories TEXT NOT NULL,
+        hint_triggered INTEGER NOT NULL,
+        timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_conformance_kind ON template_conformance(kind)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_conformance_timestamp ON template_conformance(timestamp)');
   }
 
   private db: Database;
@@ -212,6 +238,7 @@ export class SchemaManager {
     this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
     this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_last_accessed_at ON notes(last_accessed_at)');
     SchemaManager.createTelemetryTable(this.db);
+    SchemaManager.createConformanceTable(this.db);
 
     this.db.run(`
       CREATE TABLE IF NOT EXISTS note_links (

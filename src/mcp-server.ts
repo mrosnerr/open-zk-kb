@@ -18,7 +18,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
-import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine } from './tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
@@ -390,6 +390,41 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-mine failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+// ---- knowledge-template ----
+
+const templateSchema = z.object({
+  kind: z.enum(NOTE_KINDS).describe('Note kind to get the canonical template for'),
+  project: z.string().optional().describe('Project name — checks for project-specific template overrides'),
+  model: z.string().optional().describe('Your model identifier'),
+});
+
+server.registerTool(
+  'knowledge-template',
+  {
+    description: 'Get the canonical note template for a specific kind. Returns skeleton structure with positive and negative examples. Consult before storing structured notes (decision, procedure, domain, reference, observation).',
+    inputSchema: templateSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof templateSchema>) => {
+    try {
+      const r = args.project ? getOrCreateRepo() : (repo ?? undefined);
+      const result = handleTemplate({
+        kind: args.kind,
+        project: args.project,
+        model: args.model,
+      }, r);
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-template failed', {
         error: error instanceof Error ? error.message : String(error),
       }, config);
       return {

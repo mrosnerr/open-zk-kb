@@ -4,6 +4,10 @@ name: PR Agent Incremental Review
 # The pr-agent Action variant can't pass -i to auto_review, so we route through
 # the comment-based command interface. The existing pr-agent workflows pick up
 # the comment via their issue_comment trigger and run the incremental review.
+#
+# IMPORTANT: Uses ZK_KB_WORKFLOW_TRIGGER_TOKEN (a PAT) instead of GITHUB_TOKEN
+# because GITHUB_TOKEN cannot trigger other workflows (GitHub's recursive-loop
+# prevention). Without a PAT, the posted comment never fires issue_comment events.
 
 on:
   pull_request:
@@ -31,6 +35,7 @@ jobs:
       - name: Post /review -i comment
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
         with:
+          github-token: ${{ secrets.ZK_KB_WORKFLOW_TRIGGER_TOKEN }}
           script: |
             const prNumber = context.payload.pull_request.number;
             const { owner, repo } = context.repo;
