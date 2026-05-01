@@ -11,4 +11,5 @@ ALWAYS use the open-zk-kb MCP tools for persistent memory across sessions.
 - **Client scoping**: Client-specific paths (`.cursor/`, `.claude/`) auto-tagged on store. No action needed.
 - **Ingest URLs**: `knowledge-ingest` to extract articles, then `knowledge-store` to save. Prefer passing HTML from your web tools.
 - **Project overview**: `knowledge-overview(project: "...")` — returns auto-generated index and recent log entries. Use at session start to orient in a project.
+- **Mine sessions**: `knowledge-mine(candidates: [...], dry_run: true)` — bulk-screen candidates from session history. Extract decisions, observations, procedures from past sessions via `session_list`/`session_read`, pass as candidates. STORE/SKIP/REVIEW classification. Call with `dry_run: false` to store.
 - **Maintain**: `knowledge-maintain stats` for health, `knowledge-maintain review` for stale notes

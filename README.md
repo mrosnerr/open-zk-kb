@@ -43,12 +43,13 @@ Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Ze
 
 ## How It Works
 
-Your AI assistant gets six MCP tools:
+Your AI assistant gets seven MCP tools:
 
 | Tool | What it does |
 |------|-------------|
 | `knowledge-search` | Search the knowledge base before starting work |
 | `knowledge-store` | Save decisions, preferences, procedures, and insights |
+| `knowledge-mine` | Bulk-screen candidates from session history for duplicates and store |
 | `knowledge-maintain` | Review, promote, archive, and rebuild notes |
 | `knowledge-ingest` | Extract article content from URLs or HTML into structured markdown |
 | `knowledge-overview` | Get a project overview with auto-generated index and recent log |

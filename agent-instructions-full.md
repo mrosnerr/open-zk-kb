@@ -54,5 +54,18 @@ When a useful URL comes up: `knowledge-ingest` to extract content, then `knowled
 ### Project Overview
 Use `knowledge-overview(project: "...")` at the start of a project session to get the auto-generated index (catalog of all project notes) and recent log entries. Optional `logEntries` parameter controls how many log entries are shown (default 10).
 
+### Mining Session History
+Use `knowledge-mine` to bootstrap the KB from past sessions. The tool bulk-screens candidates for duplicates and optionally stores them.
+
+**Workflow**:
+1. Enumerate sessions: `session_list` (filter by date, project)
+2. Read sessions in batches of 5-10: `session_read` per session
+3. Extract candidate notes — look for: decisions (trade-off analysis), observations (gotchas, error→fix), procedures (step-by-step), resources (URLs), personalizations (preferences)
+4. Call `knowledge-mine(candidates: [...], dry_run: true)` to preview dedup results
+5. Review: STORE (new), SKIP (duplicate), REVIEW (partial match)
+6. Call again with `dry_run: false` to store confirmed candidates
+
+**Tips**: Process sessions in batches to stay within context limits. Include `source` on each candidate for provenance tracking. Pass `project` to scope all mined notes.
+
 ### Maintenance
 - `knowledge-maintain stats` — KB health | `knowledge-maintain review` — stale notes
