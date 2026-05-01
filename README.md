@@ -189,7 +189,7 @@ bun run setup            # interactive installer
 ## Links
 
 - [Setup Guide](docs/setup-guide.md) — installation, instruction injection, verification
-- [Tools Reference](docs/tools-reference.md) — all 5 MCP tools, parameters, examples
+- [Tools Reference](docs/tools-reference.md) — all 7 MCP tools, parameters, examples
 - [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
 - [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
 - [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection

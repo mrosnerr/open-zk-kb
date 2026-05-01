@@ -1706,7 +1706,7 @@ function formatMineWordCount(candidate: MineCandidate, wordCount: number): strin
 }
 
 function extractStoredId(result: string): string | undefined {
-  return /ID: (\d+)/.exec(result)?.[1];
+  return /ID:\s*(\S+)/.exec(result)?.[1];
 }
 
 export async function handleMine(args: MineArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): Promise<string> {
@@ -1731,7 +1731,8 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
 
   if (embeddingConfig) {
     try {
-      const batchResults = await generateEmbeddingBatch(embeddingTexts, embeddingConfig, 60000);
+      const batchTimeout = Math.max(60000, args.candidates.length * 2000);
+      const batchResults = await generateEmbeddingBatch(embeddingTexts, embeddingConfig, batchTimeout);
       embeddings = batchResults.map(result => result ? { embedding: result.embedding } : null);
       embeddingsAvailable = embeddings.some(Boolean);
     } catch (error) {
@@ -1856,12 +1857,15 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
   if (dryRun) {
     output += '\nTo store confirmed candidates: call again with dry_run=false';
     if (reviewCount > 0) {
-      output += `\n⚠ ${reviewCount} REVIEW candidate(s) have partial matches — remove them from the array or edit before storing if they overlap with existing notes.`;
+      output += `\n⚠ ${reviewCount} REVIEW candidate(s) have partial matches with existing notes — see matches listed above.`;
     }
-  } else if (reviewCount > 0) {
-    const storedReview = results.filter(r => r.classification === 'REVIEW' && r.storedId).length;
-    if (storedReview > 0) {
-      output += `\n⚠ ${storedReview} REVIEW candidate(s) stored despite partial matches — verify they don't overlap with flagged existing notes.`;
+  } else {
+    const storedCount = results.filter(r => r.storedId).length;
+    const failedCount = results.filter(r => r.error).length;
+    output += `\nStored: ${storedCount}`;
+    if (failedCount > 0) output += ` | Failed: ${failedCount}`;
+    if (reviewCount > 0) {
+      output += `\n⚠ ${reviewCount} of ${storedCount} stored candidate(s) had partial matches with existing notes.`;
     }
   }
 

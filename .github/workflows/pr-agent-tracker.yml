@@ -61,6 +61,18 @@ jobs:
                 .trim();
             }
 
+            function extractSeverity(title) {
+              const pMatch = title.match(/^P([012])\b/);
+              if (pMatch) return `P${pMatch[1]}`;
+              if (/must fix/i.test(title)) return 'P0';
+              if (/should fix/i.test(title)) return 'P1';
+              if (/\bnit\b/i.test(title)) return 'P2';
+              return null;
+            }
+
+            const SEVERITY_EMOJI = { P0: '🔴', P1: '🟡', P2: '⚪' };
+            const SEVERITY_ORDER = { P0: 0, P1: 1, P2: 2 };
+
             function stripMarkup(text) {
               return String(text ?? '')
                 .replace(/```[\s\S]*?```/g, ' ')
@@ -130,10 +142,63 @@ jobs:
                 const block = match[2];
                 const summary = extractSummary(block, title);
                 const id = `${model}:${hashId(`${title}\n${summary}`)}`;
-                findings.push({ id, title, summary });
+                const severity = extractSeverity(title);
+                findings.push({ id, title, summary, severity });
               }
 
               return findings;
+            }
+
+            function getSignificantWords(text) {
+              const stopwords = new Set(['the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been', 'has', 'have', 'had', 'not', 'no', 'and', 'or', 'but', 'that', 'this', 'it', 'its', 'fix', 'should', 'must', 'nit']);
+              return text.toLowerCase().split(/\W+/).filter(w => w.length > 2 && !stopwords.has(w));
+            }
+
+            function computeWordOverlap(textA, textB) {
+              const wordsA = new Set(getSignificantWords(textA));
+              const wordsB = new Set(getSignificantWords(textB));
+              if (wordsA.size === 0 || wordsB.size === 0) return 0;
+              const intersection = [...wordsA].filter(w => wordsB.has(w)).length;
+              const smaller = Math.min(wordsA.size, wordsB.size);
+              return smaller > 0 ? intersection / smaller : 0;
+            }
+
+            function findConsensus(state) {
+              const allOpen = [];
+              for (const [model, modelState] of Object.entries(state.models || {})) {
+                for (const finding of Object.values(modelState.findings || {})) {
+                  if (finding.status === 'open') {
+                    allOpen.push({ model, ...finding });
+                  }
+                }
+              }
+
+              const groups = [];
+              const used = new Set();
+
+              for (let i = 0; i < allOpen.length; i++) {
+                if (used.has(i)) continue;
+                const group = [allOpen[i]];
+                used.add(i);
+
+                for (let j = i + 1; j < allOpen.length; j++) {
+                  if (used.has(j)) continue;
+                  if (allOpen[i].model === allOpen[j].model) continue;
+
+                  const textA = `${allOpen[i].title} ${allOpen[i].summary}`;
+                  const textB = `${allOpen[j].title} ${allOpen[j].summary}`;
+                  if (computeWordOverlap(textA, textB) >= 0.35) {
+                    group.push(allOpen[j]);
+                    used.add(j);
+                  }
+                }
+
+                if (group.length >= 2) {
+                  groups.push(group);
+                }
+              }
+
+              return groups;
             }
 
             function getPrNumber(payload) {
@@ -221,6 +286,20 @@ jobs:
                 lines.push('No PR-Agent reviews tracked yet.');
               }
 
+              const consensusGroups = findConsensus(state);
+              if (consensusGroups.length > 0) {
+                lines.push('### ⚡ Cross-Model Consensus');
+                lines.push('');
+                for (const group of consensusGroups) {
+                  const modelsList = group.map((f) => f.model).join(', ');
+                  const bestTitle = group.reduce((a, b) => a.title.length > b.title.length ? a : b).title;
+                  const bestSeverity = group.reduce((a, b) => (SEVERITY_ORDER[a.severity] ?? 3) < (SEVERITY_ORDER[b.severity] ?? 3) ? a : b).severity;
+                  const badge = bestSeverity ? `${SEVERITY_EMOJI[bestSeverity] || ''} ` : '';
+                  lines.push(`- ${badge}**${bestTitle}** — flagged by ${modelsList}`);
+                }
+                lines.push('');
+              }
+
               for (const model of models) {
                 const modelState = state.models[model];
                 const findings = Object.values(modelState.findings || {});
@@ -237,8 +316,14 @@ jobs:
                 if (openFindings.length === 0) {
                   lines.push('- None');
                 } else {
-                  for (const finding of openFindings) {
-                    lines.push(`- [ ] **${finding.title}** — ${finding.summary}`);
+                  const sorted = [...openFindings].sort((a, b) => {
+                    const sa = SEVERITY_ORDER[a.severity] ?? 3;
+                    const sb = SEVERITY_ORDER[b.severity] ?? 3;
+                    return sa - sb;
+                  });
+                  for (const finding of sorted) {
+                    const badge = finding.severity ? `${SEVERITY_EMOJI[finding.severity] || ''} ` : '';
+                    lines.push(`- [ ] ${badge}**${finding.title}** — ${finding.summary}`);
                     lines.push(`  - First seen: [review](${finding.firstSeenCommentUrl})`);
                   }
                 }

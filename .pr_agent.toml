@@ -142,6 +142,10 @@ Focus suggestions on these open-zk-kb-specific anti-patterns:
 7. LIFECYCLE VIOLATION: Flag any code that mutates snapshot notes or
    overwrites append-only note content without using appendToLogContent().
 
+8. FTS5 INJECTION: Flag any user-supplied string passed directly to repo.search()
+   or FTS5 MATCH without sanitization. FTS5 operators (AND, OR, NOT, *, NEAR)
+   in candidate content can alter query semantics or expose unintended notes.
+
 Do NOT suggest:
 - Import reordering or formatting changes (ESLint handles this)
 - Adding comments to self-explanatory code
