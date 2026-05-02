@@ -47,6 +47,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
+          ref: refs/pull/${{ steps.pr.outputs.number }}/head
           fetch-depth: 0
 
       - name: Setup Node
@@ -197,7 +198,15 @@ jobs:
             exit 1
           fi
 
-          if ! grep -q '^# Shadow Review' /tmp/shadow-review.md; then
-            echo "Shadow review output is missing the expected markdown header" >&2
-            exit 1
-          fi
+          for required in \
+            '^# Shadow Review$' \
+            '^## Verdict$' \
+            '^## Summary$' \
+            '^## Findings$' \
+            '^## Files reviewed$'
+          do
+            if ! grep -Eq "$required" /tmp/shadow-review.md; then
+              echo "Shadow review output is missing a required section: $required" >&2
+              exit 1
+            fi
+          done
