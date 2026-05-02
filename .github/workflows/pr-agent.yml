@@ -170,6 +170,17 @@ jobs:
                  ✅ CORRECT:   output += "3 REVIEW candidates have partial matches — see above."
             BECAUSE ownership policy (#93) — "server computes, agent judges."
 
+            R8. SHADOW REVIEW CHECKOUT PATTERN (ACCEPTED — DO NOT FLAG)
+            WHEN reviewing .github/workflows/review.yml
+            THEN do NOT flag: missing `ref:` on actions/checkout, "untrusted checkout",
+                 or "PR head injection" for the pattern of initial checkout without ref →
+                 same-repo validation → git fetch refs/pull/N/head → git checkout FETCH_HEAD.
+            BECAUSE this is intentional security hardening (commit bef93f8): the PR head is
+                 checked out ONLY AFTER validating head.repo.full_name == github.repository,
+                 preventing untrusted fork code from being in the working tree before validation.
+                 The workflow also runs with bash:deny, read-only token, and read-only agent.
+                 This pattern was reviewed and approved — do not re-raise.
+
             ## Filetype-Specific Checks
 
             TOML files: Verify section scoping, check that keys land in intended section.
