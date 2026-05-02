@@ -163,7 +163,7 @@ jobs:
         run: |
           : > /tmp/shadow-review.md
           set +e
-          opencode run \
+          timeout 600 opencode run \
             --agent reviewer \
             --model openrouter/anthropic/claude-sonnet-4.6 \
             < /tmp/review-prompt.txt \
@@ -176,6 +176,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: shadow-review-${{ steps.pr.outputs.number }}
+          include-hidden-files: true
           path: |
             /tmp/pr.json
             /tmp/pr-files.json
