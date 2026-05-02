@@ -47,7 +47,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
         with:
-          ref: refs/pull/${{ steps.pr.outputs.number }}/head
           fetch-depth: 0
 
       - name: Setup Node
@@ -99,6 +98,8 @@ jobs:
           PR_NUMBER: ${{ steps.pr.outputs.number }}
         run: |
           git fetch origin "$BASE_REF"
+          git fetch origin "refs/pull/${PR_NUMBER}/head"
+          git checkout FETCH_HEAD
           mkdir -p .shadow-review
 
           gh api --paginate "repos/${{ github.repository }}/pulls/${PR_NUMBER}/files" > /tmp/pr-files.json
