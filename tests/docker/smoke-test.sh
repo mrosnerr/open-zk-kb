@@ -32,7 +32,7 @@ if TEST_OUTPUT=$(bun test 2>&1); then
   PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -oE "[0-9]+ pass" | head -1)
   pass "all unit tests pass ($PASS_COUNT)"
 else
-  FAIL_LINE=$(echo "$TEST_OUTPUT" | grep "fail" | head -1)
+  FAIL_LINE=$(echo "$TEST_OUTPUT" | grep "fail" | head -1 || true)
   fail "unit tests" "${FAIL_LINE:-bun test exited non-zero without a matching summary line}"
 fi
 echo ""

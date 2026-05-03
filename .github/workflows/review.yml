@@ -204,7 +204,8 @@ jobs:
             '^## Verdict$' \
             '^## Summary$' \
             '^## Findings$' \
-            '^## Files reviewed$'
+            '^## Files reviewed$' \
+            '^## Notes$'
           do
             if ! grep -Eq "$required" /tmp/shadow-review.md; then
               echo "Shadow review output is missing a required section: $required" >&2
