@@ -164,6 +164,7 @@ jobs:
           OPENCODE_PERMISSION: '{"edit":"deny","webfetch":"deny","bash":"deny"}'
         run: |
           : > /tmp/shadow-review.md
+          echo 1 > /tmp/shadow-review.exit
           set +e
           timeout 600 opencode run \
             --agent reviewer \
