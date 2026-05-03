@@ -494,7 +494,14 @@ echo ""
 echo "▸ npm pack Validation"
 
 (bun pm pack || npm pack) >/dev/null 2>&1 || true
-TARBALL=$(find . -maxdepth 1 -type f -name 'open-zk-kb-*.tgz' -printf '%T@ %f\n' | sort -nr | head -1 | cut -d' ' -f2-)
+shopt -s nullglob
+TARBALL=""
+for CANDIDATE in open-zk-kb-*.tgz; do
+  if [ -z "$TARBALL" ] || [ "$CANDIDATE" -nt "$TARBALL" ]; then
+    TARBALL="$CANDIDATE"
+  fi
+done
+shopt -u nullglob
 
 if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
   pass "npm pack creates tarball"
@@ -513,17 +520,22 @@ if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
   mkdir -p "$PACK_DIR/test-install"
   cp "$TARBALL" "$PACK_DIR/test-install/"
 
-  (
-    cd "$PACK_DIR/test-install"
-    echo '{"dependencies":{"open-zk-kb":"file:./'"$TARBALL"'"}}' > package.json
-    bun install >/dev/null 2>&1
-  )
+  INSTALL_STATUS=0
+  INSTALL_OUTPUT=$(
+    cd "$PACK_DIR/test-install" &&
+    echo '{"dependencies":{"open-zk-kb":"file:./'"$TARBALL"'"}}' > package.json &&
+    bun install 2>&1
+  ) || INSTALL_STATUS=$?
 
-  BIN_SETUP="$PACK_DIR/test-install/node_modules/.bin/open-zk-kb"
-  if [ -f "$BIN_SETUP" ] || [ -L "$BIN_SETUP" ]; then
-    pass "open-zk-kb bin symlink created"
+  if [ "$INSTALL_STATUS" -eq 0 ]; then
+    BIN_SETUP="$PACK_DIR/test-install/node_modules/.bin/open-zk-kb"
+    if [ -f "$BIN_SETUP" ] || [ -L "$BIN_SETUP" ]; then
+      pass "open-zk-kb bin symlink created"
+    else
+      fail "bin symlink" "open-zk-kb not found in node_modules/.bin/"
+    fi
   else
-    fail "bin symlink" "open-zk-kb not found in node_modules/.bin/"
+    fail "package install" "$(echo "$INSTALL_OUTPUT" | head -1)"
   fi
 
   rm -rf "$PACK_DIR"
