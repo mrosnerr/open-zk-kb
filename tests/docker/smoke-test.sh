@@ -28,13 +28,12 @@ echo ""
 # ─── 2. Unit tests ───
 echo "▸ Unit Tests"
 
-TEST_OUTPUT=$(bun test 2>&1)
-if echo "$TEST_OUTPUT" | grep -qE "^\s*0 fail$"; then
+if TEST_OUTPUT=$(bun test 2>&1); then
   PASS_COUNT=$(echo "$TEST_OUTPUT" | grep -oE "[0-9]+ pass" | head -1)
   pass "all unit tests pass ($PASS_COUNT)"
 else
-  FAIL_LINE=$(echo "$TEST_OUTPUT" | grep "fail" | head -1)
-  fail "unit tests" "$FAIL_LINE"
+  FAIL_LINE=$(echo "$TEST_OUTPUT" | grep -oE "[0-9]+ fail" | head -1 || true)
+  fail "unit tests" "${FAIL_LINE:-bun test exited non-zero without a matching summary line}"
 fi
 echo ""
 
@@ -146,7 +145,6 @@ echo ""
 echo "▸ Config Copy (OpenCode)"
 
 CONFIG_YAML="$HOME/.config/open-zk-kb/config.yaml"
-EXAMPLE_CONFIG="config.example.yaml"
 if [ -f "$CONFIG_YAML" ]; then
   pass "config.yaml exists at ~/.config/open-zk-kb/"
   if grep -q "vault:" "$CONFIG_YAML" || grep -q "logLevel:" "$CONFIG_YAML"; then
@@ -283,7 +281,7 @@ for CLIENT in opencode claude-code cursor windsurf; do
     echo '{"mcpServers":{"other-server":{"command":"node","args":["other.js"]}}}' > "$CONFIG_PATH"
   fi
 
-  bun run src/setup.ts install --client "$CLIENT" --force 2>&1 >/dev/null || true
+  bun run src/setup.ts install --client "$CLIENT" --force >/dev/null 2>&1 || true
 
   if cat "$CONFIG_PATH" | grep -q "other-server"; then
     pass "$CLIENT preserves existing servers"
@@ -420,7 +418,7 @@ created: 2025-01-02T12:00:00.000Z
 User prefers dark mode in all editors.
 NOTE
 
-NOTE_COUNT=$(ls "$VAULT_PATH"/*.md 2>/dev/null | wc -l | tr -d ' ')
+NOTE_COUNT=$(find "$VAULT_PATH" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')
 if [ "$NOTE_COUNT" -eq 2 ]; then
   pass "pre-existing vault has 2 notes"
 else
@@ -429,7 +427,7 @@ fi
 
 bun run src/setup.ts install --client cursor >/dev/null 2>&1 || true
 
-POST_COUNT=$(ls "$VAULT_PATH"/*.md 2>/dev/null | wc -l | tr -d ' ')
+POST_COUNT=$(find "$VAULT_PATH" -maxdepth 1 -type f -name '*.md' | wc -l | tr -d ' ')
 if [ "$POST_COUNT" -eq 2 ]; then
   pass "install preserves existing notes"
 else
@@ -495,8 +493,15 @@ echo ""
 # ─── 19. npm pack produces valid package ───
 echo "▸ npm pack Validation"
 
-PACK_OUTPUT=$(bun pm pack 2>&1 || npm pack 2>&1 || true)
-TARBALL=$(ls -t open-zk-kb-*.tgz 2>/dev/null | head -1)
+(bun pm pack || npm pack) >/dev/null 2>&1 || true
+shopt -s nullglob
+TARBALL=""
+for CANDIDATE in open-zk-kb-*.tgz; do
+  if [ -z "$TARBALL" ] || [ "$CANDIDATE" -nt "$TARBALL" ]; then
+    TARBALL="$CANDIDATE"
+  fi
+done
+shopt -u nullglob
 
 if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
   pass "npm pack creates tarball"
@@ -515,17 +520,22 @@ if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
   mkdir -p "$PACK_DIR/test-install"
   cp "$TARBALL" "$PACK_DIR/test-install/"
 
-  (
-    cd "$PACK_DIR/test-install"
-    echo '{"dependencies":{"open-zk-kb":"file:./'"$TARBALL"'"}}' > package.json
-    bun install 2>&1 >/dev/null
-  )
+  INSTALL_STATUS=0
+  INSTALL_OUTPUT=$(
+    cd "$PACK_DIR/test-install" &&
+    echo '{"dependencies":{"open-zk-kb":"file:./'"$TARBALL"'"}}' > package.json &&
+    bun install 2>&1
+  ) || INSTALL_STATUS=$?
 
-  BIN_SETUP="$PACK_DIR/test-install/node_modules/.bin/open-zk-kb"
-  if [ -f "$BIN_SETUP" ] || [ -L "$BIN_SETUP" ]; then
-    pass "open-zk-kb bin symlink created"
+  if [ "$INSTALL_STATUS" -eq 0 ]; then
+    BIN_SETUP="$PACK_DIR/test-install/node_modules/.bin/open-zk-kb"
+    if [ -f "$BIN_SETUP" ] || [ -L "$BIN_SETUP" ]; then
+      pass "open-zk-kb bin symlink created"
+    else
+      fail "bin symlink" "open-zk-kb not found in node_modules/.bin/"
+    fi
   else
-    fail "bin symlink" "open-zk-kb not found in node_modules/.bin/"
+    fail "package install" "$(echo "$INSTALL_OUTPUT" | head -1)"
   fi
 
   rm -rf "$PACK_DIR"

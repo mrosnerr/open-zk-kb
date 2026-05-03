@@ -40,7 +40,10 @@ Thumbs.db
 *~
 
 # Agent / AI tool artifacts
-.opencode/
+.opencode/*
+!.opencode/agents/
+.opencode/agents/*
+!.opencode/agents/reviewer.md
 .claude/
 .sisyphus/
 CONTEXT_*.md
