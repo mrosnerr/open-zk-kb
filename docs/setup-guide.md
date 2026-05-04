@@ -47,6 +47,8 @@ For scripted/CI use:
 bun run setup install --client opencode
 ```
 
+For OpenCode development from a local checkout, this source install path is **MCP-only** by default. It wires OpenCode to your local `dist/mcp-server.js` build and managed instructions. It does **not** register `open-zk-kb` in OpenCode's `plugin` array.
+
 ### Config file locations
 
 | Client | Config path |

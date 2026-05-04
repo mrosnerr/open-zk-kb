@@ -24,6 +24,12 @@ bun test         # Verify everything works
 - For iterative development: edit `src/` -> `bun run build` -> `bun test`.
 - Clean rebuild: `rm -rf dist/ && bun run build`.
 
+### OpenCode local development
+
+- The supported local development path for OpenCode is **MCP-only**: point OpenCode at your local `dist/mcp-server.js` and test through the MCP server.
+- Do **not** add `open-zk-kb` to OpenCode's `plugin` array as part of the normal install/setup flow.
+- Keep plugin experiments separate from normal contributor setup. If you want to test the OpenCode plugin path locally, treat it as an explicit, opt-in workflow so standard OpenCode startup stays stable.
+
 ## Available Commands
 
 | Command | Purpose |

@@ -29,6 +29,28 @@ For rapid iteration:
 - bun test --watch — re-runs tests on file change
 - Note: there's no watch mode for the build itself — you need to run bun run build each time
 
+## OpenCode local development
+
+Use the MCP server path for normal local OpenCode testing.
+
+### Recommended workflow
+```bash
+bun run build
+bun run setup install --client opencode --force
+```
+
+This configures OpenCode to run the local `dist/mcp-server.js` build through its MCP entry. That is the supported contributor workflow for testing changes on your development branch.
+
+### Why this is MCP-only by default
+
+- OpenCode setup for `open-zk-kb` is documented around the MCP server plus managed `AGENTS.md` instructions.
+- Automatically adding `open-zk-kb` to OpenCode's `plugin` array mixes an experimental plugin-testing path into normal setup.
+- Keeping the default workflow MCP-only prevents local development installs from breaking OpenCode startup.
+
+### Experimental plugin testing
+
+If you want to experiment with the OpenCode plugin path locally, do it as a separate, explicit workflow. Do not fold that into `setup.ts`'s standard OpenCode install behavior unless the plugin path is fully documented, supported, and tested end-to-end.
+
 ## Project Structure
 (See [architecture.md](architecture.md) for details)
 
