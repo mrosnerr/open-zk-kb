@@ -223,4 +223,20 @@ describe('Obsidian scaffold', () => {
 
     expect(fs.readFileSync(pluginMainPath, 'utf-8')).toBe(MOCK_MAIN_CONTENT);
   });
+
+  it('skips digest-currentness checks when integrity verification is disabled', async () => {
+    const deps = mockIntegrityDeps();
+    await ensureObsidianScaffold(ctx.tempDir, ctx.config.obsidian, deps);
+
+    const obsidianDir = path.join(ctx.tempDir, '.obsidian');
+    const pluginMainPath = path.join(obsidianDir, 'plugins', 'homepage', 'main.js');
+    fs.writeFileSync(pluginMainPath, 'locally modified but allowed', 'utf-8');
+
+    await ensureObsidianScaffold(ctx.tempDir, ctx.config.obsidian, {
+      ...deps,
+      verifyAssetIntegrity: false,
+    });
+
+    expect(fs.readFileSync(pluginMainPath, 'utf-8')).toBe('locally modified but allowed');
+  });
 });

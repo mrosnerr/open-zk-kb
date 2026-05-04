@@ -501,7 +501,9 @@ async function installPluginAssets(
   const tempDir = pluginDir + '.tmp';
   ensureDir(pluginDir);
 
-  const allFilesCurrent = plugin.files.every(file => installedAssetMatchesDigest(pluginDir, file, expectedDigest(plugin.fileDigests, file)));
+  const allFilesCurrent = verifyAssetIntegrity
+    ? plugin.files.every(file => installedAssetMatchesDigest(pluginDir, file, expectedDigest(plugin.fileDigests, file)))
+    : plugin.files.every(file => fs.existsSync(path.join(pluginDir, file)));
   if (allFilesCurrent && !forceRefresh) {
     return { available: true, refreshed: false };
   }
@@ -544,7 +546,9 @@ async function installThemeAssets(
   const tempDir = themeDir + '.tmp';
   ensureDir(themeDir);
 
-  const allFilesCurrent = theme.files.every(file => installedAssetMatchesDigest(themeDir, file, expectedDigest(theme.fileDigests, file)));
+  const allFilesCurrent = verifyAssetIntegrity
+    ? theme.files.every(file => installedAssetMatchesDigest(themeDir, file, expectedDigest(theme.fileDigests, file)))
+    : theme.files.every(file => fs.existsSync(path.join(themeDir, file)));
   if (allFilesCurrent && !forceRefresh) {
     return { available: true, refreshed: false };
   }
