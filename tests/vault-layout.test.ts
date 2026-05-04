@@ -5,6 +5,7 @@ import {
   createTestHarness,
   cleanupTestHarness,
   createNoteFile,
+  readNoteFile,
 } from './harness.js';
 import type { TestContext } from './harness.js';
 import { resolveNotePath, walkMarkdownFiles, extractProjectFromTags } from '../src/storage/path-resolver.js';
@@ -188,6 +189,25 @@ describe('Structured Vault Storage', () => {
     });
 
     expect(fs.existsSync(decisionsDir)).toBe(true);
+  });
+
+  it('renders enhanced global homepage dashboard', async () => {
+    await handleStore({
+      title: 'Test Decision',
+      content: 'Decision content',
+      kind: 'decision',
+      summary: 'A test decision',
+      guidance: 'Keep using this pattern.',
+      project: 'open-zk-kb',
+    }, context.engine, null, context.config);
+
+    const home = readNoteFile(context, 'index.md');
+    expect(home).toContain('cssclasses:');
+    expect(home).toContain('# 🧠 Knowledge Base');
+    expect(home).toContain('## 📂 Projects');
+    expect(home).toContain('## 📚 Browse');
+    expect(home).toContain('## 🔗 Resources');
+    expect(home).toContain('Powered by [open-zk-kb]');
   });
 
   it('preserves directory on update (birthplace-only)', () => {
@@ -464,7 +484,7 @@ describe('Global Navigation', () => {
     const globalIndex = path.join(context.tempDir, 'index.md');
     expect(fs.existsSync(globalIndex)).toBe(true);
     const content = fs.readFileSync(globalIndex, 'utf-8');
-    expect(content).toContain('# Knowledge Base');
+    expect(content).toContain('Knowledge Base');
     expect(content).toContain('myproject');
   });
 
@@ -697,7 +717,7 @@ describe('Structured navigation regressions', () => {
     expect(content).not.toContain('[[index|Back to Knowledge Base]]');
 
     const globalIndex = fs.readFileSync(path.join(context.tempDir, 'index.md'), 'utf-8');
-    expect(globalIndex).toContain('[[preferences/index|Preferences]]');
+    expect(globalIndex).toContain('[[preferences/index\\|Preferences]]');
   });
 
   it('generates general kind subdir indexes for unscoped notes', async () => {

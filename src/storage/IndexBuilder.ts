@@ -198,15 +198,24 @@ export function buildGlobalIndexContent(
   preferencesCount: number,
   generalCount: number,
   fleetingCount: number,
+  totalNoteCount: number,
 ): string {
   const lines: string[] = [];
 
-  lines.push('# Knowledge Base');
+  lines.push('---');
+  lines.push('cssclasses:');
+  lines.push('  - dashboard');
+  lines.push('---');
+  lines.push('');
+  lines.push('# 🧠 Knowledge Base');
+  lines.push('');
+  lines.push(`> [!abstract] Your persistent memory across AI sessions`);
+  lines.push(`> **${totalNoteCount}** notes · **${projectStats.length}** projects · Last updated: ${formatDateTime()}`);
   lines.push('');
 
   if (projectStats.length > 0) {
     const sorted = [...projectStats].sort((a, b) => b.lastActive - a.lastActive);
-    lines.push(`## Projects (${sorted.length})`);
+    lines.push('## 📂 Projects');
     lines.push('| Project | Notes | Last Active |');
     lines.push('|---------|-------|-------------|');
     for (const stat of sorted) {
@@ -216,23 +225,28 @@ export function buildGlobalIndexContent(
     lines.push('');
   }
 
-  if (preferencesCount > 0) {
-    lines.push(`## [[preferences/index|Preferences]] — ${preferencesCount} notes`);
-    lines.push('');
-  }
+  lines.push('## 📚 Browse');
+  lines.push('| Section | Notes | Description |');
+  lines.push('|---------|-------|-------------|');
+  lines.push(`| [[general/index\\|General Knowledge]] | ${generalCount} | Unscoped references, decisions, observations |`);
+  lines.push(`| [[preferences/index\\|Preferences]] | ${preferencesCount} | Personal style, habits, and tool preferences |`);
+  lines.push(`| [[review\\|📝 Needs Review]] | ${fleetingCount} | Fleeting notes awaiting promotion or archive |`);
+  lines.push('');
 
-  if (generalCount > 0) {
-    lines.push(`## [[general/index|General]] — ${generalCount} notes`);
-    lines.push('');
-  }
+  lines.push('## 📖 Activity');
+  lines.push('');
+  lines.push('- [[log|Operations Log]] — Recent knowledge capture events');
+  lines.push('');
 
-  if (fleetingCount > 0) {
-    lines.push(`## [[review|📝 Needs Review]] — ${fleetingCount} fleeting notes`);
-    lines.push('');
-  }
+  lines.push('## 🔗 Resources');
+  lines.push('');
+  lines.push('- [Documentation](https://github.com/mrosnerr/open-zk-kb#readme) — Setup, configuration, note kinds');
+  lines.push('- [Report an Issue](https://github.com/mrosnerr/open-zk-kb/issues/new) — Bug reports and feature requests');
+  lines.push('- [Changelog](https://github.com/mrosnerr/open-zk-kb/releases) — What\'s new');
+  lines.push('');
 
   lines.push('---');
-  lines.push(`Last rebuilt: ${formatDateTime()}`);
+  lines.push('*Powered by [open-zk-kb](https://github.com/mrosnerr/open-zk-kb) · MIT License*');
 
   return lines.join('\n');
 }
