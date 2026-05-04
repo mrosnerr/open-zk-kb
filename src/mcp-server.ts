@@ -39,7 +39,8 @@ async function getOrCreateRepo(): Promise<NoteRepositoryType> {
   if (repoInitPromise) return repoInitPromise;
 
   repoInitPromise = (async () => {
-    repo = new NoteRepository(config.vault, { telemetryEnabled: config.telemetry.enabled });
+    const instance = new NoteRepository(config.vault, { telemetryEnabled: config.telemetry.enabled });
+    repo = instance;
     logToFile('INFO', 'MCP server: repository opened', { vault: config.vault }, config);
 
     const obsidianDir = path.join(config.vault, '.obsidian');
@@ -54,10 +55,16 @@ async function getOrCreateRepo(): Promise<NoteRepositoryType> {
       }
     }
 
-    return repo;
+    return instance;
   })();
 
-  return repoInitPromise;
+  try {
+    return await repoInitPromise;
+  } catch (error) {
+    repo = null;
+    repoInitPromise = null;
+    throw error;
+  }
 }
 
 let cachedEmbeddingConfig: EmbeddingConfig | null | undefined;

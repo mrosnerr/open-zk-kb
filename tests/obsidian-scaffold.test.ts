@@ -99,12 +99,28 @@ describe('Obsidian scaffold', () => {
     await ensureObsidianScaffold(ctx.tempDir, ctx.config.obsidian, { fetchImpl: mockFetchFactory() });
 
     const appConfig = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'app.json'), 'utf-8'));
-    expect(appConfig.defaultViewMode).toBe('source');
+    expect(appConfig.defaultViewMode).toBe('preview');
     expect(appConfig.propertiesInDocument).toBe('hidden');
     expect(appConfig.custom).toBe(true);
 
     const plugins = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'community-plugins.json'), 'utf-8'));
     expect(plugins).toContain('custom-plugin');
     expect(plugins.filter((plugin: string) => plugin === 'homepage')).toHaveLength(1);
+  });
+
+  it('applies readOnly=false on rerun after an initial read-only scaffold', async () => {
+    await ensureObsidianScaffold(ctx.tempDir, ctx.config.obsidian, { fetchImpl: mockFetchFactory() });
+    await ensureObsidianScaffold(ctx.tempDir, { ...ctx.config.obsidian, readOnly: false }, { fetchImpl: mockFetchFactory() });
+
+    const obsidianDir = path.join(ctx.tempDir, '.obsidian');
+    const appConfig = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'app.json'), 'utf-8'));
+    expect(appConfig.defaultViewMode).toBe('source');
+
+    const appearance = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'appearance.json'), 'utf-8'));
+    expect(appearance.enabledCssSnippets).not.toContain('readonly-kb');
+
+    const plugins = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'community-plugins.json'), 'utf-8'));
+    expect(plugins).not.toContain('read-only-view');
+    expect(fs.existsSync(path.join(obsidianDir, 'snippets', 'readonly-kb.css'))).toBe(false);
   });
 });

@@ -72,6 +72,10 @@ export const THEME_REGISTRY: ThemeRegistryEntry = {
   files: ['manifest.json', 'theme.css'],
 };
 
+const ASSET_DOWNLOAD_TIMEOUT_MS = 30_000;
+const MANAGED_SNIPPETS = ['zk-tables', 'zk-metadata', 'zk-dashboard', 'readonly-kb'];
+const MANAGED_PLUGIN_IDS = PLUGIN_REGISTRY.map(plugin => plugin.id);
+
 const CORE_PLUGINS = [
   'file-explorer',
   'global-search',
@@ -414,7 +418,26 @@ function pluginEntriesForConfig(config: ObsidianConfig): PluginRegistryEntry[] {
 
 async function downloadAsset(repo: string, tag: string, fileName: string, fetchImpl: typeof fetch): Promise<Buffer> {
   const url = `https://github.com/${repo}/releases/download/${tag}/${fileName}`;
-  const response = await fetchImpl(url);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ASSET_DOWNLOAD_TIMEOUT_MS);
+
+  let response: Response;
+  try {
+    response = await fetchImpl(url, { signal: controller.signal });
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      logToFile('WARN', 'Timed out Obsidian scaffold asset download', {
+        repo,
+        tag,
+        fileName,
+        timeoutMs: ASSET_DOWNLOAD_TIMEOUT_MS,
+      });
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+
   if (!response.ok) {
     throw new Error(`HTTP ${response.status} for ${url}`);
   }
@@ -429,26 +452,27 @@ async function installPluginAssets(
   forceRefresh: boolean,
 ): Promise<boolean> {
   const pluginDir = path.join(getObsidianDir(vaultPath), 'plugins', plugin.id);
+  const tempDir = pluginDir + '.tmp';
   ensureDir(pluginDir);
 
   const requiredFiles = plugin.files.filter(file => file === 'main.js' || file === 'manifest.json');
   const hadRequiredFiles = requiredFiles.every(file => fs.existsSync(path.join(pluginDir, file)));
   if (hadRequiredFiles && !forceRefresh) return true;
 
-  if (forceRefresh) {
-    for (const fileName of plugin.files) {
-      const assetPath = path.join(pluginDir, fileName);
-      if (fs.existsSync(assetPath)) fs.unlinkSync(assetPath);
-    }
-  }
-
   try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    ensureDir(tempDir);
     for (const fileName of plugin.files) {
       const contents = await downloadAsset(plugin.repo, plugin.tag, fileName, fetchImpl);
-      fs.writeFileSync(path.join(pluginDir, fileName), contents);
+      fs.writeFileSync(path.join(tempDir, fileName), contents);
     }
+    for (const fileName of plugin.files) {
+      fs.renameSync(path.join(tempDir, fileName), path.join(pluginDir, fileName));
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
     return true;
   } catch {
+    fs.rmSync(tempDir, { recursive: true, force: true });
     return requiredFiles.every(file => fs.existsSync(path.join(pluginDir, file)));
   }
 }
@@ -460,26 +484,27 @@ async function installThemeAssets(
   forceRefresh: boolean,
 ): Promise<boolean> {
   const themeDir = path.join(getObsidianDir(vaultPath), 'themes', theme.name);
+  const tempDir = themeDir + '.tmp';
   ensureDir(themeDir);
 
   const requiredFiles = ['manifest.json', 'theme.css'];
   const alreadyInstalled = requiredFiles.every(file => fs.existsSync(path.join(themeDir, file)));
   if (alreadyInstalled && !forceRefresh) return true;
 
-  if (forceRefresh) {
-    for (const fileName of theme.files) {
-      const assetPath = path.join(themeDir, fileName);
-      if (fs.existsSync(assetPath)) fs.unlinkSync(assetPath);
-    }
-  }
-
   try {
+    fs.rmSync(tempDir, { recursive: true, force: true });
+    ensureDir(tempDir);
     for (const fileName of theme.files) {
       const contents = await downloadAsset(theme.repo, theme.tag, fileName, fetchImpl);
-      fs.writeFileSync(path.join(themeDir, fileName), contents);
+      fs.writeFileSync(path.join(tempDir, fileName), contents);
     }
+    for (const fileName of theme.files) {
+      fs.renameSync(path.join(tempDir, fileName), path.join(themeDir, fileName));
+    }
+    fs.rmSync(tempDir, { recursive: true, force: true });
     return true;
   } catch {
+    fs.rmSync(tempDir, { recursive: true, force: true });
     return requiredFiles.every(file => fs.existsSync(path.join(themeDir, file)));
   }
 }
@@ -491,6 +516,13 @@ function writeOwnedSnippets(vaultPath: string, config: ObsidianConfig): void {
   for (const [fileName, content] of Object.entries(SNIPPETS)) {
     if (fileName === 'readonly-kb.css' && !config.readOnly) continue;
     fs.writeFileSync(path.join(snippetsDir, fileName), content, 'utf-8');
+  }
+
+  if (!config.readOnly) {
+    const readonlySnippetPath = path.join(snippetsDir, 'readonly-kb.css');
+    if (fs.existsSync(readonlySnippetPath)) {
+      fs.rmSync(readonlySnippetPath, { force: true });
+    }
   }
 }
 
@@ -521,6 +553,46 @@ function mergeJsonFile(filePath: string, defaults: unknown, arrayMode: 'replace'
   }
 
   writeJsonFile(filePath, mergeAddOnly(existing, defaults));
+}
+
+function syncManagedAppConfig(vaultPath: string, config: ObsidianConfig): void {
+  const filePath = path.join(getObsidianDir(vaultPath), 'app.json');
+  const existing = readJsonFile<Record<string, unknown>>(filePath) ?? {};
+  const merged = mergeAddOnly(existing, defaultAppConfig(config)) as Record<string, unknown>;
+  merged.defaultViewMode = config.readOnly ? 'preview' : 'source';
+  writeJsonFile(filePath, merged);
+}
+
+function syncManagedAppearanceConfig(vaultPath: string, config: ObsidianConfig): void {
+  const filePath = path.join(getObsidianDir(vaultPath), 'appearance.json');
+  const existing = readJsonFile<Record<string, unknown>>(filePath) ?? {};
+  const merged = mergeAddOnly(existing, defaultAppearanceConfig(config)) as Record<string, unknown>;
+  const currentSnippets = Array.isArray(existing.enabledCssSnippets)
+    ? existing.enabledCssSnippets.filter((item): item is string => typeof item === 'string')
+    : [];
+  const desiredSnippets = (defaultAppearanceConfig(config).enabledCssSnippets as string[]);
+
+  merged.enabledCssSnippets = [...currentSnippets.filter(item => !MANAGED_SNIPPETS.includes(item))];
+  for (const snippet of desiredSnippets) {
+    if (!(merged.enabledCssSnippets as string[]).includes(snippet)) {
+      (merged.enabledCssSnippets as string[]).push(snippet);
+    }
+  }
+
+  writeJsonFile(filePath, merged);
+}
+
+function syncManagedCommunityPlugins(vaultPath: string, enabledPlugins: string[]): void {
+  const filePath = path.join(getObsidianDir(vaultPath), 'community-plugins.json');
+  const existing = readJsonFile<unknown>(filePath);
+  const currentPlugins = Array.isArray(existing)
+    ? existing.filter((item): item is string => typeof item === 'string')
+    : [];
+  const merged = currentPlugins.filter(plugin => !MANAGED_PLUGIN_IDS.includes(plugin));
+  for (const plugin of enabledPlugins) {
+    if (!merged.includes(plugin)) merged.push(plugin);
+  }
+  writeJsonFile(filePath, merged);
 }
 
 function applyPluginConfigs(vaultPath: string, config: ObsidianConfig, pluginIds: string[]): Record<string, { version: string; configVersion: number }> {
@@ -566,10 +638,10 @@ async function applyScaffoldV1(
     logToFile('WARN', 'Skipped Obsidian theme scaffold asset after download failure', { theme: THEME_REGISTRY.name, repo: THEME_REGISTRY.repo, tag: THEME_REGISTRY.tag });
   }
 
-  mergeJsonFile(path.join(getObsidianDir(vaultPath), 'app.json'), defaultAppConfig(config));
-  mergeJsonFile(path.join(getObsidianDir(vaultPath), 'appearance.json'), defaultAppearanceConfig(config));
+  syncManagedAppConfig(vaultPath, config);
+  syncManagedAppearanceConfig(vaultPath, config);
   mergeJsonFile(path.join(getObsidianDir(vaultPath), 'core-plugins.json'), CORE_PLUGINS, 'union');
-  mergeJsonFile(path.join(getObsidianDir(vaultPath), 'community-plugins.json'), enabledPlugins, 'union');
+  syncManagedCommunityPlugins(vaultPath, enabledPlugins);
 
   const updatedManifest: ScaffoldManifest = {
     ...manifest,
