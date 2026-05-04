@@ -249,7 +249,7 @@ describe('setup.ts', () => {
     expect(config.mcp?.['open-zk-kb']).toBeUndefined();
   });
 
-  it('opencode install does not add an OpenCode plugin entry during local dev testing', async () => {
+  it('opencode install does not add or modify plugin entries', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
