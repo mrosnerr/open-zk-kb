@@ -249,6 +249,62 @@ describe('setup.ts', () => {
     expect(config.mcp?.['open-zk-kb']).toBeUndefined();
   });
 
+  it('opencode install does not add an OpenCode plugin entry during local dev testing', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugin: ['oh-my-openagent', '@rehydra/opencode'],
+    }, null, 2));
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+      mcp?: Record<string, unknown>;
+    };
+
+    expect(config.plugin).toEqual(['oh-my-openagent', '@rehydra/opencode']);
+    expect(config.mcp?.['open-zk-kb']).toEqual({
+      type: 'local',
+      command: ['bun', 'run', env.fakeServerPath],
+      enabled: true,
+    });
+  });
+
+  it('opencode uninstall leaves existing plugin entries untouched', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugin: ['oh-my-openagent', '@rehydra/opencode'],
+    }, null, 2));
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    setupModule.uninstall({ client: 'opencode' });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+      mcp?: Record<string, unknown>;
+    };
+
+    expect(config.plugin).toEqual(['oh-my-openagent', '@rehydra/opencode']);
+    expect(config.mcp?.['open-zk-kb']).toBeUndefined();
+  });
+
   it('install injects agent docs into client docs file', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
