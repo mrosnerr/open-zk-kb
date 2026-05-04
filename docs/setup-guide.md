@@ -28,7 +28,21 @@ Add to your client's MCP configuration — no cloning required:
   }
 }
 ```
-For OpenCode, use the `mcp` key with `"type": "local"` and `"command": ["bunx", "open-zk-kb@latest", "server"]`.
+For OpenCode, include both the `plugin` array and the `mcp` key:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["open-zk-kb"],
+  "mcp": {
+    "open-zk-kb": {
+      "type": "local",
+      "command": ["bunx", "open-zk-kb@latest", "server"],
+      "enabled": true
+    }
+  }
+}
+```
 
 ## Install from source (for development)
 
@@ -47,7 +61,7 @@ For scripted/CI use:
 bun run setup install --client opencode
 ```
 
-For OpenCode development from a local checkout, this source install path is **MCP-only** by default. It wires OpenCode to your local `dist/mcp-server.js` build and managed instructions. It does **not** register `open-zk-kb` in OpenCode's `plugin` array.
+For OpenCode development from a local checkout, this source install path wires OpenCode to your local `dist/mcp-server.js` build, registers the local checkout as a `file://` plugin, and injects the managed instructions.
 
 ### Config file locations
 

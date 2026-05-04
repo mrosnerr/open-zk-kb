@@ -31,7 +31,7 @@ For rapid iteration:
 
 ## OpenCode local development
 
-Use the MCP server path for normal local OpenCode testing.
+Use the normal installer for local OpenCode testing.
 
 ### Recommended workflow
 ```bash
@@ -39,17 +39,17 @@ bun run build
 bun run setup install --client opencode --force
 ```
 
-This configures OpenCode to run the local `dist/mcp-server.js` build through its MCP entry. That is the supported contributor workflow for testing changes on your development branch.
+This configures OpenCode to run the local `dist/mcp-server.js` build through its MCP entry, registers the local checkout as a `file://` plugin, and refreshes the managed `AGENTS.md` block. That is the supported contributor workflow for testing changes on your development branch.
 
-### Why this is MCP-only by default
+### What gets installed for OpenCode
 
-- OpenCode setup for `open-zk-kb` is documented around the MCP server plus managed `AGENTS.md` instructions.
-- Automatically adding `open-zk-kb` to OpenCode's `plugin` array mixes an experimental plugin-testing path into normal setup.
-- Keeping the default workflow MCP-only prevents local development installs from breaking OpenCode startup.
+- `mcp.open-zk-kb` points at your local `dist/mcp-server.js` build.
+- `plugin` includes the local checkout as a `file://` plugin during source installs.
+- `~/.config/opencode/AGENTS.md` gets the managed knowledge-base instructions.
 
-### Experimental plugin testing
+### Verify plugin changes locally
 
-If you want to experiment with the OpenCode plugin path locally, do it as a separate, explicit workflow. Do not fold that into `setup.ts`'s standard OpenCode install behavior unless the plugin path is fully documented, supported, and tested end-to-end.
+After rebuilding, rerun the installer and restart OpenCode so it reloads both the MCP server and plugin entry.
 
 ## Project Structure
 (See [architecture.md](architecture.md) for details)

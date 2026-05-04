@@ -103,9 +103,9 @@ Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [
 <details>
 <summary><h2>Manual Install</h2></summary>
 
-If you prefer manual configuration, add open-zk-kb to your client's MCP config file. No cloning required — the npm package includes everything.
+If you prefer manual configuration, add open-zk-kb to your client's config. No cloning required — the npm package includes everything.
 
-> **Note**: Manual install only adds the MCP server. To also inject the agent instructions, run `bunx open-zk-kb@latest install --client <name>` or add the contents of `agent-instructions-full.md` (or `agent-instructions-compact.md` for token-constrained clients) to your client's instruction file.
+> **Note**: Manual install configures the MCP server and, for OpenCode, the plugin entry. To also inject the agent instructions, run `bunx open-zk-kb@latest install --client <name>` or add the contents of `agent-instructions-full.md` (or `agent-instructions-compact.md` for token-constrained clients) to your client's instruction file.
 
 ### OpenCode
 
@@ -113,6 +113,7 @@ If you prefer manual configuration, add open-zk-kb to your client's MCP config f
 
 ```json
 {
+  "plugin": ["open-zk-kb"],
   "mcp": {
     "open-zk-kb": {
       "type": "local",
