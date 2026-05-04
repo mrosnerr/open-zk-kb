@@ -64,6 +64,12 @@ export interface TelemetryConfig {
   enabled: boolean;
 }
 
+export interface ObsidianConfig {
+  scaffold: boolean;
+  autoUpgrade: boolean;
+  readOnly: boolean;
+}
+
 export interface RelatedNotesConfig {
   enabled: boolean;
   maxResults: number;
@@ -89,6 +95,7 @@ export interface AppConfig {
   store: StoreConfig;
   navigation: NavigationConfig;
   telemetry: TelemetryConfig;
+  obsidian: ObsidianConfig;
 }
 
 // NOTE: NoteMetadata and StoreResult are defined in storage/NoteRepository.ts
