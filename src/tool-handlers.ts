@@ -1680,6 +1680,34 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       return output;
     }
+    case 'full': {
+      const steps: Array<{ action: string; label: string; stepArgs: MaintainArgs }> = [
+        { action: 'rebuild', label: 'Rebuild', stepArgs: { action: 'rebuild' } },
+        { action: 'migrate-layout', label: 'Migrate Layout', stepArgs: { action: 'migrate-layout', dryRun: false } },
+        { action: 'dedupe', label: 'Dedupe', stepArgs: { action: 'dedupe' } },
+        { action: 'embed', label: 'Embed', stepArgs: { action: 'embed' } },
+        { action: 'broken-links', label: 'Link Health', stepArgs: { action: 'broken-links' } },
+        { action: 'stats', label: 'Stats', stepArgs: { action: 'stats', telemetry: args.telemetry, model: args.model } },
+      ];
+
+      const sections: string[] = ['# Full Maintenance\n'];
+      let stepNum = 1;
+
+      for (const step of steps) {
+        sections.push(`## ${stepNum}. ${step.label}\n`);
+        try {
+          const result = await handleMaintain(step.stepArgs, repo, config, embeddingConfig, currentVersion);
+          sections.push(result);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          sections.push(`⚠️ Failed: ${msg}`);
+          logToFile('WARN', `Full maintenance step "${step.action}" failed`, { error: msg });
+        }
+        stepNum++;
+      }
+
+      return sections.join('\n');
+    }
     default:
       return `Unknown action: ${args.action}`;
   }
