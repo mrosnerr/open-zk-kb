@@ -29,6 +29,30 @@ For rapid iteration:
 - bun test --watch — re-runs tests on file change
 - Note: there's no watch mode for the build itself — you need to run bun run build each time
 
+## OpenCode local development
+
+Use the normal installer for local OpenCode testing.
+
+### Recommended workflow
+```bash
+bun run build
+bun run setup install --client opencode --force
+```
+
+This configures OpenCode to run the local `dist/mcp-server.js` build through its MCP entry, registers the local checkout as a `file://` plugin, and refreshes the managed `AGENTS.md` block. That is the supported contributor workflow for testing changes on your development branch.
+
+### What gets installed for OpenCode
+
+- `mcp.open-zk-kb` points at your local `dist/mcp-server.js` build.
+- `plugin` includes the local checkout as a `file://` plugin during source installs.
+- `~/.config/opencode/AGENTS.md` gets the managed knowledge-base instructions.
+
+> **How does the installer know to use local paths?** It checks whether the running script's parent directory contains a `.git` folder. If it does, you're running from a source checkout — the installer uses `file://` URLs and absolute paths. When installed via `bunx`/`npx` (no `.git`), it uses the `open-zk-kb` npm package name instead.
+
+### Verify plugin changes locally
+
+After rebuilding, rerun the installer and restart OpenCode so it reloads both the MCP server and plugin entry.
+
 ## Project Structure
 (See [architecture.md](architecture.md) for details)
 

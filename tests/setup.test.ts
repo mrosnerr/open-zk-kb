@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
 
@@ -69,6 +70,12 @@ function getNestedValue(obj: unknown, keys: string[]): unknown {
   }
 
   return current;
+}
+
+function getExpectedOpenCodePluginEntry(): string {
+  const testFilePath = fileURLToPath(import.meta.url);
+  const projectRoot = path.resolve(path.dirname(testFilePath), '..');
+  return pathToFileURL(projectRoot).toString();
 }
 
 describe('setup.ts', () => {
@@ -162,6 +169,7 @@ describe('setup.ts', () => {
         expect(output).toContain('"type": "local"');
         expect(output).toContain('"command": [');
         expect(output).toContain('"enabled": true');
+        expect(output).toContain(`Would ensure plugin entry: ${getExpectedOpenCodePluginEntry()}`);
       } else {
         expect(output).toContain('"command": "bun"');
         expect(output).toContain('"args": [');
@@ -195,6 +203,7 @@ describe('setup.ts', () => {
           command: ['bun', 'run', env.fakeServerPath],
           enabled: true,
         });
+        expect(config.plugin).toEqual([getExpectedOpenCodePluginEntry()]);
       } else {
         expect(entry).toEqual({
           command: 'bun',
@@ -247,6 +256,91 @@ describe('setup.ts', () => {
 
     expect(uninstallOutput).toContain('Uninstalled open-zk-kb from OpenCode');
     expect(config.mcp?.['open-zk-kb']).toBeUndefined();
+  });
+
+  it('opencode install preserves existing plugins and adds open-zk-kb plugin entry', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugin: ['oh-my-openagent', '@rehydra/opencode'],
+    }, null, 2));
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+      mcp?: Record<string, unknown>;
+    };
+
+    expect(config.plugin).toEqual(['oh-my-openagent', '@rehydra/opencode', getExpectedOpenCodePluginEntry()]);
+    expect(config.mcp?.['open-zk-kb']).toEqual({
+      type: 'local',
+      command: ['bun', 'run', env.fakeServerPath],
+      enabled: true,
+    });
+  });
+
+  it('opencode uninstall removes only the open-zk-kb plugin entry', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugin: ['oh-my-openagent', '@rehydra/opencode', getExpectedOpenCodePluginEntry()],
+    }, null, 2));
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    setupModule.uninstall({ client: 'opencode' });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+      mcp?: Record<string, unknown>;
+    };
+
+    expect(config.plugin).toEqual(['oh-my-openagent', '@rehydra/opencode']);
+    expect(config.mcp?.['open-zk-kb']).toBeUndefined();
+  });
+
+  it('opencode install normalizes legacy plugin entries to the expected specifier', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugin: ['open-zk-kb/server'],
+      mcp: {
+        'open-zk-kb': {
+          type: 'local',
+          command: ['bun', 'run', env.fakeServerPath],
+          enabled: true,
+        },
+      },
+    }, null, 2));
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+    };
+
+    expect(config.plugin).toEqual([getExpectedOpenCodePluginEntry()]);
   });
 
   it('install injects agent docs into client docs file', async () => {
@@ -577,6 +671,7 @@ describe('setup.ts', () => {
     expect(output).toContain(`OK Vault exists at ${path.join(env.xdgDataHome, 'open-zk-kb')}`);
     expect(output).toContain(`OK Config file exists at ${path.join(env.xdgConfigHome, 'open-zk-kb', 'config.yaml')}`);
     expect(output).toContain(`OK OpenCode: MCP config looks healthy in ${path.join(env.xdgConfigHome, 'opencode', 'opencode.json')}`);
+    expect(output).toContain(`OK OpenCode: plugin config looks healthy in ${path.join(env.xdgConfigHome, 'opencode', 'opencode.json')}`);
     expect(output).toContain(`OK OpenCode: managed instructions are healthy in ${path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md')}`);
     expect(output).toContain('- ERROR: 0');
   });
@@ -643,6 +738,36 @@ describe('setup.ts', () => {
       command: ['bun', 'run', env.fakeServerPath],
       enabled: true,
     });
+    expect(repaired.plugin).toEqual([getExpectedOpenCodePluginEntry()]);
+  });
+
+  it('doctor --fix repairs a missing opencode plugin entry', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcp: {
+        'open-zk-kb': {
+          type: 'local',
+          command: ['bun', 'run', env.fakeServerPath],
+          enabled: true,
+        },
+      },
+    }, null, 2));
+
+    const output = setupModule.doctor({ client: 'opencode', fix: true });
+    const repaired = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+    };
+
+    expect(output).toContain(`FIXED OpenCode: repaired plugin config in ${configPath}`);
+    expect(repaired.plugin).toEqual([getExpectedOpenCodePluginEntry()]);
   });
 
   it('doctor --fix repairs missing managed instructions for configured clients', async () => {

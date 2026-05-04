@@ -24,6 +24,11 @@ bun test         # Verify everything works
 - For iterative development: edit `src/` -> `bun run build` -> `bun test`.
 - Clean rebuild: `rm -rf dist/ && bun run build`.
 
+### OpenCode local development
+
+- Run `bun run build && bun run setup install --client opencode --force` for local testing. The installer configures the MCP entry, plugin entry, and managed `AGENTS.md` block automatically.
+- Do **not** manually edit OpenCode's `plugin` array — the installer manages it. See [docs/development.md](docs/development.md) for the full workflow.
+
 ## Available Commands
 
 | Command | Purpose |
