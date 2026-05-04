@@ -6,7 +6,7 @@ open-zk-kb uses a single YAML configuration file:
 
 **Location**: `~/.config/open-zk-kb/config.yaml`
 
-The file contains core settings for the MCP server, including vault location, log level, note lifecycle, and vector embeddings.
+The file contains core settings for the MCP server, including vault location, log level, note lifecycle, the Obsidian vault scaffold, and vector embeddings.
 
 For a detailed explanation of note statuses, kinds, and the review system, see [Note Lifecycle](note-lifecycle.md).
 
@@ -36,6 +36,9 @@ embeddings:
 | lifecycle.promotionThreshold | number | 2 | Accesses needed to recommend promotion to permanent |
 | lifecycle.exemptKinds | string[] | ["personalization", "decision"] | Note kinds exempt from the review queue |
 | telemetry.enabled | boolean | false | Enable local-only tool invocation counters and access timestamps (opt-in) |
+| obsidian.scaffold | boolean | true | Create and maintain the opinionated `.obsidian/` scaffold used by `knowledge-open` |
+| obsidian.autoUpgrade | boolean | true | Refresh pinned theme/plugin/snippet assets when the server starts |
+| obsidian.readOnly | boolean | true | Default Obsidian to Reading View and enable read-only helpers |
 | embeddings.enabled | boolean | true | Enable vector embeddings |
 | embeddings.provider | string | local | Embedding provider: local or api |
 | embeddings.model | string | all-MiniLM-L6-v2 | Embedding model (local or API) |
@@ -77,6 +80,38 @@ Not recorded:
 - User identifiers, client identifiers, hostnames, or account names
 - API keys, tokens, credentials, or other secrets
 
+## Obsidian Vault Scaffold
+
+`knowledge-open` now scaffolds a polished Obsidian vault experience on first launch:
+
+- Minimal theme
+- Community plugin bundle (homepage, QuickAdd, Commander, Templater, Minimal Settings, OZ Calendar, Read Only View)
+- CSS snippets for dashboard layout, better tables, hidden metadata, and optional read-only controls
+- Auto-copied note templates under `templates/`
+- Versioned scaffold manifest at `.obsidian/open-zk-kb.json`
+
+```yaml
+obsidian:
+  scaffold: true
+  autoUpgrade: true
+  readOnly: true
+```
+
+### `obsidian.scaffold`
+
+- `true` (default): create or merge the managed `.obsidian/` scaffold when needed
+- `false`: skip scaffold creation entirely
+
+### `obsidian.autoUpgrade`
+
+- `true` (default): when `.obsidian/open-zk-kb.json` exists, the server refreshes pinned theme/plugin assets on startup
+- `false`: leave existing scaffold assets untouched until `knowledge-maintain` action `upgrade-vault`
+
+### `obsidian.readOnly`
+
+- `true` (default): sets Obsidian to Reading View, enables the read-only CSS snippet, and installs the `read-only-view` plugin config
+- `false`: keeps the rest of the scaffold, but omits the read-only helpers and defaults new tabs to source mode
+
 ## Example Configurations
 
 ### a) Minimal
@@ -107,6 +142,12 @@ embeddings:
 ```yaml
 telemetry:
   enabled: false
+```
+
+### f) Editable Obsidian vault
+```yaml
+obsidian:
+  readOnly: false
 ```
 
 ## Environment & Paths

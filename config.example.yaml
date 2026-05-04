@@ -47,6 +47,13 @@
 #   enableProjectLog: true               # Auto-append to project log on every event
 #   overviewLogEntryLimit: 10            # Recent log entries shown in knowledge-overview
 
+# ─── Obsidian Vault Experience ────────────────────────────────────────────────
+# Batteries-included vault scaffold used by knowledge-open.
+# obsidian:
+#   scaffold: true                        # Create/update .obsidian config, plugins, theme, snippets
+#   autoUpgrade: true                     # Refresh pinned scaffold assets when the server starts
+#   readOnly: true                        # Default to Reading View + read-only helpers
+
 # ─── Embeddings ──────────────────────────────────────────────────────────────
 # Local embeddings (23MB MiniLM model) are enabled by default — no config needed.
 # To use an API provider instead, uncomment below:

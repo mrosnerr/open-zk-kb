@@ -53,7 +53,7 @@ Your AI assistant gets seven MCP tools:
 | `knowledge-maintain` | Review, promote, archive, and rebuild notes |
 | `knowledge-ingest` | Extract article content from URLs or HTML into structured markdown |
 | `knowledge-overview` | Get a project overview with auto-generated index and recent log |
-| `knowledge-open` | Open the vault in Obsidian for visual browsing and graph view |
+| `knowledge-open` | Open the vault in Obsidian with a scaffolded theme, plugins, homepage, and graph view |
 
 The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
 
@@ -75,6 +75,14 @@ embeddings:
 ```
 
 Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). See [docs/configuration.md](docs/configuration.md) for the full reference.
+
+To disable the managed Obsidian read-only defaults or scaffold auto-upgrades:
+
+```yaml
+obsidian:
+  autoUpgrade: false
+  readOnly: false
+```
 
 ## Note Kinds
 
