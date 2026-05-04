@@ -47,6 +47,8 @@ This configures OpenCode to run the local `dist/mcp-server.js` build through its
 - `plugin` includes the local checkout as a `file://` plugin during source installs.
 - `~/.config/opencode/AGENTS.md` gets the managed knowledge-base instructions.
 
+> **How does the installer know to use local paths?** It checks whether the running script's parent directory contains a `.git` folder. If it does, you're running from a source checkout — the installer uses `file://` URLs and absolute paths. When installed via `bunx`/`npx` (no `.git`), it uses the `open-zk-kb` npm package name instead.
+
 ### Verify plugin changes locally
 
 After rebuilding, rerun the installer and restart OpenCode so it reloads both the MCP server and plugin entry.

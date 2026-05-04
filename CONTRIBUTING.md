@@ -26,9 +26,8 @@ bun test         # Verify everything works
 
 ### OpenCode local development
 
-- The supported local development path for OpenCode is **MCP-only**: point OpenCode at your local `dist/mcp-server.js` and test through the MCP server.
-- Do **not** add `open-zk-kb` to OpenCode's `plugin` array as part of the normal install/setup flow.
-- Keep plugin experiments separate from normal contributor setup. If you want to test the OpenCode plugin path locally, treat it as an explicit, opt-in workflow so standard OpenCode startup stays stable.
+- Run `bun run build && bun run setup install --client opencode --force` for local testing. The installer configures the MCP entry, plugin entry, and managed `AGENTS.md` block automatically.
+- Do **not** manually edit OpenCode's `plugin` array — the installer manages it. See [docs/development.md](docs/development.md) for the full workflow.
 
 ## Available Commands
 

@@ -180,7 +180,7 @@ function isOpenCodePluginEntry(value: string): boolean {
   try {
     const filePath = fileURLToPath(value);
     const normalized = path.normalize(filePath);
-    return normalized.endsWith(`${path.sep}open-zk-kb`)
+    return path.basename(normalized) === 'open-zk-kb'
       || normalized.endsWith(`${path.sep}open-zk-kb${path.sep}dist${path.sep}opencode-plugin${path.sep}index.js`);
   } catch {
     return false;
@@ -191,14 +191,9 @@ function getPluginArray(config: JsonObject): unknown[] | undefined {
   return Array.isArray(config.plugin) ? config.plugin : undefined;
 }
 
-function hasHealthyOpenCodePlugin(config: JsonObject): boolean {
-  const plugins = getPluginArray(config);
-  return !!plugins?.some((entry) => typeof entry === 'string' && isOpenCodePluginEntry(entry));
-}
-
 function normalizeOpenCodePlugins(config: JsonObject, desiredEntry: string): void {
   const existing = getPluginArray(config) ?? [];
-  const preserved = existing.filter((entry) => typeof entry === 'string' && !isOpenCodePluginEntry(entry));
+  const preserved = existing.filter((entry) => typeof entry !== 'string' || !isOpenCodePluginEntry(entry));
   config.plugin = [...preserved, desiredEntry];
 }
 
@@ -208,7 +203,7 @@ function removeOpenCodePlugin(config: JsonObject): void {
     return;
   }
 
-  const preserved = existing.filter((entry) => typeof entry === 'string' && !isOpenCodePluginEntry(entry));
+  const preserved = existing.filter((entry) => typeof entry !== 'string' || !isOpenCodePluginEntry(entry));
   if (preserved.length === 0) {
     delete config.plugin;
     return;
