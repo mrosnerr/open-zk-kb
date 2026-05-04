@@ -10,6 +10,7 @@ export interface PluginRegistryEntry {
   repo: string;
   tag: string;
   files: string[];
+  fileDigests: Record<string, string>;
 }
 
 export interface ThemeRegistryEntry {
@@ -17,6 +18,7 @@ export interface ThemeRegistryEntry {
   repo: string;
   tag: string;
   files: string[];
+  fileDigests: Record<string, string>;
 }
 
 export interface ScaffoldManifest {
@@ -44,6 +46,9 @@ interface ObsidianScaffoldDeps {
   fetchImpl?: typeof fetch;
   now?: () => Date;
   templatesDir?: string;
+  verifyAssetIntegrity?: boolean;
+  pluginRegistry?: PluginRegistryEntry[];
+  themeRegistry?: ThemeRegistryEntry;
 }
 
 interface AssetInstallResult {
@@ -61,13 +66,13 @@ export const CURRENT_SCAFFOLD_VERSION = 1;
 const SNIPPET_VERSION = 1;
 
 export const PLUGIN_REGISTRY: PluginRegistryEntry[] = [
-  { id: 'homepage', repo: 'mirnovov/obsidian-homepage', tag: '4.4.0', files: ['main.js', 'manifest.json', 'styles.css'] },
-  { id: 'quickadd', repo: 'chhoumann/quickadd', tag: '2.12.0', files: ['main.js', 'manifest.json', 'styles.css'] },
-  { id: 'cmdr', repo: 'jsmorabito/obsidian-commander', tag: '0.5.5', files: ['main.js', 'manifest.json', 'styles.css'] },
-  { id: 'templater-obsidian', repo: 'SilentVoid13/Templater', tag: '2.20.0', files: ['main.js', 'manifest.json', 'styles.css'] },
-  { id: 'obsidian-minimal-settings', repo: 'kepano/obsidian-minimal-settings', tag: '8.2.2', files: ['main.js', 'manifest.json', 'styles.css'] },
-  { id: 'oz-calendar', repo: 'ozntel/oz-calendar', tag: '0.3.4', files: ['main.js', 'manifest.json', 'styles.css'] },
-  { id: 'read-only-view', repo: 'mrKazzila/Read-Only-View', tag: '1.0.2', files: ['main.js', 'manifest.json', 'styles.css'] },
+  { id: 'homepage', repo: 'mirnovov/obsidian-homepage', tag: '4.4.0', files: ['main.js', 'manifest.json', 'styles.css'], fileDigests: { 'main.js': '4239eaaffced27ff2e743fffceefa75e19ccf784da5fc18dbec6b0f63f144b93', 'manifest.json': 'c76ac910648258eb763b4796efb62d56c7012bd8353cc1a6d59dd34f702466b1', 'styles.css': '3e0db75be5be6495188eb429f678606c27ba39d1ba97434f85c2dc387c127508' } },
+  { id: 'quickadd', repo: 'chhoumann/quickadd', tag: '2.12.0', files: ['main.js', 'manifest.json', 'styles.css'], fileDigests: { 'main.js': 'e09403bd9e20fe97affd1d53225ba09fbeada7f5e024dde8b64c5890529bffbe', 'manifest.json': '8eab8e5f9c1632dff06875c79bb55832a0a82f6fece246e05728cabdbe824889', 'styles.css': 'e820f28cbb62f604727a07a7dee614386e765ef3d98bc541ac863ce5961bcba2' } },
+  { id: 'cmdr', repo: 'jsmorabito/obsidian-commander', tag: '0.5.5', files: ['main.js', 'manifest.json', 'styles.css'], fileDigests: { 'main.js': 'ebfce0b5dbaac7dd46c8b51cd397a811020d079ab0bf931a64e20049d7510637', 'manifest.json': 'c6df5e0aa6d389695a87850eeeaf836775e2cd01579f4e277d82bc7a99fbe5e8', 'styles.css': '91765c55d9cddfbd3a62dc06bf18dc3ea6ecb879c89f939a1e50cebd3c31c28c' } },
+  { id: 'templater-obsidian', repo: 'SilentVoid13/Templater', tag: '2.20.0', files: ['main.js', 'manifest.json', 'styles.css'], fileDigests: { 'main.js': '81eccff81962daf8ec722ed2deff7957b3fabee244afc9fb15c39e7b8d2943e3', 'manifest.json': '47f59f1683eca98be9a9fb58ebce3cf37557af2f5947b47bcba9e8f54c567eae', 'styles.css': 'f7d4ee5bd4ec1d032eda1f4e1da481e713c57af964ec1e55d31494f086068d1e' } },
+  { id: 'obsidian-minimal-settings', repo: 'kepano/obsidian-minimal-settings', tag: '8.2.2', files: ['main.js', 'manifest.json', 'styles.css'], fileDigests: { 'main.js': '8aa9350977fca098f56cea444eb672942e10fcaeb9b07aceb05a3d5368aa742b', 'manifest.json': 'cc07b2a08a2128acab9f678f2fdc1a0492b370be928d6ddfb1df1ae4b376667a', 'styles.css': '50084760da927a5bf5ac1b9d3b960dc52e1d0a3bf690e54df8f4d76f8212628c' } },
+  { id: 'oz-calendar', repo: 'ozntel/oz-calendar', tag: '0.3.4', files: ['main.js', 'manifest.json', 'styles.css'], fileDigests: { 'main.js': '366853a93f4e0b2dfcbba25e5f74129b91ec93787ef3c4a97097cb00a8eef458', 'manifest.json': '632f4bc99a28e1d2d54ece32f9c754ebd0cc032e77dab8a962b316a7dbe22080', 'styles.css': '5e66038c352bbe773c8e614247a937499478fedca53697e48188b27a6acc3e41' } },
+  { id: 'read-only-view', repo: 'mrKazzila/Read-Only-View', tag: '1.0.2', files: ['main.js', 'manifest.json', 'styles.css'], fileDigests: { 'main.js': '3df01d1010b8a47dfcd34f9099ab85fd0d94ff3f50794b0521febcb1408728e5', 'manifest.json': 'dbb136801ffe760c277be5707b2d9c7aee9d2a18da504acaf4a9c083f99c2fe4', 'styles.css': 'ed8507c596c292b2f4cf83f8f5645971ce14e0edf060611f258c1f3eddf997eb' } },
 ];
 
 export const THEME_REGISTRY: ThemeRegistryEntry = {
@@ -75,6 +80,7 @@ export const THEME_REGISTRY: ThemeRegistryEntry = {
   repo: 'kepano/obsidian-minimal',
   tag: '8.1.7',
   files: ['manifest.json', 'theme.css'],
+  fileDigests: { 'manifest.json': '7e71c6d34fa20ceafe51aff1220ee62e9a7fc9548592e01da60d366945227e07', 'theme.css': 'ee4610bc2aec92a491e3b66fc3c6e854ddcdd3be91abb9f9aa0870f6adbdfaf8' },
 };
 
 const ASSET_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -269,26 +275,45 @@ function deterministicId(input: string): string {
   return crypto.createHash('sha1').update(input).digest('hex').replace(/(.{8})(.{4})(.{4})(.{4})(.{12}).*/, '$1-$2-$3-$4-$5');
 }
 
+function sha256Hex(contents: Buffer): string {
+  return crypto.createHash('sha256').update(contents).digest('hex');
+}
+
+function expectedDigest(fileDigests: Record<string, string>, fileName: string): string {
+  const digest = fileDigests[fileName];
+  if (!digest) {
+    throw new Error(`Missing expected digest for ${fileName}`);
+  }
+  return digest;
+}
+
 function buildQuickAddChoices(): Array<Record<string, unknown>> {
   const kinds = [
-    { kind: 'decision', folder: 'decisions', template: 'decision.md', label: 'Decision' },
-    { kind: 'procedure', folder: 'procedures', template: 'procedure.md', label: 'Procedure' },
-    { kind: 'observation', folder: 'observations', template: 'observation.md', label: 'Observation' },
-    { kind: 'reference', folder: 'references', template: 'reference.md', label: 'Reference' },
-    { kind: 'resource', folder: 'resources', template: 'resource.md', label: 'Resource' },
-    { kind: 'personalization', folder: 'preferences', template: 'personalization.md', label: 'Personalization' },
-    { kind: 'domain', folder: 'projects', template: 'domain.md', label: 'Domain' },
+    { id: 'general-decision', kind: 'decision', folder: 'general/decisions', template: 'decision.md', label: 'General Decision' },
+    { id: 'general-procedure', kind: 'procedure', folder: 'general/procedures', template: 'procedure.md', label: 'General Procedure' },
+    { id: 'general-observation', kind: 'observation', folder: 'general/observations', template: 'observation.md', label: 'General Observation' },
+    { id: 'general-reference', kind: 'reference', folder: 'general/references', template: 'reference.md', label: 'General Reference' },
+    { id: 'general-resource', kind: 'resource', folder: 'general/resources', template: 'resource.md', label: 'General Resource' },
+    { id: 'preference', kind: 'personalization', folder: 'preferences', template: 'personalization.md', label: 'Preference' },
+    { id: 'project-decision', kind: 'decision', folder: 'projects/{{VALUE:project|label:Project name|case:slug}}/decisions', template: 'decision.md', label: 'Project Decision' },
+    { id: 'project-procedure', kind: 'procedure', folder: 'projects/{{VALUE:project|label:Project name|case:slug}}/procedures', template: 'procedure.md', label: 'Project Procedure' },
+    { id: 'project-observation', kind: 'observation', folder: 'projects/{{VALUE:project|label:Project name|case:slug}}/observations', template: 'observation.md', label: 'Project Observation' },
+    { id: 'project-reference', kind: 'reference', folder: 'projects/{{VALUE:project|label:Project name|case:slug}}/references', template: 'reference.md', label: 'Project Reference' },
+    { id: 'project-resource', kind: 'resource', folder: 'projects/{{VALUE:project|label:Project name|case:slug}}/resources', template: 'resource.md', label: 'Project Resource' },
+    { id: 'project-domain', kind: 'domain', folder: 'projects/{{VALUE:project|label:Project name|case:slug}}', template: 'domain.md', label: 'Project Domain' },
   ];
 
-  return kinds.map(({ kind, folder, template, label }) => ({
+  return kinds.map(({ id, kind, folder, template, label }) => ({
     name: `New ${label} Note`,
-    id: deterministicId(`quickadd-${kind}`),
+    id: deterministicId(`quickadd-${id}`),
     type: 'Template',
     command: true,
     templatePath: `templates/${template}`,
     fileNameFormat: {
       enabled: true,
-      format: '{{DATE:YYYYMMDDHHmmss}}-{{VALUE}}',
+      format: kind === 'domain'
+        ? 'domain'
+        : '{{DATE:YYYYMMDDHHmmss}}00-{{VALUE:title|label:Note title|case:slug}}',
     },
     folder: {
       enabled: true,
@@ -359,13 +384,12 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
         user_scripts_folder: '',
         enable_folder_templates: true,
         folder_templates: [
-          { folder: 'decisions', template: 'templates/decision.md' },
-          { folder: 'procedures', template: 'templates/procedure.md' },
-          { folder: 'observations', template: 'templates/observation.md' },
-          { folder: 'references', template: 'templates/reference.md' },
-          { folder: 'resources', template: 'templates/resource.md' },
+          { folder: 'general/decisions', template: 'templates/decision.md' },
+          { folder: 'general/procedures', template: 'templates/procedure.md' },
+          { folder: 'general/observations', template: 'templates/observation.md' },
+          { folder: 'general/references', template: 'templates/reference.md' },
+          { folder: 'general/resources', template: 'templates/resource.md' },
           { folder: 'preferences', template: 'templates/personalization.md' },
-          { folder: 'projects', template: 'templates/domain.md' },
         ],
         enable_file_templates: false,
         syntax_highlighting: true,
@@ -421,7 +445,13 @@ function pluginEntriesForConfig(config: ObsidianConfig): PluginRegistryEntry[] {
     : PLUGIN_REGISTRY.filter(entry => entry.id !== 'read-only-view');
 }
 
-async function downloadAsset(repo: string, tag: string, fileName: string, fetchImpl: typeof fetch): Promise<Buffer> {
+function pluginEntriesForConfigWithRegistry(config: ObsidianConfig, registry: PluginRegistryEntry[]): PluginRegistryEntry[] {
+  return config.readOnly
+    ? registry
+    : registry.filter(entry => entry.id !== 'read-only-view');
+}
+
+async function downloadAsset(repo: string, tag: string, fileName: string, fetchImpl: typeof fetch, verifyDigest: string | null): Promise<Buffer> {
   const url = `https://github.com/${repo}/releases/download/${tag}/${fileName}`;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), ASSET_DOWNLOAD_TIMEOUT_MS);
@@ -447,7 +477,17 @@ async function downloadAsset(repo: string, tag: string, fileName: string, fetchI
     throw new Error(`HTTP ${response.status} for ${url}`);
   }
   const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+  const contents = Buffer.from(arrayBuffer);
+  if (verifyDigest && sha256Hex(contents) !== verifyDigest) {
+    throw new Error(`Digest mismatch for ${url}`);
+  }
+  return contents;
+}
+
+function installedAssetMatchesDigest(dirPath: string, fileName: string, digest: string): boolean {
+  const assetPath = path.join(dirPath, fileName);
+  if (!fs.existsSync(assetPath)) return false;
+  return sha256Hex(fs.readFileSync(assetPath)) === digest;
 }
 
 async function installPluginAssets(
@@ -455,14 +495,14 @@ async function installPluginAssets(
   plugin: PluginRegistryEntry,
   fetchImpl: typeof fetch,
   forceRefresh: boolean,
+  verifyAssetIntegrity: boolean,
 ): Promise<AssetInstallResult> {
   const pluginDir = path.join(getObsidianDir(vaultPath), 'plugins', plugin.id);
   const tempDir = pluginDir + '.tmp';
   ensureDir(pluginDir);
 
-  const requiredFiles = plugin.files.filter(file => file === 'main.js' || file === 'manifest.json');
-  const hadRequiredFiles = requiredFiles.every(file => fs.existsSync(path.join(pluginDir, file)));
-  if (hadRequiredFiles && !forceRefresh) {
+  const allFilesCurrent = plugin.files.every(file => installedAssetMatchesDigest(pluginDir, file, expectedDigest(plugin.fileDigests, file)));
+  if (allFilesCurrent && !forceRefresh) {
     return { available: true, refreshed: false };
   }
 
@@ -470,7 +510,13 @@ async function installPluginAssets(
     fs.rmSync(tempDir, { recursive: true, force: true });
     ensureDir(tempDir);
     for (const fileName of plugin.files) {
-      const contents = await downloadAsset(plugin.repo, plugin.tag, fileName, fetchImpl);
+      const contents = await downloadAsset(
+        plugin.repo,
+        plugin.tag,
+        fileName,
+        fetchImpl,
+        verifyAssetIntegrity ? expectedDigest(plugin.fileDigests, fileName) : null,
+      );
       fs.writeFileSync(path.join(tempDir, fileName), contents);
     }
     for (const fileName of plugin.files) {
@@ -481,7 +527,7 @@ async function installPluginAssets(
   } catch {
     fs.rmSync(tempDir, { recursive: true, force: true });
     return {
-      available: requiredFiles.every(file => fs.existsSync(path.join(pluginDir, file))),
+      available: plugin.files.every(file => fs.existsSync(path.join(pluginDir, file))),
       refreshed: false,
     };
   }
@@ -492,14 +538,14 @@ async function installThemeAssets(
   theme: ThemeRegistryEntry,
   fetchImpl: typeof fetch,
   forceRefresh: boolean,
+  verifyAssetIntegrity: boolean,
 ): Promise<AssetInstallResult> {
   const themeDir = path.join(getObsidianDir(vaultPath), 'themes', theme.name);
   const tempDir = themeDir + '.tmp';
   ensureDir(themeDir);
 
-  const requiredFiles = ['manifest.json', 'theme.css'];
-  const alreadyInstalled = requiredFiles.every(file => fs.existsSync(path.join(themeDir, file)));
-  if (alreadyInstalled && !forceRefresh) {
+  const allFilesCurrent = theme.files.every(file => installedAssetMatchesDigest(themeDir, file, expectedDigest(theme.fileDigests, file)));
+  if (allFilesCurrent && !forceRefresh) {
     return { available: true, refreshed: false };
   }
 
@@ -507,7 +553,13 @@ async function installThemeAssets(
     fs.rmSync(tempDir, { recursive: true, force: true });
     ensureDir(tempDir);
     for (const fileName of theme.files) {
-      const contents = await downloadAsset(theme.repo, theme.tag, fileName, fetchImpl);
+      const contents = await downloadAsset(
+        theme.repo,
+        theme.tag,
+        fileName,
+        fetchImpl,
+        verifyAssetIntegrity ? expectedDigest(theme.fileDigests, fileName) : null,
+      );
       fs.writeFileSync(path.join(tempDir, fileName), contents);
     }
     for (const fileName of theme.files) {
@@ -518,7 +570,7 @@ async function installThemeAssets(
   } catch {
     fs.rmSync(tempDir, { recursive: true, force: true });
     return {
-      available: requiredFiles.every(file => fs.existsSync(path.join(themeDir, file))),
+      available: theme.files.every(file => fs.existsSync(path.join(themeDir, file))),
       refreshed: false,
     };
   }
@@ -626,10 +678,11 @@ function buildPluginManifestState(
   manifest: ScaffoldManifest,
   config: ObsidianConfig,
   pluginResults: Map<string, AssetInstallResult>,
+  registry: PluginRegistryEntry[],
 ): Record<string, { version: string; configVersion: number }> {
   const nextPlugins: Record<string, { version: string; configVersion: number }> = {};
 
-  for (const plugin of pluginEntriesForConfig(config)) {
+  for (const plugin of pluginEntriesForConfigWithRegistry(config, registry)) {
     const result = pluginResults.get(plugin.id);
     if (!result?.available) continue;
 
@@ -654,10 +707,13 @@ async function applyScaffoldV1(
   writeOwnedSnippets(vaultPath, config);
 
   const fetchImpl = deps.fetchImpl ?? fetch;
+  const verifyAssetIntegrity = deps.verifyAssetIntegrity ?? true;
+  const pluginRegistry = deps.pluginRegistry ?? PLUGIN_REGISTRY;
+  const themeRegistry = deps.themeRegistry ?? THEME_REGISTRY;
   const pluginResults = new Map<string, AssetInstallResult>();
   const enabledPlugins: string[] = [];
-  for (const plugin of pluginEntriesForConfig(config)) {
-    const result = await installPluginAssets(vaultPath, plugin, fetchImpl, manifest.plugins[plugin.id]?.version !== plugin.tag);
+  for (const plugin of pluginEntriesForConfigWithRegistry(config, pluginRegistry)) {
+    const result = await installPluginAssets(vaultPath, plugin, fetchImpl, manifest.plugins[plugin.id]?.version !== plugin.tag, verifyAssetIntegrity);
     pluginResults.set(plugin.id, result);
     if (result.available) {
       enabledPlugins.push(plugin.id);
@@ -666,9 +722,9 @@ async function applyScaffoldV1(
     }
   }
 
-  const themeResult = await installThemeAssets(vaultPath, THEME_REGISTRY, fetchImpl, manifest.theme?.version !== THEME_REGISTRY.tag);
+  const themeResult = await installThemeAssets(vaultPath, themeRegistry, fetchImpl, manifest.theme?.version !== themeRegistry.tag, verifyAssetIntegrity);
   if (!themeResult.available) {
-    logToFile('WARN', 'Skipped Obsidian theme scaffold asset after download failure', { theme: THEME_REGISTRY.name, repo: THEME_REGISTRY.repo, tag: THEME_REGISTRY.tag });
+    logToFile('WARN', 'Skipped Obsidian theme scaffold asset after download failure', { theme: themeRegistry.name, repo: themeRegistry.repo, tag: themeRegistry.tag });
   }
 
   syncManagedAppConfig(vaultPath, config);
@@ -681,10 +737,10 @@ async function applyScaffoldV1(
     ...manifest,
     scaffoldVersion: CURRENT_SCAFFOLD_VERSION,
     lastUpgrade: (deps.now ?? (() => new Date()))().toISOString(),
-    plugins: buildPluginManifestState(manifest, config, pluginResults),
+    plugins: buildPluginManifestState(manifest, config, pluginResults, pluginRegistry),
     theme: themeResult.available
       ? (themeResult.refreshed || !manifest.theme
-        ? { name: THEME_REGISTRY.name, version: THEME_REGISTRY.tag }
+        ? { name: themeRegistry.name, version: themeRegistry.tag }
         : manifest.theme)
       : null,
     snippets: { version: SNIPPET_VERSION },
