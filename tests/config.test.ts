@@ -81,6 +81,9 @@ describe('config.ts', () => {
     expect(cfg.lifecycle.exemptKinds).toEqual(['personalization', 'decision']);
     expect(cfg.lifecycle.autoArchiveFleetingDays).toBe(90);
     expect(cfg.telemetry.enabled).toBe(false);
+    expect(cfg.obsidian.scaffold).toBe(true);
+    expect(cfg.obsidian.autoUpgrade).toBe(true);
+    expect(cfg.obsidian.readOnly).toBe(true);
   });
 
   it('reads vault path from YAML config', async () => {
@@ -130,6 +133,22 @@ describe('config.ts', () => {
     const cfg = configModule.getConfig();
 
     expect(cfg.telemetry.enabled).toBe(true);
+  });
+
+  it('reads obsidian scaffold config overrides', async () => {
+    const isolated = createIsolatedConfigHome();
+    fs.writeFileSync(
+      isolated.configPath,
+      ['obsidian:', '  scaffold: false', '  autoUpgrade: false', '  readOnly: false', ''].join('\n'),
+      'utf-8'
+    );
+
+    const configModule = await loadFreshConfigModule();
+    const cfg = configModule.getConfig();
+
+    expect(cfg.obsidian.scaffold).toBe(false);
+    expect(cfg.obsidian.autoUpgrade).toBe(false);
+    expect(cfg.obsidian.readOnly).toBe(false);
   });
 
   it('falls back to disabled telemetry for malformed telemetry config', async () => {

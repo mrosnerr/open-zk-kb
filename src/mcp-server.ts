@@ -15,9 +15,12 @@ if (typeof globalThis.Bun === 'undefined') {
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { AnySchema } from '@modelcontextprotocol/sdk/server/zod-compat.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import * as fs from 'fs';
+import * as path from 'path';
 import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
+import { ensureObsidianScaffold } from './obsidian-scaffold.js';
 import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import type { EmbeddingConfig } from './embeddings.js';
@@ -29,13 +32,39 @@ const { NoteRepository } = await import('./storage/NoteRepository.js');
 
 const config = getConfig();
 let repo: NoteRepositoryType | null = null;
+let repoInitPromise: Promise<NoteRepositoryType> | null = null;
 
-function getOrCreateRepo(): NoteRepositoryType {
-  if (!repo) {
-    repo = new NoteRepository(config.vault, { telemetryEnabled: config.telemetry.enabled });
+async function getOrCreateRepo(): Promise<NoteRepositoryType> {
+  if (repo) return repo;
+  if (repoInitPromise) return repoInitPromise;
+
+  repoInitPromise = (async () => {
+    const instance = new NoteRepository(config.vault, { telemetryEnabled: config.telemetry.enabled });
+    repo = instance;
     logToFile('INFO', 'MCP server: repository opened', { vault: config.vault }, config);
+
+    const obsidianDir = path.join(config.vault, '.obsidian');
+    if (config.obsidian.autoUpgrade && fs.existsSync(obsidianDir)) {
+      try {
+        await ensureObsidianScaffold(config.vault, config.obsidian);
+      } catch (error) {
+        logToFile('WARN', 'Failed to auto-upgrade Obsidian scaffold on server init', {
+          error: error instanceof Error ? error.message : String(error),
+          vault: config.vault,
+        }, config);
+      }
+    }
+
+    return instance;
+  })();
+
+  try {
+    return await repoInitPromise;
+  } catch (error) {
+    repo = null;
+    repoInitPromise = null;
+    throw error;
   }
-  return repo;
 }
 
 let cachedEmbeddingConfig: EmbeddingConfig | null | undefined;
@@ -117,7 +146,7 @@ server.registerTool(
         client: args.client,
         related: args.related,
         model: args.model,
-      }, getOrCreateRepo(), getEmbeddingConfig(), config);
+      }, await getOrCreateRepo(), getEmbeddingConfig(), config);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-store failed', {
@@ -154,7 +183,7 @@ server.registerTool(
         url: args.url,
         html: args.html,
         model: args.model,
-      }, getOrCreateRepo());
+      }, await getOrCreateRepo());
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-ingest failed', {
@@ -225,7 +254,7 @@ server.registerTool(
         tags: args.tags,
         limit: args.limit,
         model: args.model,
-      }, getOrCreateRepo(), queryEmbedding, config);
+      }, await getOrCreateRepo(), queryEmbedding, config);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-search failed', {
@@ -259,7 +288,7 @@ server.registerTool(
         project: args.project,
         logEntries: args.logEntries,
         model: args.model,
-      }, getOrCreateRepo(), config);
+      }, await getOrCreateRepo(), config);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-overview failed', {
@@ -287,9 +316,9 @@ server.registerTool(
   },
   async (args: z.infer<typeof openSchema>) => {
     try {
-      const result = handleOpen({
+      const result = await handleOpen({
         project: args.project,
-      }, config, args.project ? getOrCreateRepo() : repo ?? undefined);
+      }, config, args.project ? await getOrCreateRepo() : repo ?? undefined);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-open failed', {
@@ -306,8 +335,8 @@ server.registerTool(
 // ---- knowledge-maintain ----
 
 const maintainSchema = z.object({
-  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'orphans', 'broken-links', 'migrate-layout'])
-      .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags), orphans (notes with no links), broken-links (wikilinks to non-existent notes), migrate-layout (move flat vault to kind-based directory structure)'),
+  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'orphans', 'broken-links', 'migrate-layout', 'upgrade-vault'])
+      .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags), orphans (notes with no links), broken-links (wikilinks to non-existent notes), migrate-layout (move flat vault to kind-based directory structure), or upgrade-vault (refresh Obsidian scaffold assets).'),
   noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
@@ -334,7 +363,7 @@ server.registerTool(
         telemetry: args.telemetry,
         dryRun: args.dryRun,
         model: args.model,
-      }, getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION);
+      }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-maintain failed', {
@@ -386,7 +415,7 @@ server.registerTool(
         project: args.project,
         dry_run: args.dry_run,
         model: args.model,
-      }, getOrCreateRepo(), getEmbeddingConfig(), config);
+      }, await getOrCreateRepo(), getEmbeddingConfig(), config);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-mine failed', {
@@ -416,7 +445,7 @@ server.registerTool(
   },
   async (args: z.infer<typeof templateSchema>) => {
     try {
-      const r = args.project ? getOrCreateRepo() : (repo ?? undefined);
+      const r = args.project ? await getOrCreateRepo() : (repo ?? undefined);
       const result = handleTemplate({
         kind: args.kind,
         project: args.project,

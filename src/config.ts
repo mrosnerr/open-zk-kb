@@ -61,6 +61,11 @@ interface RawConfig {
   telemetry?: {
     enabled?: boolean;
   };
+  obsidian?: {
+    scaffold?: boolean;
+    autoUpgrade?: boolean;
+    readOnly?: boolean;
+  };
   embeddings?: EmbeddingsConfig;
 }
 
@@ -103,6 +108,11 @@ export const DEFAULT_CONFIG: AppConfig = {
   },
   telemetry: {
     enabled: false,
+  },
+  obsidian: {
+    scaffold: true,
+    autoUpgrade: true,
+    readOnly: true,
   },
 };
 
@@ -207,6 +217,17 @@ export function getConfig(): AppConfig {
       enabled: typeof raw?.telemetry?.enabled === 'boolean'
         ? raw.telemetry.enabled
         : DEFAULT_CONFIG.telemetry.enabled,
+    },
+    obsidian: {
+      scaffold: typeof raw?.obsidian?.scaffold === 'boolean'
+        ? raw.obsidian.scaffold
+        : DEFAULT_CONFIG.obsidian.scaffold,
+      autoUpgrade: typeof raw?.obsidian?.autoUpgrade === 'boolean'
+        ? raw.obsidian.autoUpgrade
+        : DEFAULT_CONFIG.obsidian.autoUpgrade,
+      readOnly: typeof raw?.obsidian?.readOnly === 'boolean'
+        ? raw.obsidian.readOnly
+        : DEFAULT_CONFIG.obsidian.readOnly,
     },
   };
 }

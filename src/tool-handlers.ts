@@ -38,6 +38,7 @@ import { extractFromUrl, extractArticle } from './url-extractor.js';
 import type { ExtractionResult } from './url-extractor.js';
 import { splitSections, extractLinks, countWords } from './content-splitter.js';
 import { detectObsidian, launchObsidian, formatNotInstalledMessage, formatSuccessMessage } from './obsidian.js';
+import { ensureObsidianScaffold, getObsidianScaffoldStatus } from './obsidian-scaffold.js';
 import { contractPath } from './utils/path.js';
 import { getTemplate, getExpectedCategories, matchCategories, extractHeaders, stripExamplesBlock, CONFORMANCE_KINDS } from './template-handler.js';
 
@@ -220,6 +221,7 @@ export interface OpenArgs {
   project?: string;
   _detectObsidian?: typeof detectObsidian;
   _launchObsidian?: typeof launchObsidian;
+  _ensureScaffold?: typeof ensureObsidianScaffold;
 }
 
 interface RelatedNote {
@@ -542,10 +544,14 @@ function updateGlobalNavigation(
   if (config?.navigation?.enableGlobalIndex !== false) {
     try {
       const projectStats = repo.getProjectStats();
+      const totalNoteCount = repo.getStats().total;
       const prefsCount = repo.getPersonalizationNotes().length;
       const generalCount = getUnscopedNotes().length;
       const fleetingCount = getFleetingNotes().length;
-      const content = buildGlobalIndexContent(projectStats, prefsCount, generalCount, fleetingCount);
+      const content = buildGlobalIndexContent(projectStats, prefsCount, generalCount, fleetingCount, totalNoteCount, {
+        includeReviewLink: config?.navigation?.enableReviewMoc !== false,
+        includeGlobalLogLink: config?.navigation?.enableGlobalLog !== false,
+      });
       fs.writeFileSync(path.join(vaultPath, 'index.md'), content, 'utf-8');
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild global index', {
@@ -985,6 +991,28 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
       }
 
+      if (config.vault) {
+        const scaffoldStatus = getObsidianScaffoldStatus(config.vault, config.obsidian);
+        output += '\n## Obsidian Vault\n';
+        output += `- Scaffold: ${scaffoldStatus.scaffolded ? 'present' : 'not installed'}\n`;
+        if (scaffoldStatus.scaffoldVersion != null) {
+          output += `- Scaffold version: ${scaffoldStatus.scaffoldVersion} (latest: ${scaffoldStatus.latestVersion})\n`;
+        }
+        if (scaffoldStatus.theme) {
+          output += `- Theme: ${scaffoldStatus.theme.name} ${scaffoldStatus.theme.version}\n`;
+        }
+        output += `- Plugins: ${scaffoldStatus.pluginsInstalled}/${scaffoldStatus.pluginsExpected} installed`;
+        if (scaffoldStatus.pluginsNeedingUpdate > 0) {
+          output += `, ${scaffoldStatus.pluginsNeedingUpdate} need update`;
+        }
+        output += '\n';
+        output += `- Auto-upgrade: ${scaffoldStatus.autoUpgrade ? 'enabled' : 'disabled'}\n`;
+        output += `- Read-only: ${scaffoldStatus.readOnly ? 'enabled' : 'disabled'}\n`;
+        if (!scaffoldStatus.readOnly) {
+          output += '- External edits risk index/frontmatter drift: true\n';
+        }
+      }
+
       if (embeddingStats.total > 0 || embeddingConfig) {
         output += '\n## Embeddings\n';
         if (embeddingConfig) {
@@ -1119,6 +1147,21 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += `- **${m.id}** (v${m.version}): ${m.description} — ${m.pending} pending [${m.status}]\n`;
         }
       }
+      return output;
+    }
+    case 'upgrade-vault': {
+      const manifest = await ensureObsidianScaffold(config.vault, config.obsidian);
+      if (!manifest) {
+        return 'Obsidian scaffold is disabled in config.';
+      }
+
+      const status = getObsidianScaffoldStatus(config.vault, config.obsidian);
+      let output = '## Obsidian Vault Upgrade\n\n';
+      output += `Scaffold version: ${status.scaffoldVersion} (latest: ${status.latestVersion})\n`;
+      output += `Theme: ${status.theme ? `${status.theme.name} ${status.theme.version}` : 'not installed'}\n`;
+      output += `Plugins: ${status.pluginsInstalled}/${status.pluginsExpected} installed\n`;
+      output += `Auto-upgrade: ${status.autoUpgrade ? 'enabled' : 'disabled'}\n`;
+      output += `Read-only: ${status.readOnly ? 'enabled' : 'disabled'}\n`;
       return output;
     }
     case 'upgrade-read': {
@@ -1695,7 +1738,7 @@ export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?
   return output;
 }
 
-export function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteRepository): string {
+export async function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteRepository): Promise<string> {
   const vaultPath = config.vault;
 
   if (!fs.existsSync(vaultPath)) {
@@ -1707,6 +1750,16 @@ export function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteReposit
 
   if (!detection.installed) {
     return formatNotInstalledMessage(vaultPath);
+  }
+
+  const ensureScaffold = args._ensureScaffold || ensureObsidianScaffold;
+  try {
+    await ensureScaffold(vaultPath, config.obsidian);
+  } catch (error) {
+    logToFile('WARN', 'Failed to scaffold Obsidian vault config before launch', {
+      error: error instanceof Error ? error.message : String(error),
+      vaultPath,
+    });
   }
 
   let filePath: string | undefined;

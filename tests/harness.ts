@@ -58,6 +58,11 @@ export function createTestHarness(options: TestHarnessOptions = {}): TestContext
     telemetry: {
       enabled: options.telemetryEnabled ?? false,
     },
+    obsidian: {
+      scaffold: true,
+      autoUpgrade: true,
+      readOnly: true,
+    },
   };
 
   const engine = new NoteRepository(tempDir, { telemetryEnabled: config.telemetry.enabled });
