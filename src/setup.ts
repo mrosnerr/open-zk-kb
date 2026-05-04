@@ -4,7 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
@@ -48,6 +48,8 @@ export interface ClientConfig {
   /** Path where a Claude Code skill directory should be installed (e.g. ~/.claude/skills/open-zk-kb) */
   skillPath?: string;
 }
+
+const OPENCODE_PLUGIN_PACKAGE = 'open-zk-kb';
 
 export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
   'opencode': {
@@ -143,17 +145,107 @@ function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string): McpEntr
   };
 }
 
-function detectServerPath(): string | undefined {
+function detectProjectRoot(): string | undefined {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const projectRoot = path.resolve(scriptDir, '..');
-  if (!fs.existsSync(path.join(projectRoot, '.git'))) {
+  return fs.existsSync(path.join(projectRoot, '.git')) ? projectRoot : undefined;
+}
+
+function detectServerPath(): string | undefined {
+  const projectRoot = detectProjectRoot();
+  if (!projectRoot) {
     return undefined;
   }
-  const distPath = path.resolve(scriptDir, '..', 'dist', 'mcp-server.js');
+  const distPath = path.join(projectRoot, 'dist', 'mcp-server.js');
   if (fs.existsSync(distPath)) {
     return distPath;
   }
   throw new Error('Could not detect server path. Please provide --server-path');
+}
+
+function buildOpenCodePluginEntry(): string {
+  const projectRoot = detectProjectRoot();
+  return projectRoot ? pathToFileURL(projectRoot).toString() : OPENCODE_PLUGIN_PACKAGE;
+}
+
+function isOpenCodePluginEntry(value: string): boolean {
+  if (value === OPENCODE_PLUGIN_PACKAGE || value === `${OPENCODE_PLUGIN_PACKAGE}/server`) {
+    return true;
+  }
+
+  if (!value.startsWith('file://')) {
+    return false;
+  }
+
+  try {
+    const filePath = fileURLToPath(value);
+    const normalized = path.normalize(filePath);
+    return normalized.endsWith(`${path.sep}open-zk-kb`)
+      || normalized.endsWith(`${path.sep}open-zk-kb${path.sep}dist${path.sep}opencode-plugin${path.sep}index.js`);
+  } catch {
+    return false;
+  }
+}
+
+function getPluginArray(config: JsonObject): unknown[] | undefined {
+  return Array.isArray(config.plugin) ? config.plugin : undefined;
+}
+
+function hasHealthyOpenCodePlugin(config: JsonObject): boolean {
+  const plugins = getPluginArray(config);
+  return !!plugins?.some((entry) => typeof entry === 'string' && isOpenCodePluginEntry(entry));
+}
+
+function normalizeOpenCodePlugins(config: JsonObject, desiredEntry: string): void {
+  const existing = getPluginArray(config) ?? [];
+  const preserved = existing.filter((entry) => typeof entry === 'string' && !isOpenCodePluginEntry(entry));
+  config.plugin = [...preserved, desiredEntry];
+}
+
+function removeOpenCodePlugin(config: JsonObject): void {
+  const existing = getPluginArray(config);
+  if (!existing) {
+    return;
+  }
+
+  const preserved = existing.filter((entry) => typeof entry === 'string' && !isOpenCodePluginEntry(entry));
+  if (preserved.length === 0) {
+    delete config.plugin;
+    return;
+  }
+
+  config.plugin = preserved;
+}
+
+function validateOpenCodePlugin(config: JsonObject, expectedEntry: string): string[] {
+  if (!("plugin" in config)) {
+    return ['missing plugin array'];
+  }
+
+  if (!Array.isArray(config.plugin)) {
+    return ['plugin is not an array'];
+  }
+
+  if (!config.plugin.every((entry) => typeof entry === 'string')) {
+    return ['plugin entries must be strings'];
+  }
+
+  const pluginEntries = config.plugin.filter((entry): entry is string => typeof entry === 'string');
+  const matches = pluginEntries.filter(isOpenCodePluginEntry);
+
+  if (matches.length === 0) {
+    return ['missing open-zk-kb plugin entry'];
+  }
+
+  if (matches.length > 1) {
+    return ['duplicate open-zk-kb plugin entries'];
+  }
+
+  if (matches[0] !== expectedEntry) {
+    return [`expected plugin entry "${expectedEntry}"`];
+  }
+
+  return [];
 }
 
 function formatServerCommand(serverPath?: string): string {
@@ -451,6 +543,9 @@ function repairClientConfig(clientConfig: ClientConfig, config: Record<string, u
   const inferredServerPath = inferServerPathFromEntry(clientConfig, existingEntry);
   const repairedEntry = buildMcpEntry(clientConfig, inferredServerPath);
   setNestedValue(config, clientConfig.mcpPath, repairedEntry);
+  if (clientConfig.mcpFormat === 'opencode') {
+    normalizeOpenCodePlugins(config, buildOpenCodePluginEntry());
+  }
   fs.mkdirSync(path.dirname(clientConfig.configPath), { recursive: true });
   fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
 }
@@ -524,6 +619,18 @@ export function doctor(args: DoctorArgs = {}): string {
           if (issues.length === 0) {
             configured = true;
             pushCheck('OK', `${clientConfig.name}: MCP config looks healthy in ${clientConfig.configPath}`);
+            if (clientConfig.mcpFormat === 'opencode') {
+              const pluginIssues = validateOpenCodePlugin(config, buildOpenCodePluginEntry());
+              if (pluginIssues.length === 0) {
+                pushCheck('OK', `${clientConfig.name}: plugin config looks healthy in ${clientConfig.configPath}`);
+              } else if (args.fix) {
+                normalizeOpenCodePlugins(config, buildOpenCodePluginEntry());
+                fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
+                pushCheck('FIXED', `${clientConfig.name}: repaired plugin config in ${clientConfig.configPath}`);
+              } else {
+                pushCheck('ERROR', `${clientConfig.name}: plugin config is invalid (${pluginIssues.join(', ')})`);
+              }
+            }
           } else if (args.fix) {
             repairClientConfig(clientConfig, config, entry);
             configured = true;
@@ -635,6 +742,7 @@ export function doctor(args: DoctorArgs = {}): string {
 export function install(args: InstallArgs): string {
   const clientConfig = CLIENT_CONFIGS[args.client];
   const serverPath = args.serverPath || detectServerPath();
+  const pluginEntry = clientConfig.mcpFormat === 'opencode' ? buildOpenCodePluginEntry() : null;
   const vaultPath = getVaultPath();
   
   if (serverPath && !fs.existsSync(serverPath)) {
@@ -654,7 +762,9 @@ export function install(args: InstallArgs): string {
 
   const existing = getNestedValue(config, clientConfig.mcpPath);
 
-  if (existing && !args.force) {
+  const pluginAlreadyHealthy = pluginEntry ? validateOpenCodePlugin(config, pluginEntry).length === 0 : true;
+
+  if (existing && !args.force && pluginAlreadyHealthy) {
     return `Already installed for ${clientConfig.name}. Use --force to overwrite.`;
   }
   
@@ -667,6 +777,9 @@ export function install(args: InstallArgs): string {
 
   if (args.dryRun) {
     let output = `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
+    if (pluginEntry) {
+      output += `\nWould ensure plugin entry: ${pluginEntry}`;
+    }
     if (clientConfig.skillPath) {
       output += `\nWould install skill to ${clientConfig.skillPath}`;
     } else if (clientConfig.agentDocsPath) {
@@ -679,6 +792,9 @@ export function install(args: InstallArgs): string {
   }
   
   setNestedValue(config, clientConfig.mcpPath, mcpEntry);
+  if (pluginEntry) {
+    normalizeOpenCodePlugins(config, pluginEntry);
+  }
   
   const configDir = path.dirname(clientConfig.configPath);
   if (!fs.existsSync(configDir)) {
@@ -731,6 +847,9 @@ export function install(args: InstallArgs): string {
   output += `Config: ${clientConfig.configPath}\n`;
   output += `Vault: ${vaultPath}\n`;
   output += `Server: ${formatServerCommand(serverPath)}\n`;
+  if (pluginEntry) {
+    output += `Plugin: ${pluginEntry}\n`;
+  }
   if (skillResult) {
     output += `Skill: ${skillResult.skillPath} (${skillResult.action})\n`;
   }
@@ -815,6 +934,9 @@ export function uninstall(args: UninstallArgs): string {
   }
   
   deleteNestedValue(config, clientConfig.mcpPath);
+  if (clientConfig.mcpFormat === 'opencode') {
+    removeOpenCodePlugin(config);
+  }
 
   fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
 
