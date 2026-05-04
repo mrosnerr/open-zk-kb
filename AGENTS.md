@@ -189,5 +189,5 @@ For any new feature, ask in order:
 - **Knowledge capture**: Claude Code uses skills (`~/.claude/skills/open-zk-kb/`); other clients use injected `AGENTS.md` instructions. Calling models use `knowledge-store` directly.
 - **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
-- **7 MCP tools**: knowledge-store, knowledge-search, knowledge-mine, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open
+- **8 MCP tools**: knowledge-store, knowledge-search, knowledge-template, knowledge-mine, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open
 - **Auto-generated notes**: `index` (per-project catalog, wikilinks grouped by kind) and `log` (per-project append-only event log) are auto-generated on project-scoped events. Agents cannot create them manually.

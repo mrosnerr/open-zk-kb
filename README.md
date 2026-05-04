@@ -23,6 +23,7 @@ AI assistants forget everything between sessions. open-zk-kb gives your assistan
 - **Atomic notes** — one concept per note (9 kinds, lifecycle management) keeps results precise
 - **Local-first** — no API keys, works offline, scales to thousands of notes
 - **Human-readable** — Markdown + YAML frontmatter, rebuildable from files
+- **Obsidian-native** — browse your knowledge graph, navigate by kind, and explore connections visually
 - **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, Windsurf, and Zed
 - **MIT-licensed**
 
@@ -43,12 +44,13 @@ Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Ze
 
 ## How It Works
 
-Your AI assistant gets seven MCP tools:
+Your AI assistant gets eight MCP tools:
 
 | Tool | What it does |
 |------|-------------|
 | `knowledge-search` | Search the knowledge base before starting work |
 | `knowledge-store` | Save decisions, preferences, procedures, and insights |
+| `knowledge-template` | Get the canonical note template for a specific kind |
 | `knowledge-mine` | Bulk-screen candidates from session history for duplicates and store |
 | `knowledge-maintain` | Review, promote, archive, and rebuild notes |
 | `knowledge-ingest` | Extract article content from URLs or HTML into structured markdown |
@@ -99,6 +101,17 @@ obsidian:
 | `log` | permanent | Auto-generated chronological operations log |
 
 Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
+
+## Obsidian Integration
+
+Your knowledge base is an [Obsidian](https://obsidian.md) vault. The `knowledge-open` tool launches it with a managed scaffold:
+
+- **Curated plugins** — Dataview, Templater, QuickAdd, and Homepage pre-configured
+- **Kind-based directories** — notes organized by kind with Map of Content navigation
+- **Graph view** — visualize connections between notes, decisions, and projects
+- **Read-only defaults** — scaffold-managed files are protected from accidental edits
+
+The scaffold auto-upgrades on launch. To opt out, set `obsidian.autoUpgrade: false` in `config.yaml`.
 
 <details>
 <summary><h2>Manual Install</h2></summary>
@@ -198,7 +211,7 @@ bun run setup            # interactive installer
 ## Links
 
 - [Setup Guide](docs/setup-guide.md) — installation, instruction injection, verification
-- [Tools Reference](docs/tools-reference.md) — all 7 MCP tools, parameters, examples
+- [Tools Reference](docs/tools-reference.md) — all 8 MCP tools, parameters, examples
 - [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
 - [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
 - [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection
