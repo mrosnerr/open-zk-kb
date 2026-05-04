@@ -303,23 +303,24 @@ describe('handleOpen', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should return error when vault does not exist', () => {
+  it('should return error when vault does not exist', async () => {
     const config = { ...ctx.config, vault: '/nonexistent/vault/path' };
-    const result = handleOpen({ _detectObsidian: noObsidian }, config);
+    const result = await handleOpen({ _detectObsidian: noObsidian }, config);
     expect(result).toContain('Vault directory does not exist');
     expect(result).toContain('Store a note first');
   });
 
-  it('should return not-installed message when Obsidian is missing', () => {
-    const result = handleOpen({ _detectObsidian: noObsidian }, ctx.config);
+  it('should return not-installed message when Obsidian is missing', async () => {
+    const result = await handleOpen({ _detectObsidian: noObsidian }, ctx.config);
     expect(result).toContain('Obsidian is not installed');
     expect(result).toContain('https://obsidian.md/download');
   });
 
-  it('should return success when Obsidian is installed', () => {
-    const result = handleOpen({
+  it('should return success when Obsidian is installed', async () => {
+    const result = await handleOpen({
       _detectObsidian: fakeObsidian,
       _launchObsidian: noopLaunch,
+      _ensureScaffold: async () => null,
     }, ctx.config);
     expect(result).toContain('Opened vault in Obsidian');
   });
@@ -334,35 +335,38 @@ describe('handleOpen', () => {
       project: 'myapp',
     }, ctx.engine, null, ctx.config);
 
-    const result = handleOpen({
+    const result = await handleOpen({
       project: 'myapp',
       _detectObsidian: fakeObsidian,
       _launchObsidian: noopLaunch,
+      _ensureScaffold: async () => null,
     }, ctx.config, ctx.engine);
     expect(result).toContain('Focused on project: myapp');
   });
 
-  it('should not claim project focus when no index note exists', () => {
-    const result = handleOpen({
+  it('should not claim project focus when no index note exists', async () => {
+    const result = await handleOpen({
       project: 'nonexistent',
       _detectObsidian: fakeObsidian,
       _launchObsidian: noopLaunch,
+      _ensureScaffold: async () => null,
     }, ctx.config, ctx.engine);
     expect(result).not.toContain('Focused on project');
   });
 
-  it('should report launch failure', () => {
+  it('should report launch failure', async () => {
     const failLaunch = () => 'spawn failed';
-    const result = handleOpen({
+    const result = await handleOpen({
       _detectObsidian: fakeObsidian,
       _launchObsidian: failLaunch,
+      _ensureScaffold: async () => null,
     }, ctx.config);
     expect(result).toContain('Failed to launch Obsidian');
     expect(result).toContain('spawn failed');
   });
 
-  it('should work without repo when no project specified', () => {
-    const result = handleOpen({ _detectObsidian: noObsidian }, ctx.config);
+  it('should work without repo when no project specified', async () => {
+    const result = await handleOpen({ _detectObsidian: noObsidian }, ctx.config);
     expect(typeof result).toBe('string');
     expect(result.length).toBeGreaterThan(0);
   });
