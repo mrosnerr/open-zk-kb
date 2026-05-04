@@ -14,6 +14,16 @@ function sha256(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
 }
 
+function getRequestedFileName(url: string | URL | Request): string {
+  const raw = typeof url === 'string'
+    ? url
+    : url instanceof URL
+      ? url.toString()
+      : url.url;
+  const { pathname } = new URL(raw, 'https://mock.local');
+  return pathname.split('/').pop() || 'asset.txt';
+}
+
 function mockScaffoldDeps() {
   return {
     fetchImpl: mockFetchFactory(),
@@ -53,8 +63,7 @@ function mockIntegrityDeps() {
 
 function mockFetchFactory() {
   return async (url: string | URL | Request): Promise<Response> => {
-    const urlString = String(url);
-    const fileName = urlString.split('/').pop() || 'asset.txt';
+    const fileName = getRequestedFileName(url);
 
     if (fileName === 'manifest.json') {
       return new Response(MOCK_MANIFEST_CONTENT, { status: 200 });
@@ -66,14 +75,13 @@ function mockFetchFactory() {
       return new Response(MOCK_MAIN_CONTENT, { status: 200 });
     }
 
-    return new Response('ok', { status: 200 });
+    throw new Error(`Unexpected scaffold asset request: ${fileName}`);
   };
 }
 
 function selectiveFailureFetchFactory(failFiles: string[]) {
   return async (url: string | URL | Request): Promise<Response> => {
-    const urlString = String(url);
-    const fileName = urlString.split('/').pop() || 'asset.txt';
+    const fileName = getRequestedFileName(url);
 
     if (failFiles.includes(fileName)) {
       throw new Error(`forced failure for ${fileName}`);
