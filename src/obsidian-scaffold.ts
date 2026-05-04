@@ -46,6 +46,11 @@ interface ObsidianScaffoldDeps {
   templatesDir?: string;
 }
 
+interface AssetInstallResult {
+  available: boolean;
+  refreshed: boolean;
+}
+
 const DEFAULT_OBSIDIAN_CONFIG: ObsidianConfig = {
   scaffold: true,
   autoUpgrade: true,
@@ -450,14 +455,16 @@ async function installPluginAssets(
   plugin: PluginRegistryEntry,
   fetchImpl: typeof fetch,
   forceRefresh: boolean,
-): Promise<boolean> {
+): Promise<AssetInstallResult> {
   const pluginDir = path.join(getObsidianDir(vaultPath), 'plugins', plugin.id);
   const tempDir = pluginDir + '.tmp';
   ensureDir(pluginDir);
 
   const requiredFiles = plugin.files.filter(file => file === 'main.js' || file === 'manifest.json');
   const hadRequiredFiles = requiredFiles.every(file => fs.existsSync(path.join(pluginDir, file)));
-  if (hadRequiredFiles && !forceRefresh) return true;
+  if (hadRequiredFiles && !forceRefresh) {
+    return { available: true, refreshed: false };
+  }
 
   try {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -470,10 +477,13 @@ async function installPluginAssets(
       fs.renameSync(path.join(tempDir, fileName), path.join(pluginDir, fileName));
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
-    return true;
+    return { available: true, refreshed: true };
   } catch {
     fs.rmSync(tempDir, { recursive: true, force: true });
-    return requiredFiles.every(file => fs.existsSync(path.join(pluginDir, file)));
+    return {
+      available: requiredFiles.every(file => fs.existsSync(path.join(pluginDir, file))),
+      refreshed: false,
+    };
   }
 }
 
@@ -482,14 +492,16 @@ async function installThemeAssets(
   theme: ThemeRegistryEntry,
   fetchImpl: typeof fetch,
   forceRefresh: boolean,
-): Promise<boolean> {
+): Promise<AssetInstallResult> {
   const themeDir = path.join(getObsidianDir(vaultPath), 'themes', theme.name);
   const tempDir = themeDir + '.tmp';
   ensureDir(themeDir);
 
   const requiredFiles = ['manifest.json', 'theme.css'];
   const alreadyInstalled = requiredFiles.every(file => fs.existsSync(path.join(themeDir, file)));
-  if (alreadyInstalled && !forceRefresh) return true;
+  if (alreadyInstalled && !forceRefresh) {
+    return { available: true, refreshed: false };
+  }
 
   try {
     fs.rmSync(tempDir, { recursive: true, force: true });
@@ -502,10 +514,13 @@ async function installThemeAssets(
       fs.renameSync(path.join(tempDir, fileName), path.join(themeDir, fileName));
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
-    return true;
+    return { available: true, refreshed: true };
   } catch {
     fs.rmSync(tempDir, { recursive: true, force: true });
-    return requiredFiles.every(file => fs.existsSync(path.join(themeDir, file)));
+    return {
+      available: requiredFiles.every(file => fs.existsSync(path.join(themeDir, file))),
+      refreshed: false,
+    };
   }
 }
 
@@ -595,12 +610,9 @@ function syncManagedCommunityPlugins(vaultPath: string, enabledPlugins: string[]
   writeJsonFile(filePath, merged);
 }
 
-function applyPluginConfigs(vaultPath: string, config: ObsidianConfig, pluginIds: string[]): Record<string, { version: string; configVersion: number }> {
-  const installed: Record<string, { version: string; configVersion: number }> = {};
-
+function writePluginConfigs(vaultPath: string, config: ObsidianConfig, pluginIds: string[]): void {
   for (const plugin of PLUGIN_REGISTRY) {
     if (!pluginIds.includes(plugin.id)) continue;
-    installed[plugin.id] = { version: plugin.tag, configVersion: 1 };
     const data = buildPluginData(plugin.id, config);
     if (data == null) continue;
 
@@ -608,8 +620,27 @@ function applyPluginConfigs(vaultPath: string, config: ObsidianConfig, pluginIds
     const existing = readJsonFile<unknown>(dataPath);
     writeJsonFile(dataPath, existing == null ? data : mergeAddOnly(existing, data));
   }
+}
 
-  return installed;
+function buildPluginManifestState(
+  manifest: ScaffoldManifest,
+  config: ObsidianConfig,
+  pluginResults: Map<string, AssetInstallResult>,
+): Record<string, { version: string; configVersion: number }> {
+  const nextPlugins: Record<string, { version: string; configVersion: number }> = {};
+
+  for (const plugin of pluginEntriesForConfig(config)) {
+    const result = pluginResults.get(plugin.id);
+    if (!result?.available) continue;
+
+    if (result.refreshed || !manifest.plugins[plugin.id]) {
+      nextPlugins[plugin.id] = { version: plugin.tag, configVersion: 1 };
+    } else {
+      nextPlugins[plugin.id] = manifest.plugins[plugin.id];
+    }
+  }
+
+  return nextPlugins;
 }
 
 async function applyScaffoldV1(
@@ -623,18 +654,20 @@ async function applyScaffoldV1(
   writeOwnedSnippets(vaultPath, config);
 
   const fetchImpl = deps.fetchImpl ?? fetch;
+  const pluginResults = new Map<string, AssetInstallResult>();
   const enabledPlugins: string[] = [];
   for (const plugin of pluginEntriesForConfig(config)) {
-    const ok = await installPluginAssets(vaultPath, plugin, fetchImpl, manifest.plugins[plugin.id]?.version !== plugin.tag);
-    if (ok) {
+    const result = await installPluginAssets(vaultPath, plugin, fetchImpl, manifest.plugins[plugin.id]?.version !== plugin.tag);
+    pluginResults.set(plugin.id, result);
+    if (result.available) {
       enabledPlugins.push(plugin.id);
     } else {
       logToFile('WARN', 'Skipped Obsidian plugin scaffold asset after download failure', { plugin: plugin.id, repo: plugin.repo, tag: plugin.tag });
     }
   }
 
-  const themeInstalled = await installThemeAssets(vaultPath, THEME_REGISTRY, fetchImpl, manifest.theme?.version !== THEME_REGISTRY.tag);
-  if (!themeInstalled) {
+  const themeResult = await installThemeAssets(vaultPath, THEME_REGISTRY, fetchImpl, manifest.theme?.version !== THEME_REGISTRY.tag);
+  if (!themeResult.available) {
     logToFile('WARN', 'Skipped Obsidian theme scaffold asset after download failure', { theme: THEME_REGISTRY.name, repo: THEME_REGISTRY.repo, tag: THEME_REGISTRY.tag });
   }
 
@@ -642,13 +675,18 @@ async function applyScaffoldV1(
   syncManagedAppearanceConfig(vaultPath, config);
   mergeJsonFile(path.join(getObsidianDir(vaultPath), 'core-plugins.json'), CORE_PLUGINS, 'union');
   syncManagedCommunityPlugins(vaultPath, enabledPlugins);
+  writePluginConfigs(vaultPath, config, enabledPlugins);
 
   const updatedManifest: ScaffoldManifest = {
     ...manifest,
     scaffoldVersion: CURRENT_SCAFFOLD_VERSION,
     lastUpgrade: (deps.now ?? (() => new Date()))().toISOString(),
-    plugins: applyPluginConfigs(vaultPath, config, enabledPlugins),
-    theme: themeInstalled ? { name: THEME_REGISTRY.name, version: THEME_REGISTRY.tag } : null,
+    plugins: buildPluginManifestState(manifest, config, pluginResults),
+    theme: themeResult.available
+      ? (themeResult.refreshed || !manifest.theme
+        ? { name: THEME_REGISTRY.name, version: THEME_REGISTRY.tag }
+        : manifest.theme)
+      : null,
     snippets: { version: SNIPPET_VERSION },
   };
 

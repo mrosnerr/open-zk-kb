@@ -24,6 +24,19 @@ function mockFetchFactory() {
   };
 }
 
+function selectiveFailureFetchFactory(failFiles: string[]) {
+  return async (url: string | URL | Request): Promise<Response> => {
+    const urlString = String(url);
+    const fileName = urlString.split('/').pop() || 'asset.txt';
+
+    if (failFiles.includes(fileName)) {
+      throw new Error(`forced failure for ${fileName}`);
+    }
+
+    return mockFetchFactory()(url);
+  };
+}
+
 describe('Obsidian scaffold', () => {
   let ctx: TestContext;
 
@@ -122,5 +135,26 @@ describe('Obsidian scaffold', () => {
     const plugins = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'community-plugins.json'), 'utf-8'));
     expect(plugins).not.toContain('read-only-view');
     expect(fs.existsSync(path.join(obsidianDir, 'snippets', 'readonly-kb.css'))).toBe(false);
+  });
+
+  it('preserves existing manifest versions when forced plugin and theme refresh fail', async () => {
+    await ensureObsidianScaffold(ctx.tempDir, ctx.config.obsidian, { fetchImpl: mockFetchFactory() });
+
+    const obsidianDir = path.join(ctx.tempDir, '.obsidian');
+    const manifestPath = path.join(obsidianDir, 'open-zk-kb.json');
+    const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    manifest.plugins.homepage.version = '0.0.1';
+    manifest.theme.version = '0.0.1';
+    fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2) + '\n', 'utf-8');
+
+    await ensureObsidianScaffold(ctx.tempDir, ctx.config.obsidian, {
+      fetchImpl: selectiveFailureFetchFactory(['main.js', 'theme.css']),
+    });
+
+    const nextManifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+    expect(nextManifest.plugins.homepage.version).toBe('0.0.1');
+    expect(nextManifest.theme.version).toBe('0.0.1');
+    expect(fs.existsSync(path.join(obsidianDir, 'plugins', 'homepage', 'main.js'))).toBe(true);
+    expect(fs.existsSync(path.join(obsidianDir, 'themes', 'Minimal', 'theme.css'))).toBe(true);
   });
 });
