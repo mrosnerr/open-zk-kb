@@ -488,6 +488,22 @@ describe('Global Navigation', () => {
     expect(content).toContain('myproject');
   });
 
+  it('omits review and log links when those navigation outputs are disabled', async () => {
+    context.config.navigation.enableReviewMoc = false;
+    context.config.navigation.enableGlobalLog = false;
+
+    await handleStore(
+      { title: 'Test Note', content: 'Content', kind: 'decision', project: 'myproject', summary: 'A decision', guidance: 'Use it' } as any,
+      context.engine,
+      null,
+      context.config,
+    );
+
+    const content = fs.readFileSync(path.join(context.tempDir, 'index.md'), 'utf-8');
+    expect(content).not.toContain('[[review\\|📝 Needs Review]]');
+    expect(content).not.toContain('[[log|Operations Log]]');
+  });
+
   it('generates global log.md on store', async () => {
     await handleStore(
       { title: 'Logged Note', content: 'Content', kind: 'observation', project: 'proj', summary: 'Obs', guidance: 'Note it' } as any,

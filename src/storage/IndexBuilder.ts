@@ -199,8 +199,14 @@ export function buildGlobalIndexContent(
   generalCount: number,
   fleetingCount: number,
   totalNoteCount: number,
+  options?: {
+    includeReviewLink?: boolean;
+    includeGlobalLogLink?: boolean;
+  },
 ): string {
   const lines: string[] = [];
+  const includeReviewLink = options?.includeReviewLink !== false;
+  const includeGlobalLogLink = options?.includeGlobalLogLink !== false;
 
   lines.push('---');
   lines.push('cssclasses:');
@@ -230,13 +236,17 @@ export function buildGlobalIndexContent(
   lines.push('|---------|-------|-------------|');
   lines.push(`| [[general/index\\|General Knowledge]] | ${generalCount} | Unscoped references, decisions, observations |`);
   lines.push(`| [[preferences/index\\|Preferences]] | ${preferencesCount} | Personal style, habits, and tool preferences |`);
-  lines.push(`| [[review\\|📝 Needs Review]] | ${fleetingCount} | Fleeting notes awaiting promotion or archive |`);
+  if (includeReviewLink) {
+    lines.push(`| [[review\\|📝 Needs Review]] | ${fleetingCount} | Fleeting notes awaiting promotion or archive |`);
+  }
   lines.push('');
 
-  lines.push('## 📖 Activity');
-  lines.push('');
-  lines.push('- [[log|Operations Log]] — Recent knowledge capture events');
-  lines.push('');
+  if (includeGlobalLogLink) {
+    lines.push('## 📖 Activity');
+    lines.push('');
+    lines.push('- [[log|Operations Log]] — Recent knowledge capture events');
+    lines.push('');
+  }
 
   lines.push('## 🔗 Resources');
   lines.push('');

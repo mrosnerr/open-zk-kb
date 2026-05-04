@@ -548,7 +548,10 @@ function updateGlobalNavigation(
       const prefsCount = repo.getPersonalizationNotes().length;
       const generalCount = getUnscopedNotes().length;
       const fleetingCount = getFleetingNotes().length;
-      const content = buildGlobalIndexContent(projectStats, prefsCount, generalCount, fleetingCount, totalNoteCount);
+      const content = buildGlobalIndexContent(projectStats, prefsCount, generalCount, fleetingCount, totalNoteCount, {
+        includeReviewLink: config?.navigation?.enableReviewMoc !== false,
+        includeGlobalLogLink: config?.navigation?.enableGlobalLog !== false,
+      });
       fs.writeFileSync(path.join(vaultPath, 'index.md'), content, 'utf-8');
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild global index', {
@@ -1006,7 +1009,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += `- Auto-upgrade: ${scaffoldStatus.autoUpgrade ? 'enabled' : 'disabled'}\n`;
         output += `- Read-only: ${scaffoldStatus.readOnly ? 'enabled' : 'disabled'}\n`;
         if (!scaffoldStatus.readOnly) {
-          output += '⚠️ Vault editing enabled. Direct edits may desync the search index and frontmatter. Use knowledge-store for best results.\n';
+          output += '- External edits risk index/frontmatter drift: true\n';
         }
       }
 
