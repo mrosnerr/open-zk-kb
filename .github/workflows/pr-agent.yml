@@ -54,7 +54,7 @@ jobs:
           CONFIG__FALLBACK_MODELS: '["openrouter/google/gemini-2.5-pro", "openrouter/z-ai/glm-5.1"]'
           # Shadow-review mode: the upstream reviewers do not publish comments.
           # They emit structured JSON via GitHub Actions step outputs, and only the
-          # final consolidator job posts a public comment.
+          # final consolidator job posts and updates the single public PR comment.
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
           github_action_config.auto_improve: "false"
@@ -381,7 +381,8 @@ jobs:
           GPT54_JOB_RESULT: ${{ needs.pr_agent_gpt54.result }}
         with:
           script: |
-            const CONSOLIDATED_MARKER = '<!-- pr-agent-consolidated-review:v1 -->';
+            const CONSOLIDATED_MARKER = '<!-- pr-agent-consolidated-review:v2 -->';
+            const STATE_START = '<!-- pr-agent-consolidated-state';
             const MODELS = [
               { envKey: 'CLAUDE_REVIEW_JSON', resultKey: 'CLAUDE_JOB_RESULT', label: 'Claude Sonnet 4.6' },
               { envKey: 'GPT54_REVIEW_JSON', resultKey: 'GPT54_JOB_RESULT', label: 'GPT-5.4' },
@@ -398,6 +399,29 @@ jobs:
 
             function commitUrl(owner, repo, sha) {
               return `https://github.com/${owner}/${repo}/commit/${sha}`;
+            }
+
+            function hashId(input) {
+              return require('node:crypto').createHash('sha1').update(input).digest('hex').slice(0, 12);
+            }
+
+            function parseState(body) {
+              if (!body || !body.includes(STATE_START)) {
+                return { version: 1, findings: {} };
+              }
+
+              const match = body.match(/<!-- pr-agent-consolidated-state\n([\s\S]*?)\n-->/);
+              if (!match) {
+                return { version: 1, findings: {} };
+              }
+
+              try {
+                const parsed = JSON.parse(match[1]);
+                return parsed && typeof parsed === 'object' ? parsed : { version: 1, findings: {} };
+              } catch (error) {
+                core.warning(`Failed to parse consolidated state: ${error.message}`);
+                return { version: 1, findings: {} };
+              }
             }
 
             function stripMarkup(text) {
@@ -418,12 +442,6 @@ jobs:
             function extractSeverity(title) {
               const match = String(title).match(/^P([012])\b/);
               return match ? `P${match[1]}` : null;
-            }
-
-            function extractSummary(block, fallbackTitle) {
-              const withoutSummary = block.replace(/^[\s\S]*?<\/summary>/, '');
-              const summary = stripMarkup(withoutSummary).slice(0, 280);
-              return summary || fallbackTitle;
             }
 
             function extractSeverityFromFields(title, summary) {
@@ -505,6 +523,12 @@ jobs:
               return null;
             }
 
+            function findingIdentity(finding) {
+              const loc = locationKey(finding);
+              if (loc) return loc;
+              return `hash:${hashId(`${finding.title}\n${finding.summary}`)}`;
+            }
+
             function groupConsensus(findings) {
               const groups = [];
               const used = new Set();
@@ -559,6 +583,67 @@ jobs:
               return result || 'unknown';
             }
 
+            function mergeCurrentGroups(groups) {
+              return groups.map((group) => {
+                const rep = chooseRepresentative(group);
+                const flaggedBy = [...new Set(group.map((finding) => finding.model))].sort();
+                return {
+                  id: findingIdentity(rep),
+                  title: rep.title,
+                  summary: rep.summary,
+                  severity: rep.severity,
+                  file: rep.file,
+                  startLine: rep.startLine,
+                  endLine: rep.endLine,
+                  flaggedBy,
+                };
+              }).sort((a, b) => {
+                const severityDiff = (SEVERITY_ORDER[a.severity] ?? 3) - (SEVERITY_ORDER[b.severity] ?? 3);
+                if (severityDiff !== 0) return severityDiff;
+                if (b.flaggedBy.length !== a.flaggedBy.length) return b.flaggedBy.length - a.flaggedBy.length;
+                return a.title.localeCompare(b.title);
+              });
+            }
+
+            function locationText(finding) {
+              if (finding.file !== 'unknown' && finding.startLine != null) {
+                return ` (${finding.file}:${finding.startLine}${finding.endLine && finding.endLine !== finding.startLine ? `-${finding.endLine}` : ''})`;
+              }
+              return '';
+            }
+
+            function buildNextState(previousState, activeFindings, headSha, nowIso) {
+              const next = { version: 1, updatedAt: nowIso, findings: {} };
+              const previous = previousState?.findings || {};
+              const activeIds = new Set(activeFindings.map((finding) => finding.id));
+
+              for (const finding of activeFindings) {
+                const prior = previous[finding.id] || {};
+                next.findings[finding.id] = {
+                  ...finding,
+                  status: 'active',
+                  firstSeenAt: prior.firstSeenAt || nowIso,
+                  firstSeenHead: prior.firstSeenHead || headSha,
+                  lastSeenAt: nowIso,
+                  lastSeenHead: headSha,
+                  resolvedAt: null,
+                  resolvedHead: null,
+                };
+              }
+
+              for (const [id, finding] of Object.entries(previous)) {
+                if (activeIds.has(id)) continue;
+                next.findings[id] = {
+                  ...finding,
+                  status: 'resolved',
+                  resolvedAt: finding.resolvedAt || nowIso,
+                  resolvedHead: finding.resolvedHead || headSha,
+                };
+              }
+
+              return next;
+            }
+
             const prNumber = getPrNumber(context.payload);
             if (!prNumber) {
               core.info('No pull request number in this event; skipping consolidated summary.');
@@ -593,8 +678,7 @@ jobs:
             }
 
             const groups = groupConsensus(allFindings);
-            const sharedGroups = groups.filter((group) => new Set(group.map((finding) => finding.model)).size > 1);
-            const sharedKeys = new Set(sharedGroups.flatMap((group) => group.map((finding) => `${finding.model}::${finding.title}::${finding.summary}`)));
+            const activeFindings = mergeCurrentGroups(groups);
 
             const pull = context.payload.pull_request || (await github.rest.pulls.get({
               owner,
@@ -602,11 +686,19 @@ jobs:
               pull_number: prNumber,
             })).data;
             const headSha = pull?.head?.sha || '';
+            const existing = latestMatchingComment(comments, CONSOLIDATED_MARKER);
+            const previousState = parseState(existing?.body || '');
+            const nowIso = new Date().toISOString();
+            const nextState = buildNextState(previousState, activeFindings, headSha, nowIso);
+            const resolvedFindings = Object.values(nextState.findings)
+              .filter((finding) => finding.status === 'resolved')
+              .sort((a, b) => new Date(b.resolvedAt || 0) - new Date(a.resolvedAt || 0));
+
             const lines = [
               CONSOLIDATED_MARKER,
-              '## PR-Agent Consolidated Summary',
+              '## PR-Agent Review',
               '',
-              'Deterministic synthesis of the latest shadow PR-Agent reviews. The upstream reviewer jobs do not publish comments; this summary merges their structured JSON outputs and tags whether findings were flagged by one reviewer or both.',
+              'Single evolving review comment. The upstream PR-Agent reviewer jobs run in shadow mode; this comment is updated in place on each review run and keeps resolved findings collapsed below the active set.',
               '',
               `Latest reviewed head: [\`${shortSha(headSha)}\`](${commitUrl(owner, repo, headSha)})`,
               '',
@@ -624,7 +716,21 @@ jobs:
             }
 
             lines.push('');
-            lines.push('### Scores & Security Notes');
+            lines.push('### Active Issues');
+            lines.push('');
+
+            if (activeFindings.length === 0) {
+              lines.push('- No active structured issues reported by the shadow reviewers.');
+            } else {
+              for (const finding of activeFindings) {
+                const agreement = finding.flaggedBy.length > 1 ? 'both reviewers' : finding.flaggedBy[0];
+                lines.push(`- **${finding.title}**${locationText(finding)} — flagged by ${agreement}`);
+                if (finding.summary) lines.push(`  - ${finding.summary}`);
+              }
+            }
+
+            lines.push('');
+            lines.push('### Reviewer Notes');
             lines.push('');
 
             for (const reviewer of availableReviews) {
@@ -632,53 +738,31 @@ jobs:
               lines.push(`- Score: ${reviewer.review.score ?? 'n/a'}`);
               lines.push(`- Security concerns: ${reviewer.review.securityConcerns || 'None reported'}`);
               lines.push(`- Relevant tests: ${reviewer.review.relevantTests || 'Not specified'}`);
-              lines.push('');
-            }
-
-            lines.push('');
-            lines.push('### Shared Findings');
-            lines.push('');
-
-            if (sharedGroups.length === 0) {
-              lines.push('- None');
-            } else {
-              for (const group of sharedGroups) {
-                const rep = chooseRepresentative(group);
-                const models = [...new Set(group.map((finding) => finding.model))].join(', ');
-                const location = rep.file !== 'unknown' && rep.startLine != null
-                  ? ` (${rep.file}:${rep.startLine}${rep.endLine && rep.endLine !== rep.startLine ? `-${rep.endLine}` : ''})`
-                  : '';
-                lines.push(`- **${rep.title}**${location} — flagged by ${models}`);
-                if (rep.summary) lines.push(`  - ${rep.summary}`);
-              }
-            }
-
-            lines.push('');
-            lines.push('### Model-Specific Findings');
-            lines.push('');
-
-            for (const reviewer of reviewerData) {
-              lines.push(`#### ${reviewer.label}`);
-              const uniqueFindings = (findingsByModel[reviewer.label] || []).filter(
-                (finding) => !sharedKeys.has(`${finding.model}::${finding.title}::${finding.summary}`),
-              );
-
-              if (uniqueFindings.length === 0) {
-                lines.push('- No model-specific structured findings.');
-              } else {
-                for (const finding of uniqueFindings) {
-                  const location = finding.file !== 'unknown' && finding.startLine != null
-                    ? ` (${finding.file}:${finding.startLine}${finding.endLine && finding.endLine !== finding.startLine ? `-${finding.endLine}` : ''})`
-                    : '';
-                  lines.push(`- **${finding.title}**${location} — ${finding.summary}`);
-                }
-              }
+              lines.push(`- Structured findings: ${reviewer.review.findings.length}`);
 
               lines.push('');
             }
+
+            if (resolvedFindings.length > 0) {
+              lines.push('<details>');
+              lines.push(`<summary>Resolved issues (${resolvedFindings.length})</summary>`);
+              lines.push('');
+              for (const finding of resolvedFindings) {
+                const resolvedText = finding.resolvedAt ? new Date(finding.resolvedAt).toISOString().slice(0, 10) : 'this run';
+                const agreement = (finding.flaggedBy || []).length > 1 ? 'both reviewers' : (finding.flaggedBy || [])[0] || 'one reviewer';
+                lines.push(`- **${finding.title}**${locationText(finding)} — previously flagged by ${agreement}, resolved by ${resolvedText}`);
+                if (finding.summary) lines.push(`  - ${finding.summary}`);
+              }
+              lines.push('');
+              lines.push('</details>');
+              lines.push('');
+            }
+
+            lines.push('<!-- pr-agent-consolidated-state');
+            lines.push(JSON.stringify(nextState, null, 2));
+            lines.push('-->');
 
             const body = lines.join('\n').trim();
-            const existing = latestMatchingComment(comments, CONSOLIDATED_MARKER);
 
             if (existing) {
               await github.rest.issues.updateComment({
