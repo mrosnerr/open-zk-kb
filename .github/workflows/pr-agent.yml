@@ -1,4 +1,4 @@
-name: PR Agent Review (Claude Sonnet 4.6)
+name: PR Agent Reviews
 
 on:
   pull_request:
@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 jobs:
-  pr_agent:
+  pr_agent_claude:
     if: >
       (github.event_name == 'pull_request' && github.event.pull_request.draft == false &&
        github.event.pull_request.head.repo.full_name == github.repository) ||
@@ -35,9 +35,12 @@ jobs:
     concurrency:
       group: pr-agent-claude-${{ github.event.pull_request.number || github.event.issue.number }}
       cancel-in-progress: false
-    name: PR Agent
+    name: PR Agent (Claude Sonnet 4.6)
+    outputs:
+      review_json: ${{ steps.pr_agent.outputs.review }}
     steps:
-      - name: Run PR Agent
+      - name: Run shadow PR-Agent review
+        id: pr_agent
         uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1 # v0.34
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -49,20 +52,20 @@ jobs:
           # See PR #114 for root-cause analysis.
           CONFIG__MODEL: "openrouter/anthropic/claude-sonnet-4.6"
           CONFIG__FALLBACK_MODELS: '["openrouter/google/gemini-2.5-pro", "openrouter/z-ai/glm-5.1"]'
-          # 2026-04-29: re-enabled /improve for per-line inline suggestion comments.
-          # /improve posts native GitHub ```suggestion``` blocks; pr-agent NEVER auto-commits.
-          # pr_actions in .pr_agent.toml restricts /improve and /review to opened/reopened/
-          # ready_for_review only. Synchronize events route through pr-agent-incremental.yml
-          # which posts `/review -i` as a comment — this workflow picks it up via the
-          # issue_comment trigger and runs an incremental review.
+          # Shadow-review mode: the upstream reviewers do not publish comments.
+          # They emit structured JSON via GitHub Actions step outputs, and only the
+          # final consolidator job posts a public comment.
           github_action_config.auto_review: "true"
           github_action_config.auto_describe: "false"
-          github_action_config.auto_improve: "true"
-          # KEEP IN SYNC: Full review instruction block with Claude model badge.
-          # If review policy changes, update ALL three pr-agent workflow files.
+          github_action_config.auto_improve: "false"
+          github_action_config.enable_output: "true"
+          config.publish_output: "false"
+          config.publish_output_progress: "false"
+          # KEEP IN SYNC: Full review instruction blocks with the model-specific badges.
+          # If review policy changes, update both review jobs in this workflow.
           # pr-agent env vars shadow TOML values entirely (no merge).
           PR_REVIEWER__EXTRA_INSTRUCTIONS: |
-            MODEL IDENTIFICATION: Always begin your security_concerns text with exactly '[Claude Sonnet 4.6] ' (brackets, model name, space) before your assessment. This is required for multi-model comparison across concurrent reviewers.
+            MODEL IDENTIFICATION: Always begin your security_concerns text with exactly '[Claude Sonnet 4.6] ' (brackets, model name, space) before your assessment. This is required for comparison across the parallel PR-Agent reviewers.
 
             You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
             Stack: Bun 1.x (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5,
@@ -189,3 +192,508 @@ jobs:
                  architecture.md). Review for accuracy, consistency with code, and stale references.
             Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTestHarness(),
                  no .skip without justification, no real side effects (mock OS interactions).
+
+  pr_agent_gpt54:
+    if: >
+      (github.event_name == 'pull_request' && github.event.pull_request.draft == false &&
+       github.event.pull_request.head.repo.full_name == github.repository) ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request &&
+       startsWith(github.event.comment.body, '/') &&
+       (contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association) ||
+        (github.event.comment.user.login == 'github-actions[bot]' &&
+         startsWith(github.event.comment.body, '/review')))) ||
+      (github.event_name == 'pull_request_review_comment' &&
+       github.event.pull_request.head.repo.full_name == github.repository &&
+       startsWith(github.event.comment.body, '/') &&
+       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association))
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: pr-agent-gpt54-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    name: PR Agent (GPT-5.4)
+    outputs:
+      review_json: ${{ steps.pr_agent.outputs.review }}
+    steps:
+      - name: Run shadow PR-Agent review
+        id: pr_agent
+        uses: qodo-ai/pr-agent@d82f7d3e696cd00822694aaa3096265d3889f3f1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OPENROUTER__KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          # Model override: MUST NOT appear in .pr_agent.toml — apply_repo_settings()
+          # clobbers env vars for keys present in the TOML. See PR #114.
+          CONFIG__MODEL: "openrouter/openai/gpt-5.4"
+          CONFIG__FALLBACK_MODELS: '["openrouter/openai/gpt-4.1"]'
+          github_action_config.auto_review: "true"
+          github_action_config.auto_describe: "false"
+          github_action_config.auto_improve: "false"
+          github_action_config.enable_output: "true"
+          config.publish_output: "false"
+          config.publish_output_progress: "false"
+          # KEEP IN SYNC: Full review instruction blocks with the model-specific badges.
+          # If review policy changes, update both review jobs in this workflow.
+          PR_REVIEWER__EXTRA_INSTRUCTIONS: |
+            MODEL IDENTIFICATION: Always begin your security_concerns text with exactly '[GPT-5.4] ' (brackets, model name, space) before your assessment. This is required for comparison across the parallel PR-Agent reviewers.
+
+            You are reviewing open-zk-kb — a persistent AI memory MCP server using Zettelkasten.
+            Stack: Bun 1.x (NOT Node.js), TypeScript (strict, ESNext, NodeNext), SQLite FTS5,
+            @modelcontextprotocol/sdk. Runtime: Bun. Tests: bun:test.
+
+            ## Review Behavior
+
+            BE THOROUGH ON FIRST REVIEW. Report ALL findings upfront — do not hold back issues
+            for later rounds. The goal is ONE comprehensive review that converges to resolution,
+            not a trickle of new findings across multiple push cycles.
+
+            ON SUBSEQUENT PUSHES (synchronize events): Only flag issues NEWLY INTRODUCED by the
+            latest commits. Do not re-raise resolved issues. Do not discover things you missed
+            before — that signals the first review was incomplete. If the author addressed your
+            previous feedback correctly, acknowledge resolution and approve.
+
+            CONVERGE TO APPROVAL: After 1-2 rounds of feedback, the review should either approve
+            or clearly state the remaining blocking items. Do not keep finding new nits indefinitely.
+
+            ## Model Focus Priority
+            PRIORITY FOCUS: Error propagation, silent failures, data loss paths, partial success
+            handling. You have demonstrated strength in data integrity analysis — lean into it.
+            Scrutinize try/catch blocks for swallowed errors, mixed success/failure return values
+            that callers cannot distinguish, and operations where partial completion is invisible.
+
+            ## Priority Tiers (exactly ONE per finding)
+
+            Prefix EVERY finding title with its tier: "P0 — Title", "P1 — Title", or "P2 — Title".
+
+            🔴 **P0** — Critical. Blocks merge. Will not approve until resolved.
+            Security vulnerability, data loss, crash in production path, resource leak,
+            auth bypass, hardcoded secrets, MCP stdout pollution, lifecycle enforcement gap.
+
+            🟡 **P1** — Important. Should fix before merge, but non-blocking.
+            Logic error in edge case, missing error handling, API contract concern, missing
+            regression test for a bugfix, type safety gap (`as any`, `@ts-ignore`).
+
+            ⚪ **P2** — Minor. Take it or leave it. Do not re-raise if author declines.
+            Naming suggestion, minor readability improvement, documentation wording,
+            code organization preference. Maximum 2 P2s per review — more than that is noise.
+
+            ## What to Flag
+            - Actual bugs with exact line numbers and variable names
+            - Security issues exploitable in production
+            - Missing error handling on I/O boundaries (DB, filesystem, fetch)
+            - API contract violations (param removal, type changes without defaults)
+            - Lifecycle violations: snapshot notes mutated, append-only notes rewritten
+            - MCP protocol violations: console.log/warn/error in server code (pollutes stdout)
+
+            ## What NOT to Flag
+            - Theoretical risks without concrete exploitation path
+            - Issues in unchanged code outside the diff (EXCEPTION: missing test coverage
+              for NEW code paths introduced in this PR is always valid to flag)
+            - Style preferences handled by ESLint (import order, trailing commas, formatting)
+            - "Consider using library X" suggestions
+            - Generic praise or filler ("Great job", "Looks good overall", "Nice work")
+            - Node.js alternatives — this project uses Bun exclusively
+            - Repeating a finding the author already addressed in a previous round
+
+            ## Rules (WHEN condition → THEN check → BECAUSE rationale)
+
+            R1. MCP STDOUT SAFETY
+            WHEN code is in src/ (excluding setup.ts and scripts/)
+            THEN verify: no console.log, console.warn, console.error — use logToFile() only
+            BECAUSE MCP stdio transport requires clean stdout. Any console output breaks
+                 the protocol. Real fix: PR #97 added this as a documented anti-pattern.
+
+            R2. LIFECYCLE ENFORCEMENT
+            WHEN code modifies NoteRepository or tool-handlers
+            THEN verify: snapshot notes reject updates, append-only notes reject rewrites,
+                 LifecycleViolationError is thrown (not swallowed)
+            BECAUSE lifecycle rules are server-enforced invariants (PR #96, schema v6).
+
+            R3. STRUCTURAL KIND GUARD
+            WHEN code touches handleStore or handleMaintain
+            THEN verify: STRUCTURAL_KINDS (index, log) skip navigation hooks to prevent
+                 infinite loops. Auto-generated notes cannot be manually created.
+            BECAUSE PR #99 introduced navigation hooks — missing guards cause infinite recursion.
+
+            R4. DUAL STORAGE SYNC
+            WHEN code modifies note content or metadata
+            THEN verify: both filesystem (.md) and SQLite index are updated. Filesystem is
+                 source of truth — DB is rebuilt from files via rebuildFromFiles().
+            BECAUSE split-brain between file and DB causes silent data inconsistency.
+
+            R5. CONFIG INTEGRITY
+            WHEN code modifies .toml, .yaml, or .json configuration files
+            THEN verify: no TOML section shadowing (new [section] captures subsequent keys),
+                 no type mismatches, all new config keys have sensible defaults in config.ts
+            BECAUSE TOML section scoping is silent — misplaced keys end up in wrong sections.
+                 Real bug: Cubic caught this on PR #100.
+
+            R6. GITHUB ACTIONS SECURITY
+            WHEN code modifies .github/workflows/*.yml
+            THEN verify: actions pinned to SHA (not tags), secrets not exposed to forks,
+                 minimal permissions, no pull_request_target without careful checkout handling
+            BECAUSE public repo workflows are attack surface for secret exfiltration.
+
+            R7. OWNERSHIP MODEL COMPLIANCE
+            WHEN a PR adds server-side behavior
+            THEN verify: server returns data with annotations (not directives), no auto-modify
+                 of stored content beyond what caller requested, no skill instructions asking
+                 agents to replicate server computation.
+                 ❌ VIOLATION: output += "remove them from the array or edit before storing"
+                 ✅ CORRECT:   output += "3 REVIEW candidates have partial matches — see above."
+            BECAUSE ownership policy (#93) — "server computes, agent judges."
+
+            R8. SHADOW REVIEW CHECKOUT PATTERN (ACCEPTED — DO NOT FLAG)
+            WHEN reviewing .github/workflows/review.yml
+            THEN do NOT flag: missing `ref:` on actions/checkout, "untrusted checkout",
+                 or "PR head injection" for the pattern of initial checkout without ref →
+                 same-repo validation → git fetch refs/pull/N/head → git checkout FETCH_HEAD.
+            BECAUSE this is intentional security hardening (commit bef93f8): the PR head is
+                 checked out ONLY AFTER validating head.repo.full_name == github.repository,
+                 preventing untrusted fork code from being in the working tree before validation.
+                 The workflow also runs with bash:deny, read-only token, and read-only agent.
+                 This pattern was reviewed and approved — do not re-raise.
+
+            ## Filetype-Specific Checks
+
+            TOML files: Verify section scoping, check that keys land in intended section.
+            YAML files: Check for hardcoded secrets, overly permissive permissions, unpinned actions.
+            Markdown files (.md): This repo treats .md as first-class policy content (AGENTS.md,
+                 architecture.md). Review for accuracy, consistency with code, and stale references.
+            Test files: Verify regression tests for bugfixes, proper cleanup via cleanupTestHarness(),
+                 no .skip without justification, no real side effects (mock OS interactions).
+
+  consolidate_reviews:
+    needs: [pr_agent_claude, pr_agent_gpt54]
+    if: ${{ always() && needs.pr_agent_claude.result != 'cancelled' && needs.pr_agent_gpt54.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    concurrency:
+      group: pr-agent-consolidated-${{ github.event.pull_request.number || github.event.issue.number }}
+      cancel-in-progress: false
+    name: Consolidate shadow PR-Agent reviews
+    steps:
+      - name: Publish consolidated summary
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3
+        env:
+          CLAUDE_REVIEW_JSON: ${{ needs.pr_agent_claude.outputs.review_json }}
+          GPT54_REVIEW_JSON: ${{ needs.pr_agent_gpt54.outputs.review_json }}
+          CLAUDE_JOB_RESULT: ${{ needs.pr_agent_claude.result }}
+          GPT54_JOB_RESULT: ${{ needs.pr_agent_gpt54.result }}
+        with:
+          script: |
+            const CONSOLIDATED_MARKER = '<!-- pr-agent-consolidated-review:v1 -->';
+            const MODELS = [
+              { envKey: 'CLAUDE_REVIEW_JSON', resultKey: 'CLAUDE_JOB_RESULT', label: 'Claude Sonnet 4.6' },
+              { envKey: 'GPT54_REVIEW_JSON', resultKey: 'GPT54_JOB_RESULT', label: 'GPT-5.4' },
+            ];
+            const SEVERITY_ORDER = { P0: 0, P1: 1, P2: 2 };
+
+            function getPrNumber(payload) {
+              return payload.pull_request?.number ?? payload.issue?.number ?? null;
+            }
+
+            function shortSha(sha) {
+              return sha ? sha.slice(0, 7) : 'unknown';
+            }
+
+            function commitUrl(owner, repo, sha) {
+              return `https://github.com/${owner}/${repo}/commit/${sha}`;
+            }
+
+            function stripMarkup(text) {
+              return String(text ?? '')
+                .replace(/```[\s\S]*?```/g, ' ')
+                .replace(/<summary>/g, ' ')
+                .replace(/<\/summary>/g, ' ')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/\[[^\]]+\]\([^\)]+\)/g, ' ')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/\s+/g, ' ')
+                .trim();
+            }
+
+            function extractSeverity(title) {
+              const match = String(title).match(/^P([012])\b/);
+              return match ? `P${match[1]}` : null;
+            }
+
+            function extractSummary(block, fallbackTitle) {
+              const withoutSummary = block.replace(/^[\s\S]*?<\/summary>/, '');
+              const summary = stripMarkup(withoutSummary).slice(0, 280);
+              return summary || fallbackTitle;
+            }
+
+            function extractSeverityFromFields(title, summary) {
+              const titleSeverity = extractSeverity(title);
+              if (titleSeverity) return titleSeverity;
+              const combined = `${title} ${summary}`;
+              if (/\bP0\b/.test(combined)) return 'P0';
+              if (/\bP1\b/.test(combined)) return 'P1';
+              if (/\bP2\b/.test(combined)) return 'P2';
+              return null;
+            }
+
+            function normalizeReview(rawJson, model) {
+              if (!rawJson) {
+                return null;
+              }
+
+              let parsed;
+              try {
+                parsed = JSON.parse(rawJson);
+              } catch (error) {
+                core.warning(`Failed to parse ${model} review JSON: ${error.message}`);
+                return null;
+              }
+
+              const review = parsed && typeof parsed === 'object' && parsed.review && typeof parsed.review === 'object'
+                ? parsed.review
+                : parsed;
+
+              if (!review || typeof review !== 'object') {
+                core.warning(`Unexpected ${model} review payload shape.`);
+                return null;
+              }
+
+              const findings = [];
+              for (const issue of Array.isArray(review.key_issues_to_review) ? review.key_issues_to_review : []) {
+                const title = stripMarkup(issue.issue_header || issue.relevant_file || 'Untitled finding');
+                const summary = stripMarkup(issue.issue_content || title);
+                findings.push({
+                  model,
+                  file: issue.relevant_file || 'unknown',
+                  startLine: Number.isFinite(issue.start_line) ? issue.start_line : null,
+                  endLine: Number.isFinite(issue.end_line) ? issue.end_line : null,
+                  title,
+                  summary,
+                  severity: extractSeverityFromFields(title, summary),
+                });
+              }
+
+              return {
+                model,
+                score: review.score ?? null,
+                securityConcerns: stripMarkup(review.security_concerns || ''),
+                relevantTests: stripMarkup(review.relevant_tests || ''),
+                findings,
+              };
+            }
+
+            function significantWords(text) {
+              const stopwords = new Set(['the', 'a', 'an', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'is', 'are', 'was', 'were', 'be', 'been', 'has', 'have', 'had', 'not', 'no', 'and', 'or', 'but', 'that', 'this', 'it', 'its', 'fix', 'should', 'must', 'nit']);
+              return String(text || '')
+                .toLowerCase()
+                .split(/\W+/)
+                .filter((word) => word.length > 2 && !stopwords.has(word));
+            }
+
+            function overlap(a, b) {
+              const wordsA = new Set(significantWords(a));
+              const wordsB = new Set(significantWords(b));
+              if (wordsA.size === 0 || wordsB.size === 0) return 0;
+              const intersection = [...wordsA].filter((word) => wordsB.has(word)).length;
+              return intersection / Math.min(wordsA.size, wordsB.size);
+            }
+
+            function locationKey(finding) {
+              if (finding.file && finding.startLine != null) {
+                return `${finding.file}:${finding.startLine}:${finding.endLine ?? finding.startLine}`;
+              }
+              return null;
+            }
+
+            function groupConsensus(findings) {
+              const groups = [];
+              const used = new Set();
+
+              for (let i = 0; i < findings.length; i++) {
+                if (used.has(i)) continue;
+                const group = [findings[i]];
+                used.add(i);
+
+                for (let j = i + 1; j < findings.length; j++) {
+                  if (used.has(j)) continue;
+                  if (findings[i].model === findings[j].model) continue;
+
+                  const sameLocation = locationKey(findings[i]) && locationKey(findings[i]) === locationKey(findings[j]);
+                  const textA = `${findings[i].title} ${findings[i].summary}`;
+                  const textB = `${findings[j].title} ${findings[j].summary}`;
+                  if (sameLocation || overlap(textA, textB) >= 0.35) {
+                    group.push(findings[j]);
+                    used.add(j);
+                  }
+                }
+
+                groups.push(group);
+              }
+
+              return groups;
+            }
+
+            function chooseRepresentative(group) {
+              return group.reduce((best, current) => {
+                const bestRank = SEVERITY_ORDER[best.severity] ?? 3;
+                const currentRank = SEVERITY_ORDER[current.severity] ?? 3;
+                if (currentRank < bestRank) return current;
+                if (currentRank === bestRank && current.title.length > best.title.length) return current;
+                return best;
+              });
+            }
+
+            function latestMatchingComment(comments, marker) {
+              return comments
+                .filter((comment) => (comment.body || '').includes(marker))
+                .sort((a, b) => new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at))[0];
+            }
+
+            function renderReviewerStatus(review, result) {
+              if (review) {
+                return 'captured';
+              }
+              if (result === 'success') {
+                return 'no structured output';
+              }
+              return result || 'unknown';
+            }
+
+            const prNumber = getPrNumber(context.payload);
+            if (!prNumber) {
+              core.info('No pull request number in this event; skipping consolidated summary.');
+              return;
+            }
+
+            const { owner, repo } = context.repo;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner,
+              repo,
+              issue_number: prNumber,
+              per_page: 100,
+            });
+
+            const reviewerData = MODELS.map((model) => ({
+              label: model.label,
+              result: process.env[model.resultKey] || 'unknown',
+              review: normalizeReview(process.env[model.envKey], model.label),
+            }));
+
+            const availableReviews = reviewerData.filter((reviewer) => reviewer.review);
+            if (availableReviews.length === 0) {
+              core.warning('No reviewer JSON outputs were available; skipping consolidated summary.');
+              return;
+            }
+
+            const findingsByModel = {};
+            const allFindings = [];
+            for (const reviewer of availableReviews) {
+              findingsByModel[reviewer.label] = reviewer.review.findings;
+              allFindings.push(...reviewer.review.findings);
+            }
+
+            const groups = groupConsensus(allFindings);
+            const sharedGroups = groups.filter((group) => new Set(group.map((finding) => finding.model)).size > 1);
+            const sharedKeys = new Set(sharedGroups.flatMap((group) => group.map((finding) => `${finding.model}::${finding.title}::${finding.summary}`)));
+
+            const pull = context.payload.pull_request || (await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
+            })).data;
+            const headSha = pull?.head?.sha || '';
+            const lines = [
+              CONSOLIDATED_MARKER,
+              '## PR-Agent Consolidated Summary',
+              '',
+              'Deterministic synthesis of the latest shadow PR-Agent reviews. The upstream reviewer jobs do not publish comments; this summary merges their structured JSON outputs and tags whether findings were flagged by one reviewer or both.',
+              '',
+              `Latest reviewed head: [\`${shortSha(headSha)}\`](${commitUrl(owner, repo, headSha)})`,
+              '',
+              '### Reviewer Status',
+              '',
+            ];
+
+            for (const reviewer of reviewerData) {
+              lines.push(`- **${reviewer.label}** — ${renderReviewerStatus(reviewer.review, reviewer.result)}`);
+            }
+
+            if (availableReviews.length < reviewerData.length) {
+              lines.push('');
+              lines.push('> [!warning] Only one reviewer output was available for this run. The consolidated findings below reflect the surviving shadow review output.');
+            }
+
+            lines.push('');
+            lines.push('### Scores & Security Notes');
+            lines.push('');
+
+            for (const reviewer of availableReviews) {
+              lines.push(`#### ${reviewer.label}`);
+              lines.push(`- Score: ${reviewer.review.score ?? 'n/a'}`);
+              lines.push(`- Security concerns: ${reviewer.review.securityConcerns || 'None reported'}`);
+              lines.push(`- Relevant tests: ${reviewer.review.relevantTests || 'Not specified'}`);
+              lines.push('');
+            }
+
+            lines.push('');
+            lines.push('### Shared Findings');
+            lines.push('');
+
+            if (sharedGroups.length === 0) {
+              lines.push('- None');
+            } else {
+              for (const group of sharedGroups) {
+                const rep = chooseRepresentative(group);
+                const models = [...new Set(group.map((finding) => finding.model))].join(', ');
+                const location = rep.file !== 'unknown' && rep.startLine != null
+                  ? ` (${rep.file}:${rep.startLine}${rep.endLine && rep.endLine !== rep.startLine ? `-${rep.endLine}` : ''})`
+                  : '';
+                lines.push(`- **${rep.title}**${location} — flagged by ${models}`);
+                if (rep.summary) lines.push(`  - ${rep.summary}`);
+              }
+            }
+
+            lines.push('');
+            lines.push('### Model-Specific Findings');
+            lines.push('');
+
+            for (const reviewer of reviewerData) {
+              lines.push(`#### ${reviewer.label}`);
+              const uniqueFindings = (findingsByModel[reviewer.label] || []).filter(
+                (finding) => !sharedKeys.has(`${finding.model}::${finding.title}::${finding.summary}`),
+              );
+
+              if (uniqueFindings.length === 0) {
+                lines.push('- No model-specific structured findings.');
+              } else {
+                for (const finding of uniqueFindings) {
+                  const location = finding.file !== 'unknown' && finding.startLine != null
+                    ? ` (${finding.file}:${finding.startLine}${finding.endLine && finding.endLine !== finding.startLine ? `-${finding.endLine}` : ''})`
+                    : '';
+                  lines.push(`- **${finding.title}**${location} — ${finding.summary}`);
+                }
+              }
+
+              lines.push('');
+            }
+
+            const body = lines.join('\n').trim();
+            const existing = latestMatchingComment(comments, CONSOLIDATED_MARKER);
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner,
+                repo,
+                comment_id: existing.id,
+                body,
+              });
+              core.info(`Updated consolidated summary comment ${existing.id}.`);
+            } else {
+              const created = await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body,
+              });
+              core.info(`Created consolidated summary comment ${created.data.id}.`);
+            }
