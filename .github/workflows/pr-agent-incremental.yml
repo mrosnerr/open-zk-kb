@@ -2,8 +2,8 @@ name: PR Agent Incremental Review
 
 # Posts /review -i on new pushes to trigger incremental (changes-only) reviews.
 # The pr-agent Action variant can't pass -i to auto_review, so we route through
-# the comment-based command interface. The existing pr-agent workflows pick up
-# the comment via their issue_comment trigger and run the incremental review.
+# the comment-based command interface. The consolidated pr-agent workflow picks
+# up the comment via its issue_comment trigger and runs the incremental review.
 #
 # IMPORTANT: Uses ZK_KB_WORKFLOW_TRIGGER_TOKEN (a PAT) instead of GITHUB_TOKEN
 # because GITHUB_TOKEN cannot trigger other workflows (GitHub's recursive-loop
