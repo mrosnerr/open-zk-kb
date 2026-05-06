@@ -929,6 +929,7 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
         mode: 'any',
       });
       return {
+        showAddCommand: false,
         leftRibbon: [
           {
             id: `quickadd:choice:${deterministicId('quickadd-new-note')}`,
