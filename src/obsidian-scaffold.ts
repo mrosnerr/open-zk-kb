@@ -912,7 +912,22 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
         ],
       };
     }
-    case 'cmdr':
+    case 'cmdr': {
+      const pageHeaderButtons: Array<Record<string, unknown>> = [];
+      if (!config.readOnly) {
+        pageHeaderButtons.push({
+          id: 'markdown:toggle-preview',
+          icon: 'lucide-pencil',
+          name: 'Edit',
+          mode: 'any',
+        });
+      }
+      pageHeaderButtons.push({
+        id: 'app:delete-file',
+        icon: 'lucide-trash-2',
+        name: 'Delete',
+        mode: 'any',
+      });
       return {
         leftRibbon: [
           {
@@ -922,21 +937,9 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
             mode: 'any',
           },
         ],
-        pageHeader: [
-          {
-            id: 'markdown:toggle-preview',
-            icon: 'lucide-pencil',
-            name: 'Edit',
-            mode: 'any',
-          },
-          {
-            id: 'app:delete-file',
-            icon: 'lucide-trash-2',
-            name: 'Delete',
-            mode: 'any',
-          },
-        ],
+        pageHeader: pageHeaderButtons,
       };
+    }
     case 'templater-obsidian':
       return {
         templates_folder: 'templates',
