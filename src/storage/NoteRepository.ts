@@ -376,9 +376,7 @@ export class NoteRepository {
   private static readonly TITLE_PATTERN = /^# [^\n]+\n\n/;
 
   protected stripNavBreadcrumb(body: string): string {
-    let stripped = body.replace(NoteRepository.NAV_PATTERN, '');
-    stripped = stripped.replace(NoteRepository.TITLE_PATTERN, '');
-    return stripped;
+    return body.replace(NoteRepository.NAV_PATTERN, '');
   }
 
   protected parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
@@ -1359,13 +1357,15 @@ export class NoteRepository {
   private rewriteFrontmatter(note: NoteMetadata, overrides: Partial<NoteMetadata>): void {
     try {
       const content = fs.readFileSync(note.path, 'utf-8');
-      const { body } = this.parseFrontmatter(content);
+      const { body: rawBody } = this.parseFrontmatter(content);
       const merged = { ...note, ...overrides };
       const tags = Array.isArray(merged.tags) ? merged.tags : (typeof merged.tags === 'string' ? JSON.parse(merged.tags) : []);
       const newFrontmatter = this.buildFrontmatter(merged);
       const kind = merged.kind || 'observation';
+      const isStructural = kind === 'index' || kind === 'log';
       const navBreadcrumb = this.buildNavBreadcrumb(kind, tags);
-      const titleLine = kind !== 'index' && kind !== 'log' ? `# ${merged.title}\n\n` : '';
+      const titleLine = isStructural ? '' : `# ${merged.title}\n\n`;
+      const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
       fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + body, 'utf-8');
     } catch (err) {
       logToFile('WARN', 'Failed to rewrite frontmatter', { noteId: note.id, error: String(err) });
@@ -1704,9 +1704,11 @@ export class NoteRepository {
         });
 
         const rawContent = fs.readFileSync(row.path, 'utf-8');
-        const { body } = this.parseFrontmatter(rawContent);
+        const { body: rawBody } = this.parseFrontmatter(rawContent);
         const navBreadcrumb = this.buildNavBreadcrumb(row.kind, tags);
-        const titleLine = row.kind !== 'index' && row.kind !== 'log' ? `# ${row.title}\n\n` : '';
+        const isStructural = row.kind === 'index' || row.kind === 'log';
+        const titleLine = isStructural ? '' : `# ${row.title}\n\n`;
+        const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
 
         fs.writeFileSync(row.path, frontmatter + navBreadcrumb + titleLine + body, 'utf-8');
         formatted++;
@@ -1916,7 +1918,7 @@ export class NoteRepository {
     try {
       if (!fs.existsSync(note.path)) return;
       const content = fs.readFileSync(note.path, 'utf-8');
-      const { body } = this.parseFrontmatter(content);
+      const { body: rawBody } = this.parseFrontmatter(content);
 
       const newFrontmatter = this.buildFrontmatter({
         ...note,
@@ -1927,8 +1929,10 @@ export class NoteRepository {
 
       const tags = Array.isArray(note.tags) ? note.tags : (typeof note.tags === 'string' ? JSON.parse(note.tags as string) : []);
       const kind = note.kind || 'observation';
+      const isStructural = kind === 'index' || kind === 'log';
       const navBreadcrumb = this.buildNavBreadcrumb(kind, tags);
-      const titleLine = kind !== 'index' && kind !== 'log' ? `# ${note.title}\n\n` : '';
+      const titleLine = isStructural ? '' : `# ${note.title}\n\n`;
+      const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
       fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + body, 'utf-8');
     } catch (err) {
       logToFile('WARN', 'Failed to update frontmatter fields', { noteId: note.id, error: String(err) });

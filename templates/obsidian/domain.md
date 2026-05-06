@@ -1,6 +1,6 @@
 <%*
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
-const esc = (s) => s ? s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ') : '';
+const esc = (s) => s ? s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ') : '';
 const pf = app.vault.getAbstractFileByPath("projects");
 const existing = pf && pf.children ? pf.children.filter(f => f.children).map(f => f.name).sort() : [];
 const options = [...existing, "＋ New project…"];
