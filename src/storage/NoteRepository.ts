@@ -1619,7 +1619,8 @@ export class NoteRepository {
         const summary = (frontmatter.summary as string) || '';
         const guidance = (frontmatter.guidance as string) || '';
         const context = (frontmatter.context as string) || '';
-        const wordCount = this.countWords(body);
+        const indexBody = body.replace(NoteRepository.TITLE_PATTERN, '');
+        const wordCount = this.countWords(indexBody);
         const tagsJson = JSON.stringify(tags);
 
         const createdDate = frontmatter.created ? new Date(frontmatter.created as string).getTime() : Date.now();
@@ -1630,12 +1631,12 @@ export class NoteRepository {
           (id, path, title, content, kind, status, lifecycle, type, tags, summary, guidance, context, updated_at, created_at, word_count)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          id, filePath, title, body, kind, status, lifecycle, noteType,
+          id, filePath, title, indexBody, kind, status, lifecycle, noteType,
           tagsJson, summary, guidance, context, updatedDate, createdDate, wordCount
         );
 
         this.ftsDelete(id);
-        this.ftsInsert(id, title, body, tagsJson, context);
+        this.ftsInsert(id, title, indexBody, tagsJson, context);
         this.syncLinks(id, body);
         uniqueIds.add(id);
 
