@@ -490,50 +490,6 @@ body:not(.is-mobile) .cm-editor .metadata-container:is(:hover, :focus-within) .m
 `.trimStart(),
 };
 
-const QUICKADD_SCRIPTS: Record<string, string> = {
-  'edit-note.js': `
-module.exports = async (params) => {
-  const { app } = params;
-  const filePath = params.variables?.path;
-  if (!filePath) return;
-  const file = app.vault.getAbstractFileByPath(filePath);
-  if (!file) return;
-  const leaf = app.workspace.getLeaf('tab');
-  await leaf.openFile(file, { state: { mode: 'source' } });
-};
-`.trimStart(),
-  'delete-note.js': `
-module.exports = async (params) => {
-  const { app, quickAddApi } = params;
-  const filePath = params.variables?.path;
-  if (!filePath) { new Notice('No file path provided'); return; }
-  const file = app.vault.getAbstractFileByPath(filePath);
-  if (!file) { new Notice('File not found: ' + filePath); return; }
-  const confirm = await quickAddApi.yesNoPrompt('Delete this note?', 'Are you sure you want to delete "' + file.name + '"?');
-  if (confirm) {
-    await app.vault.trash(file, true);
-    new Notice('Deleted: ' + file.name);
-  }
-};
-`.trimStart(),
-  'promote-note.js': `
-module.exports = async (params) => {
-  const { app } = params;
-  const filePath = params.variables?.path;
-  if (!filePath) { new Notice('No file path provided'); return; }
-  const file = app.vault.getAbstractFileByPath(filePath);
-  if (!file) { new Notice('File not found: ' + filePath); return; }
-  await app.fileManager.processFrontMatter(file, (fm) => {
-    if (fm.status === 'fleeting') {
-      fm.status = 'permanent';
-      new Notice('Promoted to permanent: ' + (fm.title || file.name));
-    } else {
-      new Notice('Already ' + (fm.status || 'unknown') + ': ' + file.name);
-    }
-  });
-};
-`.trimStart(),
-};
 
 function getPackageTemplatesDir(): string {
   const obsidianDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'obsidian');
@@ -626,7 +582,7 @@ function defaultAppConfig(config: ObsidianConfig): Record<string, unknown> {
     showInlineTitle: false,
     foldHeading: true,
     trashOption: 'local',
-    userIgnoreFilters: ['.scripts', '.templates'],
+    userIgnoreFilters: ['.templates'],
   };
 }
 
@@ -744,75 +700,7 @@ function buildProjectQuickAddChoices(): Array<Record<string, unknown>> {
   });
 }
 
-function buildQuickAddMacros(): Array<Record<string, unknown>> {
-  return [
-    {
-      name: 'Edit Note',
-      id: deterministicId('macro-edit-note'),
-      commands: [
-        {
-          name: 'edit-note',
-          type: 'UserScript',
-          id: deterministicId('macro-command-edit-note'),
-          path: '.scripts/edit-note.js',
-          settings: {},
-        },
-      ],
-    },
-    {
-      name: 'Delete Note',
-      id: deterministicId('macro-delete-note'),
-      commands: [
-        {
-          name: 'delete-note',
-          type: 'UserScript',
-          id: deterministicId('macro-command-delete-note'),
-          path: '.scripts/delete-note.js',
-          settings: {},
-        },
-      ],
-    },
-    {
-      name: 'Promote Note',
-      id: deterministicId('macro-promote-note'),
-      commands: [
-        {
-          name: 'promote-note',
-          type: 'UserScript',
-          id: deterministicId('macro-command-promote-note'),
-          path: '.scripts/promote-note.js',
-          settings: {},
-        },
-      ],
-    },
-  ];
-}
 
-function buildQuickAddActionChoices(): Array<Record<string, unknown>> {
-  return [
-    {
-      name: 'Edit Note',
-      id: deterministicId('choice-edit-note'),
-      type: 'Macro',
-      command: true,
-      macroId: deterministicId('macro-edit-note'),
-    },
-    {
-      name: 'Delete Note',
-      id: deterministicId('choice-delete-note'),
-      type: 'Macro',
-      command: true,
-      macroId: deterministicId('macro-delete-note'),
-    },
-    {
-      name: 'Promote Note',
-      id: deterministicId('choice-promote-note'),
-      type: 'Macro',
-      command: true,
-      macroId: deterministicId('macro-promote-note'),
-    },
-  ];
-}
 
 function buildPluginData(pluginId: string, config: ObsidianConfig): Record<string, unknown> | null {
   switch (pluginId) {
@@ -897,8 +785,6 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
     case 'quickadd': {
       const multiChoiceId = deterministicId('quickadd-new-note');
       return {
-        user_scripts_folder: '.scripts',
-        macros: buildQuickAddMacros(),
         choices: [
           {
             name: 'New Note',
@@ -908,7 +794,6 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
             choices: buildQuickAddChoices(),
           },
           ...buildProjectQuickAddChoices(),
-          ...buildQuickAddActionChoices(),
         ],
       };
     }
@@ -1244,14 +1129,6 @@ function writeOwnedSnippets(vaultPath: string, config: ObsidianConfig): void {
   }
 }
 
-function writeQuickAddScripts(vaultPath: string): void {
-  const scriptsDir = path.join(vaultPath, '.scripts');
-  ensureDir(scriptsDir);
-
-  for (const [fileName, content] of Object.entries(QUICKADD_SCRIPTS)) {
-    fs.writeFileSync(path.join(scriptsDir, fileName), content, 'utf-8');
-  }
-}
 
 function copyPackageTemplates(vaultPath: string, templatesDir?: string): void {
   const sourceDir = templatesDir ?? getPackageTemplatesDir();
@@ -1417,7 +1294,6 @@ async function applyScaffoldV1(
   ensureDir(getObsidianDir(vaultPath));
   copyPackageTemplates(vaultPath, deps.templatesDir);
   writeOwnedSnippets(vaultPath, config);
-  writeQuickAddScripts(vaultPath);
 
   const fetchImpl = deps.fetchImpl ?? fetch;
   const verifyAssetIntegrity = deps.verifyAssetIntegrity ?? true;
