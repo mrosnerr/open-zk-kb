@@ -306,8 +306,9 @@ export class NoteRepository {
     if (metadata.context) fm.context = metadata.context;
     const extraFrontmatter = metadata.extraFrontmatter as Record<string, unknown> | undefined;
     if (extraFrontmatter) {
+      const reserved = new Set(Object.keys(fm));
       for (const [key, value] of Object.entries(extraFrontmatter)) {
-        fm[key] = value;
+        if (!reserved.has(key)) fm[key] = value;
       }
     }
     if (metadata.related_notes && metadata.related_notes.length > 0) {

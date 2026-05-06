@@ -80,6 +80,8 @@ For OpenCode development from a local checkout, this source install path wires O
 4. You should see vault statistics (0 notes on fresh install). This confirms the 8 tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
+   - `knowledge-template` -- canonical note template for a kind
+   - `knowledge-mine` -- bulk-screen candidates for duplicates and store
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML
    - `knowledge-overview` -- project entry point with auto-generated index and recent log

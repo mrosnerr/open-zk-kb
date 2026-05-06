@@ -3,16 +3,22 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g
 const scope = await tp.system.suggester(
   ["General", "Project"], ["general", "project"], false, "Scope"
 );
+if (!scope) return;
 let project = null;
 if (scope === "project") {
   const pf = app.vault.getAbstractFileByPath("projects");
-  const existing = pf ? pf.children.filter(f => f.children).map(f => f.name).sort() : [];
+  const existing = pf && pf.children ? pf.children.filter(f => f.children).map(f => f.name).sort() : [];
   const options = [...existing, "＋ New project…"];
   const sel = await tp.system.suggester(options, options, false, "Select project");
-  project = sel === "＋ New project…" ? await tp.system.prompt("Project name (slug)") : sel;
+  if (!sel) return;
+  const rawProject = sel === "＋ New project…" ? await tp.system.prompt("Project name (slug)") : sel;
+  if (!rawProject) return;
+  project = sel === "＋ New project…" ? slug(rawProject) : rawProject;
 }
 const title = await tp.system.prompt("Observation title");
-const summary = await tp.system.prompt("Describe what you observed");
+if (!title) return;
+const summary = await tp.system.prompt("Describe this observation");
+if (!summary) return;
 const ts = tp.file.title.slice(0, 16);
 const dir = project ? `projects/${project}/observations` : "general/observations";
 await tp.file.move(`${dir}/${ts}-${slug(title)}`);

@@ -317,10 +317,13 @@ export interface ProjectStat {
   lastActive: number;
 }
 
-function buildShellFrontmatter(fields: Record<string, string | string[]>): string {
+function buildShellFrontmatter(fields: Record<string, string | boolean | string[]>): string {
   return `---\n${Object.entries(fields).map(([k, v]) => {
     if (Array.isArray(v)) {
       return `${k}:\n${v.map(item => `  - "${item.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`).join('\n')}`;
+    }
+    if (typeof v === 'boolean') {
+      return `${k}: ${v}`;
     }
     return `${k}: "${v.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
   }).join('\n')}\n---\n`;

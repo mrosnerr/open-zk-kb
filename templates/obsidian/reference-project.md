@@ -2,7 +2,9 @@
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 const project = "{{VALUE:project}}";
 const title = await tp.system.prompt("Reference title");
+if (!title) return;
 const summary = await tp.system.prompt("Describe this reference");
+if (!summary) return;
 const sourceUrl = await tp.system.prompt("Source URL (leave empty if none)", "");
 const ts = tp.file.title.slice(0, 16);
 await tp.file.move(`projects/${project}/references/${ts}-${slug(title)}`);

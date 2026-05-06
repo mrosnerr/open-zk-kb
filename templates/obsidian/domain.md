@@ -1,10 +1,15 @@
 <%*
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 const pf = app.vault.getAbstractFileByPath("projects");
-const existing = pf ? pf.children.filter(f => f.children).map(f => f.name).sort() : [];
+const existing = pf && pf.children ? pf.children.filter(f => f.children).map(f => f.name).sort() : [];
 const options = [...existing, "＋ New project…"];
 const sel = await tp.system.suggester(options, options, false, "Select project");
-const project = sel === "＋ New project…" ? await tp.system.prompt("Project name (slug)") : sel;
+if (!sel) return;
+const rawProject = sel === "＋ New project…" ? await tp.system.prompt("Project name (slug)") : sel;
+if (!rawProject) return;
+const project = sel === "＋ New project…" ? slug(rawProject) : rawProject;
 const role = await tp.system.prompt("What is the agent's role in this project? (one line)");
+if (!role) return;
 await tp.file.move(`projects/${project}/domain`);
 -%>
 ---

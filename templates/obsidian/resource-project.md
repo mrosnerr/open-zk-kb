@@ -2,8 +2,11 @@
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 const project = "{{VALUE:project}}";
 const title = await tp.system.prompt("Resource title");
+if (!title) return;
 const url = await tp.system.prompt("Resource URL");
+if (!url) return;
 const summary = await tp.system.prompt("Describe this resource");
+if (!summary) return;
 const ts = tp.file.title.slice(0, 16);
 await tp.file.move(`projects/${project}/resources/${ts}-${slug(title)}`);
 -%>

@@ -1783,7 +1783,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         { action: 'migrate-layout', label: 'Migrate Layout', stepArgs: { action: 'migrate-layout', dryRun: false } },
         { action: 'format', label: 'Format', stepArgs: { action: 'format' } },
         { action: 'dedupe', label: 'Dedupe', stepArgs: { action: 'dedupe' } },
-        { action: 'embed', label: 'Embed', stepArgs: { action: 'embed' } },
+        { action: 'embed', label: 'Embed', stepArgs: { action: 'embed', limit: 999999 } },
         { action: 'broken-links', label: 'Link Health', stepArgs: { action: 'broken-links' } },
         { action: 'stats', label: 'Stats', stepArgs: { action: 'stats', telemetry: args.telemetry, model: args.model } },
       ];

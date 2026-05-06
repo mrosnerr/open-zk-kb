@@ -94,7 +94,7 @@ export const THEME_REGISTRY: ThemeRegistryEntry = {
     'theme.css': '396b9ee12ff71cc2acd08350e2e4f8dc3273e5de028c2071ad972826f87ad201',
   },
   source: 'raw',
-  branch: 'main',
+  branch: '1.13.6',
 };
 
 const ASSET_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -1285,7 +1285,11 @@ function syncManagedAppConfig(vaultPath: string, config: ObsidianConfig): void {
   merged.defaultViewMode = config.readOnly ? 'preview' : 'source';
   merged.readableLineLength = false;
   merged.showInlineTitle = false;
-  merged.userIgnoreFilters = ['.scripts', '.templates'];
+  const existingFilters = Array.isArray(existing.userIgnoreFilters) 
+    ? existing.userIgnoreFilters.filter((item): item is string => typeof item === 'string') 
+    : [];
+  const managedFilters = ['.scripts', '.templates'];
+  merged.userIgnoreFilters = [...existingFilters.filter(f => !managedFilters.includes(f)), ...managedFilters];
   writeJsonFile(filePath, merged);
 }
 
