@@ -1619,7 +1619,8 @@ export class NoteRepository {
         const summary = (frontmatter.summary as string) || '';
         const guidance = (frontmatter.guidance as string) || '';
         const context = (frontmatter.context as string) || '';
-        const indexBody = body.replace(NoteRepository.TITLE_PATTERN, '');
+        const isStructural = kind === 'index' || kind === 'log';
+        const indexBody = isStructural ? body : body.replace(NoteRepository.TITLE_PATTERN, '');
         const wordCount = this.countWords(indexBody);
         const tagsJson = JSON.stringify(tags);
 
