@@ -330,7 +330,7 @@ export class NoteRepository {
       .map(([k, v]) => {
         if (Array.isArray(v)) return `${k}:\n${(v as string[]).map(item => {
           const s = String(item);
-          return /[#{}[\]|>@`"'\n]/.test(s) ? `  - "${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : `  - ${s}`;
+          return /[#{}[\]|>@`"'\n]/.test(s) || s.includes(': ') ? `  - "${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : `  - ${s}`;
         }).join('\n')}`;
         const str = String(v);
          if (typeof v === 'string' && /[:#{}[\]|>@`"']/.test(str)) {
@@ -1599,7 +1599,7 @@ export class NoteRepository {
         const id = (frontmatter.id as string) || file.match(/^(\d{16}|\d{12})/)?.[1] || '';
         // Skip auto-generated structural files (no frontmatter ID expected)
         const basename = path.basename(filePath);
-        if ((frontmatter.kind === 'index' || /^(log|review)\.md$/i.test(basename)) && !id) {
+        if ((frontmatter.kind === 'index' || /^(index|log|review)\.md$/i.test(basename)) && !id) {
           continue;
         }
         if (!id) {

@@ -289,7 +289,7 @@ function buildKindSubMocContent(project: string, kind: string, header: string): 
   lines.push(buildShellFrontmatter({
     kind: 'index',
     title: `${projectName} ${header}`,
-    'BC-folder-note': 'true',
+    'BC-folder-note': true,
     'BC-folder-note-field': 'up',
     aliases: [header],
     cssclasses: ['folder-note-shell'],
@@ -410,7 +410,7 @@ export function buildProjectsIndexContent(projectStats: ProjectStat[]): string {
   lines.push(buildShellFrontmatter({
     kind: 'index',
     title: 'Projects',
-    'BC-folder-note': 'true',
+    'BC-folder-note': true,
     'BC-folder-note-field': 'up',
     aliases: ['Projects'],
     cssclasses: ['folder-note-shell'],
@@ -445,7 +445,7 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
   lines.push(buildShellFrontmatter({
     kind: 'index',
     title: 'General Knowledge',
-    'BC-folder-note': 'true',
+    'BC-folder-note': true,
     aliases: ['General'],
     cssclasses: ['folder-note-shell'],
     up: `[[${getGlobalHomeNoteBasename()}|Home]]`,
@@ -484,7 +484,7 @@ export function buildPreferencesIndexContent(_notes: NoteMetadata[]): string {
   lines.push(buildShellFrontmatter({
     kind: 'index',
     title: 'Preferences',
-    'BC-folder-note': 'true',
+    'BC-folder-note': true,
     'BC-folder-note-field': 'up',
     aliases: ['Preferences'],
     cssclasses: ['folder-note-shell'],
@@ -509,7 +509,7 @@ export function buildGeneralKindIndexContent(kind: string, _notes: NoteMetadata[
   lines.push(buildShellFrontmatter({
     kind: 'index',
     title: `General ${header}`,
-    'BC-folder-note': 'true',
+    'BC-folder-note': true,
     'BC-folder-note-field': 'up',
     aliases: [header],
     cssclasses: ['folder-note-shell'],
