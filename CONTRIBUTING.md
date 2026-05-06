@@ -49,6 +49,8 @@ bun test         # Verify everything works
 - Factory pattern: classes export `createXxx()` factories.
 - Note IDs: `YYYYMMDDHHmmss00` (16-digit: timestamp + 2-digit counter for same-second collisions).
 - XDG paths for data, config, and logs.
+- Treat MCP + SQLite as the agent query layer, and Obsidian as the human browsing layer.
+- Keep core knowledge notes markdown-native. Rich Obsidian-specific UX belongs in generated navigation files like `index` and `log`.
 
 ## Anti-Patterns (DO NOT)
 

@@ -1,6 +1,7 @@
 // LogAppender.ts - Append-only operations log for project notes
 // Pure string formatting. No LLM, no judgment.
 
+
 function formatDate(date: Date = new Date()): string {
   return date.toISOString().split('T')[0];
 }
@@ -25,5 +26,18 @@ export function buildGlobalLogEntry(project: string | null, event: string, date:
 }
 
 export function buildInitialGlobalLogContent(entry: string): string {
-  return `# Operations Log\n\n${entry}`;
+  return `---\ncssclasses:\n  - folder-note-shell\nup: "[[Home|Home]]"\n---\n\n# \`[!!scroll-text]\` Operations Log\n\n${entry}`;
+}
+
+export function migrateGlobalLogContent(existingContent: string): string {
+  let content = existingContent;
+  content = content.replace(/^> \[!breadcrumb\]\n(?:> .*\n?)*/m, '');
+  content = content.replace(/^# Operations Log$/m, '# `[!!scroll-text]` Operations Log');
+  if (content.includes('---\n') && !content.includes('up:')) {
+    content = content.replace(/^(---\n(?:.*\n)*?)(---)/m, '$1up: "[[Home|Home]]"\n$2');
+  }
+  if (!content.includes('---\n')) {
+    content = `---\ncssclasses:\n  - folder-note-shell\nup: "[[Home|Home]]"\n---\n\n${content.trimStart()}`;
+  }
+  return content;
 }

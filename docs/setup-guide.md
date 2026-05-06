@@ -77,13 +77,13 @@ For OpenCode development from a local checkout, this source install path wires O
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.
 3. Ask your assistant: **"Run `knowledge-maintain stats`"**
-4. You should see vault statistics (0 notes on fresh install). This confirms the 6 tools are available:
+4. You should see vault statistics (0 notes on fresh install). This confirms the 8 tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML
    - `knowledge-overview` -- project entry point with auto-generated index and recent log
-   - `knowledge-open` -- open the vault in Obsidian for visual browsing
+   - `knowledge-open` -- open the vault in Obsidian for visual browsing (see [Obsidian Guide](obsidian.md))
 
 ## Agent Instructions
 
@@ -206,4 +206,4 @@ This section is specifically for AI coding assistants setting up open-zk-kb:
 2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor
 4. Verify by calling `knowledge-maintain stats`
-5. Knowledge capture is driven by agent instructions (skill for Claude Code, managed block for OpenCode/Windsurf) provided during setup. Calling models use `knowledge-store` directly.
+5. Knowledge capture is driven by agent instructions (skill for Claude Code, managed block for OpenCode/Windsurf) provided during setup. Calling models use MCP tools directly, primarily querying the SQLite-backed server layer rather than browsing raw vault files.

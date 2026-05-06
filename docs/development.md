@@ -47,6 +47,15 @@ This configures OpenCode to run the local `dist/mcp-server.js` build through its
 - `plugin` includes the local checkout as a `file://` plugin during source installs.
 - `~/.config/opencode/AGENTS.md` gets the managed knowledge-base instructions.
 
+### Navigation UX boundary
+
+- Treat Obsidian as the human UX layer.
+- Treat MCP + SQLite as the agent query layer.
+- Keep core knowledge notes markdown-native.
+- It is acceptable for generated `index` and `log` notes to adopt richer Obsidian-native functionality from the managed scaffold when that improves human navigation.
+- Prefer Dataview for rendering index-page lists/tables where possible; keep the server focused on shell creation, storage, and guarantees.
+- Prefer Obsidian plugins like Breadcrumbs for per-note navigation UI instead of injecting breadcrumb markdown into canonical note bodies.
+
 > **How does the installer know to use local paths?** It checks whether the running script's parent directory contains a `.git` folder. If it does, you're running from a source checkout — the installer uses `file://` URLs and absolute paths. When installed via `bunx`/`npx` (no `.git`), it uses the `open-zk-kb` npm package name instead.
 
 ### Verify plugin changes locally
@@ -59,7 +68,7 @@ After rebuilding, rerun the installer and restart OpenCode so it reloads both th
 ```
 src/
 ├── mcp-server.ts       # MCP server entry point (stdio transport)
-├── tool-handlers.ts    # Shared logic for all 6 tools
+├── tool-handlers.ts    # Shared logic for all 8 tools
 ├── storage/
 │   ├── NoteRepository.ts  # Core CRUD, FTS5, link tracking
 │   ├── IndexBuilder.ts    # Auto-generates per-project index notes
@@ -131,6 +140,14 @@ ESLint is configured with TypeScript plugin in eslint.config.cjs.
 - Use logToFile('DEBUG', 'message', { data }, config) for debug output
 - NEVER use console.log in server code — it breaks MCP stdio transport
 - Exception: src/setup.ts and scripts/ are CLI tools where console output is fine
+
+## Working on Obsidian UX
+
+When improving Obsidian browsing:
+
+1. Prefer enhancing generated `index` and `log` notes over changing canonical note bodies.
+2. Keep plugin-specific markup out of core knowledge notes unless there is a strong indexing/story reason.
+3. Remember that agents primarily query the MCP server and SQLite-backed repository, while humans consume the generated vault surfaces.
 
 ## Adding a New Tool
 1. Add handler function in src/tool-handlers.ts

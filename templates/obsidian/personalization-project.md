@@ -1,0 +1,32 @@
+<%*
+const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+const project = "{{VALUE:project}}";
+const title = await tp.system.prompt("Preference title");
+const preference = await tp.system.prompt("Describe this preference");
+const ts = tp.file.title.slice(0, 16);
+await tp.file.move(`preferences/${ts}-${slug(title)}`);
+-%>
+---
+kind: personalization
+status: permanent
+lifecycle: living
+type: atomic
+created: <% tp.date.now("YYYY-MM-DD") %>
+updated: <% tp.date.now("YYYY-MM-DD") %>
+summary: "<% preference %>"
+guidance: "<% preference %>"
+tags:
+  - project:<% project %>
+---
+
+# <% title %>
+
+## Preference
+<% preference %>
+
+## Context
+<% tp.file.cursor() %>
+
+## Examples
+- ✅
+- 🚫

@@ -46,6 +46,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "postbuild": "bun run scripts/dev-scaffold.ts --no-build",
     "prepublishOnly": "bun run build && bun test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

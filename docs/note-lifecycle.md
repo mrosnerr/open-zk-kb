@@ -31,6 +31,11 @@ When a note is created, its `kind` determines its initial `status`. Some kinds a
 | `procedure` | **Fleeting** | Step-by-step workflows and recurring tasks. |
 | `resource` | **Permanent** | Stable links, tools, libraries, and external documentation. |
 | `observation` | **Fleeting** | Insights, patterns, and temporary findings. |
+| `domain` | **Permanent** | Project operating manuals for agent role, scope, conventions, and boundaries. |
+| `index` | **Permanent** | Auto-generated project catalog used mainly as a human-facing navigation surface in Obsidian. |
+| `log` | **Permanent** | Auto-generated project activity history used mainly as a human-facing activity surface in Obsidian. |
+
+`index` and `log` are special structural notes. They are server-generated, not manually authored via `knowledge-store`, and may contain richer Obsidian-specific UX than core knowledge notes.
 
 ## The Review System
 

@@ -59,7 +59,7 @@ Your AI assistant gets eight MCP tools:
 
 The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
 
-Notes are stored as Markdown files with YAML frontmatter. A SQLite index provides fast full-text search, with local vector embeddings for semantic matching. No API key needed.
+Notes are stored as Markdown files with YAML frontmatter. A SQLite index provides fast full-text search, with local vector embeddings for semantic matching. Agents primarily query the MCP tools backed by SQLite and metadata rendering; humans primarily browse the vault through Obsidian's generated indexes, logs, and graph. No API key needed.
 
 ## Configuration
 
@@ -97,21 +97,40 @@ obsidian:
 | `resource` | permanent | Links, tools, libraries, and external documentation |
 | `observation` | fleeting | Insights, patterns, and temporary findings |
 | `domain` | permanent | Project operating manuals — agent role, scope, conventions, boundaries |
-| `index` | permanent | Auto-generated project catalog — navigation entry point |
-| `log` | permanent | Auto-generated chronological operations log |
+| `index` | permanent | Auto-generated project catalog — human-facing navigation surface in Obsidian |
+| `log` | permanent | Auto-generated chronological operations log — human-facing activity surface |
 
 Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
 
 ## Obsidian Integration
 
-Your knowledge base is an [Obsidian](https://obsidian.md) vault. The `knowledge-open` tool launches it with a managed scaffold:
+Your knowledge base is an [Obsidian](https://obsidian.md) vault. The `knowledge-open` tool launches it with a fully managed scaffold — no manual setup required.
 
-- **Curated plugins** — Dataview, Templater, QuickAdd, and Homepage pre-configured
-- **Kind-based directories** — notes organized by kind with Map of Content navigation
-- **Graph view** — visualize connections between notes, decisions, and projects
+<p align="center">
+  <img src="assets/obsidian-home.png" alt="Knowledge Base homepage in Obsidian" width="720">
+  <br>
+  <sub>Homepage with project overview, stats, and navigation</sub>
+</p>
+
+**What you get out of the box:**
+
+- **Homepage dashboard** — project stats, quick navigation, and activity summary
+- **Breadcrumb navigation** — hierarchical trails on every page via the Breadcrumbs plugin
+- **Kind-based icons and colors** — decisions, procedures, references, and observations each get distinct icons and colors in the sidebar and headings
+- **Inline action buttons** — edit, delete, promote, and add notes directly from Dataview tables
+- **14 managed plugins** — Dataview, Breadcrumbs, QuickAdd, Templater, Homepage, Iconic, and more — all pre-configured
 - **Read-only defaults** — scaffold-managed files are protected from accidental edits
+- **Auto-upgrades** — the scaffold updates on launch. Opt out with `obsidian.autoUpgrade: false`
 
-The scaffold auto-upgrades on launch. To opt out, set `obsidian.autoUpgrade: false` in `config.yaml`.
+<p align="center">
+  <img src="assets/obsidian-project.png" alt="Project index with action buttons" width="720">
+  <br>
+  <sub>Project index with kind sections, Dataview tables, and inline actions</sub>
+</p>
+
+Core knowledge notes stay markdown-native for clean agent context. Navigation surfaces (`index`, `log`, `review`) use Dataview and plugin-powered UX for a richer human experience.
+
+See [Obsidian Guide](docs/obsidian.md) for the full walkthrough.
 
 <details>
 <summary><h2>Manual Install</h2></summary>
@@ -214,6 +233,7 @@ bun run setup            # interactive installer
 - [Tools Reference](docs/tools-reference.md) — all 8 MCP tools, parameters, examples
 - [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
 - [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
+- [Obsidian Guide](docs/obsidian.md) — managed scaffold, plugins, navigation, screenshots
 - [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection
 - [Development & Contributing](docs/development.md) — local dev, testing, debugging
 - [Contributing Guidelines](CONTRIBUTING.md)

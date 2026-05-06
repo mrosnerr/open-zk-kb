@@ -111,7 +111,7 @@ const STORABLE_KINDS = ['personalization', 'reference', 'decision', 'procedure',
 const LIFECYCLES = ['living', 'snapshot', 'append-only'] as const;
 
 const storeSchema = z.object({
-  title: z.string().describe('Note title — concise, descriptive'),
+  title: z.string().describe('Note title — 3-6 word scannable label (max 10 words / 80 chars). Detail belongs in summary.'),
   content: z.string().describe('Note content — the knowledge to store'),
   kind: z.enum(STORABLE_KINDS).describe('Note kind: personalization, reference, decision, procedure, resource, observation, domain'),
   status: z.enum(['fleeting', 'permanent', 'archived']).optional().describe('Override default status (defaults based on kind)'),
@@ -335,8 +335,8 @@ server.registerTool(
 // ---- knowledge-maintain ----
 
 const maintainSchema = z.object({
-  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'orphans', 'broken-links', 'migrate-layout', 'upgrade-vault', 'full'])
-      .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags), orphans (notes with no links), broken-links (wikilinks to non-existent notes), migrate-layout (move flat vault to kind-based directory structure), upgrade-vault (refresh Obsidian scaffold assets), or full (composite: rebuild → migrate-layout → dedupe → embed → broken-links → stats, in dependency order).'),
+  action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'orphans', 'broken-links', 'migrate-layout', 'upgrade-vault', 'full'])
+      .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, format (re-serialize all note files with canonical frontmatter and navigation), upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags), orphans (notes with no links), broken-links (wikilinks to non-existent notes), migrate-layout (move flat vault to kind-based directory structure), upgrade-vault (refresh Obsidian scaffold assets), or full (composite: rebuild → migrate-layout → format → dedupe → embed → broken-links → stats, in dependency order).'),
   noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
   filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
   days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
@@ -381,7 +381,7 @@ server.registerTool(
 
 const mineSchema = z.object({
   candidates: z.array(z.object({
-    title: z.string().describe('Note title — concise, descriptive'),
+    title: z.string().describe('Note title — 3-6 word scannable label (max 10 words / 80 chars). Detail belongs in summary.'),
     content: z.string().describe('Note content — the extracted knowledge'),
     kind: z.enum(STORABLE_KINDS).describe('Note kind'),
     summary: z.string().describe('One-line present-tense key takeaway'),

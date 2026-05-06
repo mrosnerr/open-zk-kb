@@ -85,10 +85,12 @@ Not recorded:
 `knowledge-open` now scaffolds a polished Obsidian vault experience on first launch:
 
 - Minimal theme
-- Community plugin bundle (homepage, QuickAdd, Commander, Templater, Minimal Settings, OZ Calendar, Read Only View)
+- Community plugin bundle (Breadcrumbs, Homepage, QuickAdd, Commander, Templater, Minimal Settings, OZ Calendar, Read Only View)
 - CSS snippets for dashboard layout, better tables, hidden metadata, and optional read-only controls
 - Auto-copied note templates under `templates/`
 - Versioned scaffold manifest at `.obsidian/open-zk-kb.json`
+
+The scaffold is the primary presentation layer for humans using the vault in Obsidian. Over time, generated `index` and `log` notes may use more Obsidian-native functionality from the managed plugin bundle. Core knowledge notes remain markdown-native and continue to be indexed by the MCP server without depending on plugin-specific syntax.
 
 ```yaml
 obsidian:

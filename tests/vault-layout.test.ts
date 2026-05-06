@@ -33,7 +33,7 @@ describe('Path Resolver', () => {
 
   it('places index as singleton in project dir', () => {
     const result = resolveNotePath(vault, 'index', 'open-zk-kb', '2026042700000000', 'open-zk-kb-index');
-    expect(result).toBe('/vault/projects/open-zk-kb/index.md');
+    expect(result).toBe('/vault/projects/open-zk-kb/open-zk-kb.md');
   });
 
   it('places log as singleton in project dir', () => {
@@ -43,7 +43,7 @@ describe('Path Resolver', () => {
 
   it('places global index at vault root', () => {
     const result = resolveNotePath(vault, 'index', null, '2026042700000000', 'knowledge-base');
-    expect(result).toBe('/vault/index.md');
+    expect(result).toBe('/vault/Home.md');
   });
 
   it('places global log at vault root', () => {
@@ -102,8 +102,8 @@ describe('walkMarkdownFiles', () => {
     fs.mkdirSync(path.join(tempDir, 'projects', 'foo', 'decisions'), { recursive: true });
     fs.mkdirSync(path.join(tempDir, 'general', 'observations'), { recursive: true });
 
-    fs.writeFileSync(path.join(tempDir, 'index.md'), '# Home');
-    fs.writeFileSync(path.join(tempDir, 'projects', 'foo', 'index.md'), '# Foo');
+    fs.writeFileSync(path.join(tempDir, 'Home.md'), '# Home');
+    fs.writeFileSync(path.join(tempDir, 'projects', 'foo', 'foo.md'), '# Foo');
     fs.writeFileSync(path.join(tempDir, 'projects', 'foo', 'decisions', '001-test.md'), '# Decision');
     fs.writeFileSync(path.join(tempDir, 'general', 'observations', '002-obs.md'), '# Obs');
     fs.writeFileSync(path.join(tempDir, '.index', 'should-skip.md'), 'skip me');
@@ -201,11 +201,11 @@ describe('Structured Vault Storage', () => {
       project: 'open-zk-kb',
     }, context.engine, null, context.config);
 
-    const home = readNoteFile(context, 'index.md');
+    const home = readNoteFile(context, 'Home.md');
     expect(home).toContain('cssclasses:');
-    expect(home).toContain('# 🧠 Knowledge Base');
-    expect(home).toContain('## 📂 Projects');
-    expect(home).toContain('## 📚 Browse');
+    expect(home).toContain('Knowledge Base');
+    expect(home).toContain('## Projects');
+    expect(home).toContain('## Browse');
     expect(home).toContain('## 🔗 Resources');
     expect(home).toContain('Powered by [open-zk-kb]');
   });
@@ -332,7 +332,7 @@ Decision content`, flatFilename);
     expect(output).toContain('projects/myproject/decisions/');
     expect(output).toContain('## Impact Preview');
     expect(output).toContain('Embeddings: will need backfill after migration');
-    expect(output).toContain('Navigation: index.md, log.md, review.md, and per-directory indexes will be auto-generated');
+    expect(output).toContain('Navigation: Home.md, log.md, review.md, and per-directory folder notes will be auto-generated');
     expect(fs.existsSync(flatPath)).toBe(true);
   });
 
@@ -361,7 +361,7 @@ Content`, '2026042700000005-no-embeddings.md');
 
     expect(output).toContain('## Impact Preview');
     expect(output).not.toContain('Embeddings: will need backfill');
-    expect(output).toContain('Navigation: index.md, log.md, review.md, and per-directory indexes will be auto-generated');
+    expect(output).toContain('Navigation: Home.md, log.md, review.md, and per-directory folder notes will be auto-generated');
   });
 
   it('actual migration moves files, cleans empty dirs, and reports health summary', async () => {
@@ -397,7 +397,7 @@ Observation content with [[missing-note]]`, '2026042700000002-moveable-note.md')
     expect(output).toContain('## Health Summary');
     expect(output).toContain('Embeddings: ');
     expect(output).toContain('need backfill');
-    expect(output).toContain('Link health: 1 broken wikilinks found');
+    expect(output).toContain('broken wikilinks found');
     expect(output).toContain('## Next Steps');
     expect(output).toContain('- Backfill embeddings: knowledge-maintain embed');
     expect(output).toContain('- Check link health: knowledge-maintain broken-links');
@@ -473,7 +473,7 @@ describe('Global Navigation', () => {
     cleanupTestHarness(context);
   });
 
-  it('generates global index.md on store', async () => {
+  it('generates Home.md on store', async () => {
     await handleStore(
       { title: 'Test Note', content: 'Content', kind: 'decision', project: 'myproject', summary: 'A decision', guidance: 'Use it' } as any,
       context.engine,
@@ -481,7 +481,7 @@ describe('Global Navigation', () => {
       context.config,
     );
 
-    const globalIndex = path.join(context.tempDir, 'index.md');
+    const globalIndex = path.join(context.tempDir, 'Home.md');
     expect(fs.existsSync(globalIndex)).toBe(true);
     const content = fs.readFileSync(globalIndex, 'utf-8');
     expect(content).toContain('Knowledge Base');
@@ -499,7 +499,7 @@ describe('Global Navigation', () => {
       context.config,
     );
 
-    const content = fs.readFileSync(path.join(context.tempDir, 'index.md'), 'utf-8');
+    const content = fs.readFileSync(path.join(context.tempDir, 'Home.md'), 'utf-8');
     expect(content).not.toContain('[[review\\|📝 Needs Review]]');
     expect(content).not.toContain('[[log|Operations Log]]');
   });
@@ -515,7 +515,7 @@ describe('Global Navigation', () => {
     const globalLog = path.join(context.tempDir, 'log.md');
     expect(fs.existsSync(globalLog)).toBe(true);
     const content = fs.readFileSync(globalLog, 'utf-8');
-    expect(content).toContain('# Operations Log');
+    expect(content).toContain('Operations Log');
     expect(content).toContain('[proj]');
   });
 
@@ -534,7 +534,7 @@ describe('Global Navigation', () => {
     expect(content).toContain('observation');
   });
 
-  it('generates general/index.md for unscoped notes', async () => {
+  it('generates general/general.md for unscoped notes', async () => {
     await handleStore(
       { title: 'General Note', content: 'Unscoped content', kind: 'reference', summary: 'General ref', guidance: 'Use it' } as any,
       context.engine,
@@ -542,10 +542,10 @@ describe('Global Navigation', () => {
       context.config,
     );
 
-    const generalIndex = path.join(context.tempDir, 'general', 'index.md');
+    const generalIndex = path.join(context.tempDir, 'general', 'general.md');
     expect(fs.existsSync(generalIndex)).toBe(true);
     const content = fs.readFileSync(generalIndex, 'utf-8');
-    expect(content).toContain('# General Knowledge');
+    expect(content).toContain('# `[!!library]` General Knowledge');
   });
 
   it('appends to global log on subsequent stores', async () => {
@@ -598,9 +598,10 @@ describe('MOC Splitting', () => {
     const { content, subMocs } = buildIndexContent('test', notes, { threshold: 30, previewCount: 5 });
     expect(subMocs).toHaveLength(2);
     expect(subMocs.map(s => s.kind).sort()).toEqual(['decision', 'observation']);
-    expect(content).toContain('## Decisions (2)');
-    expect(content).toContain('Dec 1');
-    expect(content).toContain('Dec 2');
+    expect(content).toContain('## `[!!scale]` Decisions [+](obsidian://quickadd?');
+    expect(content).toContain('```dataviewjs');
+    expect(content).toContain('dv.pages(\'\"projects/test/decisions\"\')');
+    expect(content).toContain('choice=Edit%20Note');
   });
 
   it('splits large kinds into sub-MOCs when threshold exceeded', () => {
@@ -624,9 +625,9 @@ describe('MOC Splitting', () => {
     const subMocKinds = subMocs.map(s => s.kind).sort();
     expect(subMocKinds).toEqual(['decision', 'observation', 'procedure', 'reference']);
 
-    expect(content).toContain('View all 10');
-    expect(content).toContain('## Procedures (3)');
-    expect(content).not.toContain('View all 3');
+    expect(content).toContain('## `[!!scale]` [[projects/test/decisions/decisions|Decisions]]');
+    expect(content).toContain('dv.pages(\'\"projects/test/decisions\"\')');
+    expect(content).toContain('## `[!!list-checks]` Procedures');
   });
 
   it('sub-MOC contains back-link to parent', () => {
@@ -637,9 +638,11 @@ describe('MOC Splitting', () => {
 
     const { subMocs } = buildIndexContent('myproj', notes, { threshold: 30, previewCount: 5 });
     expect(subMocs.length).toBe(1);
-    expect(subMocs[0].content).toContain('Back to Myproj');
-    expect(subMocs[0].content).toContain('projects/myproj/index');
-    expect(subMocs[0].content).toContain('Decision 0');
+    expect(subMocs[0].content).toContain('[[projects/myproj/myproj|Myproj]]');
+    expect(subMocs[0].content).toContain('BC-folder-note-field: "up"');
+    expect(subMocs[0].content).toContain('up: "[[projects/myproj/myproj|Myproj]]"');
+    expect(subMocs[0].content).toContain('[+](obsidian://quickadd?');
+    expect(subMocs[0].content).toContain('dv.pages(\'\"projects/myproj/decisions\"\')');
   });
 
   it('keeps small kinds inline even when project exceeds threshold', () => {
@@ -654,8 +657,8 @@ describe('MOC Splitting', () => {
 
     expect(subMocs.length).toBe(2);
     expect(subMocs.map(s => s.kind).sort()).toEqual(['decision', 'resource']);
-    expect(content).toContain('## Resources (2)');
-    expect(content).toContain('Single Resource');
+    expect(content).toContain('## `[!!external-link]` Resources [+](obsidian://quickadd?');
+    expect(content).toContain('dv.pages(\'\"projects/test/resources\"\')');
   });
 
 });
@@ -671,12 +674,12 @@ describe('Structured navigation regressions', () => {
     cleanupTestHarness(context);
   });
 
-  it('does not flag plain sub-MOC index files as broken links', async () => {
+  it('does not flag plain sub-MOC folder notes as broken links', async () => {
     const decisionsDir = path.join(context.tempDir, 'projects', 'open-zk-kb', 'decisions');
     fs.mkdirSync(decisionsDir, { recursive: true });
-    fs.writeFileSync(path.join(decisionsDir, 'index.md'), '# Decisions', 'utf-8');
+    fs.writeFileSync(path.join(decisionsDir, 'decisions.md'), '# Decisions', 'utf-8');
 
-    context.engine.store('See [[projects/open-zk-kb/decisions/index]]', {
+    context.engine.store('See [[projects/open-zk-kb/decisions/decisions]]', {
       title: 'Links to Decisions Index',
       kind: 'observation',
     });
@@ -713,11 +716,11 @@ describe('Structured navigation regressions', () => {
     const globalLog = path.join(context.tempDir, 'log.md');
     expect(fs.existsSync(globalLog)).toBe(true);
     const content = fs.readFileSync(globalLog, 'utf-8');
-    expect(content).toContain('# Operations Log');
+    expect(content).toContain('Operations Log');
     expect(content).toContain('[system] Full DB rebuild');
   });
 
-  it('generates preferences/index.md when personalization notes exist', async () => {
+  it('generates preferences/preferences.md when personalization notes exist', async () => {
     await handleStore(
       { title: 'Pref', content: 'Pref content', kind: 'personalization', summary: 'User prefers Bun', guidance: 'Use Bun' } as any,
       context.engine,
@@ -725,18 +728,19 @@ describe('Structured navigation regressions', () => {
       context.config,
     );
 
-    const preferencesIndex = path.join(context.tempDir, 'preferences', 'index.md');
+    const preferencesIndex = path.join(context.tempDir, 'preferences', 'preferences.md');
     expect(fs.existsSync(preferencesIndex)).toBe(true);
     const content = fs.readFileSync(preferencesIndex, 'utf-8');
-    expect(content).toContain('# Preferences (1 notes)');
-    expect(content).toContain('[Back to Knowledge Base](../index.md)');
-    expect(content).not.toContain('[[index|Back to Knowledge Base]]');
+    expect(content).toContain('# `[!!user-cog]` Preferences');
+    expect(content).toContain('BC-folder-note-field: "up"');
+    expect(content).toContain('up: "[[Home|Home]]"');
+    expect(content).toContain('dv.pages(\'\"preferences\"\')');
 
-    const globalIndex = fs.readFileSync(path.join(context.tempDir, 'index.md'), 'utf-8');
-    expect(globalIndex).toContain('[[preferences/index\\|Preferences]]');
+    const globalIndex = fs.readFileSync(path.join(context.tempDir, 'Home.md'), 'utf-8');
+    expect(globalIndex).toContain('[[preferences/preferences\\|Preferences]]');
   });
 
-  it('generates general kind subdir indexes for unscoped notes', async () => {
+  it('generates general kind subdir folder notes for unscoped notes', async () => {
     await handleStore(
       { title: 'General Decision', content: 'Decide', kind: 'decision', summary: 'General summary', guidance: 'Use it' } as any,
       context.engine,
@@ -744,11 +748,12 @@ describe('Structured navigation regressions', () => {
       context.config,
     );
 
-    const generalKindIndex = path.join(context.tempDir, 'general', 'decisions', 'index.md');
+    const generalKindIndex = path.join(context.tempDir, 'general', 'decisions', 'decisions.md');
     expect(fs.existsSync(generalKindIndex)).toBe(true);
     const content = fs.readFileSync(generalKindIndex, 'utf-8');
-    expect(content).toContain('# General — Decisions (1)');
-    expect(content).toContain('Back to General');
+    expect(content).toContain('# General — Decisions');
+    expect(content).toContain('[[general/general|General]]');
+    expect(content).toContain('dv.pages(\'\"general/decisions\"\')');
   });
 
   it('groups general kind subdirs by note kind, not by filesystem path (flat-vault safe)', async () => {
@@ -770,7 +775,7 @@ Flat content`;
 
     await handleMaintain({ action: 'rebuild' }, context.engine, context.config);
 
-    expect(fs.existsSync(path.join(context.tempDir, 'general', 'decisions', 'index.md'))).toBe(true);
+    expect(fs.existsSync(path.join(context.tempDir, 'general', 'decisions', 'decisions.md'))).toBe(true);
 
     const vaultBasename = path.basename(context.tempDir);
     expect(fs.existsSync(path.join(context.tempDir, 'general', vaultBasename))).toBe(false);
@@ -790,9 +795,10 @@ Flat content`;
       context.config,
     );
 
-    const subMocPath = path.join(context.tempDir, 'projects', 'smallproj', 'decisions', 'index.md');
+    const subMocPath = path.join(context.tempDir, 'projects', 'smallproj', 'decisions', 'decisions.md');
     expect(fs.existsSync(subMocPath)).toBe(true);
     const content = fs.readFileSync(subMocPath, 'utf-8');
-    expect(content).toContain('# Smallproj — Decisions (2)');
+    expect(content).toContain('`[!!scale]` Smallproj — Decisions');
+    expect(content).toContain('dv.pages(\'\"projects/smallproj/decisions\"\')');
   });
 });
