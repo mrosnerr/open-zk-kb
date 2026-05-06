@@ -478,13 +478,13 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
     });
 
     if (subMocs.length > 0 && config?.vault) {
-        for (const subMoc of subMocs) {
-          const subMocDir = path.join(config.vault, 'projects', project, subMoc.dirName);
-          if (!fs.existsSync(subMocDir)) fs.mkdirSync(subMocDir, { recursive: true });
-          fs.writeFileSync(getKindFolderNotePath(subMocDir, subMoc.dirName), subMoc.content, 'utf-8');
-          const legacySubIndexPath = path.join(subMocDir, 'index.md');
-          if (fs.existsSync(legacySubIndexPath)) fs.unlinkSync(legacySubIndexPath);
-        }
+      for (const subMoc of subMocs) {
+        const subMocDir = path.join(config.vault, 'projects', project, subMoc.dirName);
+        if (!fs.existsSync(subMocDir)) fs.mkdirSync(subMocDir, { recursive: true });
+        fs.writeFileSync(getKindFolderNotePath(subMocDir, subMoc.dirName), subMoc.content, 'utf-8');
+        const legacySubIndexPath = path.join(subMocDir, 'index.md');
+        if (fs.existsSync(legacySubIndexPath)) fs.unlinkSync(legacySubIndexPath);
+      }
     }
 
     if (config?.vault) {

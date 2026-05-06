@@ -635,9 +635,8 @@ function defaultAppearanceConfig(config: ObsidianConfig): Record<string, unknown
   if (config.readOnly) enabledCssSnippets.push('readonly-kb');
 
   return {
-    theme: 'dark',
+    theme: 'system',
     cssTheme: THEME_REGISTRY.name,
-    accentColor: '#6AADBD',
     enabledCssSnippets,
   };
 }
@@ -720,28 +719,28 @@ function buildProjectQuickAddChoices(): Array<Record<string, unknown>> {
   return kinds.map(({ id, template, label }) => {
     const kind = id.replace('project-', '');
     return {
-    name: label,
-    id: deterministicId(`quickadd-${id}`),
-    type: 'Template',
-    command: false,
-    templatePath: `.templates/${template}`,
-    fileNameFormat: {
-      enabled: true,
-      format: '{{DATE:YYYYMMDDHHmmss}}00-new-note',
-    },
-    folder: {
-      enabled: true,
-      folders: [`projects/{{VALUE:project}}/${kindDirMap[kind] || `${kind}s`}`],
-      chooseWhenCreatingNote: false,
-    },
-    openFile: true,
-    fileOpening: {
-      location: 'tab',
-      direction: 'vertical',
-      mode: 'source',
-      focus: true,
-    },
-  };
+      name: label,
+      id: deterministicId(`quickadd-${id}`),
+      type: 'Template',
+      command: false,
+      templatePath: `.templates/${template}`,
+      fileNameFormat: {
+        enabled: true,
+        format: '{{DATE:YYYYMMDDHHmmss}}00-new-note',
+      },
+      folder: {
+        enabled: true,
+        folders: [`projects/{{VALUE:project}}/${kindDirMap[kind] || `${kind}s`}`],
+        chooseWhenCreatingNote: false,
+      },
+      openFile: true,
+      fileOpening: {
+        location: 'tab',
+        direction: 'vertical',
+        mode: 'source',
+        focus: true,
+      },
+    };
   });
 }
 
@@ -948,12 +947,12 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
         user_scripts_folder: '',
         enable_folder_templates: true,
         folder_templates: [
-    { folder: 'general/decisions', template: '.templates/decision.md' },
-    { folder: 'general/procedures', template: '.templates/procedure.md' },
-    { folder: 'general/observations', template: '.templates/observation.md' },
-    { folder: 'general/references', template: '.templates/reference.md' },
-    { folder: 'general/resources', template: '.templates/resource.md' },
-    { folder: 'preferences', template: '.templates/personalization.md' },
+          { folder: 'general/decisions', template: '.templates/decision.md' },
+          { folder: 'general/procedures', template: '.templates/procedure.md' },
+          { folder: 'general/observations', template: '.templates/observation.md' },
+          { folder: 'general/references', template: '.templates/reference.md' },
+          { folder: 'general/resources', template: '.templates/resource.md' },
+          { folder: 'preferences', template: '.templates/personalization.md' },
         ],
         enable_file_templates: false,
         syntax_highlighting: true,
@@ -1306,9 +1305,7 @@ function syncManagedAppearanceConfig(vaultPath: string, config: ObsidianConfig):
     }
   }
 
-  merged.theme = 'dark';
   merged.cssTheme = THEME_REGISTRY.name;
-  merged.accentColor = '#6AADBD';
 
   writeJsonFile(filePath, merged);
 }

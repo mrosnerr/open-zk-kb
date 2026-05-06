@@ -33,7 +33,8 @@ export function migrateGlobalLogContent(existingContent: string): string {
   let content = existingContent;
   content = content.replace(/^> \[!breadcrumb\]\n(?:> .*\n?)*/m, '');
   content = content.replace(/^# Operations Log$/m, '# `[!!scroll-text]` Operations Log');
-  if (content.includes('---\n') && !content.includes('up:')) {
+  const fmMatch = content.match(/^---\n([\s\S]*?\n)---/);
+  if (fmMatch && !fmMatch[1].includes('up:')) {
     content = content.replace(/^(---\n(?:.*\n)*?)(---)/m, '$1up: "[[Home|Home]]"\n$2');
   }
   if (!content.includes('---\n')) {

@@ -96,6 +96,8 @@ The scaffold installs and configures 14 plugins:
 
 All plugin versions are pinned and managed by the scaffold. Manual changes to managed plugins are overwritten on upgrade.
 
+> **Note**: The scaffold fully replaces configuration for QuickAdd, Commander, Templater, Breadcrumbs, and Iconic on each upgrade to keep navigation and actions consistent. Custom QuickAdd macros, Commander buttons, or Iconic rules added manually will be overwritten. Add custom automation in non-managed plugins or separate QuickAdd profiles.
+
 ## Navigation Structure
 
 ```
