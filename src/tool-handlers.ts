@@ -26,15 +26,11 @@ import {
   resolveNotePath,
   extractProjectFromTags as extractProjectTag,
   KIND_DIR_MAP,
-  getGeneralFolderNoteBasename,
   getGeneralFolderNotePath,
   getGlobalHomeNoteBasename,
   getGlobalHomeNotePath,
-  getKindFolderNoteBasename,
   getKindFolderNotePath,
-  getPreferencesFolderNoteBasename,
   getPreferencesFolderNotePath,
-  getProjectFolderNoteBasename,
   getProjectsFolderNotePath,
 } from './storage/path-resolver.js';
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';

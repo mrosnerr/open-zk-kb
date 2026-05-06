@@ -17,10 +17,8 @@ import {
   extractProjectFromTags,
   walkMarkdownFiles,
   KIND_DIR_MAP,
-  getGeneralFolderNoteBasename,
   getKindFolderNoteBasename,
   getPreferencesFolderNoteBasename,
-  getProjectFolderNoteBasename,
 } from './path-resolver.js';
 import type { ConformanceRecord, ConformanceAggregates } from '../template-handler.js';
 
@@ -331,9 +329,9 @@ export class NoteRepository {
       .map(([k, v]) => {
         if (Array.isArray(v)) return `${k}:\n${(v as string[]).map(item => `  - ${item}`).join('\n')}`;
         const str = String(v);
-        if (typeof v === 'string' && /[:#{}\[\]|>@`"']/.test(str)) {
-          return `${k}: "${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-        }
+         if (typeof v === 'string' && /[:#{}[\]|>@`"']/.test(str)) {
+           return `${k}: "${str.replace(/\\/g, '\\\\').replace(/"/g, '"')}"`;
+         }
         return `${k}: ${v}`;
       })
       .join('\n')}\n---\n\n`;

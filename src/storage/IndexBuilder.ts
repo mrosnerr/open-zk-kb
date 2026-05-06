@@ -9,7 +9,6 @@ import {
   getKindFolderNoteBasename,
   getPreferencesFolderNoteBasename,
   getProjectFolderNoteBasename,
-  getProjectsFolderNoteBasename,
 } from './path-resolver.js';
 
 export interface MocSplitConfig {
@@ -160,26 +159,26 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
     '  obsidian.setIcon(editBtn, "pencil");',
     '  editBtn.addEventListener("click", (e) => {',
     '    e.preventDefault();',
-    '    const confirmed = confirm("Edit \\\"" + (p.title || p.file.name) + "\\\"?\\n\\nChanges to notes affect AI assistant behavior. Edits to title, summary, and guidance fields are used by agents across sessions.");',
-    '    if (confirmed) window.open("obsidian://quickadd?choice=Edit%20Note&value-path=" + encodeURIComponent(p.file.path));',
-    '  });',
-    '  const delBtn = actions.createEl("a", { cls: "dv-action-btn dv-action-btn-destructive", attr: { "aria-label": "Delete", title: "Delete this note" } });',
-    '  obsidian.setIcon(delBtn, "trash-2");',
-    '  delBtn.addEventListener("click", async (e) => {',
-    '    e.preventDefault();',
-    '    const file = app.vault.getAbstractFileByPath(p.file.path);',
-    '    if (!file) { new Notice("File not found"); return; }',
-    '    const confirmed = confirm("Delete \\\"" + file.name + "\\\"? This moves it to trash.");',
-    '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
-    '  });',
-    '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
-    '  return [dv.fileLink(p.file.path, false, label), p.summary || "", p.created || "", actions];',
-    '}));',
-    '```',
-  ];
-}
+     '    const confirmed = confirm(`Edit "${p.title || p.file.name}"?\\n\\nChanges to notes affect AI assistant behavior. Edits to title, summary, and guidance fields are used by agents across sessions.`);',
+     '    if (confirmed) window.open("obsidian://quickadd?choice=Edit%20Note&value-path=" + encodeURIComponent(p.file.path));',
+     '  });',
+     '  const delBtn = actions.createEl("a", { cls: "dv-action-btn dv-action-btn-destructive", attr: { "aria-label": "Delete", title: "Delete this note" } });',
+     '  obsidian.setIcon(delBtn, "trash-2");',
+     '  delBtn.addEventListener("click", async (e) => {',
+     '    e.preventDefault();',
+     '    const file = app.vault.getAbstractFileByPath(p.file.path);',
+     '    if (!file) { new Notice("File not found"); return; }',
+     '    const confirmed = confirm(`Delete "${file.name}"? This moves it to trash.`);',
+     '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
+     '  });',
+     '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
+     '  return [dv.fileLink(p.file.path, false, label), p.summary || "", p.created || "", actions];',
+     '}));',
+     '```',
+   ];
+ }
 
-function buildDomainDataviewTable(source: string): string[] {
+ function buildDomainDataviewTable(source: string): string[] {
   return [
     '```dataviewjs',
     `const pages = dv.pages('"${source}"').where(p => p.file.name === "domain");`,
@@ -189,24 +188,24 @@ function buildDomainDataviewTable(source: string): string[] {
     '  obsidian.setIcon(editBtn, "pencil");',
     '  editBtn.addEventListener("click", (e) => {',
     '    e.preventDefault();',
-    '    const confirmed = confirm("Edit \\\"" + (p.title || p.file.name) + "\\\"?\\n\\nChanges to notes affect AI assistant behavior. Edits to title, summary, and guidance fields are used by agents across sessions.");',
-    '    if (confirmed) window.open("obsidian://quickadd?choice=Edit%20Note&value-path=" + encodeURIComponent(p.file.path));',
-    '  });',
-    '  const delBtn = actions.createEl("a", { cls: "dv-action-btn dv-action-btn-destructive", attr: { "aria-label": "Delete", title: "Delete this note" } });',
-    '  obsidian.setIcon(delBtn, "trash-2");',
-    '  delBtn.addEventListener("click", async (e) => {',
-    '    e.preventDefault();',
-    '    const file = app.vault.getAbstractFileByPath(p.file.path);',
-    '    if (!file) { new Notice("File not found"); return; }',
-    '    const confirmed = confirm("Delete \\\"" + file.name + "\\\"? This moves it to trash.");',
-    '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
-    '  });',
-    '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
-    '  return [dv.fileLink(p.file.path, false, label), p.summary || "", actions];',
-    '}));',
-    '```',
-  ];
-}
+     '    const confirmed = confirm(`Edit "${p.title || p.file.name}"?\\n\\nChanges to notes affect AI assistant behavior. Edits to title, summary, and guidance fields are used by agents across sessions.`);',
+     '    if (confirmed) window.open("obsidian://quickadd?choice=Edit%20Note&value-path=" + encodeURIComponent(p.file.path));',
+     '  });',
+     '  const delBtn = actions.createEl("a", { cls: "dv-action-btn dv-action-btn-destructive", attr: { "aria-label": "Delete", title: "Delete this note" } });',
+     '  obsidian.setIcon(delBtn, "trash-2");',
+     '  delBtn.addEventListener("click", async (e) => {',
+     '    e.preventDefault();',
+     '    const file = app.vault.getAbstractFileByPath(p.file.path);',
+     '    if (!file) { new Notice("File not found"); return; }',
+     '    const confirmed = confirm(`Delete "${file.name}"? This moves it to trash.`);',
+     '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
+     '  });',
+     '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
+     '  return [dv.fileLink(p.file.path, false, label), p.summary || "", actions];',
+     '}));',
+     '```',
+   ];
+ }
 
 export function buildIndexContent(
   project: string,
@@ -256,7 +255,7 @@ export function buildIndexContent(
     lines.push('');
   }
 
-  for (const [kind, kindNotes] of byKind) {
+  for (const [kind] of byKind) {
     if (INDEX_SECTION_ORDER.includes(kind)) continue;
     const header = getSectionHeader(kind);
     const dirName = KIND_DIR_MAP[kind] || `${kind}s`;

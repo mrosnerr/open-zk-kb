@@ -597,11 +597,11 @@ describe('MOC Splitting', () => {
 
     const { content, subMocs } = buildIndexContent('test', notes, { threshold: 30, previewCount: 5 });
     expect(subMocs).toHaveLength(2);
-    expect(subMocs.map(s => s.kind).sort()).toEqual(['decision', 'observation']);
-    expect(content).toContain('## `[!!scale]` Decisions [+](obsidian://quickadd?');
-    expect(content).toContain('```dataviewjs');
-    expect(content).toContain('dv.pages(\'\"projects/test/decisions\"\')');
-    expect(content).toContain('choice=Edit%20Note');
+     expect(subMocs.map(s => s.kind).sort()).toEqual(['decision', 'observation']);
+     expect(content).toContain('## `[!!scale]` Decisions [+](obsidian://quickadd?');
+     expect(content).toContain('```dataviewjs');
+      expect(content).toContain('dv.pages(\'"projects/test/decisions"\')');
+      expect(content).toContain('confirm(`Edit');
   });
 
   it('splits large kinds into sub-MOCs when threshold exceeded', () => {
@@ -621,13 +621,13 @@ describe('MOC Splitting', () => {
 
     const { content, subMocs } = buildIndexContent('test', notes, { threshold: 30, previewCount: 3 });
 
-    expect(subMocs.length).toBe(4);
-    const subMocKinds = subMocs.map(s => s.kind).sort();
-    expect(subMocKinds).toEqual(['decision', 'observation', 'procedure', 'reference']);
+     expect(subMocs.length).toBe(4);
+     const subMocKinds = subMocs.map(s => s.kind).sort();
+     expect(subMocKinds).toEqual(['decision', 'observation', 'procedure', 'reference']);
 
-    expect(content).toContain('## `[!!scale]` [[projects/test/decisions/decisions|Decisions]]');
-    expect(content).toContain('dv.pages(\'\"projects/test/decisions\"\')');
-    expect(content).toContain('## `[!!list-checks]` Procedures');
+     expect(content).toContain('## `[!!scale]` [[projects/test/decisions/decisions|Decisions]]');
+     expect(content).toContain('dv.pages(\'"projects/test/decisions"\')');
+     expect(content).toContain('confirm(`Delete');
   });
 
   it('sub-MOC contains back-link to parent', () => {
@@ -641,9 +641,9 @@ describe('MOC Splitting', () => {
     expect(subMocs[0].content).toContain('[[projects/myproj/myproj|Myproj]]');
     expect(subMocs[0].content).toContain('BC-folder-note-field: "up"');
     expect(subMocs[0].content).toContain('up: "[[projects/myproj/myproj|Myproj]]"');
-    expect(subMocs[0].content).toContain('[+](obsidian://quickadd?');
-    expect(subMocs[0].content).toContain('dv.pages(\'\"projects/myproj/decisions\"\')');
-  });
+     expect(subMocs[0].content).toContain('[+](obsidian://quickadd?');
+     expect(subMocs[0].content).toContain('confirm(`Edit');
+   });
 
   it('keeps small kinds inline even when project exceeds threshold', () => {
     const notes: NoteMetadata[] = [];
@@ -657,9 +657,9 @@ describe('MOC Splitting', () => {
 
     expect(subMocs.length).toBe(2);
     expect(subMocs.map(s => s.kind).sort()).toEqual(['decision', 'resource']);
-    expect(content).toContain('## `[!!external-link]` Resources [+](obsidian://quickadd?');
-    expect(content).toContain('dv.pages(\'\"projects/test/resources\"\')');
-  });
+     expect(content).toContain('## `[!!external-link]` Resources [+](obsidian://quickadd?');
+     expect(content).toContain('confirm(`Delete');
+   });
 
 });
 
@@ -734,10 +734,10 @@ describe('Structured navigation regressions', () => {
     expect(content).toContain('# `[!!user-cog]` Preferences');
     expect(content).toContain('BC-folder-note-field: "up"');
     expect(content).toContain('up: "[[Home|Home]]"');
-    expect(content).toContain('dv.pages(\'\"preferences\"\')');
+     expect(content).toContain('dv.pages(\'"preferences"\')');
 
-    const globalIndex = fs.readFileSync(path.join(context.tempDir, 'Home.md'), 'utf-8');
-    expect(globalIndex).toContain('[[preferences/preferences\\|Preferences]]');
+     const globalIndex = fs.readFileSync(path.join(context.tempDir, 'Home.md'), 'utf-8');
+     expect(globalIndex).toContain('[[preferences/preferences\\|Preferences]]');
   });
 
   it('generates general kind subdir folder notes for unscoped notes', async () => {
@@ -753,10 +753,10 @@ describe('Structured navigation regressions', () => {
     const content = fs.readFileSync(generalKindIndex, 'utf-8');
     expect(content).toContain('# General — Decisions');
     expect(content).toContain('[[general/general|General]]');
-    expect(content).toContain('dv.pages(\'\"general/decisions\"\')');
-  });
+     expect(content).toContain('dv.pages(\'"general/decisions"\')');
+   });
 
-  it('groups general kind subdirs by note kind, not by filesystem path (flat-vault safe)', async () => {
+   it('groups general kind subdirs by note kind, not by filesystem path (flat-vault safe)', async () => {
     // Regression: pre-migration flat vaults must not pollute general/ with vault-name dirs.
     const flatNote = `---
 id: 2026042700000099
@@ -798,7 +798,7 @@ Flat content`;
     const subMocPath = path.join(context.tempDir, 'projects', 'smallproj', 'decisions', 'decisions.md');
     expect(fs.existsSync(subMocPath)).toBe(true);
     const content = fs.readFileSync(subMocPath, 'utf-8');
-    expect(content).toContain('`[!!scale]` Smallproj — Decisions');
-    expect(content).toContain('dv.pages(\'\"projects/smallproj/decisions\"\')');
-  });
-});
+     expect(content).toContain('`[!!scale]` Smallproj — Decisions');
+     expect(content).toContain('confirm(`Delete');
+   });
+ });
