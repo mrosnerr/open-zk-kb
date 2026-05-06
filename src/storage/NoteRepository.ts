@@ -328,7 +328,10 @@ export class NoteRepository {
     return `---\n${Object.entries(fm)
       .filter(([_, v]) => v !== undefined && v !== null && (Array.isArray(v) ? v.length > 0 : true))
       .map(([k, v]) => {
-        if (Array.isArray(v)) return `${k}:\n${(v as string[]).map(item => `  - ${item}`).join('\n')}`;
+        if (Array.isArray(v)) return `${k}:\n${(v as string[]).map(item => {
+          const s = String(item);
+          return /[#{}[\]|>@`"'\n]/.test(s) ? `  - "${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : `  - ${s}`;
+        }).join('\n')}`;
         const str = String(v);
          if (typeof v === 'string' && /[:#{}[\]|>@`"']/.test(str)) {
            return `${k}: "${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;

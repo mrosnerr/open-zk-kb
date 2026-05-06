@@ -16,6 +16,7 @@ const KIND_DIR_MAP: Record<string, string> = {
   procedure: 'procedures',
   observation: 'observations',
   resource: 'resources',
+  personalization: 'preferences',
 };
 
 const GLOBAL_HOME_NOTE_BASENAME = 'Home';

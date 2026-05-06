@@ -1,6 +1,6 @@
 <%*
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
-const esc = (s) => s ? s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') : '';
+const esc = (s) => s ? s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, ' ') : '';
 const title = await tp.system.prompt("Preference title");
 if (!title) return;
 const preference = await tp.system.prompt("Describe this preference");
