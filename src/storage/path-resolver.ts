@@ -75,7 +75,7 @@ export function getKindFolderNotePath(baseDir: string, kindOrDir: string): strin
 }
 
 /** Directories to skip during recursive file scanning */
-const SKIP_DIRS = new Set(['.index', '.obsidian', '.trash', 'templates', '.git', 'node_modules']);
+const SKIP_DIRS = new Set(['.index', '.obsidian', '.trash', 'templates', '.templates', '.git', 'node_modules']);
 
 function sanitizeProjectSegment(project: string): string {
   const trimmed = project.trim();

@@ -1,5 +1,6 @@
 <%*
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+const esc = (s) => s ? s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') : '';
 const pf = app.vault.getAbstractFileByPath("projects");
 const existing = pf && pf.children ? pf.children.filter(f => f.children).map(f => f.name).sort() : [];
 const options = [...existing, "＋ New project…"];
@@ -19,8 +20,8 @@ lifecycle: living
 type: atomic
 created: <% tp.date.now("YYYY-MM-DD") %>
 updated: <% tp.date.now("YYYY-MM-DD") %>
-summary: "<% role %>"
-guidance: "<% role %>"
+summary: "<% esc(role) %>"
+guidance: "<% esc(role) %>"
 tags:
   - project:<% project %>
 ---

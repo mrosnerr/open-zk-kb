@@ -331,7 +331,7 @@ export class NoteRepository {
         if (Array.isArray(v)) return `${k}:\n${(v as string[]).map(item => `  - ${item}`).join('\n')}`;
         const str = String(v);
          if (typeof v === 'string' && /[:#{}[\]|>@`"']/.test(str)) {
-           return `${k}: "${str.replace(/\\/g, '\\\\').replace(/"/g, '"')}"`;
+           return `${k}: "${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
          }
         return `${k}: ${v}`;
       })

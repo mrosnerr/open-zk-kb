@@ -1,5 +1,6 @@
 <%*
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+const esc = (s) => s ? s.replace(/\\/g, '\\\\').replace(/"/g, '\\"') : '';
 const scope = await tp.system.suggester(
   ["General", "Project"], ["general", "project"], false, "Scope"
 );
@@ -31,7 +32,7 @@ lifecycle: snapshot
 type: atomic
 created: <% tp.date.now("YYYY-MM-DD") %>
 updated: <% tp.date.now("YYYY-MM-DD") %>
-summary: "<% summary %>"
+summary: "<% esc(summary) %>"
 guidance: ""
 tags:
 <% project ? `  - project:${project}` : "" %>
