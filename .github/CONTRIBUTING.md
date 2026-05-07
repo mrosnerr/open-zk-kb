@@ -81,6 +81,36 @@ src/
 - Use `createTestHarness()` and `cleanupTestHarness()` from `tests/harness.ts`.
 - Test handlers directly via imports from `tool-handlers.ts`.
 
+## Review Guidelines
+
+PRs are reviewed by automated tools (CodeRabbit, Cubic) and maintainers. Here's what reviewers look for and how findings are prioritized.
+
+### Severity tiers
+
+- **P0 — Critical.** Blocks merge. Security vulnerabilities, data loss, MCP stdout pollution, lifecycle enforcement gaps, backward-incompatible contract breakage without migration.
+- **P1 — Important.** Should fix before merge. Logic bugs in edge cases, missing error handling on I/O boundaries, missing regression tests for bug fixes, type safety violations (`as any`, `@ts-ignore`).
+- **P2 — Minor.** Take it or leave it. Naming suggestions, small readability improvements, documentation wording.
+
+### Project-specific review rules
+
+| Rule | What reviewers check |
+|------|---------------------|
+| **MCP stdout safety** | No `console.log/warn/error` in `src/` (except `setup.ts` and `scripts/`). Use `logToFile()`. |
+| **Lifecycle enforcement** | Snapshot notes reject mutation, append-only notes reject rewrites, `LifecycleViolationError` is thrown (not swallowed). |
+| **Structural kind protection** | `index` and `log` remain auto-generated only. Navigation hooks skip structural kinds to prevent infinite loops. |
+| **Dual storage integrity** | Markdown file and SQLite index stay in sync. Filesystem is source of truth. |
+| **Config integrity** | New config keys have defaults in `config.ts`. No TOML section shadowing or silent misconfiguration. |
+| **GitHub Actions security** | Actions pinned to SHA, minimal permissions, secrets not exposed to forks. |
+| **Ownership model** | Server returns data with annotations, not directives. No auto-modification beyond what the caller requested. |
+
+### What reviewers will NOT flag
+
+- Import order, formatting, or lint-only concerns (ESLint handles these)
+- Theoretical issues without a concrete failure scenario
+- Suggestions to use Node.js APIs instead of Bun APIs
+- Unchanged code outside the PR diff
+- Generic praise or filler
+
 ## Branch Strategy
 
 - **`dev`** — Active development. All PRs target `dev`.
