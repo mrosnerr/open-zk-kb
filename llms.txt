@@ -14,7 +14,7 @@ bunx open-zk-kb@latest
 
 The interactive installer adds the MCP server to your client config and installs knowledge base instructions.
 
-## MCP Tools
+## MCP Tools (8 tools)
 
 ### knowledge-search
 Search the knowledge base for relevant context. Uses full-text search (SQLite FTS5) and local semantic embeddings (MiniLM-L6-v2). No API key required.
@@ -26,7 +26,7 @@ Parameters:
 - limit (number, optional): Max results (default 10)
 
 ### knowledge-store
-Store a note with one concept. Notes have YAML frontmatter and Markdown content.
+Store a note with one concept. Notes have YAML frontmatter and Markdown content. Returns related notes by similarity.
 
 Parameters:
 - title (string, required): Note title
@@ -37,11 +37,32 @@ Parameters:
 - tags (array, optional): Categorization tags
 - related (array, optional): IDs of related notes for wikilinks
 
+### knowledge-template
+Get the canonical note template for a specific kind. Returns skeleton structure with positive and negative examples.
+
+Parameters:
+- kind (string, required): The note kind to get the template for
+
+### knowledge-mine
+Bulk-screen candidate notes for duplicates and optionally store. Accepts candidates extracted from session history or other sources.
+
+Parameters:
+- candidates (array, required): Array of candidate notes with title, content, kind, summary, guidance
+- dry_run (boolean, optional): Preview only without storing (default: true)
+- project (string, optional): Scope all mined notes to a project
+
 ### knowledge-maintain
 Maintenance actions for the knowledge base.
 
 Parameters:
-- action (string, required): stats, review, promote, archive, delete, rebuild, embed, dedupe
+- action (string, required): stats, review, promote, archive, delete, rebuild, embed, dedupe, orphans, broken-links
+
+### knowledge-ingest
+Extract article content from URLs or raw HTML into clean markdown. Returns title, content, word count, and metadata.
+
+Parameters:
+- url (string, optional): URL to fetch and extract
+- html (string, optional): Raw HTML to extract (preferred — pass HTML from your web tools)
 
 ### knowledge-overview
 Get a project overview combining the auto-generated index and recent log entries.
@@ -49,6 +70,12 @@ Get a project overview combining the auto-generated index and recent log entries
 Parameters:
 - project (string, required): Project name to get an overview for
 - logEntries (number, optional): Number of recent log entries to include (default 10)
+
+### knowledge-open
+Open the knowledge base vault in Obsidian. Detects Obsidian installation, registers the vault, and launches with a scaffolded theme, plugins, and homepage.
+
+Parameters:
+- project (string, optional): Project to focus on after opening
 
 ## Zettelkasten Concepts
 

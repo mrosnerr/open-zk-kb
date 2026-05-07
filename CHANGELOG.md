@@ -1,5 +1,49 @@
 # Changelog
 
+## 1.1.0
+
+### New MCP Tools
+
+- **Add `knowledge-template` tool** — canonical note templates per kind with positive/negative examples, so agents produce well-structured notes
+- **Add `knowledge-mine` tool** — bulk-screen candidate notes from session history for duplicates; dry-run preview then store confirmed candidates
+- **Add `knowledge-ingest` tool** — extract article content from URLs or raw HTML into clean markdown with SSRF protection, redirect provenance, and size guards
+- **Add `knowledge-overview` tool** — per-project overview combining auto-generated index (catalog of all notes grouped by kind) and recent operations log
+- **Add `knowledge-open` tool** — detect Obsidian, auto-register vault, and launch with URI scheme or binary spawn
+
+### New Note Kinds
+
+- **Add `domain` kind** — project operating manuals defining agent role, scope, conventions, and boundaries; one per project, always surfaced in project-scoped searches
+- **Add `index` and `log` kinds** — auto-generated per-project navigation notes; `index` catalogs all notes with wikilinks grouped by kind, `log` appends chronological events
+
+### Obsidian Integration
+
+- **Add kind-based vault directories** — notes organized into subdirectories by kind with global MOC (Map of Content) navigation and sub-MOC indexes
+- **Add managed Obsidian scaffold** — pinned theme, plugins (Dataview, Templater, QuickAdd, Homepage), CSS snippets, templates, and upgrade metadata; auto-upgrades on launch
+- **Add vault auto-registration** — vault registered in Obsidian before URI launch with dedup guard
+- **Add Obsidian config surface** — `obsidian.autoUpgrade` and `obsidian.readOnly` settings in `config.yaml`
+
+### Note Lifecycle & Intelligence
+
+- **Add `lifecycle` field** — `living` (mutable, default), `snapshot` (immutable), `append-only`; server enforces immutability for decisions and observations
+- **Add `staleness_days` metric** — surfaced in search, store, and review responses; days since last access for freshness assessment
+- **Add related notes on store** — `knowledge-store` returns similar notes by embedding similarity to help agents link knowledge
+- **Enhance review curation UX** — structured age bucketing, auto-archive suggestions for stale fleeting notes, deduplication in review queue
+
+### Maintenance & Quality
+
+- **Add orphan and broken wikilink detection** — `knowledge-maintain orphans` and `knowledge-maintain broken-links` with line numbers and content-relative positions
+- **Add model-aware capability detection** — agents self-report model identity for tiered feature gating
+
+### OpenCode Integration
+
+- **Add OpenCode plugin** — session-start context injection with project detection and readonly repository access
+- **Add OpenCode reviewer agent** — shadow review workflow for PR quality assurance
+
+### Infrastructure
+
+- **Add schema v7** — telemetry table for local-only, opt-in tool invocation counters (no content or query strings stored)
+- **Improve SKILL.md** — lifecycle guidance, examples, and boundaries for Claude Code skill users
+
 ## 1.0.11
 
 - **Add Claude Code plugin packaging** — compiled binaries for macOS, Linux, and Windows

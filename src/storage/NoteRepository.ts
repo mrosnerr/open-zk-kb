@@ -12,7 +12,14 @@ import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
 import type { NoteKind, NoteStatus, Lifecycle } from '../types.js';
 import { VALID_LIFECYCLES } from '../types.js';
-import { resolveNotePath, extractProjectFromTags, walkMarkdownFiles } from './path-resolver.js';
+import {
+  resolveNotePath,
+  extractProjectFromTags,
+  walkMarkdownFiles,
+  KIND_DIR_MAP,
+  getKindFolderNoteBasename,
+  getPreferencesFolderNoteBasename,
+} from './path-resolver.js';
 import type { ConformanceRecord, ConformanceAggregates } from '../template-handler.js';
 
 export class LifecycleViolationError extends Error {
@@ -70,6 +77,7 @@ export interface StoreOptions {
   context?: string;
   existingId?: string;
   related?: string[];
+  extraFrontmatter?: Record<string, unknown>;
 }
 
 export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine' | 'template';
@@ -280,7 +288,7 @@ export class NoteRepository {
     return firstSentence.substring(0, 100).trim();
   }
 
-  protected buildFrontmatter(metadata: Partial<NoteMetadata>): string {
+  protected buildFrontmatter(metadata: Partial<NoteMetadata> & { extraFrontmatter?: Record<string, unknown> }): string {
     const fm: Record<string, unknown> = {
       id: metadata.id,
       title: metadata.title,
@@ -296,17 +304,79 @@ export class NoteRepository {
     if (metadata.summary) fm.summary = metadata.summary;
     if (metadata.guidance) fm.guidance = metadata.guidance;
     if (metadata.context) fm.context = metadata.context;
+    const extraFrontmatter = metadata.extraFrontmatter as Record<string, unknown> | undefined;
+    if (extraFrontmatter) {
+      const reserved = new Set(Object.keys(fm));
+      for (const [key, value] of Object.entries(extraFrontmatter)) {
+        if (!reserved.has(key)) fm[key] = value;
+      }
+    }
     if (metadata.related_notes && metadata.related_notes.length > 0) {
       fm.related_notes = metadata.related_notes;
+    }
+
+    if (!fm.up) {
+      const upLink = this.computeUpLink(String(fm.kind), (fm.tags as string[]) || []);
+      if (upLink) fm.up = upLink;
+    }
+
+    if (!fm.aliases) {
+      const alias = this.computeAlias(String(fm.kind), String(fm.title || ''), (fm.tags as string[]) || []);
+      if (alias) fm.aliases = [alias];
     }
 
     return `---\n${Object.entries(fm)
       .filter(([_, v]) => v !== undefined && v !== null && (Array.isArray(v) ? v.length > 0 : true))
       .map(([k, v]) => {
-        if (Array.isArray(v)) return `${k}:\n${(v as string[]).map(item => `  - ${item}`).join('\n')}`;
+        if (Array.isArray(v)) return `${k}:\n${(v as string[]).map(item => {
+          const s = String(item);
+          return /[#{}[\]|>@`"'\n]/.test(s) || s.includes(': ') ? `  - "${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : `  - ${s}`;
+        }).join('\n')}`;
+        const str = String(v);
+         if (typeof v === 'string' && /[:#{}[\]|>@`"']/.test(str)) {
+           return `${k}: "${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+         }
         return `${k}: ${v}`;
       })
       .join('\n')}\n---\n\n`;
+  }
+
+  private computeUpLink(kind: string, tags: string[]): string | null {
+    const SKIP_KINDS = new Set(['index', 'log', 'domain']);
+    if (SKIP_KINDS.has(kind)) return null;
+
+    const project = extractProjectFromTags(tags);
+    const kindDir = KIND_DIR_MAP[kind] || `${kind}s`;
+    const sectionLabel = kindDir.charAt(0).toUpperCase() + kindDir.slice(1);
+
+    if (kind === 'personalization') {
+      return `[[preferences/${getPreferencesFolderNoteBasename()}|Preferences]]`;
+    }
+    if (project) {
+      return `[[projects/${project}/${kindDir}/${getKindFolderNoteBasename(kindDir)}|${sectionLabel}]]`;
+    }
+    return `[[general/${kindDir}/${getKindFolderNoteBasename(kindDir)}|${sectionLabel}]]`;
+  }
+
+  private computeAlias(kind: string, title: string, tags: string[]): string | null {
+    const project = extractProjectFromTags(tags);
+    if (kind === 'index') return project ? project.charAt(0).toUpperCase() + project.slice(1) : 'Home';
+    if (kind === 'log') return project ? 'Activity' : 'Activity';
+    if (kind === 'domain') return project ? project.charAt(0).toUpperCase() + project.slice(1) : title;
+    return title || null;
+  }
+
+  protected buildNavBreadcrumb(kind: string, tags: string[]): string {
+    void kind;
+    void tags;
+    return '';
+  }
+
+  private static readonly NAV_PATTERN = /^> \[!breadcrumb\]\n(> [^\n]*\n)+\n/;
+  private static readonly TITLE_PATTERN = /^# [^\n]+\n\n/;
+
+  protected stripNavBreadcrumb(body: string): string {
+    return body.replace(NoteRepository.NAV_PATTERN, '');
   }
 
   protected parseFrontmatter(content: string): { frontmatter: Record<string, unknown>; body: string } {
@@ -333,7 +403,11 @@ export class NoteRepository {
 
       const keyValueMatch = line.match(/^(\w+):\s*(.+)$/);
       if (keyValueMatch) {
-        fm[keyValueMatch[1]] = keyValueMatch[2];
+        let val = keyValueMatch[2];
+        if (val.startsWith('"') && val.endsWith('"')) {
+          val = val.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+        }
+        fm[keyValueMatch[1]] = val;
         currentKey = null;
       }
     }
@@ -342,7 +416,7 @@ export class NoteRepository {
       fm.related_notes = [fm.related_notes];
     }
 
-    return { frontmatter: fm, body: match[2] };
+    return { frontmatter: fm, body: this.stripNavBreadcrumb(match[2]) };
   }
 
   protected sanitizeFTS5Query(query: string): string {
@@ -414,8 +488,12 @@ export class NoteRepository {
     if (isUpdate) {
       const existing = this.getById(id);
       if (existing) {
-        // Birthplace-only: preserve original path for all updates
-        filePath = existing.path;
+        if (existing.kind === 'index') {
+          filePath = resolveNotePath(this.docsPath, noteKindForPath, project, id, slug);
+        } else {
+          // Birthplace-only: preserve original path for non-structural updates
+          filePath = existing.path;
+        }
       } else {
         filePath = resolveNotePath(this.docsPath, noteKindForPath, project, id, slug);
       }
@@ -477,13 +555,15 @@ export class NoteRepository {
       guidance: guidanceStr || undefined,
       context: options.context,
       related_notes: options.related,
+      extraFrontmatter: options.extraFrontmatter,
       created_at: createdAt,
       updated_at: now,
     });
 
-    const fullContent = frontmatter + content;
+    const navBreadcrumb = this.buildNavBreadcrumb(noteKind, options.tags || []);
+    const titleLine = noteKind !== 'index' && noteKind !== 'log' ? `# ${title}\n\n` : '';
+    const fullContent = frontmatter + navBreadcrumb + titleLine + content;
 
-    // Write new file first, then clean up old path (write-before-delete for safety)
     fs.writeFileSync(filePath, fullContent, 'utf-8');
 
     if (isUpdate) {
@@ -1277,9 +1357,16 @@ export class NoteRepository {
   private rewriteFrontmatter(note: NoteMetadata, overrides: Partial<NoteMetadata>): void {
     try {
       const content = fs.readFileSync(note.path, 'utf-8');
-      const { body } = this.parseFrontmatter(content);
-      const newFrontmatter = this.buildFrontmatter({ ...note, ...overrides });
-      fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
+      const { body: rawBody } = this.parseFrontmatter(content);
+      const merged = { ...note, ...overrides };
+      const tags = Array.isArray(merged.tags) ? merged.tags : (typeof merged.tags === 'string' ? JSON.parse(merged.tags) : []);
+      const newFrontmatter = this.buildFrontmatter(merged);
+      const kind = merged.kind || 'observation';
+      const isStructural = kind === 'index' || kind === 'log';
+      const navBreadcrumb = this.buildNavBreadcrumb(kind, tags);
+      const titleLine = isStructural ? '' : `# ${merged.title}\n\n`;
+      const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
+      fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + body, 'utf-8');
     } catch (err) {
       logToFile('WARN', 'Failed to rewrite frontmatter', { noteId: note.id, error: String(err) });
     }
@@ -1512,7 +1599,7 @@ export class NoteRepository {
         const id = (frontmatter.id as string) || file.match(/^(\d{16}|\d{12})/)?.[1] || '';
         // Skip auto-generated structural files (no frontmatter ID expected)
         const basename = path.basename(filePath);
-        if (/^(index|log|review)\.md$/i.test(basename) && !id) {
+        if ((frontmatter.kind === 'index' || /^(index|log|review)\.md$/i.test(basename)) && !id) {
           continue;
         }
         if (!id) {
@@ -1532,7 +1619,9 @@ export class NoteRepository {
         const summary = (frontmatter.summary as string) || '';
         const guidance = (frontmatter.guidance as string) || '';
         const context = (frontmatter.context as string) || '';
-        const wordCount = this.countWords(body);
+        const isStructural = kind === 'index' || kind === 'log';
+        const indexBody = isStructural ? body : body.replace(NoteRepository.TITLE_PATTERN, '');
+        const wordCount = this.countWords(indexBody);
         const tagsJson = JSON.stringify(tags);
 
         const createdDate = frontmatter.created ? new Date(frontmatter.created as string).getTime() : Date.now();
@@ -1543,12 +1632,12 @@ export class NoteRepository {
           (id, path, title, content, kind, status, lifecycle, type, tags, summary, guidance, context, updated_at, created_at, word_count)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-          id, filePath, title, body, kind, status, lifecycle, noteType,
+          id, filePath, title, indexBody, kind, status, lifecycle, noteType,
           tagsJson, summary, guidance, context, updatedDate, createdDate, wordCount
         );
 
         this.ftsDelete(id);
-        this.ftsInsert(id, title, body, tagsJson, context);
+        this.ftsInsert(id, title, indexBody, tagsJson, context);
         this.syncLinks(id, body);
         uniqueIds.add(id);
 
@@ -1575,6 +1664,63 @@ export class NoteRepository {
     }
 
     return { indexed: uniqueIds.size, errors, warnings };
+  }
+
+  formatAllFiles(): { formatted: number; skipped: number; errors: number } {
+    const SKIP_KINDS = ['index'];
+    const allNotes = this.db.prepare('SELECT * FROM notes').all() as NoteMetadata[];
+    let formatted = 0;
+    let skipped = 0;
+    let errors = 0;
+
+    for (const row of allNotes) {
+      if (SKIP_KINDS.includes(row.kind)) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        if (!fs.existsSync(row.path)) {
+          skipped++;
+          continue;
+        }
+
+        const tags: string[] = Array.isArray(row.tags)
+          ? row.tags
+          : (typeof row.tags === 'string' ? JSON.parse(row.tags as unknown as string) : []);
+
+        const frontmatter = this.buildFrontmatter({
+          id: row.id,
+          title: row.title,
+          kind: row.kind,
+          status: row.status,
+          lifecycle: (row.lifecycle || 'living') as Lifecycle,
+          type: (row.type || 'atomic') as 'atomic' | 'moc',
+          tags,
+          summary: row.summary || undefined,
+          guidance: row.guidance || undefined,
+          context: row.context || undefined,
+          related_notes: row.related_notes,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        });
+
+        const rawContent = fs.readFileSync(row.path, 'utf-8');
+        const { body: rawBody } = this.parseFrontmatter(rawContent);
+        const navBreadcrumb = this.buildNavBreadcrumb(row.kind, tags);
+        const isStructural = row.kind === 'index' || row.kind === 'log';
+        const titleLine = isStructural ? '' : `# ${row.title}\n\n`;
+        const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
+
+        fs.writeFileSync(row.path, frontmatter + navBreadcrumb + titleLine + body, 'utf-8');
+        formatted++;
+      } catch (err) {
+        logToFile('WARN', 'Failed to format note file', { noteId: row.id, error: String(err) });
+        errors++;
+      }
+    }
+
+    return { formatted, skipped, errors };
   }
 
   private extractWikiLinks(content: string): string[] {
@@ -1774,7 +1920,7 @@ export class NoteRepository {
     try {
       if (!fs.existsSync(note.path)) return;
       const content = fs.readFileSync(note.path, 'utf-8');
-      const { body } = this.parseFrontmatter(content);
+      const { body: rawBody } = this.parseFrontmatter(content);
 
       const newFrontmatter = this.buildFrontmatter({
         ...note,
@@ -1783,7 +1929,13 @@ export class NoteRepository {
         updated_at: Date.now(),
       });
 
-      fs.writeFileSync(note.path, newFrontmatter + body, 'utf-8');
+      const tags = Array.isArray(note.tags) ? note.tags : (typeof note.tags === 'string' ? JSON.parse(note.tags as string) : []);
+      const kind = note.kind || 'observation';
+      const isStructural = kind === 'index' || kind === 'log';
+      const navBreadcrumb = this.buildNavBreadcrumb(kind, tags);
+      const titleLine = isStructural ? '' : `# ${note.title}\n\n`;
+      const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
+      fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + body, 'utf-8');
     } catch (err) {
       logToFile('WARN', 'Failed to update frontmatter fields', { noteId: note.id, error: String(err) });
     }
@@ -1845,7 +1997,7 @@ export class NoteRepository {
           AND n.created_at < ?
           ${staleClause}
           ${exemptPlaceholders}
-        ORDER BY n.access_count ASC, n.created_at ASC
+        ORDER BY COALESCE(bl.cnt, 0) ASC, n.access_count ASC, n.created_at ASC
         LIMIT ?
       `).all(...params) as NoteMetadata[];
     };
@@ -1870,7 +2022,7 @@ export class NoteRepository {
           AND n.created_at < ?
           AND n.access_count = 0
           ${exemptPlaceholders}
-        ORDER BY n.created_at ASC
+        ORDER BY COALESCE(bl.cnt, 0) ASC, n.created_at ASC
         LIMIT ?
       `).all(...params) as NoteMetadata[];
     };

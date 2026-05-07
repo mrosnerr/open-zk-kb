@@ -2916,13 +2916,13 @@ describe('Index and log note kinds', () => {
     expect(indexNote!.kind).toBe('index');
   });
 
-  it('should include wikilinks to stored notes in index content', async () => {
+  it('should include Dataview queries in index content', async () => {
     await storeProjectNote('Linked Note');
 
     const indexNote = ctx.engine.getIndexNote('myapp');
     expect(indexNote).not.toBeNull();
-    expect(indexNote!.content).toContain('[[');
-    expect(indexNote!.content).toContain('Linked Note');
+    expect(indexNote!.content).toContain('```dataviewjs');
+    expect(indexNote!.content).toContain('dv.pages(\'"projects/myapp/');
   });
 
   it('should exclude index notes from default search results', async () => {
@@ -2935,25 +2935,26 @@ describe('Index and log note kinds', () => {
   it('should return index notes when explicitly filtered by kind', async () => {
     await storeProjectNote('Index Search Visible');
 
-    const output = handleSearch({ query: 'Index Search Visible', kind: 'index' }, ctx.engine, null, makeConfig());
-    expect(output).toContain('# Myapp Index');
+    const output = handleSearch({ query: 'myapp', kind: 'index' }, ctx.engine, null, makeConfig());
+    expect(output).toContain('# Myapp');
   });
 
   it('should rebuild the index when a second project note is stored', async () => {
-    await storeProjectNote('First Indexed Note');
+    await storeProjectNote('First Indexed');
     const before = ctx.engine.getIndexNote('myapp');
     expect(before).not.toBeNull();
+    expect(before!.content).toContain('```dataviewjs');
 
-    await storeProjectNote('Second Indexed Note');
+    await storeProjectNote('Second Indexed');
     const after = ctx.engine.getIndexNote('myapp');
     expect(after).not.toBeNull();
-    expect(after!.content.length).toBeGreaterThan(before!.content.length);
-    expect(after!.content).toContain('Second Indexed Note');
+    expect(after!.content).toContain('```dataviewjs');
+    expect(after!.content).toContain('dv.pages(\'"projects/myapp/');
   });
 
-  it('should exclude archived notes from the index after archive', async () => {
+  it('should rebuild the index after archiving a note', async () => {
     const keepOutput = await storeProjectNote('Keep In Index');
-    const archiveOutput = await storeProjectNote('Archive From Index');
+    const archiveOutput = await storeProjectNote('Archive This');
     const archiveId = extractId(archiveOutput);
 
     expect(keepOutput).toContain('Knowledge stored');
@@ -2961,8 +2962,8 @@ describe('Index and log note kinds', () => {
 
     const indexNote = ctx.engine.getIndexNote('myapp');
     expect(indexNote).not.toBeNull();
-    expect(indexNote!.content).toContain('Keep In Index');
-    expect(indexNote!.content).not.toContain('Archive From Index');
+    expect(indexNote!.content).toContain('```dataviewjs');
+    expect(indexNote!.content).toContain('dv.pages(\'"projects/myapp/');
   });
 
   it('should keep exactly one index note per project', async () => {
@@ -3135,8 +3136,7 @@ describe('Index and log note kinds', () => {
 
     const output = handleSearch({ query: 'Structural Search Visible' }, ctx.engine, null, config);
     expect(output).toContain('Structural Search Visible');
-    expect(output).toContain('# Myapp Index');
-    expect(output).toContain('# Myapp Operations Log');
+    expect(output).toContain('Myapp Operations Log');
   });
 
   it('should regenerate indexes for all projects during rebuild', async () => {

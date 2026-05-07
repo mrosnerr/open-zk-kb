@@ -49,14 +49,16 @@ function mockIntegrityDeps() {
       },
     ],
     themeRegistry: {
-      name: 'Minimal',
-      repo: 'mock/minimal',
+      name: 'Border',
+      repo: 'mock/border',
       tag: '1.0.0',
       files: ['manifest.json', 'theme.css'],
       fileDigests: {
         'manifest.json': sha256(MOCK_MANIFEST_CONTENT),
         'theme.css': sha256(MOCK_STYLE_CONTENT),
       },
+      source: 'raw' as const,
+      branch: 'main',
     },
   };
 }
@@ -113,34 +115,64 @@ describe('Obsidian scaffold', () => {
     expect(fs.existsSync(path.join(obsidianDir, 'appearance.json'))).toBe(true);
     expect(fs.existsSync(path.join(obsidianDir, 'open-zk-kb.json'))).toBe(true);
     expect(fs.existsSync(path.join(obsidianDir, 'snippets', 'zk-dashboard.css'))).toBe(true);
-    expect(fs.existsSync(path.join(obsidianDir, 'themes', 'Minimal', 'theme.css'))).toBe(true);
+    expect(fs.existsSync(path.join(obsidianDir, 'themes', 'Border', 'theme.css'))).toBe(true);
     expect(fs.existsSync(path.join(obsidianDir, 'plugins', 'homepage', 'main.js'))).toBe(true);
-    expect(fs.existsSync(path.join(ctx.tempDir, 'templates', 'decision.md'))).toBe(true);
+    expect(fs.existsSync(path.join(ctx.tempDir, '.templates', 'decision.md'))).toBe(true);
 
     const appConfig = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'app.json'), 'utf-8'));
     expect(appConfig.defaultViewMode).toBe('preview');
 
     const appearance = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'appearance.json'), 'utf-8'));
-    expect(appearance.cssTheme).toBe('Minimal');
+    expect(appearance.cssTheme).toBe('Border');
     expect(appearance.enabledCssSnippets).toContain('readonly-kb');
 
     const plugins = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'community-plugins.json'), 'utf-8'));
+    expect(plugins).toContain('breadcrumbs');
     expect(plugins).toContain('homepage');
+    expect(plugins).toContain('obsidian-style-settings');
+    expect(plugins).toContain('iconic');
     expect(plugins).toContain('read-only-view');
+    expect(plugins).not.toContain('obsidian-minimal-settings');
 
     const manifest = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'open-zk-kb.json'), 'utf-8'));
     expect(manifest.scaffoldVersion).toBe(1);
     expect(manifest.plugins.homepage.version).toBe('4.4.0');
 
     const homepageData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'homepage', 'data.json'), 'utf-8'));
-    expect(homepageData.homepages['Main Homepage'].value).toBe('index');
+    expect(homepageData.homepages['Main Homepage'].value).toBe('Home');
+
+    const breadcrumbsData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'breadcrumbs', 'data.json'), 'utf-8'));
+    expect(breadcrumbsData.views.page.trail.enabled).toBe(true);
+    expect(breadcrumbsData.views.page.trail.format).toBe('path');
+
+    const styleSettingsData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'obsidian-style-settings', 'data.json'), 'utf-8'));
+    expect(styleSettingsData['Appearance-dark@@card-layout-open-dark']).toBe(true);
+
+    const iconicData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'iconic', 'data.json'), 'utf-8'));
+    expect(iconicData.showAllFileIcons).toBe(false);
+    expect(iconicData.fileRules).toContainEqual({
+      id: 'zkdec',
+      name: 'Decisions',
+      icon: 'lucide-scale',
+      color: 'orange',
+      match: 'all',
+      conditions: [{ source: 'property:kind', operator: 'is', value: 'decision' }],
+      enabled: true,
+    });
 
     const quickAddData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'quickadd', 'data.json'), 'utf-8'));
     const nestedChoices = quickAddData.choices[0].choices;
-    expect(nestedChoices.some((choice: { folder: { folders: string[] } }) => choice.folder.folders[0] === 'general/decisions')).toBe(true);
-    expect(nestedChoices.some((choice: { folder: { folders: string[] } }) => choice.folder.folders[0] === 'projects/{{VALUE:project|label:Project name|case:slug}}/decisions')).toBe(true);
-    expect(nestedChoices.some((choice: { fileNameFormat: { format: string } }) => choice.fileNameFormat.format === '{{DATE:YYYYMMDDHHmmss}}00-{{VALUE:title|label:Note title|case:slug}}')).toBe(true);
+    const projectChoices = quickAddData.choices.filter((choice: { name: string }) => choice.name.startsWith('Project '));
+    expect(quickAddData.macros).toBeUndefined();
+    expect(nestedChoices.every((choice: { folder: { folders: string[] } }) => !choice.folder.folders[0].includes('_staging'))).toBe(true);
+    expect(nestedChoices.some((choice: { fileNameFormat: { format: string } }) => choice.fileNameFormat.format === '{{DATE:YYYYMMDDHHmmss}}00-new-note')).toBe(true);
     expect(nestedChoices.some((choice: { fileNameFormat: { format: string } }) => choice.fileNameFormat.format === 'domain')).toBe(true);
+    expect(projectChoices).toHaveLength(6);
+    expect(projectChoices.every((choice: { command: boolean; templatePath: string }) => choice.command === false && choice.templatePath.endsWith('-project.md'))).toBe(true);
+    expect(quickAddData.choices.filter((choice: { type: string }) => choice.type === 'Macro')).toHaveLength(0);
+
+    const templaterData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'templater-obsidian', 'data.json'), 'utf-8'));
+    expect(templaterData.auto_jump_to_cursor).toBe(true);
 
     const readOnlyData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'read-only-view', 'data.json'), 'utf-8'));
     expect(readOnlyData.useGlobPatterns).toBe(true);
@@ -217,7 +249,7 @@ describe('Obsidian scaffold', () => {
     expect(nextManifest.plugins.homepage.version).toBe('0.0.1');
     expect(nextManifest.theme.version).toBe('0.0.1');
     expect(fs.existsSync(path.join(obsidianDir, 'plugins', 'homepage', 'main.js'))).toBe(true);
-    expect(fs.existsSync(path.join(obsidianDir, 'themes', 'Minimal', 'theme.css'))).toBe(true);
+    expect(fs.existsSync(path.join(obsidianDir, 'themes', 'Border', 'theme.css'))).toBe(true);
   });
 
   it('reinstalls managed assets when local files drift from expected digests', async () => {

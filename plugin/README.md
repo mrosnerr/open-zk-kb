@@ -61,7 +61,7 @@ claude --plugin-dir /path/to/open-zk-kb/plugin
 
 ## Data Storage
 
-Notes are stored locally as Markdown files with YAML frontmatter. SQLite with FTS5 provides fast full-text search. Optional local embeddings (MiniLM-L6-v2) enable semantic search.
+Notes are stored locally as Markdown files with YAML frontmatter. SQLite with FTS5 provides fast full-text search for the agent-facing query layer. Optional local embeddings (MiniLM-L6-v2) enable semantic search. When the same vault is opened in Obsidian, generated `index` and `log` notes act as human-facing navigation and activity surfaces on top of the same underlying data.
 
 **Default storage locations** (override via `vault` in config):
 - **Linux / macOS:** `~/.local/share/open-zk-kb/`

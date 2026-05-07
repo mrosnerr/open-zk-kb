@@ -8,10 +8,10 @@ import {
   extractHeaders, stripExamplesBlock, CONFORMANCE_KINDS, CATEGORY_MAPS,
 } from '../src/template-handler.js';
 
-const ALL_KINDS = ['decision', 'procedure', 'observation', 'domain', 'reference', 'resource', 'personalization', 'index', 'log'];
+const ALL_KINDS = ['decision', 'procedure', 'observation', 'domain', 'reference', 'resource', 'personalization', 'log'];
 
 describe('template files', () => {
-  it('all 9 kind templates exist on disk', () => {
+  it('all 8 kind templates exist on disk', () => {
     const dir = getTemplatesDir();
     for (const kind of ALL_KINDS) {
       const filePath = path.join(dir, `${kind}.md`);

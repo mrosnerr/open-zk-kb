@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "1.0.11",
+  "version": "1.1.0",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
   "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method.",
   "type": "module",
@@ -46,6 +46,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "postbuild": "bun run scripts/dev-scaffold.ts --no-build",
     "prepublishOnly": "bun run build && bun test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

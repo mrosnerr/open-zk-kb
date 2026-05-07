@@ -8,8 +8,8 @@ TypeScript source for the MCP server (`mcp-server.ts`), with core logic in `tool
 
 ```
 src/
-├── mcp-server.ts          # MCP stdio server — 7 tools via @modelcontextprotocol/sdk
-├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleMine, handleMaintain, handleIngest, handleOverview, handleOpen
+├── mcp-server.ts          # MCP stdio server — 8 tools via @modelcontextprotocol/sdk
+├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleTemplate, handleMine, handleMaintain, handleIngest, handleOverview, handleOpen
 ├── storage/
 │   ├── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
 │   ├── IndexBuilder.ts    # Auto-generates per-project index notes
@@ -61,6 +61,8 @@ Client request → mcp-server.ts
 - **Query sanitization**: Strips FTS5 operators, limits to 10 terms, wraps in quotes, joins with OR.
 - **Frontmatter sync**: DB is authoritative; frontmatter updates are best-effort (non-fatal on failure).
 - **Schema migrations**: DDL via `PRAGMA user_version`; data migrations via agent-driven `upgrade` action.
+- **Human vs agent surfaces**: SQLite + handlers serve agents; generated `index`/`log` notes plus the Obsidian scaffold serve humans.
+- **Obsidian UX boundary**: Keep core knowledge notes markdown-native; richer Obsidian-specific UX belongs in generated navigation files.
 
 ## Anti-Patterns
 

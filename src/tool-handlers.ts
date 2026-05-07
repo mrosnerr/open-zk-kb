@@ -19,10 +19,20 @@ function toLifecycle(lifecycle: string | undefined, fallback: Lifecycle): Lifecy
 import type { NoteRepository, NoteMetadata } from './storage/NoteRepository.js';
 import { formatWikiLink } from './utils/wikilink.js';
 import { renderNoteForSearch, renderNoteForAgent, computeStaleness } from './prompts.js';
-import { buildIndexContent, buildGlobalIndexContent, buildGeneralIndexContent, buildPreferencesIndexContent, buildGeneralKindIndexContent } from './storage/IndexBuilder.js';
-import { buildLogEntry, buildInitialLogContent, appendToLogContent, buildGlobalLogEntry, buildInitialGlobalLogContent } from './storage/LogAppender.js';
+import { buildIndexContent, buildGlobalIndexContent, buildProjectsIndexContent, buildGeneralIndexContent, buildPreferencesIndexContent, buildGeneralKindIndexContent } from './storage/IndexBuilder.js';
+import { buildLogEntry, buildInitialLogContent, appendToLogContent, buildGlobalLogEntry, buildInitialGlobalLogContent, migrateGlobalLogContent } from './storage/LogAppender.js';
 import { buildReviewContent } from './storage/ReviewBuilder.js';
-import { resolveNotePath, extractProjectFromTags as extractProjectTag, KIND_DIR_MAP } from './storage/path-resolver.js';
+import {
+  resolveNotePath,
+  extractProjectFromTags as extractProjectTag,
+  KIND_DIR_MAP,
+  getGeneralFolderNotePath,
+  getGlobalHomeNoteBasename,
+  getGlobalHomeNotePath,
+  getKindFolderNotePath,
+  getPreferencesFolderNotePath,
+  getProjectsFolderNotePath,
+} from './storage/path-resolver.js';
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
@@ -60,7 +70,23 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
 /** Absolute word-count ceiling — warns regardless of kind. */
 export const ABSOLUTE_WARN_THRESHOLD = 300;
 
+export const TITLE_SOFT_WARN_WORDS = 6;
+export const TITLE_HARD_LIMIT_WORDS = 10;
+export const TITLE_HARD_LIMIT_CHARS = 80;
+
 // ---- Helper functions ----
+
+function titleWarning(title: string): { error: string } | { warning: string } | null {
+  const words = title.trim().split(/\s+/).filter(Boolean).length;
+  const chars = title.trim().length;
+  if (words > TITLE_HARD_LIMIT_WORDS || chars > TITLE_HARD_LIMIT_CHARS) {
+    return { error: `Title rejected: ${words} words / ${chars} chars (max ${TITLE_HARD_LIMIT_WORDS} words / ${TITLE_HARD_LIMIT_CHARS} chars). Titles are scannable labels — detail belongs in the summary field.` };
+  }
+  if (words > TITLE_SOFT_WARN_WORDS) {
+    return { warning: `\n\n⚠ Title is ${words} words (target: 3–6). Consider shortening — titles are scannable labels, not summaries.` };
+  }
+  return null;
+}
 
 function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
   const guide = KIND_WORD_GUIDELINES[kind];
@@ -110,7 +136,8 @@ function filterFalsePositiveBrokenLinks(broken: BrokenLink[], vaultPath: string 
   };
   return broken.filter(({ brokenTarget }) => {
     const notePathRel = `${brokenTarget}.md`;
-    const dirIndexPathRel = path.join(brokenTarget, 'index.md');
+    const basename = path.basename(brokenTarget);
+    const dirIndexPathRel = path.join(brokenTarget, `${basename}.md`);
     const noteResolves = insideVault(notePathRel)
       && fs.existsSync(path.resolve(vaultPath, notePathRel));
     const dirResolves = insideVault(dirIndexPathRel)
@@ -431,20 +458,28 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
 
     repo.store(content, {
       existingId: existingIndex?.id,
-      title: `${project} Index`,
+      title: project,
       kind: 'index',
       status: 'permanent',
       lifecycle: 'living',
       tags: [`project:${project}`],
-      summary: `Auto-generated catalog of all ${project} notes`,
-      guidance: 'Auto-generated project catalog — use knowledge-overview to view.',
+      summary: `Auto-generated home note for ${project}`,
+      guidance: 'Auto-generated project folder note — use knowledge-overview to view.',
+      extraFrontmatter: {
+        'BC-folder-note-field': 'up',
+        'BC-folder-note': true,
+        cssclasses: ['folder-note-shell'],
+        up: `[[${getGlobalHomeNoteBasename()}|Home]]`,
+      },
     });
 
     if (subMocs.length > 0 && config?.vault) {
       for (const subMoc of subMocs) {
         const subMocDir = path.join(config.vault, 'projects', project, subMoc.dirName);
         if (!fs.existsSync(subMocDir)) fs.mkdirSync(subMocDir, { recursive: true });
-        fs.writeFileSync(path.join(subMocDir, 'index.md'), subMoc.content, 'utf-8');
+        fs.writeFileSync(getKindFolderNotePath(subMocDir, subMoc.dirName), subMoc.content, 'utf-8');
+        const legacySubIndexPath = path.join(subMocDir, 'index.md');
+        if (fs.existsSync(legacySubIndexPath)) fs.unlinkSync(legacySubIndexPath);
       }
     }
 
@@ -454,10 +489,12 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
       if (fs.existsSync(projectDir)) {
         for (const entry of fs.readdirSync(projectDir, { withFileTypes: true })) {
           if (!entry.isDirectory()) continue;
-          const subIndexPath = path.join(projectDir, entry.name, 'index.md');
+          const subIndexPath = getKindFolderNotePath(path.join(projectDir, entry.name), entry.name);
+          const legacySubIndexPath = path.join(projectDir, entry.name, 'index.md');
           if (!activeSubMocs.has(entry.name) && fs.existsSync(subIndexPath)) {
             fs.unlinkSync(subIndexPath);
           }
+          if (fs.existsSync(legacySubIndexPath)) fs.unlinkSync(legacySubIndexPath);
         }
       }
     }
@@ -552,7 +589,15 @@ function updateGlobalNavigation(
         includeReviewLink: config?.navigation?.enableReviewMoc !== false,
         includeGlobalLogLink: config?.navigation?.enableGlobalLog !== false,
       });
-      fs.writeFileSync(path.join(vaultPath, 'index.md'), content, 'utf-8');
+      fs.writeFileSync(getGlobalHomeNotePath(vaultPath), content, 'utf-8');
+      const legacyGlobalIndex = path.join(vaultPath, 'index.md');
+      if (fs.existsSync(legacyGlobalIndex)) fs.unlinkSync(legacyGlobalIndex);
+
+      const projectsDir = path.join(vaultPath, 'projects');
+      if (fs.existsSync(projectsDir)) {
+        const projectsContent = buildProjectsIndexContent(projectStats);
+        fs.writeFileSync(getProjectsFolderNotePath(vaultPath), projectsContent, 'utf-8');
+      }
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild global index', {
         error: error instanceof Error ? error.message : String(error),
@@ -565,7 +610,10 @@ function updateGlobalNavigation(
       const globalLogPath = path.join(vaultPath, 'log.md');
       const entry = buildGlobalLogEntry(project, event);
       if (fs.existsSync(globalLogPath)) {
-        const existing = fs.readFileSync(globalLogPath, 'utf-8');
+        let existing = fs.readFileSync(globalLogPath, 'utf-8');
+        if (!existing.includes('`[!!scroll-text]`')) {
+          existing = migrateGlobalLogContent(existing);
+        }
         fs.writeFileSync(globalLogPath, appendToLogContent(existing, entry), 'utf-8');
       } else {
         fs.writeFileSync(globalLogPath, buildInitialGlobalLogContent(entry), 'utf-8');
@@ -596,7 +644,9 @@ function updateGlobalNavigation(
       if (unscopedNotes.length > 0) {
         const content = buildGeneralIndexContent(unscopedNotes);
         if (!fs.existsSync(generalDir)) fs.mkdirSync(generalDir, { recursive: true });
-        fs.writeFileSync(path.join(generalDir, 'index.md'), content, 'utf-8');
+        fs.writeFileSync(getGeneralFolderNotePath(vaultPath), content, 'utf-8');
+        const legacyGeneralIndex = path.join(generalDir, 'index.md');
+        if (fs.existsSync(legacyGeneralIndex)) fs.unlinkSync(legacyGeneralIndex);
 
         const notesByKindDir = new Map<string, { kind: string; notes: NoteMetadata[] }>();
         for (const note of unscopedNotes) {
@@ -614,16 +664,18 @@ function updateGlobalNavigation(
           const kindDir = path.join(generalDir, dirName);
           if (!fs.existsSync(kindDir)) fs.mkdirSync(kindDir, { recursive: true });
           fs.writeFileSync(
-            path.join(kindDir, 'index.md'),
+            getKindFolderNotePath(kindDir, dirName),
             buildGeneralKindIndexContent(kind, kindNotes),
             'utf-8',
           );
+          const legacyKindIndex = path.join(kindDir, 'index.md');
+          if (fs.existsSync(legacyKindIndex)) fs.unlinkSync(legacyKindIndex);
         }
 
         if (fs.existsSync(generalDir)) {
           for (const entry of fs.readdirSync(generalDir, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
-            const kindIndex = path.join(generalDir, entry.name, 'index.md');
+            const kindIndex = getKindFolderNotePath(path.join(generalDir, entry.name), entry.name);
             if (!notesByKindDir.has(entry.name) && fs.existsSync(kindIndex)) {
               fs.unlinkSync(kindIndex);
             }
@@ -631,13 +683,17 @@ function updateGlobalNavigation(
         }
       }
       if (unscopedNotes.length === 0) {
-        const generalIndex = path.join(generalDir, 'index.md');
+        const generalIndex = getGeneralFolderNotePath(vaultPath);
         if (fs.existsSync(generalIndex)) fs.unlinkSync(generalIndex);
+        const legacyGeneralIndex = path.join(generalDir, 'index.md');
+        if (fs.existsSync(legacyGeneralIndex)) fs.unlinkSync(legacyGeneralIndex);
         if (fs.existsSync(generalDir)) {
           for (const entry of fs.readdirSync(generalDir, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
-            const kindIndex = path.join(generalDir, entry.name, 'index.md');
+            const kindIndex = getKindFolderNotePath(path.join(generalDir, entry.name), entry.name);
             if (fs.existsSync(kindIndex)) fs.unlinkSync(kindIndex);
+            const legacyKindIndex = path.join(generalDir, entry.name, 'index.md');
+            if (fs.existsSync(legacyKindIndex)) fs.unlinkSync(legacyKindIndex);
           }
         }
       }
@@ -646,13 +702,17 @@ function updateGlobalNavigation(
       if (personalizationNotes.length > 0) {
         if (!fs.existsSync(preferencesDir)) fs.mkdirSync(preferencesDir, { recursive: true });
         fs.writeFileSync(
-          path.join(preferencesDir, 'index.md'),
+          getPreferencesFolderNotePath(vaultPath),
           buildPreferencesIndexContent(personalizationNotes),
           'utf-8',
         );
+        const legacyPreferencesIndex = path.join(preferencesDir, 'index.md');
+        if (fs.existsSync(legacyPreferencesIndex)) fs.unlinkSync(legacyPreferencesIndex);
       } else {
-        const preferencesIndex = path.join(preferencesDir, 'index.md');
+        const preferencesIndex = getPreferencesFolderNotePath(vaultPath);
         if (fs.existsSync(preferencesIndex)) fs.unlinkSync(preferencesIndex);
+        const legacyPreferencesIndex = path.join(preferencesDir, 'index.md');
+        if (fs.existsSync(legacyPreferencesIndex)) fs.unlinkSync(legacyPreferencesIndex);
       }
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild general index', {
@@ -715,6 +775,11 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
       return formatWikiLink({ id });
     });
     content += '\n\n## Related\n' + links.map(l => `- ${l}`).join('\n');
+  }
+
+  const titleCheck = titleWarning(args.title);
+  if (titleCheck && 'error' in titleCheck) {
+    return titleCheck.error;
   }
 
   const result = repo.store(content, {
@@ -819,6 +884,10 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   output += `Lifecycle: ${effectiveLifecycle}\n`;
   output += `Path: ${result.path}`;
 
+  if (titleCheck && 'warning' in titleCheck) {
+    output += titleCheck.warning;
+  }
+
   const wordCount = countWords(args.content);
   const warning = atomicityWarning(args.kind, wordCount);
   if (warning) {
@@ -875,10 +944,11 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     output += `\n\nCapability: ${tier}`;
   }
 
-  if (args.project) {
-    updateProjectNavigation(args.project, `Created ${args.kind}: "${args.title}"`, repo, config);
+  const effectiveProject = args.project || extractProjectFromTags(tags);
+  if (effectiveProject) {
+    updateProjectNavigation(effectiveProject, `Created ${args.kind}: "${args.title}"`, repo, config);
   }
-  updateGlobalNavigation(args.project || null, `Stored ${args.kind}: "${args.title}"`, repo, config);
+  updateGlobalNavigation(effectiveProject || null, `Stored ${args.kind}: "${args.title}"`, repo, config);
 
   return output;
 }
@@ -1129,6 +1199,15 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       updateGlobalNavigation(null, 'Full DB rebuild', repo, config);
       return `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuilt index for ${projects.length} project(s).\nRebuild complete.`;
     }
+    case 'format': {
+      const result = repo.formatAllFiles();
+      const projects = repo.getAllProjects();
+      for (const proj of projects) {
+        rebuildProjectIndex(proj, repo, config);
+      }
+      updateGlobalNavigation(null, 'Format all files', repo, config);
+      return `Formatted ${result.formatted} note files (${result.skipped} skipped, ${result.errors} errors).\nRegenerated navigation for ${projects.length} project(s).`;
+    }
     case 'upgrade': {
       const pending = getPendingMigrations(repo);
       if (pending.length === 0) {
@@ -1256,6 +1335,23 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
             const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
             const target = guide ? guide.target : '?';
             output += `- "${n.title}" (${n.kind}) — ${n.wordCount} words (target: ~${target}) [${n.id}]\n`;
+          }
+          output += '\n';
+        }
+
+        const longTitles = allNotes
+          .filter(n => n.status !== 'archived' && !['index', 'log'].includes(n.kind))
+          .filter(n => {
+            const words = n.title.trim().split(/\s+/).filter(Boolean).length;
+            return words > TITLE_SOFT_WARN_WORDS;
+          })
+          .sort((a, b) => b.title.split(/\s+/).length - a.title.split(/\s+/).length);
+
+        if (longTitles.length > 0) {
+          output += `### Long Titles (${longTitles.length} exceed ${TITLE_SOFT_WARN_WORDS}-word target)\n`;
+          for (const n of longTitles) {
+            const words = n.title.trim().split(/\s+/).filter(Boolean).length;
+            output += `- "${n.title}" (${n.kind}) — ${words} words [${n.id}]\n`;
           }
           output += '\n';
         }
@@ -1565,6 +1661,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     }
     case 'migrate-layout': {
       const dryRun = args.dryRun !== false;
+      repo.rebuildFromFiles();
       const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
       let moved = 0;
       let skipped = 0;
@@ -1642,7 +1739,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         if (embeddingConfig) {
           output += '- Embeddings: will need backfill after migration (semantic search temporarily unavailable)\n';
         }
-        output += '- Navigation: index.md, log.md, review.md, and per-directory indexes will be auto-generated\n';
+      output += `- Navigation: ${getGlobalHomeNoteBasename()}.md, log.md, review.md, and per-directory folder notes will be auto-generated\n`;
       } else if (!dryRun && moved > 0) {
         const emptyDirsRemoved = config.vault ? removeEmptyDirsRecursive(config.vault, true) : 0;
         if (emptyDirsRemoved > 0) {
@@ -1679,6 +1776,35 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       return output;
+    }
+    case 'full': {
+      const steps: Array<{ action: string; label: string; stepArgs: MaintainArgs }> = [
+        { action: 'rebuild', label: 'Rebuild', stepArgs: { action: 'rebuild' } },
+        { action: 'migrate-layout', label: 'Migrate Layout', stepArgs: { action: 'migrate-layout', dryRun: args.dryRun ?? false } },
+        { action: 'format', label: 'Format', stepArgs: { action: 'format' } },
+        { action: 'dedupe', label: 'Dedupe', stepArgs: { action: 'dedupe' } },
+        { action: 'embed', label: 'Embed', stepArgs: { action: 'embed', limit: 999999 } },
+        { action: 'broken-links', label: 'Link Health', stepArgs: { action: 'broken-links' } },
+        { action: 'stats', label: 'Stats', stepArgs: { action: 'stats', telemetry: args.telemetry, model: args.model } },
+      ];
+
+      const sections: string[] = ['# Full Maintenance\n'];
+      let stepNum = 1;
+
+      for (const step of steps) {
+        sections.push(`## ${stepNum}. ${step.label}\n`);
+        try {
+          const result = await handleMaintain(step.stepArgs, repo, config, embeddingConfig, currentVersion);
+          sections.push(result);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          sections.push(`⚠️ Failed: ${msg}`);
+          logToFile('WARN', `Full maintenance step "${step.action}" failed`, { error: msg });
+        }
+        stepNum++;
+      }
+
+      return sections.join('\n');
     }
     default:
       return `Unknown action: ${args.action}`;
@@ -1984,6 +2110,12 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     output += `### [${result.index}] "${result.candidate.title}" (${result.candidate.kind})\n`;
     output += `summary: ${result.candidate.summary}\n`;
     output += `Words: ${formatMineWordCount(result.candidate, result.wordCount)}${tags}\n`;
+    const mineTitleCheck = titleWarning(result.candidate.title);
+    if (mineTitleCheck && 'error' in mineTitleCheck) {
+      output += `⚠ Title too long — will be rejected on store. Shorten to ≤${TITLE_HARD_LIMIT_WORDS} words / ${TITLE_HARD_LIMIT_CHARS} chars.\n`;
+    } else if (mineTitleCheck && 'warning' in mineTitleCheck) {
+      output += `⚠ Title is long — consider shortening to 3–6 words.\n`;
+    }
     output += `⮕ ${result.classification} — ${result.rationale}\n`;
     for (const match of result.matches) {
       const similarity = match.similarity != null ? ` (${match.similarity.toFixed(2)})` : '';

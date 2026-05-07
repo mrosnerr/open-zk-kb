@@ -16,10 +16,67 @@ const KIND_DIR_MAP: Record<string, string> = {
   procedure: 'procedures',
   observation: 'observations',
   resource: 'resources',
+  personalization: 'preferences',
 };
 
+const GLOBAL_HOME_NOTE_BASENAME = 'Home';
+
+function folderNoteBasename(folderName: string): string {
+  return folderName;
+}
+
+export function getGlobalHomeNoteBasename(): string {
+  return GLOBAL_HOME_NOTE_BASENAME;
+}
+
+export function getGlobalHomeNotePath(docsPath: string): string {
+  return path.join(docsPath, `${GLOBAL_HOME_NOTE_BASENAME}.md`);
+}
+
+export function getProjectFolderNoteBasename(project: string): string {
+  return folderNoteBasename(sanitizeProjectSegment(project));
+}
+
+export function getProjectFolderNotePath(docsPath: string, project: string): string {
+  const safeProject = sanitizeProjectSegment(project);
+  return path.join(docsPath, 'projects', safeProject, `${folderNoteBasename(safeProject)}.md`);
+}
+
+export function getProjectsFolderNoteBasename(): string {
+  return folderNoteBasename('projects');
+}
+
+export function getProjectsFolderNotePath(docsPath: string): string {
+  return path.join(docsPath, 'projects', `${getProjectsFolderNoteBasename()}.md`);
+}
+
+export function getGeneralFolderNoteBasename(): string {
+  return folderNoteBasename('general');
+}
+
+export function getGeneralFolderNotePath(docsPath: string): string {
+  return path.join(docsPath, 'general', `${getGeneralFolderNoteBasename()}.md`);
+}
+
+export function getPreferencesFolderNoteBasename(): string {
+  return folderNoteBasename('preferences');
+}
+
+export function getPreferencesFolderNotePath(docsPath: string): string {
+  return path.join(docsPath, 'preferences', `${getPreferencesFolderNoteBasename()}.md`);
+}
+
+export function getKindFolderNoteBasename(kindOrDir: string): string {
+  return folderNoteBasename(KIND_DIR_MAP[kindOrDir] || kindOrDir);
+}
+
+export function getKindFolderNotePath(baseDir: string, kindOrDir: string): string {
+  const basename = getKindFolderNoteBasename(kindOrDir);
+  return path.join(baseDir, `${basename}.md`);
+}
+
 /** Directories to skip during recursive file scanning */
-const SKIP_DIRS = new Set(['.index', '.obsidian', 'templates', '.git', 'node_modules']);
+const SKIP_DIRS = new Set(['.index', '.obsidian', '.trash', 'templates', '.templates', '.git', 'node_modules']);
 
 function sanitizeProjectSegment(project: string): string {
   const trimmed = project.trim();
@@ -35,11 +92,11 @@ function sanitizeProjectSegment(project: string): string {
  * Placement rules:
  *   personalization        → preferences/{id}-{slug}.md
  *   domain  + project      → projects/{project}/domain.md
- *   index   + project      → projects/{project}/index.md
+ *   index   + project      → projects/{project}/{project}.md
  *   log     + project      → projects/{project}/log.md
  *   {kind}  + project      → projects/{project}/{kinds}/{id}-{slug}.md
  *   {kind}  - no project   → general/{kinds}/{id}-{slug}.md
- *   index/log - no project → {vault}/index.md or log.md (global structural)
+ *   index/log - no project → {vault}/Home.md or log.md (global structural)
  */
 export function resolveNotePath(
   docsPath: string,
@@ -58,9 +115,11 @@ export function resolveNotePath(
   // Singleton kinds: fixed filename, no ID prefix
   if (SINGLETON_KINDS.has(kind)) {
     if (safeProject) {
+      if (kind === 'index') return getProjectFolderNotePath(docsPath, safeProject);
       return path.join(docsPath, 'projects', safeProject, `${kind}.md`);
     }
     // Global structural note (no project) — lives at vault root
+    if (kind === 'index') return getGlobalHomeNotePath(docsPath);
     return path.join(docsPath, `${kind}.md`);
   }
 
