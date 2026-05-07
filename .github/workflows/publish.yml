@@ -2,7 +2,7 @@ name: Publish to npm
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
 
 jobs:
   publish:
@@ -25,60 +25,82 @@ jobs:
           node-version: '24'
           registry-url: 'https://registry.npmjs.org'
 
-      - name: Check if version already published
-        id: version-check
+      - name: Determine release type
+        id: release
         run: |
-          LOCAL_VERSION=$(node -p "require('./package.json').version")
-          echo "local_version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
-          if echo "$LOCAL_VERSION" | grep -qE '(alpha|beta|rc)'; then
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          if [ "${{ github.ref_name }}" = "main" ]; then
+            LOCAL_VERSION=$(node -p "require('./package.json').version")
+            echo "version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=latest" >> "$GITHUB_OUTPUT"
+            echo "type=stable" >> "$GITHUB_OUTPUT"
+            if echo "$LOCAL_VERSION" | grep -qE '(alpha|beta|rc)'; then
+              echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            fi
           else
-            echo "prerelease=false" >> "$GITHUB_OUTPUT"
+            BASE_VERSION=$(node -p "require('./package.json').version")
+            SHORT_SHA=$(git rev-parse --short HEAD)
+            DEV_VERSION="${BASE_VERSION}-dev.g${SHORT_SHA}"
+            echo "version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
+            echo "tag=dev" >> "$GITHUB_OUTPUT"
+            echo "type=dev" >> "$GITHUB_OUTPUT"
+            echo "prerelease=true" >> "$GITHUB_OUTPUT"
           fi
-          PUBLISHED=$(npm view open-zk-kb@"$LOCAL_VERSION" version 2>/dev/null || echo "")
-          if [ "$PUBLISHED" = "$LOCAL_VERSION" ]; then
+          echo "Publishing: ${{ github.ref_name }} → $(cat "$GITHUB_OUTPUT" | grep version= | cut -d= -f2)"
+
+      - name: Check if version already published
+        id: check
+        run: |
+          VERSION="${{ steps.release.outputs.version }}"
+          PUBLISHED=$(npm view open-zk-kb@"$VERSION" version 2>/dev/null || echo "")
+          if [ "$PUBLISHED" = "$VERSION" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Version $LOCAL_VERSION already published — skipping."
+            echo "Version $VERSION already published — skipping."
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
-            echo "Version $LOCAL_VERSION not yet published — will publish."
+            echo "Version $VERSION not yet published — will publish."
           fi
 
       - name: Install dependencies
-        if: steps.version-check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false'
         run: bun install
 
       - name: Build
-        if: steps.version-check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false'
         run: bun run build
 
       - name: Lint
-        if: steps.version-check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false'
         run: bun run lint
 
       - name: Test
-        if: steps.version-check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false'
         run: bun test
 
       - name: Prepare bin scripts
-        if: steps.version-check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false'
         run: chmod +x dist/cli.js dist/setup.js dist/mcp-server.js
 
+      - name: Set dev version in package.json
+        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'dev'
+        run: npm version "${{ steps.release.outputs.version }}" --no-git-tag-version
+
       - name: Publish
-        if: steps.version-check.outputs.skip == 'false'
-        run: npm publish --provenance --access public --tag latest
+        if: steps.check.outputs.skip == 'false'
+        run: npm publish --provenance --access public --tag ${{ steps.release.outputs.tag }} --ignore-scripts
 
       - name: Create GitHub Release
-        if: steps.version-check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VERSION="${{ steps.version-check.outputs.local_version }}"
+          VERSION="${{ steps.release.outputs.version }}"
           TAG="v$VERSION"
           git tag "$TAG"
           git push origin "$TAG"
           PRERELEASE_FLAG=""
-          if [ "${{ steps.version-check.outputs.prerelease }}" = "true" ]; then
+          if [ "${{ steps.release.outputs.prerelease }}" = "true" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
           gh release create "$TAG" \
@@ -88,12 +110,12 @@ jobs:
             $PRERELEASE_FLAG
 
       - name: Install mcp-publisher
-        if: steps.version-check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
 
       - name: Publish to MCP Registry
-        if: steps.version-check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
