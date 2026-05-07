@@ -6,7 +6,7 @@ on:
     branches: [dev]
     paths:
       - 'scripts/demo-mcp.ts'
-      - 'demo.tape'
+      - 'scripts/demo.tape'
 
 permissions:
   contents: write
@@ -42,7 +42,7 @@ jobs:
           rm vhs.deb
 
       - name: Record demo GIF
-        run: vhs demo.tape
+        run: vhs scripts/demo.tape
 
       - name: Verify GIF exists
         run: test -f assets/demo.gif && echo "GIF recorded successfully ($(du -h assets/demo.gif | cut -f1))"
