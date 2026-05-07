@@ -29,6 +29,10 @@ For rapid iteration:
 - bun test --watch — re-runs tests on file change
 - Note: there's no watch mode for the build itself — you need to run bun run build each time
 
+## Dev release channel
+
+Pushes to the `dev` branch auto-publish to npm under the `dev` dist-tag (e.g., `1.1.0-dev.g751771b`). To test unreleased changes without a local checkout, point your MCP config at `open-zk-kb@dev` instead of `@latest`. See [Release Channels](setup-guide.md#release-channels) for details.
+
 ## OpenCode local development
 
 Use the normal installer for local OpenCode testing.

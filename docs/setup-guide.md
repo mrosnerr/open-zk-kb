@@ -125,13 +125,30 @@ Instructions are injected as a managed block wrapped in markers:
 ## Optional Configuration
 - **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and vector embeddings in a single file. See [configuration.md](configuration.md).
 
+## Release Channels
+
+| Channel | npm tag | Stability | Use when |
+|---------|---------|-----------|----------|
+| **Stable** | `@latest` | Production-ready | Default for all users |
+| **Dev** | `@dev` | Bleeding-edge, may break | Testing unreleased changes from the `dev` branch |
+
+To use the dev channel, change `@latest` to `@dev` in your MCP config:
+
+```json
+"command": ["bunx", "open-zk-kb@dev", "server"]
+```
+
+Dev versions follow the format `X.Y.Z-dev.g<short-sha>` (e.g., `1.1.0-dev.g751771b`). Each push to the `dev` branch publishes a new dev release automatically.
+
+To switch back to stable: change `@dev` to `@latest` and restart your client.
+
 ## Updating
 
 ### How Updates Work
 
 | Component | Auto-updates? | Mechanism |
 |-----------|---------------|-----------|
-| **MCP server** | ✅ Yes | `bunx open-zk-kb@latest` checks npm registry on each client restart |
+| **MCP server** | ✅ Yes | `bunx open-zk-kb@latest` (or `@dev`) checks npm registry on each client restart |
 | **Agent instructions** | ❌ No | Requires manual `install --force` to update |
 | **User config** | ❌ No | Your `config.yaml` is never modified after initial copy |
 
