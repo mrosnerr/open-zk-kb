@@ -9,7 +9,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      id-token: write
 
     steps:
       - uses: actions/checkout@v6
@@ -72,4 +71,4 @@ jobs:
 
       - name: Publish
         if: steps.check.outputs.skip == 'false'
-        run: npm publish --provenance --access public --tag dev --ignore-scripts
+        run: npm publish --access public --tag dev --ignore-scripts
