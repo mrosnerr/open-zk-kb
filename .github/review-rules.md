@@ -117,7 +117,7 @@ Flag code that makes the server:
 ## Review checklist for this repo
 
 - Read `AGENTS.md` for architecture, boundaries, and conventions.
-- Check `CONTRIBUTING.md` and PR template expectations where relevant.
+- Check `.github/CONTRIBUTING.md` and PR template expectations where relevant.
 - Read the full changed file for each touched path.
 - Verify tests actually exercise the claimed behavior.
 - Prefer exact, actionable findings over volume.

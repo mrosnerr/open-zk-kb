@@ -54,7 +54,6 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 ├── scripts/               # rebuild-db.ts
 ├── dist/                  # Compiled output (tsc) — this is what runs
 ├── config.example.yaml    # Template config (copy to ~/.config/open-zk-kb/config.yaml)
-├── CONTRIBUTING.md        # Contributor guidelines
 └── .gitignore             # Excludes dist/, node_modules/, config.yaml, etc.
 ```
 
