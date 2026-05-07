@@ -30,7 +30,7 @@ jobs:
         run: |
           BASE_VERSION=$(node -p "require('./package.json').version")
           SHORT_SHA=$(git rev-parse --short HEAD)
-          DEV_VERSION="${BASE_VERSION}-dev.${SHORT_SHA}"
+          DEV_VERSION="${BASE_VERSION}-dev.g${SHORT_SHA}"
           echo "dev_version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
           echo "Publishing dev version: $DEV_VERSION"
 
