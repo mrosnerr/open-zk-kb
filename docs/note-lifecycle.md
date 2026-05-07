@@ -88,4 +88,4 @@ lifecycle:
     - decision
 ```
 
-For a full list of configuration options, see [docs/configuration.md](configuration.md).
+For a full list of configuration options, see the [Configuration Reference](configuration.md). The review system is exposed through the [`knowledge-maintain` tool](tools-reference.md#knowledge-maintain).

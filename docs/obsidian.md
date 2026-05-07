@@ -1,8 +1,8 @@
 # Obsidian Guide
 
-Your knowledge base is a fully functional [Obsidian](https://obsidian.md) vault. The `knowledge-open` MCP tool launches it with a managed scaffold that configures a theme, plugins, navigation, and styling — no manual setup required.
+Your knowledge base is a fully functional [Obsidian](https://obsidian.md) vault. The [`knowledge-open`](tools-reference.md#knowledge-open) MCP tool launches it with a managed scaffold that configures a theme, plugins, navigation, and styling — no manual setup required.
 
-For configuration options, see the [`obsidian` section in configuration.md](configuration.md#obsidian).
+For installation, see the [Setup Guide](setup-guide.md). For configuration options, see the [`obsidian` section in configuration.md](configuration.md#obsidian). Notes are organized into [9 kinds with lifecycle management](note-lifecycle.md).
 
 ## Getting Started
 

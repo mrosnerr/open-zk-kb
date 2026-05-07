@@ -74,7 +74,7 @@ This distinction is intentional. Core knowledge notes (`decision`, `procedure`, 
 The MCP server provides a reactive interface to the knowledge base:
 
 * **Transport**: Uses `@modelcontextprotocol/sdk` with stdio transport.
-* **Tools**: Registers eight core tools: `knowledge-store`, `knowledge-search`, `knowledge-template`, `knowledge-mine`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
+* **Tools**: Registers [eight core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-template`, `knowledge-mine`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).
     * **Model**: `Xenova/all-MiniLM-L6-v2` (quantized q8, ~23MB).
@@ -95,7 +95,7 @@ During setup, open-zk-kb delivers knowledge base instructions to guide the AI to
 
 All settings live in a single YAML file: `~/.config/open-zk-kb/config.yaml`
 
-- **Core settings**: vault, logLevel, lifecycle. Merged with hardcoded defaults from `src/config.ts`. See [Note Lifecycle](note-lifecycle.md) for details on the review system.
+- **Core settings**: vault, logLevel, lifecycle. Merged with hardcoded defaults from `src/config.ts`. See [Configuration Reference](configuration.md) for the full option list and [Note Lifecycle](note-lifecycle.md) for details on the review system.
 - **Embeddings**: Top-level `embeddings:` section for configuring local or API-based vector generation.
 
 ## Schema & Migrations
