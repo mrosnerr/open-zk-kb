@@ -1,6 +1,21 @@
 # Tools Reference
 
-open-zk-kb exposes eight MCP tools. Your AI assistant calls these automatically based on injected instructions — you rarely need to invoke them manually.
+open-zk-kb exposes eight MCP tools. Your AI assistant calls these automatically based on injected [instructions](setup-guide.md#agent-instructions) — you rarely need to invoke them manually.
+
+| Tool | What it does |
+|------|-------------|
+| [`knowledge-store`](#knowledge-store) | Save decisions, preferences, procedures, and insights |
+| [`knowledge-ingest`](#knowledge-ingest) | Extract article content from URLs or HTML into structured markdown |
+| [`knowledge-search`](#knowledge-search) | Search the knowledge base before starting work |
+| [`knowledge-maintain`](#knowledge-maintain) | Review, promote, archive, and rebuild notes |
+| [`knowledge-overview`](#knowledge-overview) | Get a project overview with auto-generated index and recent log |
+| [`knowledge-template`](#knowledge-template) | Get the canonical note template for a specific kind |
+| [`knowledge-mine`](#knowledge-mine) | Bulk-screen candidates from session history for duplicates and store |
+| [`knowledge-open`](#knowledge-open) | Open the vault in [Obsidian](obsidian.md) with a scaffolded theme, plugins, and homepage |
+
+Notes use [9 kinds with lifecycle management](note-lifecycle.md). For configuration options, see the [Configuration Reference](configuration.md).
+
+---
 
 ## knowledge-store
 
