@@ -9,9 +9,9 @@ open-zk-kb exposes eight MCP tools. Your AI assistant calls these automatically 
 | [`knowledge-search`](#knowledge-search) | Search the knowledge base before starting work |
 | [`knowledge-maintain`](#knowledge-maintain) | Review, promote, archive, and rebuild notes |
 | [`knowledge-overview`](#knowledge-overview) | Get a project overview with auto-generated index and recent log |
-| [`knowledge-template`](#knowledge-template) | Get the canonical note template for a specific kind |
-| [`knowledge-mine`](#knowledge-mine) | Bulk-screen candidates from session history for duplicates and store |
-| [`knowledge-open`](#knowledge-open) | Open the vault in [Obsidian](obsidian.md) with a scaffolded theme, plugins, and homepage |
+| `knowledge-template` | Get the canonical note template for a specific kind |
+| `knowledge-mine` | Bulk-screen candidates from session history for duplicates and store |
+| `knowledge-open` | Open the vault in [Obsidian](obsidian.md) with a scaffolded theme, plugins, and homepage |
 
 Notes use [9 kinds with lifecycle management](note-lifecycle.md). For configuration options, see the [Configuration Reference](configuration.md).
 
