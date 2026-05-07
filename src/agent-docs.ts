@@ -75,7 +75,7 @@ export function getAgentDocsVersion(filePath: string): string | null {
 function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string, version?: string): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const filename = size === 'compact' ? 'agent-instructions-compact.md' : 'agent-instructions-full.md';
-  const instructionsPath = path.join(projectRoot, 'templates', filename);
+  const instructionsPath = path.join(projectRoot, 'templates', 'install', filename);
   let content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
   if (clientName) {
     content = content.replace(/\{\{CLIENT_NAME\}\}/g, clientName);

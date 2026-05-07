@@ -444,7 +444,7 @@ function ensureDefaultConfigYaml(): boolean {
   }
 
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const exampleConfigPath = path.join(projectRoot, 'templates', 'config.example.yaml');
+  const exampleConfigPath = path.join(projectRoot, 'templates', 'install', 'config.example.yaml');
   if (!fs.existsSync(exampleConfigPath)) {
     return false;
   }
@@ -803,7 +803,7 @@ export function install(args: InstallArgs): string {
     fs.mkdirSync(path.join(vaultPath, '.index'), { recursive: true });
   }
   
-  const exampleConfigPath = path.join(projectRoot, 'templates', 'config.example.yaml');
+  const exampleConfigPath = path.join(projectRoot, 'templates', 'install', 'config.example.yaml');
   const configYamlPath = getConfigYamlPath();
   let configCopied = false;
   if (!fs.existsSync(configYamlPath) && fs.existsSync(exampleConfigPath)) {
