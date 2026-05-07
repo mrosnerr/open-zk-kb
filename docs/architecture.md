@@ -89,7 +89,7 @@ During setup, open-zk-kb delivers knowledge base instructions to guide the AI to
 * **OpenCode** uses three setup artifacts together: an MCP entry in `~/.config/opencode/opencode.json`, an `open-zk-kb` plugin entry (npm install or `file://` checkout for local development), and a managed markdown block injected into `~/.config/opencode/AGENTS.md`. The managed block is wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` / `<!-- OPEN-ZK-KB:END -->`). See `injectAgentDocs()` in `src/agent-docs.ts` and the OpenCode helpers in `src/setup.ts`.
 * **Windsurf** uses a managed markdown block injected into `~/.codeium/windsurf/memories/global_rules.md`. Blocks are wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` / `<!-- OPEN-ZK-KB:END -->`). See `injectAgentDocs()` in `src/agent-docs.ts`.
 * **Cursor and Zed** currently receive MCP config only.
-* **Instruction templates**: `agent-instructions-full.md` (~420 tokens) and `agent-instructions-compact.md` (~140 tokens) ship with the package for OpenCode/Windsurf. The skill uses its own `SKILL.md` + supporting files in `skills/open-zk-kb/`.
+* **Instruction templates**: `templates/agent-instructions-full.md` (~420 tokens) and `templates/agent-instructions-compact.md` (~140 tokens) ship with the package for OpenCode/Windsurf. The skill uses its own `SKILL.md` + supporting files in `skills/open-zk-kb/`.
 
 ## Configuration Architecture
 
