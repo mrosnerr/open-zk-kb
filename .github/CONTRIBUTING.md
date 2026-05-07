@@ -134,7 +134,7 @@ docker run --rm open-zk-kb-smoke bash tests/docker/smoke-test.sh
 ## Submitting Changes
 
 1. Fork the repository.
-2. Create a feature branch from `main`: `git checkout -b feature/my-feature main`.
+2. Create a feature branch from `dev`: `git checkout -b feature/my-feature dev`.
 3. Make your changes with tests.
 4. Ensure `bun run build && bun test && bun run lint` all pass.
 5. Commit with clear, descriptive messages (see [Commit Messages](#commit-messages)).
