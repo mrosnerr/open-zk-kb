@@ -38,7 +38,7 @@ jobs:
             else
               echo "prerelease=false" >> "$GITHUB_OUTPUT"
             fi
-          else
+          elif [ "${{ github.ref_name }}" = "dev" ]; then
             BASE_VERSION=$(node -p "require('./package.json').version")
             SHORT_SHA=$(git rev-parse --short HEAD)
             DEV_VERSION="${BASE_VERSION}-dev.g${SHORT_SHA}"
@@ -46,10 +46,13 @@ jobs:
             echo "tag=dev" >> "$GITHUB_OUTPUT"
             echo "type=dev" >> "$GITHUB_OUTPUT"
             echo "prerelease=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::Unexpected branch '${{ github.ref_name }}' — skipping publish."
+            echo "type=skip" >> "$GITHUB_OUTPUT"
           fi
-          echo "Publishing: ${{ github.ref_name }} → $(cat "$GITHUB_OUTPUT" | grep version= | cut -d= -f2)"
 
       - name: Check if version already published
+        if: steps.release.outputs.type != 'skip'
         id: check
         run: |
           VERSION="${{ steps.release.outputs.version }}"
@@ -86,9 +89,13 @@ jobs:
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'dev'
         run: npm version "${{ steps.release.outputs.version }}" --no-git-tag-version
 
-      - name: Publish
-        if: steps.check.outputs.skip == 'false'
-        run: npm publish --provenance --access public --tag ${{ steps.release.outputs.tag }} --ignore-scripts
+      - name: Publish (stable)
+        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
+        run: npm publish --provenance --access public --tag latest
+
+      - name: Publish (dev)
+        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'dev'
+        run: npm publish --provenance --access public --tag dev --ignore-scripts
 
       - name: Create GitHub Release
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
