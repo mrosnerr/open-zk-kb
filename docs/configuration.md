@@ -10,7 +10,7 @@ The file contains core settings for the MCP server, including vault location, lo
 
 For a detailed explanation of note statuses, kinds, and the review system, see [Note Lifecycle](note-lifecycle.md).
 
-No configuration is required for basic usage — sensible defaults apply.
+No configuration is required for basic usage — sensible defaults apply. For installation, see the [Setup Guide](setup-guide.md). For tool usage, see the [Tools Reference](tools-reference.md).
 
 ## Core Settings
 
@@ -82,7 +82,7 @@ Not recorded:
 
 ## Obsidian Vault Scaffold
 
-`knowledge-open` now scaffolds a polished Obsidian vault experience on first launch:
+[`knowledge-open`](tools-reference.md#knowledge-open) scaffolds a polished Obsidian vault experience on first launch. See the [Obsidian Guide](obsidian.md) for the full walkthrough.
 
 - Minimal theme
 - Community plugin bundle (Breadcrumbs, Homepage, QuickAdd, Commander, Templater, Minimal Settings, OZ Calendar, Read Only View)

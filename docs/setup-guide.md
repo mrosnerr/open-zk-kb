@@ -1,6 +1,6 @@
 # Setup Guide
 
-This guide covers installation for all supported clients. For configuration details, see [configuration.md](configuration.md).
+This guide covers installation for all supported clients. For configuration details, see [configuration.md](configuration.md). For the full tool inventory, see the [Tools Reference](tools-reference.md).
 
 ## Prerequisites
 - [Bun](https://bun.sh) >= 1.0.0 (required — uses `bun:sqlite` for storage)

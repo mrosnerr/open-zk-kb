@@ -15,16 +15,22 @@ Shared, persistent memory for AI assistants, built on the Zettelkasten method. O
   <sub>Real MCP calls — store, search, and stats run against a live knowledge base.</sub>
 </p>
 
+<p align="center">
+  <img src="assets/obsidian-home.png" alt="Knowledge Base in Obsidian" width="640">
+  <br>
+  <sub>Browse your knowledge base in Obsidian — homepage dashboard with project stats and navigation.</sub>
+</p>
+
 ## Why open-zk-kb?
 
 AI assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
 
-- **Hybrid search** — full-text + local embeddings, so only relevant notes surface
-- **Atomic notes** — one concept per note (9 kinds, lifecycle management) keeps results precise
+- **Hybrid search** — full-text + [local embeddings](docs/configuration.md#embeddings-local-first), so only relevant notes surface
+- **Atomic notes** — one concept per note ([9 kinds](docs/note-lifecycle.md#note-kinds--defaults), [lifecycle management](docs/note-lifecycle.md)) keeps results precise
 - **Local-first** — no API keys, works offline, scales to thousands of notes
-- **Human-readable** — Markdown + YAML frontmatter, rebuildable from files
-- **Obsidian-native** — browse your knowledge graph, navigate by kind, and explore connections visually
-- **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, Windsurf, and Zed
+- **Human-readable** — Markdown + YAML frontmatter, [rebuildable from files](docs/architecture.md#dual-storage-model)
+- **Obsidian-native** — [browse your knowledge graph](docs/obsidian.md), navigate by kind, and explore connections visually
+- **Shared memory across tools** — one knowledge base for [OpenCode, Claude Code, Cursor, Windsurf, and Zed](docs/setup-guide.md)
 - **MIT-licensed**
 
 ## Quick Start
@@ -42,181 +48,13 @@ That's it. The interactive installer:
 
 Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**
 
-## How It Works
-
-Your AI assistant gets eight MCP tools:
-
-| Tool | What it does |
-|------|-------------|
-| `knowledge-search` | Search the knowledge base before starting work |
-| `knowledge-store` | Save decisions, preferences, procedures, and insights |
-| `knowledge-template` | Get the canonical note template for a specific kind |
-| `knowledge-mine` | Bulk-screen candidates from session history for duplicates and store |
-| `knowledge-maintain` | Review, promote, archive, and rebuild notes |
-| `knowledge-ingest` | Extract article content from URLs or HTML into structured markdown |
-| `knowledge-overview` | Get a project overview with auto-generated index and recent log |
-| `knowledge-open` | Open the vault in Obsidian with a scaffolded theme, plugins, homepage, and graph view |
-
-The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
-
-Notes are stored as Markdown files with YAML frontmatter. A SQLite index provides fast full-text search, with local vector embeddings for semantic matching. Agents primarily query the MCP tools backed by SQLite and metadata rendering; humans primarily browse the vault through Obsidian's generated indexes, logs, and graph. No API key needed.
+See the [Setup Guide](docs/setup-guide.md) for manual installation, client-specific configs, and troubleshooting.
 
 ## Configuration
 
-Zero configuration required for basic usage. The installer creates `~/.config/open-zk-kb/config.yaml` automatically.
+Zero configuration required. The installer creates `~/.config/open-zk-kb/config.yaml` with sensible defaults — local embeddings work out of the box with no API key.
 
-To use an API provider for embeddings instead of local models:
-
-```yaml
-embeddings:
-  provider: "api"
-  base_url: "https://openrouter.ai/api/v1"
-  api_key: "your-api-key-here"
-  model: "openai/text-embedding-3-small"
-  dimensions: 1536
-```
-
-Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). See [docs/configuration.md](docs/configuration.md) for the full reference.
-
-To disable the managed Obsidian read-only defaults or scaffold auto-upgrades:
-
-```yaml
-obsidian:
-  autoUpgrade: false
-  readOnly: false
-```
-
-## Note Kinds
-
-| Kind | Default Status | Use Case |
-|------|----------------|----------|
-| `personalization` | permanent | User preferences, habits, and personal style |
-| `reference` | fleeting | Technical facts, API details, and documentation snippets |
-| `decision` | permanent | Architectural choices, project commitments, and trade-offs |
-| `procedure` | fleeting | Step-by-step workflows and recurring tasks |
-| `resource` | permanent | Links, tools, libraries, and external documentation |
-| `observation` | fleeting | Insights, patterns, and temporary findings |
-| `domain` | permanent | Project operating manuals — agent role, scope, conventions, boundaries |
-| `index` | permanent | Auto-generated project catalog — human-facing navigation surface in Obsidian |
-| `log` | permanent | Auto-generated chronological operations log — human-facing activity surface |
-
-Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
-
-## Obsidian Integration
-
-Your knowledge base is an [Obsidian](https://obsidian.md) vault. The `knowledge-open` tool launches it with a fully managed scaffold — no manual setup required.
-
-<p align="center">
-  <img src="assets/obsidian-home.png" alt="Knowledge Base homepage in Obsidian" width="720">
-  <br>
-  <sub>Homepage with project overview, stats, and navigation</sub>
-</p>
-
-**What you get out of the box:**
-
-- **Homepage dashboard** — project stats, quick navigation, and activity summary
-- **Breadcrumb navigation** — hierarchical trails on every page via the Breadcrumbs plugin
-- **Kind-based icons and colors** — decisions, procedures, references, and observations each get distinct icons and colors in the sidebar and headings
-- **Inline action buttons** — edit, delete, promote, and add notes directly from Dataview tables
-- **14 managed plugins** — Dataview, Breadcrumbs, QuickAdd, Templater, Homepage, Iconic, and more — all pre-configured
-- **Read-only defaults** — scaffold-managed files are protected from accidental edits
-- **Auto-upgrades** — the scaffold updates on launch. Opt out with `obsidian.autoUpgrade: false`
-
-<p align="center">
-  <img src="assets/obsidian-project.png" alt="Project index with action buttons" width="720">
-  <br>
-  <sub>Project index with kind sections, Dataview tables, and inline actions</sub>
-</p>
-
-Core knowledge notes stay markdown-native for clean agent context. Navigation surfaces (`index`, `log`, `review`) use Dataview and plugin-powered UX for a richer human experience.
-
-See [Obsidian Guide](docs/obsidian.md) for the full walkthrough.
-
-<details>
-<summary><h2>Manual Install</h2></summary>
-
-If you prefer manual configuration, add open-zk-kb to your client's config. No cloning required — the npm package includes everything.
-
-> **Note**: Manual install configures the MCP server and, for OpenCode, the plugin entry. To also inject the agent instructions, run `bunx open-zk-kb@latest install --client <name>` or add the contents of `agent-instructions-full.md` (or `agent-instructions-compact.md` for token-constrained clients) to your client's instruction file.
-
-### OpenCode
-
-`~/.config/opencode/opencode.json`
-
-```json
-{
-  "plugin": ["open-zk-kb"],
-  "mcp": {
-    "open-zk-kb": {
-      "type": "local",
-      "command": ["bunx", "open-zk-kb@latest", "server"],
-      "enabled": true
-    }
-  }
-}
-```
-
-### Claude Code
-
-`~/.claude/settings.json`
-
-```json
-{
-  "mcpServers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb@latest", "server"]
-    }
-  }
-}
-```
-
-### Cursor
-
-`~/.cursor/mcp.json`
-
-```json
-{
-  "mcpServers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb@latest", "server"]
-    }
-  }
-}
-```
-
-### Windsurf
-
-`~/.codeium/windsurf/mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb@latest", "server"]
-    }
-  }
-}
-```
-
-### Zed
-
-`~/.config/zed/settings.json`
-
-```json
-{
-  "context_servers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb@latest", "server"]
-    }
-  }
-}
-```
-
-</details>
+See the [Configuration Reference](docs/configuration.md) for embeddings, vault path, lifecycle tuning, and Obsidian scaffold options.
 
 ## Development
 
@@ -227,16 +65,16 @@ bun install && bun run build
 bun run setup            # interactive installer
 ```
 
-## Links
+## Documentation
 
-- [Setup Guide](docs/setup-guide.md) — installation, instruction injection, verification
-- [Tools Reference](docs/tools-reference.md) — all 8 MCP tools, parameters, examples
-- [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
-- [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
-- [Obsidian Guide](docs/obsidian.md) — managed scaffold, plugins, navigation, screenshots
-- [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection
-- [Development & Contributing](docs/development.md) — local dev, testing, debugging
-- [Contributing Guidelines](CONTRIBUTING.md)
+- [Setup Guide](docs/setup-guide.md) — installation, manual config, client-specific setup, troubleshooting
+- [Tools Reference](docs/tools-reference.md) — all 8 MCP tools with parameters and examples
+- [Note Lifecycle](docs/note-lifecycle.md) — 9 note kinds, statuses, review system, promotion
+- [Configuration](docs/configuration.md) — embeddings, vault, logging, Obsidian scaffold
+- [Obsidian Guide](docs/obsidian.md) — managed scaffold, 14 plugins, navigation, screenshots
+- [Architecture](docs/architecture.md) — dual storage, ownership model, design decisions
+- [Development](docs/development.md) — local dev, testing, debugging, adding tools
+- [Contributing](.github/CONTRIBUTING.md) — guidelines for contributors
 
 ## License
 

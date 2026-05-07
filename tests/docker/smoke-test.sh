@@ -352,7 +352,9 @@ bun -e "
 BLOCK_COUNT=$(cut -d: -f1 /tmp/json-check.txt)
 BLOCK_VALID=$(cut -d: -f2 /tmp/json-check.txt)
 
-if [ "$BLOCK_COUNT" -gt 0 ] && [ "$BLOCK_COUNT" -eq "$BLOCK_VALID" ]; then
+if [ "$BLOCK_COUNT" -eq 0 ]; then
+  pass "README has no JSON blocks (none to validate)"
+elif [ "$BLOCK_COUNT" -eq "$BLOCK_VALID" ]; then
   pass "all $BLOCK_COUNT README JSON blocks are valid"
 else
   fail "README JSON" "$BLOCK_VALID/$BLOCK_COUNT blocks valid"

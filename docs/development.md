@@ -1,7 +1,7 @@
 # Development Guide
 
 ## Prerequisites
-- Bun >= 1.0.0 (required — Node.js is NOT compatible)
+- Bun >= 1.0.0 (required — Node.js is NOT compatible). See [Setup Guide](setup-guide.md) for user-facing installation.
 - Git
 - A text editor with TypeScript support
 
@@ -154,6 +154,8 @@ When improving Obsidian browsing:
 2. Register in src/mcp-server.ts (Zod schema + server.registerTool)
 3. Add tests in tests/mcp-tools.test.ts
 4. Rebuild: bun run build
+
+See the [Tools Reference](tools-reference.md) for the current tool inventory and the [Configuration Reference](configuration.md) for config options.
 
 ## Adding a New Installer Client
 1. Add entry to CLIENT_CONFIGS in src/setup.ts
