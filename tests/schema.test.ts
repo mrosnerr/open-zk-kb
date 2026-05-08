@@ -346,4 +346,17 @@ describe('schema.ts', () => {
     expect(getUserVersion(db)).toBe(8);
     db.close();
   });
+
+  it('should handle schema downgrade gracefully (newer DB opened by older code)', () => {
+    const db = ctx.engine['db'];
+    const futureVersion = 99;
+    db.run(`PRAGMA user_version = ${futureVersion}`);
+
+    const schema = new SchemaManager(db);
+    const result = schema.checkAndRepair();
+
+    expect(result.valid).toBe(true);
+    expect(result.needsRebuild).toBe(false);
+    expect(getUserVersion(db)).toBe(futureVersion);
+  });
 });

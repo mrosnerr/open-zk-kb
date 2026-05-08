@@ -158,7 +158,7 @@ export class SchemaManager {
     this.db = db;
   }
 
-  private getVersion(): number {
+  getVersion(): number {
     const row = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
     return row.user_version;
   }
@@ -194,6 +194,14 @@ export class SchemaManager {
       return false;
     }
 
+    if (current > SchemaManager.SCHEMA_VERSION) {
+      logToFile('WARN', 'DB schema is newer than code — possible version downgrade', {
+        dbVersion: current,
+        codeVersion: SchemaManager.SCHEMA_VERSION,
+      });
+      return false;
+    }
+
     if (current < SchemaManager.SCHEMA_VERSION) {
       for (const migration of SchemaManager.MIGRATIONS) {
         if (migration.version > current) {
@@ -205,7 +213,6 @@ export class SchemaManager {
       return false;
     }
 
-    // Already at latest version
     return false;
   }
 
