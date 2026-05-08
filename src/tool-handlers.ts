@@ -790,7 +790,6 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     tags,
     summary: args.summary,
     guidance: args.guidance,
-    related: args.related,
   });
 
   scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', args.kind, 1));

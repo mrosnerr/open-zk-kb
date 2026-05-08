@@ -236,11 +236,7 @@ export class NoteRepository {
     if (noteCount > 0) return;
 
     const mdFiles = walkMarkdownFiles(this.docsPath);
-    const noteFiles = mdFiles.filter(f => {
-      const basename = path.basename(f);
-      if (/^(index|log|review|Home)\.md$/i.test(basename)) return false;
-      return /^\d{12,16}/.test(basename);
-    });
+    const noteFiles = mdFiles;
 
     if (noteFiles.length === 0) return;
 
@@ -380,6 +376,7 @@ export class NoteRepository {
     guidance?: string;
     context?: string;
     relatedIds?: string[];
+    relatedContent?: string;
   }): string {
     const parts: string[] = [];
 
@@ -395,7 +392,9 @@ export class NoteRepository {
       parts.push(`## Context\n\n${options.context}`);
     }
 
-    if (options.relatedIds && options.relatedIds.length > 0) {
+    if (options.relatedContent) {
+      parts.push(`## Related\n\n${options.relatedContent}`);
+    } else if (options.relatedIds && options.relatedIds.length > 0) {
       const links = options.relatedIds.map(id => {
         const note = this.getById(id);
         if (note) {
@@ -414,14 +413,15 @@ export class NoteRepository {
     summary: string;
     guidance: string;
     context: string;
+    related: string;
     content: string;
   } {
     let text = bodyAfterTitle;
 
     let summary = '';
-    const summaryMatch = text.match(/^> ([^\n]+(?:\n> [^\n]+)*)\n\n/);
+    const summaryMatch = text.match(/^> (?!\[!)([^\n]+)\n\n/);
     if (summaryMatch) {
-      summary = summaryMatch[1].replace(/^> /gm, '');
+      summary = summaryMatch[1];
       text = text.slice(summaryMatch[0].length);
     }
 
@@ -442,6 +442,7 @@ export class NoteRepository {
       summary,
       guidance: sections['Guidance'] || '',
       context: sections['Context'] || '',
+      related: sections['Related'] || '',
       content: contentChunks.join('\n').trim(),
     };
   }
@@ -700,7 +701,7 @@ export class NoteRepository {
     // Insert into FTS
     this.ftsInsert(id, title, content, tagsJson, contextStr);
 
-    this.syncLinks(id, content);
+    this.syncLinks(id, fullContent);
 
     return {
       action: isUpdate ? 'updated' : 'created',
@@ -1478,8 +1479,8 @@ export class NoteRepository {
       const newFrontmatter = this.buildFrontmatter({ ...merged, summary });
       const navBreadcrumb = this.buildNavBreadcrumb(kind, tags);
       const titleLine = isStructural ? '' : `# ${merged.title}\n\n`;
-      const userContent = bodySections.content || bodyAfterTitle;
-      const noteBody = this.buildNoteBody({ content: userContent, guidance, context });
+      const userContent = bodySections.content;
+      const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
       fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
     } catch (err) {
       logToFile('WARN', 'Failed to rewrite note file', { noteId: note.id, error: String(err) });
@@ -2214,7 +2215,11 @@ export class NoteRepository {
     this.db.run('DELETE FROM notes_fts');
   }
 
+  private _closed = false;
+
   close(): void {
+    if (this._closed) return;
+    this._closed = true;
     this.db.close();
   }
 }
