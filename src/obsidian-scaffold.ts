@@ -94,7 +94,7 @@ export const THEME_REGISTRY: ThemeRegistryEntry = {
     'theme.css': '396b9ee12ff71cc2acd08350e2e4f8dc3273e5de028c2071ad972826f87ad201',
   },
   source: 'raw',
-  branch: 'main',
+  branch: '1.13.6',
 };
 
 const ASSET_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -1172,11 +1172,25 @@ function copyPackageTemplates(vaultPath: string, templatesDir?: string): void {
   const targetDir = path.join(vaultPath, 'templates', 'obsidian');
   ensureDir(targetDir);
 
-  for (const filename of fs.readdirSync(sourceDir)) {
-    if (!filename.endsWith('.md')) continue;
-    const targetPath = path.join(targetDir, filename);
+  // Migrate from legacy .templates/obsidian/ to templates/obsidian/
+  const legacyDir = path.join(vaultPath, '.templates', 'obsidian');
+  if (fs.existsSync(legacyDir)) {
+    for (const f of fs.readdirSync(legacyDir)) {
+      const legacyPath = path.join(legacyDir, f);
+      const newPath = path.join(targetDir, f);
+      if (!fs.existsSync(newPath) && fs.statSync(legacyPath).isFile()) {
+        fs.renameSync(legacyPath, newPath);
+      }
+    }
+    try { fs.rmdirSync(legacyDir); } catch { /* non-empty, leave it */ }
+    try { fs.rmdirSync(path.join(vaultPath, '.templates')); } catch { /* non-empty or gone */ }
+  }
+
+  for (const fileName of fs.readdirSync(sourceDir)) {
+    if (!fileName.endsWith('.md')) continue;
+    const targetPath = path.join(targetDir, fileName);
     if (!fs.existsSync(targetPath)) {
-      fs.copyFileSync(path.join(sourceDir, filename), targetPath);
+      fs.copyFileSync(path.join(sourceDir, fileName), targetPath);
     }
   }
 }
@@ -1286,9 +1300,12 @@ function scaffoldWorkspaceDefaults(vaultPath: string): void {
 
 function syncManagedPropertyTypes(vaultPath: string): void {
   const filePath = path.join(getObsidianDir(vaultPath), 'types.json');
-  const existing = readJsonFile<{ types?: Record<string, string> }>(filePath) ?? { types: {} };
-  const types = { ...(existing.types ?? {}), ...MANAGED_PROPERTY_TYPES };
-  writeJsonFile(filePath, { types });
+  const existing = readJsonFile<Record<string, unknown>>(filePath) ?? {};
+  const existingTypes = (typeof existing.types === 'object' && existing.types !== null && !Array.isArray(existing.types))
+    ? existing.types as Record<string, string>
+    : {};
+  const types = { ...existingTypes, ...MANAGED_PROPERTY_TYPES };
+  writeJsonFile(filePath, { ...existing, types });
 }
 
 function syncManagedCommunityPlugins(vaultPath: string, enabledPlugins: string[]): void {
