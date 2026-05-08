@@ -1,7 +1,7 @@
 <%*
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
 const esc = (s) => s ? s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ') : '';
-const bail = async () => { const f = app.vault.getAbstractFileByPath(tp.file.path(true)); if (f) await app.vault.trash(f, true); };
+const bail = async () => { const f = app.vault.getAbstractFileByPath(tp.file.path(true)); if (f && (Date.now() - f.stat.ctime < 60000)) await app.vault.trash(f, true); };
 const project = "{{VALUE:project}}";
 const title = await tp.system.prompt("Decision title");
 if (!title) { await bail(); return; }
