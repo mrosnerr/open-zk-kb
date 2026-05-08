@@ -448,23 +448,22 @@ body:not(.is-mobile) .cm-editor .metadata-container:is(:hover, :focus-within) .m
   transform: translateY(-1px);
 }
 
+.markdown-rendered h1:has(> a[href^="obsidian://quickadd?"]),
+.markdown-rendered h2:has(> a[href^="obsidian://quickadd?"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .markdown-rendered h1 a[href^="obsidian://quickadd?"],
 .markdown-rendered h2 a[href^="obsidian://quickadd?"] {
   background: none;
-  padding: 0;
+  padding: 0.15em 0.35em;
   border-radius: 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin-left: 0.35rem;
   color: var(--text-muted);
   font-size: 0.75em;
   font-weight: 400;
-  vertical-align: baseline;
-  position: relative;
-  top: 0.1em;
+  text-decoration: none !important;
   transition: color 0.15s ease, background 0.15s ease;
 }
 
