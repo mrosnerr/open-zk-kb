@@ -652,7 +652,7 @@ function buildQuickAddChoices(): Array<Record<string, unknown>> {
     id: deterministicId(`quickadd-${id}`),
     type: 'Template',
     command: true,
-    templatePath: `.templates/obsidian/${template}`,
+    templatePath: `templates/obsidian/${template}`,
     fileNameFormat: {
       enabled: true,
       format: kind === 'domain'
@@ -696,7 +696,7 @@ function buildProjectQuickAddChoices(): Array<Record<string, unknown>> {
       id: deterministicId(`quickadd-${id}`),
       type: 'Template',
       command: false,
-      templatePath: `.templates/obsidian/${template}`,
+      templatePath: `templates/obsidian/${template}`,
       fileNameFormat: {
         enabled: true,
         format: '{{DATE:YYYYMMDDHHmmss}}00-new-note',
@@ -845,7 +845,7 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
     }
     case 'templater-obsidian':
       return {
-        templates_folder: '.templates/obsidian',
+        templates_folder: 'templates/obsidian',
         trigger_on_file_creation: false,
         auto_jump_to_cursor: true,
         enable_system_commands: false,
@@ -853,12 +853,12 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
         user_scripts_folder: '',
         enable_folder_templates: true,
         folder_templates: [
-          { folder: 'general/decisions', template: '.templates/obsidian/decision.md' },
-          { folder: 'general/procedures', template: '.templates/obsidian/procedure.md' },
-          { folder: 'general/observations', template: '.templates/obsidian/observation.md' },
-          { folder: 'general/references', template: '.templates/obsidian/reference.md' },
-          { folder: 'general/resources', template: '.templates/obsidian/resource.md' },
-          { folder: 'preferences', template: '.templates/obsidian/personalization.md' },
+          { folder: 'general/decisions', template: 'templates/obsidian/decision.md' },
+          { folder: 'general/procedures', template: 'templates/obsidian/procedure.md' },
+          { folder: 'general/observations', template: 'templates/obsidian/observation.md' },
+          { folder: 'general/references', template: 'templates/obsidian/reference.md' },
+          { folder: 'general/resources', template: 'templates/obsidian/resource.md' },
+          { folder: 'preferences', template: 'templates/obsidian/personalization.md' },
         ],
         enable_file_templates: false,
         syntax_highlighting: true,
@@ -1163,7 +1163,7 @@ function writeOwnedSnippets(vaultPath: string, config: ObsidianConfig): void {
 
 function copyPackageTemplates(vaultPath: string, templatesDir?: string): void {
   const sourceDir = templatesDir ?? getPackageTemplatesDir();
-  const targetDir = path.join(vaultPath, '.templates', 'obsidian');
+  const targetDir = path.join(vaultPath, 'templates', 'obsidian');
   ensureDir(targetDir);
 
   for (const filename of fs.readdirSync(sourceDir)) {
@@ -1178,7 +1178,7 @@ function copyPackageTemplates(vaultPath: string, templatesDir?: string): void {
 function copyAgentInstructions(vaultPath: string): void {
   const sourceDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'install');
   if (!fs.existsSync(sourceDir)) return;
-  const targetDir = path.join(vaultPath, '.templates', 'agents');
+  const targetDir = path.join(vaultPath, 'templates', 'agents');
   ensureDir(targetDir);
 
   for (const filename of fs.readdirSync(sourceDir)) {

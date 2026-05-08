@@ -117,7 +117,7 @@ describe('Obsidian scaffold', () => {
     expect(fs.existsSync(path.join(obsidianDir, 'snippets', 'zk-dashboard.css'))).toBe(true);
     expect(fs.existsSync(path.join(obsidianDir, 'themes', 'Border', 'theme.css'))).toBe(true);
     expect(fs.existsSync(path.join(obsidianDir, 'plugins', 'homepage', 'main.js'))).toBe(true);
-    expect(fs.existsSync(path.join(ctx.tempDir, '.templates', 'obsidian', 'decision.md'))).toBe(true);
+    expect(fs.existsSync(path.join(ctx.tempDir, 'templates', 'obsidian', 'decision.md'))).toBe(true);
 
     const appConfig = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'app.json'), 'utf-8'));
     expect(appConfig.defaultViewMode).toBe('preview');
