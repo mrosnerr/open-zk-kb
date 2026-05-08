@@ -94,7 +94,7 @@ export const THEME_REGISTRY: ThemeRegistryEntry = {
     'theme.css': '396b9ee12ff71cc2acd08350e2e4f8dc3273e5de028c2071ad972826f87ad201',
   },
   source: 'raw',
-  branch: '1.13.6',
+  branch: 'main',
 };
 
 const ASSET_DOWNLOAD_TIMEOUT_MS = 30_000;
@@ -116,6 +116,22 @@ const CORE_PLUGINS = [
   'command-palette',
   'word-count',
 ];
+
+const MANAGED_PROPERTY_TYPES: Record<string, string> = {
+  id: 'text',
+  title: 'text',
+  kind: 'text',
+  status: 'text',
+  lifecycle: 'text',
+  type: 'text',
+  tagline: 'text',
+  created: 'date',
+  updated: 'date',
+  aliases: 'aliases',
+  tags: 'tags',
+  cssclasses: 'multitext',
+  up: 'multitext',
+};
 
 const SNIPPETS: Record<string, string> = {
   'zk-dashboard.css': `
@@ -1057,7 +1073,13 @@ async function installPluginAssets(
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
     return { available: true, refreshed: true };
-  } catch {
+  } catch (error) {
+    logToFile('WARN', 'Plugin asset download failed', {
+      plugin: plugin.id,
+      repo: plugin.repo,
+      tag: plugin.tag,
+      error: error instanceof Error ? error.message : String(error),
+    });
     fs.rmSync(tempDir, { recursive: true, force: true });
     return {
       available: plugin.files.every(file => fs.existsSync(path.join(pluginDir, file))),
@@ -1065,6 +1087,7 @@ async function installPluginAssets(
     };
   }
 }
+
 
 async function installThemeAssets(
   vaultPath: string,
@@ -1104,7 +1127,14 @@ async function installThemeAssets(
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
     return { available: true, refreshed: true };
-  } catch {
+  } catch (error) {
+    logToFile('WARN', 'Theme asset download failed', {
+      theme: theme.name,
+      repo: theme.repo,
+      tag: theme.tag,
+      branch: theme.branch,
+      error: error instanceof Error ? error.message : String(error),
+    });
     fs.rmSync(tempDir, { recursive: true, force: true });
     return {
       available: theme.files.every(file => fs.existsSync(path.join(themeDir, file))),
@@ -1233,6 +1263,13 @@ function scaffoldWorkspaceDefaults(vaultPath: string): void {
   writeJsonFile(filePath, existing);
 }
 
+function syncManagedPropertyTypes(vaultPath: string): void {
+  const filePath = path.join(getObsidianDir(vaultPath), 'types.json');
+  const existing = readJsonFile<{ types?: Record<string, string> }>(filePath) ?? { types: {} };
+  const types = { ...(existing.types ?? {}), ...MANAGED_PROPERTY_TYPES };
+  writeJsonFile(filePath, { types });
+}
+
 function syncManagedCommunityPlugins(vaultPath: string, enabledPlugins: string[]): void {
   const filePath = path.join(getObsidianDir(vaultPath), 'community-plugins.json');
   const existing = readJsonFile<unknown>(filePath);
@@ -1319,12 +1356,13 @@ async function applyScaffoldV1(
 
   syncManagedAppConfig(vaultPath, config);
   syncManagedAppearanceConfig(vaultPath, config);
+  syncManagedPropertyTypes(vaultPath);
   scaffoldWorkspaceDefaults(vaultPath);
   mergeJsonFile(path.join(getObsidianDir(vaultPath), 'core-plugins.json'), CORE_PLUGINS, 'union');
   syncManagedCommunityPlugins(vaultPath, enabledPlugins);
   writePluginConfigs(vaultPath, config, enabledPlugins);
 
-  const updatedManifest: ScaffoldManifest = {
+  const refreshedManifest: ScaffoldManifest = {
     ...manifest,
     scaffoldVersion: CURRENT_SCAFFOLD_VERSION,
     lastUpgrade: (deps.now ?? (() => new Date()))().toISOString(),
@@ -1337,8 +1375,8 @@ async function applyScaffoldV1(
     snippets: { version: SNIPPET_VERSION },
   };
 
-  writeManifest(vaultPath, updatedManifest);
-  return updatedManifest;
+  writeManifest(vaultPath, refreshedManifest);
+  return refreshedManifest;
 }
 
 export async function ensureObsidianScaffold(
