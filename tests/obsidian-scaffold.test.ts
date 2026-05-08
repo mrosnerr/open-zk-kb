@@ -4,7 +4,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
-import { ensureObsidianScaffold } from '../src/obsidian-scaffold.js';
+import { ensureObsidianScaffold, PLUGIN_REGISTRY, THEME_REGISTRY } from '../src/obsidian-scaffold.js';
 
 const MOCK_MANIFEST_CONTENT = JSON.stringify({ name: 'Mock', id: 'mock', version: '1.0.0' });
 const MOCK_STYLE_CONTENT = 'body { color: var(--text-normal); }';
@@ -117,7 +117,7 @@ describe('Obsidian scaffold', () => {
     expect(fs.existsSync(path.join(obsidianDir, 'snippets', 'zk-dashboard.css'))).toBe(true);
     expect(fs.existsSync(path.join(obsidianDir, 'themes', 'Border', 'theme.css'))).toBe(true);
     expect(fs.existsSync(path.join(obsidianDir, 'plugins', 'homepage', 'main.js'))).toBe(true);
-    expect(fs.existsSync(path.join(ctx.tempDir, '.templates', 'decision.md'))).toBe(true);
+    expect(fs.existsSync(path.join(ctx.tempDir, 'templates', 'obsidian', 'decision.md'))).toBe(true);
 
     const appConfig = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'app.json'), 'utf-8'));
     expect(appConfig.defaultViewMode).toBe('preview');
@@ -279,4 +279,36 @@ describe('Obsidian scaffold', () => {
 
     expect(fs.readFileSync(pluginMainPath, 'utf-8')).toBe('locally modified but allowed');
   });
+});
+
+describe.skipIf(!process.env.NETWORK)('Scaffold registry URL reachability', () => {
+  function assetUrl(repo: string, tag: string, file: string, source?: string, branch?: string): string {
+    return source === 'raw'
+      ? `https://raw.githubusercontent.com/${repo}/${branch || 'main'}/${file}`
+      : `https://github.com/${repo}/releases/download/${tag}/${file}`;
+  }
+
+  for (const plugin of PLUGIN_REGISTRY) {
+    it(`plugin ${plugin.id}@${plugin.tag} assets resolve`, async () => {
+      for (const file of plugin.files) {
+        const url = assetUrl(plugin.repo, plugin.tag, file);
+        const res = await fetch(url, { method: 'HEAD' });
+        expect(res.ok).toBe(true);
+      }
+    }, 15_000);
+  }
+
+  it(`theme ${THEME_REGISTRY.name}@${THEME_REGISTRY.tag} assets resolve`, async () => {
+    for (const file of THEME_REGISTRY.files) {
+      const url = assetUrl(
+        THEME_REGISTRY.repo,
+        THEME_REGISTRY.tag,
+        file,
+        THEME_REGISTRY.source,
+        THEME_REGISTRY.branch,
+      );
+      const res = await fetch(url, { method: 'HEAD' });
+      expect(res.ok).toBe(true);
+    }
+  }, 15_000);
 });

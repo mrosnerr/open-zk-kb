@@ -117,6 +117,22 @@ const CORE_PLUGINS = [
   'word-count',
 ];
 
+const MANAGED_PROPERTY_TYPES: Record<string, string> = {
+  id: 'text',
+  title: 'text',
+  kind: 'text',
+  status: 'text',
+  lifecycle: 'text',
+  type: 'text',
+  tagline: 'text',
+  created: 'date',
+  updated: 'date',
+  aliases: 'aliases',
+  tags: 'tags',
+  cssclasses: 'multitext',
+  up: 'multitext',
+};
+
 const SNIPPETS: Record<string, string> = {
   'zk-dashboard.css': `
 .dashboard.markdown-reading-view .markdown-preview-sizer,
@@ -273,7 +289,8 @@ const SNIPPETS: Record<string, string> = {
 }
 `.trimStart(),
   'zk-icons.css': `
-.nav-file-title:has(.iconic-icon)::before {
+.nav-file-title:has(.iconic-icon)::before,
+.nav-folder-title:has(.iconic-icon)::before {
   display: none !important;
 }
 
@@ -286,6 +303,13 @@ const SNIPPETS: Record<string, string> = {
 .markdown-rendered h1 .inline-callout,
 .markdown-rendered h2 .inline-callout {
   margin: 0;
+}
+
+/* Hide managed directories from file explorer */
+.nav-folder:has(> .nav-folder-title[data-path="templates"]),
+.nav-folder:has(> .nav-folder-title[data-path=".templates"]),
+.nav-folder:has(> .nav-folder-title[data-path=".scripts"]) {
+  display: none !important;
 }
 `.trimStart(),
   'zk-metadata.css': 'body { --metadata-display-reading: none; }\n',
@@ -424,23 +448,22 @@ body:not(.is-mobile) .cm-editor .metadata-container:is(:hover, :focus-within) .m
   transform: translateY(-1px);
 }
 
+.markdown-rendered h1:has(> a[href^="obsidian://quickadd?"]),
+.markdown-rendered h2:has(> a[href^="obsidian://quickadd?"]) {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
 .markdown-rendered h1 a[href^="obsidian://quickadd?"],
 .markdown-rendered h2 a[href^="obsidian://quickadd?"] {
   background: none;
-  padding: 0;
+  padding: 0.15em 0.35em;
   border-radius: 4px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
-  margin-left: 0.35rem;
   color: var(--text-muted);
   font-size: 0.75em;
   font-weight: 400;
-  vertical-align: baseline;
-  position: relative;
-  top: 0.1em;
+  text-decoration: none !important;
   transition: color 0.15s ease, background 0.15s ease;
 }
 
@@ -635,7 +658,7 @@ function buildQuickAddChoices(): Array<Record<string, unknown>> {
     id: deterministicId(`quickadd-${id}`),
     type: 'Template',
     command: true,
-    templatePath: `.templates/${template}`,
+    templatePath: `templates/obsidian/${template}`,
     fileNameFormat: {
       enabled: true,
       format: kind === 'domain'
@@ -679,7 +702,7 @@ function buildProjectQuickAddChoices(): Array<Record<string, unknown>> {
       id: deterministicId(`quickadd-${id}`),
       type: 'Template',
       command: false,
-      templatePath: `.templates/${template}`,
+      templatePath: `templates/obsidian/${template}`,
       fileNameFormat: {
         enabled: true,
         format: '{{DATE:YYYYMMDDHHmmss}}00-new-note',
@@ -828,7 +851,7 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
     }
     case 'templater-obsidian':
       return {
-        templates_folder: 'templates',
+        templates_folder: 'templates/obsidian',
         trigger_on_file_creation: false,
         auto_jump_to_cursor: true,
         enable_system_commands: false,
@@ -836,12 +859,12 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
         user_scripts_folder: '',
         enable_folder_templates: true,
         folder_templates: [
-          { folder: 'general/decisions', template: '.templates/decision.md' },
-          { folder: 'general/procedures', template: '.templates/procedure.md' },
-          { folder: 'general/observations', template: '.templates/observation.md' },
-          { folder: 'general/references', template: '.templates/reference.md' },
-          { folder: 'general/resources', template: '.templates/resource.md' },
-          { folder: 'preferences', template: '.templates/personalization.md' },
+          { folder: 'general/decisions', template: 'templates/obsidian/decision.md' },
+          { folder: 'general/procedures', template: 'templates/obsidian/procedure.md' },
+          { folder: 'general/observations', template: 'templates/obsidian/observation.md' },
+          { folder: 'general/references', template: 'templates/obsidian/reference.md' },
+          { folder: 'general/resources', template: 'templates/obsidian/resource.md' },
+          { folder: 'preferences', template: 'templates/obsidian/personalization.md' },
         ],
         enable_file_templates: false,
         syntax_highlighting: true,
@@ -891,7 +914,7 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
       return {
         'Appearance-dark@@card-layout-open-dark': true,
         'Appearance-light@@card-layout-open-light': true,
-        'file-icon-remove': true,
+        'Components@@file-icon-remove': true,
       };
     case 'iconic':
       return {
@@ -1056,7 +1079,13 @@ async function installPluginAssets(
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
     return { available: true, refreshed: true };
-  } catch {
+  } catch (error) {
+    logToFile('WARN', 'Plugin asset download failed', {
+      plugin: plugin.id,
+      repo: plugin.repo,
+      tag: plugin.tag,
+      error: error instanceof Error ? error.message : String(error),
+    });
     fs.rmSync(tempDir, { recursive: true, force: true });
     return {
       available: plugin.files.every(file => fs.existsSync(path.join(pluginDir, file))),
@@ -1064,6 +1093,7 @@ async function installPluginAssets(
     };
   }
 }
+
 
 async function installThemeAssets(
   vaultPath: string,
@@ -1103,7 +1133,14 @@ async function installThemeAssets(
     }
     fs.rmSync(tempDir, { recursive: true, force: true });
     return { available: true, refreshed: true };
-  } catch {
+  } catch (error) {
+    logToFile('WARN', 'Theme asset download failed', {
+      theme: theme.name,
+      repo: theme.repo,
+      tag: theme.tag,
+      branch: theme.branch,
+      error: error instanceof Error ? error.message : String(error),
+    });
     fs.rmSync(tempDir, { recursive: true, force: true });
     return {
       available: theme.files.every(file => fs.existsSync(path.join(themeDir, file))),
@@ -1132,14 +1169,43 @@ function writeOwnedSnippets(vaultPath: string, config: ObsidianConfig): void {
 
 function copyPackageTemplates(vaultPath: string, templatesDir?: string): void {
   const sourceDir = templatesDir ?? getPackageTemplatesDir();
-  const targetDir = path.join(vaultPath, '.templates');
+  const targetDir = path.join(vaultPath, 'templates', 'obsidian');
   ensureDir(targetDir);
+
+  // Migrate from legacy .templates/obsidian/ to templates/obsidian/
+  const legacyDir = path.join(vaultPath, '.templates', 'obsidian');
+  if (fs.existsSync(legacyDir)) {
+    for (const f of fs.readdirSync(legacyDir)) {
+      const legacyPath = path.join(legacyDir, f);
+      const newPath = path.join(targetDir, f);
+      if (!fs.existsSync(newPath) && fs.statSync(legacyPath).isFile()) {
+        fs.renameSync(legacyPath, newPath);
+      }
+    }
+    try { fs.rmdirSync(legacyDir); } catch { /* non-empty, leave it */ }
+    try { fs.rmdirSync(path.join(vaultPath, '.templates')); } catch { /* non-empty or gone */ }
+  }
 
   for (const fileName of fs.readdirSync(sourceDir)) {
     if (!fileName.endsWith('.md')) continue;
     const targetPath = path.join(targetDir, fileName);
     if (!fs.existsSync(targetPath)) {
       fs.copyFileSync(path.join(sourceDir, fileName), targetPath);
+    }
+  }
+}
+
+function copyAgentInstructions(vaultPath: string): void {
+  const sourceDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'install');
+  if (!fs.existsSync(sourceDir)) return;
+  const targetDir = path.join(vaultPath, 'templates', 'agents');
+  ensureDir(targetDir);
+
+  for (const filename of fs.readdirSync(sourceDir)) {
+    if (!filename.endsWith('.md')) continue;
+    const targetPath = path.join(targetDir, filename);
+    if (!fs.existsSync(targetPath)) {
+      fs.copyFileSync(path.join(sourceDir, filename), targetPath);
     }
   }
 }
@@ -1169,7 +1235,7 @@ function syncManagedAppConfig(vaultPath: string, config: ObsidianConfig): void {
   const existingFilters = Array.isArray(existing.userIgnoreFilters) 
     ? existing.userIgnoreFilters.filter((item): item is string => typeof item === 'string') 
     : [];
-  const managedFilters = ['.scripts', '.templates'];
+  const managedFilters = ['.scripts', '.templates', 'templates'];
   merged.userIgnoreFilters = [...existingFilters.filter(f => !managedFilters.includes(f)), ...managedFilters];
   writeJsonFile(filePath, merged);
 }
@@ -1230,6 +1296,16 @@ function scaffoldWorkspaceDefaults(vaultPath: string): void {
   existing['left-ribbon'] = ribbon;
 
   writeJsonFile(filePath, existing);
+}
+
+function syncManagedPropertyTypes(vaultPath: string): void {
+  const filePath = path.join(getObsidianDir(vaultPath), 'types.json');
+  const existing = readJsonFile<Record<string, unknown>>(filePath) ?? {};
+  const existingTypes = (typeof existing.types === 'object' && existing.types !== null && !Array.isArray(existing.types))
+    ? existing.types as Record<string, string>
+    : {};
+  const types = { ...existingTypes, ...MANAGED_PROPERTY_TYPES };
+  writeJsonFile(filePath, { ...existing, types });
 }
 
 function syncManagedCommunityPlugins(vaultPath: string, enabledPlugins: string[]): void {
@@ -1293,6 +1369,7 @@ async function applyScaffoldV1(
 ): Promise<ScaffoldManifest> {
   ensureDir(getObsidianDir(vaultPath));
   copyPackageTemplates(vaultPath, deps.templatesDir);
+  copyAgentInstructions(vaultPath);
   writeOwnedSnippets(vaultPath, config);
 
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -1318,12 +1395,13 @@ async function applyScaffoldV1(
 
   syncManagedAppConfig(vaultPath, config);
   syncManagedAppearanceConfig(vaultPath, config);
+  syncManagedPropertyTypes(vaultPath);
   scaffoldWorkspaceDefaults(vaultPath);
   mergeJsonFile(path.join(getObsidianDir(vaultPath), 'core-plugins.json'), CORE_PLUGINS, 'union');
   syncManagedCommunityPlugins(vaultPath, enabledPlugins);
   writePluginConfigs(vaultPath, config, enabledPlugins);
 
-  const updatedManifest: ScaffoldManifest = {
+  const refreshedManifest: ScaffoldManifest = {
     ...manifest,
     scaffoldVersion: CURRENT_SCAFFOLD_VERSION,
     lastUpgrade: (deps.now ?? (() => new Date()))().toISOString(),
@@ -1336,8 +1414,8 @@ async function applyScaffoldV1(
     snippets: { version: SNIPPET_VERSION },
   };
 
-  writeManifest(vaultPath, updatedManifest);
-  return updatedManifest;
+  writeManifest(vaultPath, refreshedManifest);
+  return refreshedManifest;
 }
 
 export async function ensureObsidianScaffold(

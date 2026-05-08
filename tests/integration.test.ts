@@ -1,5 +1,8 @@
 // tests/integration.test.ts - Integration tests for knowledge base
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   createTestHarness,
   cleanupTestHarness,
@@ -7,6 +10,8 @@ import {
   noteFileExists,
 } from './harness.js';
 import type { TestContext } from './harness.js';
+import { NoteRepository } from '../src/storage/NoteRepository.js';
+import { handleStore } from '../src/tool-handlers.js';
 
 describe('Knowledge Capture Integration Tests', () => {
   let context: TestContext;
@@ -59,6 +64,115 @@ describe('Knowledge Capture Integration Tests', () => {
       const content = readNoteFile(context, filename);
       expect(content).toContain('kind: decision');
       expect(content).toContain('status: permanent');
+    });
+  });
+
+  describe('Note body managed sections', () => {
+    it('should write explicit related notes once and index their wikilinks', async () => {
+      const target = context.engine.store('Target content for explicit relation', {
+        title: 'Related Target',
+        kind: 'reference',
+        status: 'permanent',
+      });
+
+      const output = await handleStore({
+        title: 'Related Source',
+        content: 'Source content with an explicit related note',
+        kind: 'observation',
+        summary: 'Explicit relation source',
+        guidance: 'Use the related target when relevant',
+        related: [target.id],
+      }, context.engine, null, context.config);
+
+      const sourceId = output.match(/ID: (\S+)/)?.[1];
+      expect(sourceId).toBeTruthy();
+      const source = context.engine.getById(sourceId!);
+      expect(source).not.toBeNull();
+      const fileContent = fs.readFileSync(source!.path, 'utf-8');
+      expect((fileContent.match(/^## Related$/gm) || []).length).toBe(1);
+      expect(context.engine.getOutgoingLinks(sourceId!)).toHaveLength(1);
+      expect(context.engine.getOutgoingLinks(sourceId!)[0].note.id).toBe(target.id);
+    });
+
+    it('should preserve related sections during status rewrites', () => {
+      const target = context.engine.store('Target content for rewrite relation', {
+        title: 'Rewrite Target',
+        kind: 'reference',
+        status: 'permanent',
+      });
+      const source = context.engine.store(`Body content\n\n## Related\n\n- [[${target.id}|Rewrite Target]]`, {
+        title: 'Rewrite Source',
+        kind: 'observation',
+        status: 'fleeting',
+      });
+
+      expect(context.engine.promoteToPermanent(source.id)).toBe(true);
+
+      const fileContent = fs.readFileSync(source.path, 'utf-8');
+      expect(fileContent).toContain('## Related\n\n- [[');
+      expect(fileContent).toContain('Rewrite Target');
+      expect((fileContent.match(/^## Related$/gm) || []).length).toBe(1);
+    });
+
+    it('should not duplicate managed sections when user content is empty', () => {
+      const result = context.engine.store('', {
+        title: 'Managed Sections Only',
+        kind: 'observation',
+        status: 'fleeting',
+        guidance: 'Follow this guidance',
+        context: 'Keep this context',
+      });
+
+      expect(context.engine.promoteToPermanent(result.id)).toBe(true);
+      expect(context.engine.archive(result.id)).toBe(true);
+
+      const fileContent = fs.readFileSync(result.path, 'utf-8');
+      expect((fileContent.match(/^## Guidance$/gm) || []).length).toBe(1);
+      expect((fileContent.match(/^## Context$/gm) || []).length).toBe(1);
+    });
+
+    it('should preserve leading callout blockquotes during rewrites', () => {
+      const result = context.engine.store('> [!note]\n> Keep this callout\n\nBody after callout', {
+        title: 'Callout Note',
+        kind: 'observation',
+        status: 'fleeting',
+      });
+
+      expect(context.engine.promoteToPermanent(result.id)).toBe(true);
+
+      const fileContent = fs.readFileSync(result.path, 'utf-8');
+      expect(fileContent).toContain('> [!note]\n> Keep this callout');
+      expect(fileContent).toContain('Body after callout');
+    });
+
+    it('should self-heal from non-numeric markdown note filenames', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-self-heal-'));
+      let repo: NoteRepository | null = null;
+      try {
+        fs.writeFileSync(path.join(tempDir, 'domain.md'), `---
+id: domain
+title: Domain
+kind: domain
+status: permanent
+lifecycle: living
+type: atomic
+tags:
+  - project:selfheal
+created: 2026-01-01
+updated: 2026-01-01
+---
+
+# Domain
+
+Project operating manual.
+`, 'utf-8');
+
+        repo = new NoteRepository(tempDir);
+        expect(repo.getById('domain')).not.toBeNull();
+      } finally {
+        repo?.close();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -553,6 +667,47 @@ describe('Knowledge Capture Integration Tests', () => {
 
       const note = context.engine.getById(result.id);
       expect(note!.access_count).toBe(2);
+    });
+  });
+
+  describe('Self-heal guard', () => {
+    it('should auto-rebuild when DB is empty but vault has note files', () => {
+      context.engine.store('Alpha content', { title: 'Alpha', kind: 'observation' });
+      context.engine.store('Beta content', { title: 'Beta', kind: 'reference' });
+      context.engine.store('Gamma content', { title: 'Gamma', kind: 'personalization' });
+
+      expect(context.engine.getStats().total).toBe(3);
+      context.engine.close();
+
+      const dbPath = path.join(context.tempDir, '.index', 'knowledge.db');
+      fs.unlinkSync(dbPath);
+      const walPath = dbPath + '-wal';
+      const shmPath = dbPath + '-shm';
+      if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+
+      const healed = new NoteRepository(context.tempDir);
+      expect(healed.getStats().total).toBe(3);
+      healed.close();
+    });
+
+    it('should not rebuild on genuinely empty vault', () => {
+      expect(context.engine.getStats().total).toBe(0);
+      context.engine.close();
+
+      const fresh = new NoteRepository(context.tempDir);
+      expect(fresh.getStats().total).toBe(0);
+      fresh.close();
+    });
+
+    it('should not trigger when DB already has notes', () => {
+      context.engine.store('Existing content', { title: 'Existing', kind: 'observation' });
+      expect(context.engine.getStats().total).toBe(1);
+      context.engine.close();
+
+      const reopened = new NoteRepository(context.tempDir);
+      expect(reopened.getStats().total).toBe(1);
+      reopened.close();
     });
   });
 });

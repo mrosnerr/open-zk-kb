@@ -81,6 +81,15 @@ const QUICKADD_CHOICE_LABELS: Record<string, string> = {
   personalization: 'Project Preference',
 };
 
+const GENERAL_QUICKADD_CHOICE_LABELS: Record<string, string> = {
+  decision: 'Decision \u2014 choices & tradeoffs',
+  observation: 'Observation \u2014 things you noticed',
+  procedure: 'Procedure \u2014 step-by-step workflows',
+  reference: 'Reference \u2014 sources & excerpts',
+  resource: 'Resource \u2014 tools & URLs',
+  personalization: 'Preference \u2014 personal habits',
+};
+
 
 function formatDate(timestamp: number): string {
   const d = new Date(timestamp);
@@ -133,6 +142,17 @@ function buildQuickAddUri(project: string, kind: string): string | null {
   return `obsidian://quickadd?${params.toString().replace(/\+/g, '%20')}`;
 }
 
+function buildGeneralQuickAddUri(kind: string): string | null {
+  const choice = GENERAL_QUICKADD_CHOICE_LABELS[kind];
+  if (!choice) return null;
+
+  const params = new URLSearchParams({
+    choice,
+    'value-scope': 'general',
+  });
+  return `obsidian://quickadd?${params.toString().replace(/\+/g, '%20')}`;
+}
+
 function buildSectionHeader(kind: string, header: string, project: string, linkedPath?: string): string {
   const icon = SECTION_ICONS[kind];
   const iconPrefix = icon ? `\`[!!${icon}]\` ` : '';
@@ -153,7 +173,7 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
     `const pages = dv.pages('"${source}"')`,
     `  .where(p => p.file.name !== "${folderNoteBasename}")`,
     '  .sort(p => p.created, "desc");',
-    `dv.table(["${singular}", "Summary", "Created", " "], pages.map(p => {`,
+    `dv.table(["${singular}", "Tagline", "Created", " "], pages.map(p => {`,
     '  const actions = dv.el("span", "", { cls: "dataview-actions" });',
     '  const editBtn = actions.createEl("a", { cls: "dv-action-btn", attr: { "aria-label": "Edit", title: "Edit this note" } });',
     '  obsidian.setIcon(editBtn, "pencil");',
@@ -172,7 +192,7 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
      '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
      '  });',
      '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
-     '  return [dv.fileLink(p.file.path, false, label), p.summary || "", p.created || "", actions];',
+     '  return [dv.fileLink(p.file.path, false, label), p.tagline || "", p.created || "", actions];',
      '}));',
      '```',
    ];
@@ -182,7 +202,7 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
   return [
     '```dataviewjs',
     `const pages = dv.pages('"${source}"').where(p => p.file.name === "domain");`,
-    'dv.table(["Domain", "Summary", " "], pages.map(p => {',
+    'dv.table(["Domain", "Tagline", " "], pages.map(p => {',
     '  const actions = dv.el("span", "", { cls: "dataview-actions" });',
     '  const editBtn = actions.createEl("a", { cls: "dv-action-btn", attr: { "aria-label": "Edit", title: "Edit this note" } });',
     '  obsidian.setIcon(editBtn, "pencil");',
@@ -201,7 +221,7 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
     '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
     '  });',
     '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
-    '  return [dv.fileLink(p.file.path, false, label), p.summary || "", actions];',
+    '  return [dv.fileLink(p.file.path, false, label), p.tagline || "", actions];',
      '}));',
      '```',
    ];
@@ -466,7 +486,9 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
       ? 'preferences'
       : `general/${KIND_DIR_MAP[kind] || `${kind}s`}`;
 
-    lines.push(`## ${header}`);
+    const generalAddUri = buildGeneralQuickAddUri(kind);
+    const addLink = generalAddUri ? ` [+](${generalAddUri})` : '';
+    lines.push(`## ${header}${addLink}`);
     lines.push('');
     lines.push(...buildDataviewTable(source, kind, header));
     lines.push('');
@@ -491,7 +513,9 @@ export function buildPreferencesIndexContent(_notes: NoteMetadata[]): string {
     up: `[[${getGlobalHomeNoteBasename()}|Home]]`,
   }).trimEnd());
   lines.push('');
-  lines.push('# `[!!user-cog]` Preferences');
+  const prefsAddUri = buildGeneralQuickAddUri('personalization');
+  const prefsAddLink = prefsAddUri ? ` [+](${prefsAddUri})` : '';
+  lines.push(`# \`[!!user-cog]\` Preferences${prefsAddLink}`);
   lines.push('`[!!info|Personal style, habits, and tool preferences|var(--color-pink-rgb)]`');
   lines.push('');
   lines.push(...buildDataviewTable('preferences', 'personalization', 'Preferences'));

@@ -218,6 +218,38 @@ export class NoteRepository {
       logToFile('INFO', 'Schema migration requires full rebuild from files');
       this.rebuildFromFiles();
     }
+
+    this.selfHealIfNeeded();
+
+    const noteCount = (this.db.prepare('SELECT COUNT(*) as cnt FROM notes').get() as { cnt: number }).cnt;
+    const vaultFiles = walkMarkdownFiles(this.docsPath).length;
+    logToFile('INFO', 'Repository initialized', {
+      schemaVersion: this.schemaManager.getVersion(),
+      dbNotes: noteCount,
+      vaultFiles,
+      vault: this.docsPath,
+    });
+  }
+
+  private selfHealIfNeeded(): void {
+    const noteCount = (this.db.prepare('SELECT COUNT(*) as cnt FROM notes').get() as { cnt: number }).cnt;
+    if (noteCount > 0) return;
+
+    const mdFiles = walkMarkdownFiles(this.docsPath);
+    const noteFiles = mdFiles;
+
+    if (noteFiles.length === 0) return;
+
+    logToFile('WARN', 'Self-heal: DB is empty but vault has note files — triggering rebuild', {
+      dbNoteCount: noteCount,
+      vaultNoteFiles: noteFiles.length,
+    });
+    const result = this.rebuildFromFiles();
+    logToFile('INFO', 'Self-heal rebuild complete', {
+      indexed: result.indexed,
+      errors: result.errors,
+      warnings: result.warnings.length,
+    });
   }
 
   private generateId(): string {
@@ -301,18 +333,14 @@ export class NoteRepository {
       updated: new Date(metadata.updated_at || Date.now()).toISOString().split('T')[0],
     };
 
-    if (metadata.summary) fm.summary = metadata.summary;
-    if (metadata.guidance) fm.guidance = metadata.guidance;
-    if (metadata.context) fm.context = metadata.context;
+    if (metadata.summary) fm.tagline = metadata.summary;
+
     const extraFrontmatter = metadata.extraFrontmatter as Record<string, unknown> | undefined;
     if (extraFrontmatter) {
       const reserved = new Set(Object.keys(fm));
       for (const [key, value] of Object.entries(extraFrontmatter)) {
         if (!reserved.has(key)) fm[key] = value;
       }
-    }
-    if (metadata.related_notes && metadata.related_notes.length > 0) {
-      fm.related_notes = metadata.related_notes;
     }
 
     if (!fm.up) {
@@ -339,6 +367,84 @@ export class NoteRepository {
         return `${k}: ${v}`;
       })
       .join('\n')}\n---\n\n`;
+  }
+
+  private static readonly MANAGED_SECTIONS = new Set(['Guidance', 'Context', 'Related']);
+
+  protected buildNoteBody(options: {
+    content: string;
+    guidance?: string;
+    context?: string;
+    relatedIds?: string[];
+    relatedContent?: string;
+  }): string {
+    const parts: string[] = [];
+
+    if (options.content) {
+      parts.push(options.content);
+    }
+
+    if (options.guidance) {
+      parts.push(`## Guidance\n\n${options.guidance}`);
+    }
+
+    if (options.context) {
+      parts.push(`## Context\n\n${options.context}`);
+    }
+
+    if (options.relatedContent) {
+      parts.push(`## Related\n\n${options.relatedContent}`);
+    } else if (options.relatedIds && options.relatedIds.length > 0) {
+      const links = options.relatedIds.map(id => {
+        const note = this.getById(id);
+        if (note) {
+          const relativePath = path.relative(this.docsPath, note.path).replace(/\.md$/, '');
+          return `- [[${relativePath}|${note.title}]]`;
+        }
+        return `- [[${id}]]`;
+      }).join('\n');
+      parts.push(`## Related\n\n${links}`);
+    }
+
+    return parts.filter(Boolean).join('\n\n') + '\n';
+  }
+
+  protected parseBodySections(bodyAfterTitle: string): {
+    summary: string;
+    guidance: string;
+    context: string;
+    related: string;
+    content: string;
+  } {
+    let text = bodyAfterTitle;
+
+    let summary = '';
+    const summaryMatch = text.match(/^> (?!\[!)([^\n]+)\n\n/);
+    if (summaryMatch) {
+      summary = summaryMatch[1];
+      text = text.slice(summaryMatch[0].length);
+    }
+
+    const chunks = text.split(/\n(?=## )/);
+    const contentChunks: string[] = [];
+    const sections: Record<string, string> = {};
+
+    for (const chunk of chunks) {
+      const headingMatch = chunk.match(/^## ([^\n]+)\n\n?([\s\S]*)/);
+      if (headingMatch && NoteRepository.MANAGED_SECTIONS.has(headingMatch[1].trim())) {
+        sections[headingMatch[1].trim()] = headingMatch[2].trim();
+      } else {
+        contentChunks.push(chunk);
+      }
+    }
+
+    return {
+      summary,
+      guidance: sections['Guidance'] || '',
+      context: sections['Context'] || '',
+      related: sections['Related'] || '',
+      content: contentChunks.join('\n').trim(),
+    };
   }
 
   private computeUpLink(kind: string, tags: string[]): string | null {
@@ -552,17 +658,21 @@ export class NoteRepository {
       type: noteType,
       tags: options.tags || [],
       summary: summaryStr || undefined,
-      guidance: guidanceStr || undefined,
-      context: options.context,
-      related_notes: options.related,
       extraFrontmatter: options.extraFrontmatter,
       created_at: createdAt,
       updated_at: now,
     });
 
+    const noteBody = this.buildNoteBody({
+      content,
+      guidance: guidanceStr || undefined,
+      context: contextStr || undefined,
+      relatedIds: options.related,
+    });
+
     const navBreadcrumb = this.buildNavBreadcrumb(noteKind, options.tags || []);
     const titleLine = noteKind !== 'index' && noteKind !== 'log' ? `# ${title}\n\n` : '';
-    const fullContent = frontmatter + navBreadcrumb + titleLine + content;
+    const fullContent = frontmatter + navBreadcrumb + titleLine + noteBody;
 
     fs.writeFileSync(filePath, fullContent, 'utf-8');
 
@@ -591,7 +701,7 @@ export class NoteRepository {
     // Insert into FTS
     this.ftsInsert(id, title, content, tagsJson, contextStr);
 
-    this.syncLinks(id, content);
+    this.syncLinks(id, fullContent);
 
     return {
       action: isUpdate ? 'updated' : 'created',
@@ -1344,31 +1454,36 @@ export class NoteRepository {
     const tagsJson = JSON.stringify(tags);
     this.db.prepare('UPDATE notes SET tags = ?, updated_at = ? WHERE id = ?').run(tagsJson, now, id);
     this.ftsUpdate(id, note.title, note.content, tagsJson, note.context || '');
-    this.rewriteFrontmatter(note, { tags, updated_at: now });
+    this.rewriteNoteFile(note, { tags, updated_at: now });
 
     return true;
   }
 
   private updateFrontmatterStatus(note: NoteMetadata, newStatus: NoteStatus): void {
-    this.rewriteFrontmatter(note, { status: newStatus, updated_at: Date.now() });
+    this.rewriteNoteFile(note, { status: newStatus, updated_at: Date.now() });
   }
 
-  /** Rewrite a note's markdown frontmatter with field overrides, preserving body content. */
-  private rewriteFrontmatter(note: NoteMetadata, overrides: Partial<NoteMetadata>): void {
+  private rewriteNoteFile(note: NoteMetadata, overrides: Partial<NoteMetadata>): void {
     try {
-      const content = fs.readFileSync(note.path, 'utf-8');
-      const { body: rawBody } = this.parseFrontmatter(content);
+      const fileContent = fs.readFileSync(note.path, 'utf-8');
+      const { frontmatter: oldFm, body: rawBody } = this.parseFrontmatter(fileContent);
       const merged = { ...note, ...overrides };
       const tags = Array.isArray(merged.tags) ? merged.tags : (typeof merged.tags === 'string' ? JSON.parse(merged.tags) : []);
-      const newFrontmatter = this.buildFrontmatter(merged);
       const kind = merged.kind || 'observation';
       const isStructural = kind === 'index' || kind === 'log';
+      const bodyAfterTitle = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
+      const bodySections = this.parseBodySections(bodyAfterTitle);
+      const summary = merged.summary || bodySections.summary || (oldFm.tagline as string) || (oldFm.summary as string) || '';
+      const guidance = merged.guidance || bodySections.guidance || (oldFm.guidance as string) || '';
+      const context = merged.context || bodySections.context || (oldFm.context as string) || '';
+      const newFrontmatter = this.buildFrontmatter({ ...merged, summary });
       const navBreadcrumb = this.buildNavBreadcrumb(kind, tags);
       const titleLine = isStructural ? '' : `# ${merged.title}\n\n`;
-      const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
-      fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + body, 'utf-8');
+      const userContent = bodySections.content;
+      const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
+      fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
     } catch (err) {
-      logToFile('WARN', 'Failed to rewrite frontmatter', { noteId: note.id, error: String(err) });
+      logToFile('WARN', 'Failed to rewrite note file', { noteId: note.id, error: String(err) });
     }
   }
 
@@ -1616,11 +1731,13 @@ export class NoteRepository {
           : (logToFile('WARN', 'Unknown lifecycle in frontmatter, defaulting to living', { file, value: rawLifecycle }), 'living');
         const noteType = (frontmatter.type as 'atomic' | 'moc') || 'atomic';
         const tags = Array.isArray(frontmatter.tags) ? frontmatter.tags : [];
-        const summary = (frontmatter.summary as string) || '';
-        const guidance = (frontmatter.guidance as string) || '';
-        const context = (frontmatter.context as string) || '';
         const isStructural = kind === 'index' || kind === 'log';
-        const indexBody = isStructural ? body : body.replace(NoteRepository.TITLE_PATTERN, '');
+        const bodyAfterTitle = isStructural ? body : body.replace(NoteRepository.TITLE_PATTERN, '');
+        const bodySections = this.parseBodySections(bodyAfterTitle);
+        const summary = bodySections.summary || (frontmatter.tagline as string) || (frontmatter.summary as string) || '';
+        const guidance = bodySections.guidance || (frontmatter.guidance as string) || '';
+        const context = bodySections.context || (frontmatter.context as string) || '';
+        const indexBody = bodySections.content || bodyAfterTitle;
         const wordCount = this.countWords(indexBody);
         const tagsJson = JSON.stringify(tags);
 
@@ -1689,6 +1806,15 @@ export class NoteRepository {
           ? row.tags
           : (typeof row.tags === 'string' ? JSON.parse(row.tags as unknown as string) : []);
 
+        const rawContent = fs.readFileSync(row.path, 'utf-8');
+        const { frontmatter: oldFm, body: rawBody } = this.parseFrontmatter(rawContent);
+        const isStructural = row.kind === 'index' || row.kind === 'log';
+        const bodyAfterTitle = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
+        const bodySections = this.parseBodySections(bodyAfterTitle);
+        const summary = row.summary || bodySections.summary || (oldFm.tagline as string) || (oldFm.summary as string) || '';
+        const guidance = row.guidance || bodySections.guidance || (oldFm.guidance as string) || '';
+        const context = row.context || bodySections.context || (oldFm.context as string) || '';
+
         const frontmatter = this.buildFrontmatter({
           id: row.id,
           title: row.title,
@@ -1697,22 +1823,17 @@ export class NoteRepository {
           lifecycle: (row.lifecycle || 'living') as Lifecycle,
           type: (row.type || 'atomic') as 'atomic' | 'moc',
           tags,
-          summary: row.summary || undefined,
-          guidance: row.guidance || undefined,
-          context: row.context || undefined,
-          related_notes: row.related_notes,
+          summary,
           created_at: row.created_at,
           updated_at: row.updated_at,
         });
 
-        const rawContent = fs.readFileSync(row.path, 'utf-8');
-        const { body: rawBody } = this.parseFrontmatter(rawContent);
         const navBreadcrumb = this.buildNavBreadcrumb(row.kind, tags);
-        const isStructural = row.kind === 'index' || row.kind === 'log';
         const titleLine = isStructural ? '' : `# ${row.title}\n\n`;
-        const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
+        const userContent = bodySections.content || bodyAfterTitle;
+        const noteBody = this.buildNoteBody({ content: userContent, guidance, context });
 
-        fs.writeFileSync(row.path, frontmatter + navBreadcrumb + titleLine + body, 'utf-8');
+        fs.writeFileSync(row.path, frontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
         formatted++;
       } catch (err) {
         logToFile('WARN', 'Failed to format note file', { noteId: row.id, error: String(err) });
@@ -1911,34 +2032,17 @@ export class NoteRepository {
     this.ftsUpdate(id, note.title, note.content, JSON.stringify(note.tags), note.context || '');
 
     // Update markdown frontmatter (best-effort)
-    this.updateFrontmatterFields(note, { summary, guidance });
+    this.updateNoteBodyFields(note, { summary, guidance });
 
     return true;
   }
 
-  private updateFrontmatterFields(note: NoteMetadata, fields: { summary?: string; guidance?: string }): void {
-    try {
-      if (!fs.existsSync(note.path)) return;
-      const content = fs.readFileSync(note.path, 'utf-8');
-      const { body: rawBody } = this.parseFrontmatter(content);
-
-      const newFrontmatter = this.buildFrontmatter({
-        ...note,
-        summary: fields.summary ?? note.summary,
-        guidance: fields.guidance ?? note.guidance,
-        updated_at: Date.now(),
-      });
-
-      const tags = Array.isArray(note.tags) ? note.tags : (typeof note.tags === 'string' ? JSON.parse(note.tags as string) : []);
-      const kind = note.kind || 'observation';
-      const isStructural = kind === 'index' || kind === 'log';
-      const navBreadcrumb = this.buildNavBreadcrumb(kind, tags);
-      const titleLine = isStructural ? '' : `# ${note.title}\n\n`;
-      const body = isStructural ? rawBody : rawBody.replace(NoteRepository.TITLE_PATTERN, '');
-      fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + body, 'utf-8');
-    } catch (err) {
-      logToFile('WARN', 'Failed to update frontmatter fields', { noteId: note.id, error: String(err) });
-    }
+  private updateNoteBodyFields(note: NoteMetadata, fields: { summary?: string; guidance?: string }): void {
+    this.rewriteNoteFile(note, {
+      summary: fields.summary ?? note.summary,
+      guidance: fields.guidance ?? note.guidance,
+      updated_at: Date.now(),
+    });
   }
 
   getRecentNotes(limit: number = 5): NoteMetadata[] {
@@ -2111,7 +2215,11 @@ export class NoteRepository {
     this.db.run('DELETE FROM notes_fts');
   }
 
+  private _closed = false;
+
   close(): void {
+    if (this._closed) return;
+    this._closed = true;
     this.db.close();
   }
 }
