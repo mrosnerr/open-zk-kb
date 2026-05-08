@@ -153,7 +153,7 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
     `const pages = dv.pages('"${source}"')`,
     `  .where(p => p.file.name !== "${folderNoteBasename}")`,
     '  .sort(p => p.created, "desc");',
-    `dv.table(["${singular}", "Summary", "Created", " "], pages.map(p => {`,
+    `dv.table(["${singular}", "Tagline", "Created", " "], pages.map(p => {`,
     '  const actions = dv.el("span", "", { cls: "dataview-actions" });',
     '  const editBtn = actions.createEl("a", { cls: "dv-action-btn", attr: { "aria-label": "Edit", title: "Edit this note" } });',
     '  obsidian.setIcon(editBtn, "pencil");',
@@ -172,7 +172,7 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
      '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
      '  });',
      '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
-     '  return [dv.fileLink(p.file.path, false, label), p.summary || "", p.created || "", actions];',
+     '  return [dv.fileLink(p.file.path, false, label), p.tagline || "", p.created || "", actions];',
      '}));',
      '```',
    ];
@@ -182,7 +182,7 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
   return [
     '```dataviewjs',
     `const pages = dv.pages('"${source}"').where(p => p.file.name === "domain");`,
-    'dv.table(["Domain", "Summary", " "], pages.map(p => {',
+    'dv.table(["Domain", "Tagline", " "], pages.map(p => {',
     '  const actions = dv.el("span", "", { cls: "dataview-actions" });',
     '  const editBtn = actions.createEl("a", { cls: "dv-action-btn", attr: { "aria-label": "Edit", title: "Edit this note" } });',
     '  obsidian.setIcon(editBtn, "pencil");',
@@ -201,7 +201,7 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
     '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
     '  });',
     '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
-    '  return [dv.fileLink(p.file.path, false, label), p.summary || "", actions];',
+    '  return [dv.fileLink(p.file.path, false, label), p.tagline || "", actions];',
      '}));',
      '```',
    ];

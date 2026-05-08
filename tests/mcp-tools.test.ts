@@ -1194,8 +1194,8 @@ describe('Data Migrations: upgrade-apply', () => {
     const note = ctx.engine.getById(result.id)!;
     const fs = require('fs');
     const fileContent = fs.readFileSync(note.path, 'utf-8');
-    expect(fileContent).toContain('summary: Test summary line');
-    expect(fileContent).toContain('guidance: Test guidance line');
+    expect(fileContent).toContain('tagline: Test summary line');
+    expect(fileContent).toContain('## Guidance\n\nTest guidance line');
   });
 });
 

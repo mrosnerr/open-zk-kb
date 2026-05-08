@@ -1,5 +1,7 @@
 // tests/integration.test.ts - Integration tests for knowledge base
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'fs';
+import * as path from 'path';
 import {
   createTestHarness,
   cleanupTestHarness,
@@ -7,6 +9,7 @@ import {
   noteFileExists,
 } from './harness.js';
 import type { TestContext } from './harness.js';
+import { NoteRepository } from '../src/storage/NoteRepository.js';
 
 describe('Knowledge Capture Integration Tests', () => {
   let context: TestContext;
@@ -553,6 +556,47 @@ describe('Knowledge Capture Integration Tests', () => {
 
       const note = context.engine.getById(result.id);
       expect(note!.access_count).toBe(2);
+    });
+  });
+
+  describe('Self-heal guard', () => {
+    it('should auto-rebuild when DB is empty but vault has note files', () => {
+      context.engine.store('Alpha content', { title: 'Alpha', kind: 'observation' });
+      context.engine.store('Beta content', { title: 'Beta', kind: 'reference' });
+      context.engine.store('Gamma content', { title: 'Gamma', kind: 'personalization' });
+
+      expect(context.engine.getStats().total).toBe(3);
+      context.engine.close();
+
+      const dbPath = path.join(context.tempDir, '.index', 'knowledge.db');
+      fs.unlinkSync(dbPath);
+      const walPath = dbPath + '-wal';
+      const shmPath = dbPath + '-shm';
+      if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+
+      const healed = new NoteRepository(context.tempDir);
+      expect(healed.getStats().total).toBe(3);
+      healed.close();
+    });
+
+    it('should not rebuild on genuinely empty vault', () => {
+      expect(context.engine.getStats().total).toBe(0);
+      context.engine.close();
+
+      const fresh = new NoteRepository(context.tempDir);
+      expect(fresh.getStats().total).toBe(0);
+      fresh.close();
+    });
+
+    it('should not trigger when DB already has notes', () => {
+      context.engine.store('Existing content', { title: 'Existing', kind: 'observation' });
+      expect(context.engine.getStats().total).toBe(1);
+      context.engine.close();
+
+      const reopened = new NoteRepository(context.tempDir);
+      expect(reopened.getStats().total).toBe(1);
+      reopened.close();
     });
   });
 });
