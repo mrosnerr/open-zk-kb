@@ -273,7 +273,8 @@ const SNIPPETS: Record<string, string> = {
 }
 `.trimStart(),
   'zk-icons.css': `
-.nav-file-title:has(.iconic-icon)::before {
+.nav-file-title:has(.iconic-icon)::before,
+.nav-folder-title:has(.iconic-icon)::before {
   display: none !important;
 }
 
@@ -891,7 +892,7 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
       return {
         'Appearance-dark@@card-layout-open-dark': true,
         'Appearance-light@@card-layout-open-light': true,
-        'file-icon-remove': true,
+        'Components@@file-icon-remove': true,
       };
     case 'iconic':
       return {
