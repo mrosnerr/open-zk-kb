@@ -281,7 +281,7 @@ describe('Obsidian scaffold', () => {
   });
 });
 
-describe('Scaffold registry URL reachability', () => {
+describe.skipIf(!process.env.NETWORK)('Scaffold registry URL reachability', () => {
   function assetUrl(repo: string, tag: string, file: string, source?: string, branch?: string): string {
     return source === 'raw'
       ? `https://raw.githubusercontent.com/${repo}/${branch || 'main'}/${file}`
