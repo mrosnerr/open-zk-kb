@@ -304,6 +304,13 @@ const SNIPPETS: Record<string, string> = {
 .markdown-rendered h2 .inline-callout {
   margin: 0;
 }
+
+/* Hide managed directories from file explorer */
+.nav-folder:has(> .nav-folder-title[data-path="templates"]),
+.nav-folder:has(> .nav-folder-title[data-path=".templates"]),
+.nav-folder:has(> .nav-folder-title[data-path=".scripts"]) {
+  display: none !important;
+}
 `.trimStart(),
   'zk-metadata.css': 'body { --metadata-display-reading: none; }\n',
   'zk-properties.css': `
