@@ -51,6 +51,7 @@ import { detectObsidian, launchObsidian, formatNotInstalledMessage, formatSucces
 import { ensureObsidianScaffold, getObsidianScaffoldStatus } from './obsidian-scaffold.js';
 import { contractPath } from './utils/path.js';
 import { getTemplate, getExpectedCategories, matchCategories, extractHeaders, stripExamplesBlock, CONFORMANCE_KINDS } from './template-handler.js';
+import type { GitVersioning } from './git-versioning.js';
 
 // ---- Constants ----
 
@@ -724,7 +725,7 @@ function updateGlobalNavigation(
 
 // ---- Handlers ----
 
-export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): Promise<string> {
+export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null): Promise<string> {
   const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
   const lifecycleDefaults = config?.lifecycleDefaults;
   const kindDefault = (lifecycleDefaults?.defaultForKind?.[args.kind] as Lifecycle | undefined) || KIND_DEFAULT_LIFECYCLE[args.kind];
@@ -791,6 +792,17 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     summary: args.summary,
     guidance: args.guidance,
   });
+
+  if (gitVersioning) {
+    const project = args.project || extractProjectTag(tags);
+    gitVersioning.recordOp({
+      op: result.action === 'updated' ? 'update' : 'store',
+      noteId: result.id,
+      title: args.title,
+      kind: args.kind,
+      project: project || undefined,
+    });
+  }
 
   scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', args.kind, 1));
 
@@ -1020,7 +1032,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   return output + clientWarning;
 }
 
-export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string): Promise<string> {
+export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
   scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action));
   switch (args.action) {
     case 'stats': {
@@ -1105,6 +1117,17 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += `\nShowing 5 of ${stats.total}. Use \`knowledge-search\` to find specific notes.\n`;
         }
       }
+      if (gitVersioning) {
+        const vStats = gitVersioning.getStats();
+        output += '\n## Versioning\n';
+        if (vStats) {
+          output += `- Git: enabled (${vStats.commitCount} commits)\n`;
+          if (vStats.lastCommitAge) output += `- Last commit: ${vStats.lastCommitAge}\n`;
+        } else {
+          output += '- Git: disabled\n';
+        }
+      }
+
       if (currentVersion) {
         const latest = await getLatestVersion('open-zk-kb');
         output += '\n## Version\n';
@@ -1158,6 +1181,10 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         updateGlobalNavigation(project, `Promoted "${note.title}"`, repo, config);
       }
+      if (gitVersioning) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        await gitVersioning.recordImmediate({ op: 'promote', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
+      }
       return `Promoted "${note.title}" (${args.noteId}) to permanent status.`;
     }
     case 'archive': {
@@ -1172,12 +1199,19 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         updateGlobalNavigation(project, `Archived "${note.title}"`, repo, config);
       }
+      if (gitVersioning) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        await gitVersioning.recordImmediate({ op: 'archive', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
+      }
       return `Archived "${note.title}" (${args.noteId}).`;
     }
     case 'delete': {
       if (!args.noteId) return 'Error: noteId is required for delete action.';
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
+      if (gitVersioning) {
+        await gitVersioning.preCommit(`Pre-delete snapshot: "${note.title}"`);
+      }
       repo.remove(args.noteId);
       if (!STRUCTURAL_KINDS.has(note.kind)) {
         const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
@@ -1186,9 +1220,14 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         updateGlobalNavigation(project, `Deleted "${note.title}"`, repo, config);
       }
+      if (gitVersioning) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        await gitVersioning.recordImmediate({ op: 'delete', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
+      }
       return `Deleted "${note.title}" (${args.noteId}).`;
     }
     case 'rebuild': {
+      if (gitVersioning) await gitVersioning.checkpoint('Pre-rebuild snapshot');
       const result = repo.rebuildFromFiles();
       const projects = repo.getAllProjects();
       for (const project of projects) {
@@ -1196,6 +1235,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         appendProjectLog(project, 'Full DB rebuild', repo, config);
       }
       updateGlobalNavigation(null, 'Full DB rebuild', repo, config);
+      if (gitVersioning) await gitVersioning.checkpoint(`Full DB rebuild (${result.indexed} indexed)`);
       return `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuilt index for ${projects.length} project(s).\nRebuild complete.`;
     }
     case 'format': {
@@ -1205,6 +1245,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         rebuildProjectIndex(proj, repo, config);
       }
       updateGlobalNavigation(null, 'Format all files', repo, config);
+      if (gitVersioning) await gitVersioning.checkpoint(`Format ${result.formatted} notes`);
       return `Formatted ${result.formatted} note files (${result.skipped} skipped, ${result.errors} errors).\nRegenerated navigation for ${projects.length} project(s).`;
     }
     case 'upgrade': {
@@ -1660,6 +1701,12 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     }
     case 'migrate-layout': {
       const dryRun = args.dryRun !== false;
+      const commitsPaused = !dryRun && !!gitVersioning;
+      if (commitsPaused && gitVersioning) {
+        await gitVersioning.checkpoint('Pre-migration snapshot');
+        gitVersioning.pauseCommits();
+      }
+      try {
       repo.rebuildFromFiles();
       const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
       let moved = 0;
@@ -1752,6 +1799,10 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         output += `\nPost-migration rebuild: indexed ${rebuildResult.indexed} notes, rebuilt ${projects.length} project index(es).`;
         updateGlobalNavigation(null, 'Layout migration completed', repo, config);
+        if (commitsPaused && gitVersioning) {
+          gitVersioning.resumeCommits();
+          await gitVersioning.checkpoint(`Layout migration (${moved} moved)`);
+        }
 
         const embeddingStats = repo.getEmbeddingStats();
         const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
@@ -1775,6 +1826,11 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       return output;
+      } finally {
+        if (commitsPaused && gitVersioning) {
+          gitVersioning.resumeCommits();
+        }
+      }
     }
     case 'full': {
       const steps: Array<{ action: string; label: string; stepArgs: MaintainArgs }> = [
@@ -1793,7 +1849,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       for (const step of steps) {
         sections.push(`## ${stepNum}. ${step.label}\n`);
         try {
-          const result = await handleMaintain(step.stepArgs, repo, config, embeddingConfig, currentVersion);
+          const result = await handleMaintain(step.stepArgs, repo, config, embeddingConfig, currentVersion, gitVersioning);
           sections.push(result);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

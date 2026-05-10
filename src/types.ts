@@ -70,6 +70,11 @@ export interface ObsidianConfig {
   readOnly: boolean;
 }
 
+export interface VersioningConfig {
+  enabled: boolean;
+  debounceMs: number;
+}
+
 export interface RelatedNotesConfig {
   enabled: boolean;
   maxResults: number;
@@ -96,6 +101,7 @@ export interface AppConfig {
   navigation: NavigationConfig;
   telemetry: TelemetryConfig;
   obsidian: ObsidianConfig;
+  versioning: VersioningConfig;
 }
 
 // NOTE: NoteMetadata and StoreResult are defined in storage/NoteRepository.ts

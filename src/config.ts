@@ -66,6 +66,10 @@ interface RawConfig {
     autoUpgrade?: boolean;
     readOnly?: boolean;
   };
+  versioning?: {
+    enabled?: boolean;
+    debounceMs?: number;
+  };
   embeddings?: EmbeddingsConfig;
 }
 
@@ -113,6 +117,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     scaffold: true,
     autoUpgrade: true,
     readOnly: true,
+  },
+  versioning: {
+    enabled: true,
+    debounceMs: 30000,
   },
 };
 
@@ -228,6 +236,12 @@ export function getConfig(): AppConfig {
       readOnly: typeof raw?.obsidian?.readOnly === 'boolean'
         ? raw.obsidian.readOnly
         : DEFAULT_CONFIG.obsidian.readOnly,
+    },
+    versioning: {
+      enabled: typeof raw?.versioning?.enabled === 'boolean'
+        ? raw.versioning.enabled
+        : DEFAULT_CONFIG.versioning.enabled,
+      debounceMs: positiveInt(raw?.versioning?.debounceMs, DEFAULT_CONFIG.versioning.debounceMs),
     },
   };
 }
