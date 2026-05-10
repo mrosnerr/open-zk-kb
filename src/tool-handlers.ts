@@ -1849,7 +1849,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       for (const step of steps) {
         sections.push(`## ${stepNum}. ${step.label}\n`);
         try {
-          const result = await handleMaintain(step.stepArgs, repo, config, embeddingConfig, currentVersion);
+          const result = await handleMaintain(step.stepArgs, repo, config, embeddingConfig, currentVersion, gitVersioning);
           sections.push(result);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);

@@ -229,11 +229,14 @@ export class GitVersioning {
     }
 
     const existing = fs.readFileSync(gitignorePath, 'utf-8');
+    const existingLines = new Set(
+      existing.split('\n').map(line => line.trim()).filter(line => line !== '' && !line.startsWith('#')),
+    );
     const requiredEntries = GITIGNORE_CONTENT
       .split('\n')
       .map(line => line.trim())
       .filter(line => line !== '' && !line.startsWith('#'));
-    const missing = requiredEntries.filter(entry => !existing.includes(entry));
+    const missing = requiredEntries.filter(entry => !existingLines.has(entry));
 
     if (missing.length > 0) {
       const suffix = '\n# open-zk-kb: derived files\n' + missing.join('\n') + '\n';
