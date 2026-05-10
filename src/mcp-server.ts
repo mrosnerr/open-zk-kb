@@ -23,6 +23,8 @@ import { logToFile } from './logger.js';
 import { ensureObsidianScaffold } from './obsidian-scaffold.js';
 import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
+import { createGitVersioning } from './git-versioning.js';
+import type { GitVersioning } from './git-versioning.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import type { NoteKind } from './types.js';
 import type { NoteRepository as NoteRepositoryType } from './storage/NoteRepository.js';
@@ -33,6 +35,7 @@ const { NoteRepository } = await import('./storage/NoteRepository.js');
 const config = getConfig();
 let repo: NoteRepositoryType | null = null;
 let repoInitPromise: Promise<NoteRepositoryType> | null = null;
+let gitVersioning: GitVersioning | null = null;
 
 async function getOrCreateRepo(): Promise<NoteRepositoryType> {
   if (repo) return repo;
@@ -42,6 +45,11 @@ async function getOrCreateRepo(): Promise<NoteRepositoryType> {
     const instance = new NoteRepository(config.vault, { telemetryEnabled: config.telemetry.enabled });
     repo = instance;
     logToFile('INFO', 'MCP server: repository opened', { vault: config.vault }, config);
+
+    if (config.versioning.enabled) {
+      gitVersioning = createGitVersioning(config.vault, config.versioning);
+      await gitVersioning.init();
+    }
 
     const obsidianDir = path.join(config.vault, '.obsidian');
     if (config.obsidian.autoUpgrade && fs.existsSync(obsidianDir)) {
@@ -146,7 +154,7 @@ server.registerTool(
         client: args.client,
         related: args.related,
         model: args.model,
-      }, await getOrCreateRepo(), getEmbeddingConfig(), config);
+      }, await getOrCreateRepo(), getEmbeddingConfig(), config, gitVersioning);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-store failed', {
@@ -363,7 +371,7 @@ server.registerTool(
         telemetry: args.telemetry,
         dryRun: args.dryRun,
         model: args.model,
-      }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION);
+      }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION, gitVersioning);
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-maintain failed', {
@@ -483,6 +491,15 @@ export async function startServer() {
 
 function shutdown() {
   logToFile('INFO', 'MCP server: shutting down', {}, config);
+  if (gitVersioning) {
+    try {
+      gitVersioning.shutdownSync();
+    } catch (error) {
+      logToFile('WARN', 'MCP server: failed to flush git versioning', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+    }
+  }
   if (repo) {
     try {
       repo.close();

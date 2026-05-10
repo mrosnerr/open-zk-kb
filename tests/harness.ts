@@ -63,6 +63,10 @@ export function createTestHarness(options: TestHarnessOptions = {}): TestContext
       autoUpgrade: true,
       readOnly: true,
     },
+    versioning: {
+      enabled: false,
+      debounceMs: 30000,
+    },
   };
 
   const engine = new NoteRepository(tempDir, { telemetryEnabled: config.telemetry.enabled });
