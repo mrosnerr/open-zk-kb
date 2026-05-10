@@ -51,17 +51,12 @@ git clone https://github.com/mrosnerr/open-zk-kb
 cd open-zk-kb
 bun install
 bun run build
-bun run setup            # interactive installer
+bun run setup install --client <name> --force
 ```
 
-Verification: `ls dist/mcp-server.js` should exist.
+The installer auto-detects the source checkout (via `.git` presence) and wires your client to local paths — MCP server points at `dist/mcp-server.js`, plugin uses `file://` URLs, and agent instructions are injected.
 
-For scripted/CI use:
-```bash
-bun run setup install --client opencode
-```
-
-For OpenCode development from a local checkout, this source install path wires OpenCode to your local `dist/mcp-server.js` build, registers the local checkout as a `file://` plugin, and injects the managed instructions.
+See the [Development Guide](development.md#development-setup) for the full contributor workflow.
 
 ### Config file locations
 
@@ -132,15 +127,19 @@ Instructions are injected as a managed block wrapped in markers:
 | **Stable** | `@latest` | Production-ready | Default for all users |
 | **Dev** | `@dev` | Bleeding-edge, may break | Testing unreleased changes from the `dev` branch |
 
-To use the dev channel, change `@latest` to `@dev` in your MCP config:
+To install from the dev channel:
 
-```json
-"command": ["bunx", "open-zk-kb@dev", "server"]
+```bash
+bunx open-zk-kb@dev install --client <name> --force
 ```
 
-Dev versions follow the format `X.Y.Z-dev.g<short-sha>` (e.g., `1.1.0-dev.g751771b`). Each push to the `dev` branch publishes a new dev release automatically.
+The installer auto-detects the dev release and writes `@dev` to your MCP config. Dev versions follow the format `X.Y.Z-dev.g<short-sha>` (e.g., `1.1.0-dev.g751771b`). Each push to the `dev` branch publishes a new release automatically.
 
-To switch back to stable: change `@dev` to `@latest` and restart your client.
+To switch back to stable:
+
+```bash
+bunx open-zk-kb@latest install --client <name> --force
+```
 
 ## Updating
 

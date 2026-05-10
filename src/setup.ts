@@ -12,6 +12,10 @@ import { injectAgentDocs, inspectAgentDocs, removeAgentDocs } from './agent-docs
 import type { InstructionSize } from './agent-docs.js';
 import { PKG_VERSION } from './version.js';
 
+function detectNpmTag(): 'dev' | 'latest' {
+  return PKG_VERSION.includes('-dev.') ? 'dev' : 'latest';
+}
+
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 
@@ -117,17 +121,18 @@ type McpEntry =
 
 function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string): McpEntry {
   if (!serverPath) {
+    const tag = detectNpmTag();
     if (clientConfig.mcpFormat === 'opencode') {
       return {
         type: 'local',
-        command: ['bunx', 'open-zk-kb@latest', 'server'],
+        command: ['bunx', `open-zk-kb@${tag}`, 'server'],
         enabled: true,
       };
     }
 
     return {
       command: 'bunx',
-      args: ['open-zk-kb@latest', 'server'],
+      args: [`open-zk-kb@${tag}`, 'server'],
     };
   }
 
@@ -244,7 +249,7 @@ function validateOpenCodePlugin(config: JsonObject, expectedEntry: string): stri
 }
 
 function formatServerCommand(serverPath?: string): string {
-  return serverPath ? `bun run ${serverPath}` : 'bunx open-zk-kb@latest server';
+  return serverPath ? `bun run ${serverPath}` : `bunx open-zk-kb@${detectNpmTag()} server`;
 }
 
 /**
@@ -958,7 +963,7 @@ export function uninstall(args: UninstallArgs): string {
     output += `Deleted vault: ${vaultPath}\n`;
   } else {
     output += `Vault preserved at: ${vaultPath}\n`;
-    output += `Reinstall anytime with: bunx open-zk-kb@latest install --client ${args.client}\n`;
+    output += `Reinstall anytime with: bunx open-zk-kb@${detectNpmTag()} install --client ${args.client}\n`;
   }
   
   return output;
