@@ -64,7 +64,7 @@ bun run setup install --client <name> --force   # re-registers updated paths
 For testing the latest `dev` branch without cloning the repo.
 
 ```bash
-bunx open-zk-kb@dev install --client <name>
+bunx open-zk-kb@dev install --client <name> --force
 ```
 
 That's it. The installer detects it's running from a dev release and writes `@dev` to your MCP config automatically. Each push to the `dev` branch publishes a new version (format: `X.Y.Z-dev.g<sha>`).

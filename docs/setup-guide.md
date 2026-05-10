@@ -130,7 +130,7 @@ Instructions are injected as a managed block wrapped in markers:
 To install from the dev channel:
 
 ```bash
-bunx open-zk-kb@dev install --client <name>
+bunx open-zk-kb@dev install --client <name> --force
 ```
 
 The installer auto-detects the dev release and writes `@dev` to your MCP config. Dev versions follow the format `X.Y.Z-dev.g<short-sha>` (e.g., `1.1.0-dev.g751771b`). Each push to the `dev` branch publishes a new release automatically.
