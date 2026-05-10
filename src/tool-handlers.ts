@@ -51,7 +51,7 @@ import { detectObsidian, launchObsidian, formatNotInstalledMessage, formatSucces
 import { ensureObsidianScaffold, getObsidianScaffoldStatus } from './obsidian-scaffold.js';
 import { contractPath } from './utils/path.js';
 import { getTemplate, getExpectedCategories, matchCategories, extractHeaders, stripExamplesBlock, CONFORMANCE_KINDS } from './template-handler.js';
-import type { GitVersioning, PendingOp } from './git-versioning.js';
+import type { GitVersioning } from './git-versioning.js';
 
 // ---- Constants ----
 
@@ -1174,16 +1174,16 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
       repo.promoteToPermanent(args.noteId);
-      if (gitVersioning) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
-        await gitVersioning.recordImmediate({ op: 'promote', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
-      }
       if (!STRUCTURAL_KINDS.has(note.kind)) {
         const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
         if (project) {
           updateProjectNavigation(project, `Promoted "${note.title}" from fleeting to permanent`, repo, config);
         }
         updateGlobalNavigation(project, `Promoted "${note.title}"`, repo, config);
+      }
+      if (gitVersioning) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        await gitVersioning.recordImmediate({ op: 'promote', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
       }
       return `Promoted "${note.title}" (${args.noteId}) to permanent status.`;
     }
@@ -1192,16 +1192,16 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
       repo.archive(args.noteId);
-      if (gitVersioning) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
-        await gitVersioning.recordImmediate({ op: 'archive', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
-      }
       if (!STRUCTURAL_KINDS.has(note.kind)) {
         const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
         if (project) {
           updateProjectNavigation(project, `Archived "${note.title}"`, repo, config);
         }
         updateGlobalNavigation(project, `Archived "${note.title}"`, repo, config);
+      }
+      if (gitVersioning) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        await gitVersioning.recordImmediate({ op: 'archive', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
       }
       return `Archived "${note.title}" (${args.noteId}).`;
     }
@@ -1213,16 +1213,16 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         await gitVersioning.preCommit(`Pre-delete snapshot: "${note.title}"`);
       }
       repo.remove(args.noteId);
-      if (gitVersioning) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
-        await gitVersioning.recordImmediate({ op: 'delete', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
-      }
       if (!STRUCTURAL_KINDS.has(note.kind)) {
         const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
         if (project) {
           updateProjectNavigation(project, `Deleted "${note.title}"`, repo, config);
         }
         updateGlobalNavigation(project, `Deleted "${note.title}"`, repo, config);
+      }
+      if (gitVersioning) {
+        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
+        await gitVersioning.recordImmediate({ op: 'delete', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
       }
       return `Deleted "${note.title}" (${args.noteId}).`;
     }
@@ -1701,10 +1701,12 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     }
     case 'migrate-layout': {
       const dryRun = args.dryRun !== false;
-      if (!dryRun && gitVersioning) {
+      const commitsPaused = !dryRun && !!gitVersioning;
+      if (commitsPaused && gitVersioning) {
         await gitVersioning.checkpoint('Pre-migration snapshot');
         gitVersioning.pauseCommits();
       }
+      try {
       repo.rebuildFromFiles();
       const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
       let moved = 0;
@@ -1797,7 +1799,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
         output += `\nPost-migration rebuild: indexed ${rebuildResult.indexed} notes, rebuilt ${projects.length} project index(es).`;
         updateGlobalNavigation(null, 'Layout migration completed', repo, config);
-        if (gitVersioning) {
+        if (commitsPaused && gitVersioning) {
           gitVersioning.resumeCommits();
           await gitVersioning.checkpoint(`Layout migration (${moved} moved)`);
         }
@@ -1824,6 +1826,11 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       return output;
+      } finally {
+        if (commitsPaused && gitVersioning) {
+          gitVersioning.resumeCommits();
+        }
+      }
     }
     case 'full': {
       const steps: Array<{ action: string; label: string; stepArgs: MaintainArgs }> = [

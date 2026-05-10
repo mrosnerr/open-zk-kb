@@ -229,7 +229,10 @@ export class GitVersioning {
     }
 
     const existing = fs.readFileSync(gitignorePath, 'utf-8');
-    const requiredEntries = ['.index/', '.obsidian/'];
+    const requiredEntries = GITIGNORE_CONTENT
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => line !== '' && !line.startsWith('#'));
     const missing = requiredEntries.filter(entry => !existing.includes(entry));
 
     if (missing.length > 0) {
@@ -239,6 +242,18 @@ export class GitVersioning {
   }
 
   private cleanStaleLock(): void {
+    const indexLockPath = path.join(this.vaultPath, '.git', 'index.lock');
+    if (fs.existsSync(indexLockPath)) {
+      try {
+        const stat = fs.statSync(indexLockPath);
+        const age = Date.now() - stat.mtimeMs;
+        if (age > STALE_LOCK_MS) {
+          fs.unlinkSync(indexLockPath);
+          logToFile('WARN', 'Removed stale git index.lock', { age: Math.round(age / 1000) });
+        }
+      } catch { void 0; }
+    }
+
     const lockPath = path.join(this.vaultPath, '.git', LOCK_DIR_NAME);
     if (!fs.existsSync(lockPath)) return;
 
@@ -249,19 +264,7 @@ export class GitVersioning {
         fs.rmdirSync(lockPath);
         logToFile('WARN', 'Removed stale commit lock', { age: Math.round(age / 1000), lockPath });
       }
-    } catch { }
-
-    const indexLockPath = path.join(this.vaultPath, '.git', 'index.lock');
-    if (fs.existsSync(indexLockPath)) {
-      try {
-        const stat = fs.statSync(indexLockPath);
-        const age = Date.now() - stat.mtimeMs;
-        if (age > STALE_LOCK_MS) {
-          fs.unlinkSync(indexLockPath);
-          logToFile('WARN', 'Removed stale git index.lock', { age: Math.round(age / 1000) });
-        }
-      } catch { }
-    }
+    } catch { void 0; }
   }
 
   private async recoverUncommitted(): Promise<void> {
@@ -305,7 +308,7 @@ export class GitVersioning {
           fs.mkdirSync(lockPath);
           return true;
         }
-      } catch { }
+      } catch { void 0; }
       return false;
     }
   }
@@ -314,7 +317,7 @@ export class GitVersioning {
     const lockPath = path.join(this.vaultPath, '.git', LOCK_DIR_NAME);
     try {
       fs.rmdirSync(lockPath);
-    } catch { }
+    } catch { void 0; }
   }
 
   private async commitPending(): Promise<void> {
@@ -526,7 +529,7 @@ export class GitVersioning {
 
       gitExecSync(['commit', '-m', message], this.vaultPath);
     } finally {
-      try { fs.rmdirSync(lockPath); } catch { }
+      try { fs.rmdirSync(lockPath); } catch { void 0; }
     }
   }
 
