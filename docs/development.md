@@ -29,42 +29,60 @@ For rapid iteration:
 - bun test --watch — re-runs tests on file change
 - Note: there's no watch mode for the build itself — you need to run bun run build each time
 
-## Dev release channel
+## Development Setup
 
-Pushes to the `dev` branch auto-publish to npm under the `dev` dist-tag (e.g., `1.1.0-dev.g751771b`). To test unreleased changes without a local checkout, point your MCP config at `open-zk-kb@dev` instead of `@latest`. See [Release Channels](setup-guide.md#release-channels) for details.
+Two paths depending on whether you're editing source code or just testing unreleased changes.
 
-## OpenCode local development
+### Path 1: Source checkout (contributor workflow)
 
-Use the normal installer for local OpenCode testing.
+For making and testing code changes locally.
 
-### Recommended workflow
 ```bash
+git clone https://github.com/mrosnerr/open-zk-kb
+cd open-zk-kb
+bun install
 bun run build
-bun run setup install --client opencode --force
+bun run setup install --client <name> --force
 ```
 
-This configures OpenCode to run the local `dist/mcp-server.js` build through its MCP entry, registers the local checkout as a `file://` plugin, and refreshes the managed `AGENTS.md` block. That is the supported contributor workflow for testing changes on your development branch.
+Replace `<name>` with your client: `opencode`, `claude-code`, `cursor`, `windsurf`, or `zed`.
 
-### What gets installed for OpenCode
+The installer auto-detects the source checkout (via `.git` presence) and wires everything to local paths:
+- **MCP server** → your local `dist/mcp-server.js`
+- **Plugin** (OpenCode) → `file://` URL pointing at your checkout
+- **Agent instructions** → managed block in your client's instruction file
 
-- `mcp.open-zk-kb` points at your local `dist/mcp-server.js` build.
-- `plugin` includes the local checkout as a `file://` plugin during source installs.
-- `~/.config/opencode/AGENTS.md` gets the managed knowledge-base instructions.
+After every source change:
+```bash
+bun run build
+bun run setup install --client <name> --force   # re-registers updated paths
+# Restart your client so it reloads the MCP server and plugin
+```
+
+### Path 2: Dev channel (testing unreleased changes)
+
+For testing the latest `dev` branch without cloning the repo.
+
+```bash
+bunx open-zk-kb@dev install --client <name>
+```
+
+That's it. The installer detects it's running from a dev release and writes `@dev` to your MCP config automatically. Each push to the `dev` branch publishes a new version (format: `X.Y.Z-dev.g<sha>`).
+
+To switch back to stable:
+```bash
+bunx open-zk-kb@latest install --client <name> --force
+```
+
+See [Release Channels](setup-guide.md#release-channels) for more details.
 
 ### Navigation UX boundary
 
-- Treat Obsidian as the human UX layer.
-- Treat MCP + SQLite as the agent query layer.
+- Treat Obsidian as the human UX layer; MCP + SQLite as the agent query layer.
 - Keep core knowledge notes markdown-native.
-- It is acceptable for generated `index` and `log` notes to adopt richer Obsidian-native functionality from the managed scaffold when that improves human navigation.
-- Prefer Dataview for rendering index-page lists/tables where possible; keep the server focused on shell creation, storage, and guarantees.
-- Prefer Obsidian plugins like Breadcrumbs for per-note navigation UI instead of injecting breadcrumb markdown into canonical note bodies.
-
-> **How does the installer know to use local paths?** It checks whether the running script's parent directory contains a `.git` folder. If it does, you're running from a source checkout — the installer uses `file://` URLs and absolute paths. When installed via `bunx`/`npx` (no `.git`), it uses the `open-zk-kb` npm package name instead.
-
-### Verify plugin changes locally
-
-After rebuilding, rerun the installer and restart OpenCode so it reloads both the MCP server and plugin entry.
+- Generated `index` and `log` notes may adopt richer Obsidian-native functionality when it improves human navigation.
+- Prefer Dataview for rendering index-page lists/tables; keep the server focused on storage and guarantees.
+- Prefer the Breadcrumbs plugin for per-note navigation instead of injecting breadcrumb markdown into note bodies.
 
 ## Project Structure
 (See [architecture.md](architecture.md) for details)
