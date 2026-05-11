@@ -170,11 +170,11 @@ function detectServerPath(): string | undefined {
 
 function buildOpenCodePluginEntry(): string {
   const projectRoot = detectProjectRoot();
-  return projectRoot ? pathToFileURL(projectRoot).toString() : OPENCODE_PLUGIN_PACKAGE;
+  return projectRoot ? pathToFileURL(projectRoot).toString() : `${OPENCODE_PLUGIN_PACKAGE}/plugin`;
 }
 
 function isOpenCodePluginEntry(value: string): boolean {
-  if (value === OPENCODE_PLUGIN_PACKAGE || value === `${OPENCODE_PLUGIN_PACKAGE}/server`) {
+  if (value === OPENCODE_PLUGIN_PACKAGE || value === `${OPENCODE_PLUGIN_PACKAGE}/plugin`) {
     return true;
   }
 

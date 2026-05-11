@@ -321,7 +321,7 @@ describe('setup.ts', () => {
     const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
     fs.mkdirSync(path.dirname(configPath), { recursive: true });
     fs.writeFileSync(configPath, JSON.stringify({
-      plugin: ['open-zk-kb/server'],
+      plugin: ['open-zk-kb/plugin'],
       mcp: {
         'open-zk-kb': {
           type: 'local',
