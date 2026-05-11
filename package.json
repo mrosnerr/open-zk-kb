@@ -11,7 +11,7 @@
       "types": "./dist/mcp-server.d.ts",
       "import": "./dist/mcp-server.js"
     },
-    "./server": {
+    "./plugin": {
       "types": "./dist/opencode-plugin/index.d.ts",
       "import": "./dist/opencode-plugin/index.js"
     }
