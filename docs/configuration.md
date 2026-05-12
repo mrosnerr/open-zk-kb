@@ -82,7 +82,7 @@ Not recorded:
 
 ## Obsidian Vault Scaffold
 
-[`knowledge-open`](tools-reference.md#knowledge-open) scaffolds a polished Obsidian vault experience on first launch. See the [Obsidian Guide](obsidian.md) for the full walkthrough.
+[`knowledge-open`](tools-reference.md) scaffolds a polished Obsidian vault experience on first launch. See the [Obsidian Guide](obsidian.md) for the full walkthrough.
 
 - Minimal theme
 - Community plugin bundle (Breadcrumbs, Homepage, QuickAdd, Commander, Templater, Minimal Settings, OZ Calendar, Read Only View)

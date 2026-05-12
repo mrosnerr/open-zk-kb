@@ -1,13 +1,13 @@
 # Note Lifecycle
 
-In `open-zk-kb`, notes are not static documents. They follow a dynamic lifecycle — evolving from temporary captures to validated knowledge, and eventually to a searchable archive.
+Your agent's memory isn't static. It evolves. In `open-zk-kb`, notes move from quick captures to validated knowledge, keeping your context lean and relevant. Older notes stay searchable when you need the history.
 
 ## Why one concept per note?
 
-Each note in open-zk-kb captures a single idea. This "atomic note" approach (inspired by the [Zettelkasten method](https://en.wikipedia.org/wiki/Zettelkasten)) is particularly effective for AI agents:
+Each note in open-zk-kb captures a single idea. This "atomic note" approach (inspired by the [Zettelkasten method](https://en.wikipedia.org/wiki/Zettelkasten)) is particularly effective for agents:
 
 - **Precise retrieval** — search returns exactly what's relevant, not a wall of loosely related text
-- **Context window efficiency** — 10 focused notes cost far fewer tokens than a 500-line rules file where 90% is irrelevant
+- **Keeps context lean** — 10 focused notes cost far fewer tokens than a 500-line rules file where 90% is irrelevant
 - **Independent aging** — one note can be promoted or archived without affecting others
 - **Composability** — small typed notes combine naturally across searches to build a complete picture
 
@@ -15,9 +15,9 @@ Each note in open-zk-kb captures a single idea. This "atomic note" approach (ins
 
 Every note in the system exists in one of three states:
 
-1.  **Fleeting**: Temporary captures, initial thoughts, or context-specific snippets. These are the "inbox" of your knowledge base. They are surfaced for review frequently to ensure they either graduate to permanent status or are retired.
-2.  **Permanent**: Validated, high-value knowledge. These notes have proven their utility through repeated access or are foundational to your workflow (like architectural decisions).
-3.  **Archived**: Notes that are no longer active but remain valuable for historical context. They are retired from the primary review queue but remain fully searchable.
+1.  **Fleeting**: Quick captures, first thoughts, or context-specific snippets. Think of these as the inbox for your knowledge base. They surface for review often so you can promote what matters and retire what doesn't.
+2.  **Permanent**: Validated knowledge your agent should keep close. These notes have proven useful through repeated access or anchor your workflow, like architectural decisions.
+3.  **Archived**: Notes you don't need in active rotation anymore, but still want for history. They leave the main review queue and stay fully searchable.
 
 ## Note Kinds & Defaults
 

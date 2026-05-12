@@ -1,8 +1,8 @@
 # open-zk-kb
 
-> Shared, persistent memory for AI assistants, built on the Zettelkasten method
+> Shared, persistent memory for agents, built on the Zettelkasten method
 
-Shared, persistent memory for AI assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients. Stores atomic notes (decisions, preferences, patterns, procedures, context) as linked Markdown files with wiki-links, full-text search (SQLite FTS5), and local semantic embeddings.
+Shared, persistent memory for agents, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients. Stores atomic notes (decisions, preferences, patterns, procedures, context) as linked Markdown files with wiki-links, full-text search (SQLite FTS5), and local semantic embeddings.
 
 ## Installation
 

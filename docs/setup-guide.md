@@ -1,6 +1,6 @@
 # Setup Guide
 
-This guide covers installation for all supported clients. For configuration details, see [configuration.md](configuration.md). For the full tool inventory, see the [Tools Reference](tools-reference.md).
+Get your agent remembering in under a minute. This guide covers installation for all supported clients. For configuration details, see [configuration.md](configuration.md). For the full tool inventory, see the [Tools Reference](tools-reference.md).
 
 ## Prerequisites
 - [Bun](https://bun.sh) >= 1.0.0 (required — uses `bun:sqlite` for storage)
@@ -71,7 +71,7 @@ See the [Development Guide](development.md#development-setup) for the full contr
 ## Verify Installation
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.
-3. Ask your assistant: **"Run `knowledge-maintain stats`"**
+3. Ask your agent: **"Run `knowledge-maintain stats`"**
 4. You should see vault statistics (0 notes on fresh install). This confirms the 8 tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
@@ -84,7 +84,7 @@ See the [Development Guide](development.md#development-setup) for the full contr
 
 ## Agent Instructions
 
-During installation, open-zk-kb delivers knowledge base instructions to clients that support it. The delivery mechanism varies by client:
+During installation, open-zk-kb delivers knowledge base instructions to clients that support it. These instructions teach your agent when to search, what to store, and how to keep memory useful across sessions. The delivery mechanism varies by client:
 
 | Client | Mechanism | Location |
 |--------|-----------|----------|
@@ -92,7 +92,7 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
 | Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
 
-Cursor and Zed get the MCP server config automatically, but do not currently receive agent instructions.
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions.
 
 ### Claude Code (Skill)
 
@@ -219,7 +219,7 @@ bunx open-zk-kb@latest uninstall --client opencode --remove-vault --confirm
 | Dry run first | Add `--dry-run` to any setup command to preview changes without applying them |
 
 ## For AI Agents -- Integration Checklist
-This section is specifically for AI coding assistants setting up open-zk-kb:
+This section is specifically for agents setting up open-zk-kb:
 1. Run `bun --version` -- confirm >= 1.0.0 (if missing: `curl -fsSL https://bun.sh/install | bash`)
 2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor

@@ -1,6 +1,6 @@
 # Obsidian Guide
 
-Your knowledge base is a fully functional [Obsidian](https://obsidian.md) vault. The [`knowledge-open`](tools-reference.md#knowledge-open) MCP tool launches it with a managed scaffold that configures a theme, plugins, navigation, and styling — no manual setup required.
+Your knowledge base isn't just for agents — you can browse it too. It's a fully functional [Obsidian](https://obsidian.md) vault. The [`knowledge-open`](tools-reference.md) MCP tool launches it with a managed scaffold that configures a theme, plugins, navigation, and styling — no manual setup required.
 
 For installation, see the [Setup Guide](setup-guide.md). For configuration options, see the [Obsidian Vault Scaffold](configuration.md#obsidian-vault-scaffold) section. Notes are organized into [9 kinds with lifecycle management](note-lifecycle.md).
 
@@ -19,7 +19,7 @@ On first launch the scaffold creates the `.obsidian/` directory with all plugins
 <p align="center">
   <img src="../assets/obsidian-home.png" alt="Knowledge Base homepage" width="720">
   <br>
-  <sub>Homepage dashboard with project stats and navigation</sub>
+  <sub>Everything at a glance: your projects, note counts, and quick navigation</sub>
 </p>
 
 ### Homepage Dashboard
@@ -57,7 +57,7 @@ Icons appear in the sidebar (via [Iconic](https://github.com/gfxholo/iconic)) an
 <p align="center">
   <img src="../assets/obsidian-preferences.png" alt="Preferences page with breadcrumbs and actions" width="720">
   <br>
-  <sub>Breadcrumb trail, kind icon, description callout, and action buttons</sub>
+  <sub>See where you are, what kind of note you're viewing, and what you can do next</sub>
 </p>
 
 ### Inline Action Buttons
@@ -149,7 +149,7 @@ obsidian:
 
 Set `readOnly: false` if you want to edit notes directly in Obsidian rather than through MCP tools.
 
-## Design Principles
+## How It Works Under the Hood
 
 - **Core notes stay markdown-native** — no Obsidian-specific markup in knowledge notes (decisions, procedures, references, etc.)
 - **Navigation notes can be richer** — `index`, `log`, and `review` files use Dataview, Inline Callouts, and plugin metadata because they are human-facing surfaces
