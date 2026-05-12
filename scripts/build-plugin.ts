@@ -43,7 +43,7 @@ async function main() {
     
     try {
       const defineArg = `__PKG_VERSION__="${version}"`;
-      await $`bun build --compile --target=${target} --define ${defineArg} ${ENTRYPOINT} --outfile ${outfile}`.quiet();
+      await $`bun build --compile --target=${target} --define ${defineArg} --external onnxruntime-node ${ENTRYPOINT} --outfile ${outfile}`.quiet();
       
       const stats = fs.statSync(outfile);
       const sizeMB = (stats.size / 1024 / 1024).toFixed(1);
