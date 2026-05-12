@@ -1,11 +1,11 @@
 ---
 layout: post
-title: "Why your AI coding assistant needs a knowledge base"
+title: "Why your agent needs a knowledge base"
 date: 2026-03-10
-description: "AI coding assistants forget everything between sessions. Here's how we built a persistent, structured memory using atomic notes, hybrid search, and local embeddings."
+description: "Agents forget everything between sessions. Here's how we built a persistent, structured memory using atomic notes, hybrid search, and local embeddings."
 ---
 
-Every AI coding assistant has the same problem: it forgets.
+Every agent has the same problem: it forgets.
 
 You explain your architecture. You justify your technology choices. You describe your preferences for error handling, naming conventions, testing strategy. And next session? Gone. You start from scratch.
 
@@ -13,23 +13,23 @@ The common workaround is a flat file — `CLAUDE.md`, `.cursorrules`, a rules fi
 
 ## The problem with flat-file memory
 
-Flat files don't scale. At 50 lines, they're fine. At 500 lines, they're burning context window and money on irrelevant information. And they have no concept of relevance — the assistant can't search for what it needs.
+Flat files don't scale. At 50 lines, they're fine. At 500 lines, they're burning context window and money on irrelevant information. And they have no concept of relevance — the agent can't search for what it needs.
 
 They also lack structure. A decision made six months ago sits next to a preference expressed yesterday. There's no way to review, archive, or promote knowledge based on how useful it's proven to be.
 
 ## What we built
 
-[open-zk-kb](https://github.com/mrosnerr/open-zk-kb) is an MCP server that gives AI coding assistants a persistent, structured knowledge base. The key ideas:
+[open-zk-kb](https://github.com/mrosnerr/open-zk-kb) is an MCP server that gives agents a persistent, structured knowledge base. The key ideas:
 
 ### One concept per note
 
 This is the most important design choice. Each note captures a single idea — one decision, one preference, one procedure. Not a document. Not a page of loosely related facts. One thing.
 
-This matters more for AI agents than it does for humans, for a few reasons:
+This matters more for agents than it does for humans, for a few reasons:
 
-1. **Precise retrieval** — when the assistant searches for "how do we handle auth?", it gets back the auth decision note. Not a giant file where auth is mentioned in paragraph 12 alongside database choices and deployment config.
+1. **Precise retrieval** — when the agent searches for "how do we handle auth?", it gets back the auth decision note. Not a giant file where auth is mentioned in paragraph 12 alongside database choices and deployment config.
 
-2. **Context window efficiency** — AI agents pay per token. Loading 10 focused notes that are each 5-10 lines is dramatically cheaper than loading a 500-line rules file where 90% is irrelevant.
+2. **Context window efficiency** — agents pay per token. Loading 10 focused notes that are each 5-10 lines is dramatically cheaper than loading a 500-line rules file where 90% is irrelevant.
 
 3. **Composability** — small, typed notes combine naturally. A search for "React patterns" might return a decision about state management, a procedure for component testing, and a preference for functional components. Each stands alone, but together they paint a complete picture.
 
@@ -39,13 +39,13 @@ This matters more for AI agents than it does for humans, for a few reasons:
 
 Notes aren't all the same. Each one has a **kind** — decision, preference, procedure, reference, resource, or observation — and a **lifecycle status**: fleeting, permanent, or archived.
 
-New knowledge starts as fleeting. If the assistant keeps referencing it, it gets promoted to permanent. If it goes stale, it gets archived. This mirrors how real knowledge works: not everything you learn is worth remembering forever. The system surfaces what matters and lets the rest fade.
+New knowledge starts as fleeting. If the agent keeps referencing it, it gets promoted to permanent. If it goes stale, it gets archived. This mirrors how real knowledge works: not everything you learn is worth remembering forever. The system surfaces what matters and lets the rest fade.
 
-The types help too. When the assistant is about to make an architectural choice, it can search specifically for past decisions. When it's setting up a new workflow, it looks for procedures. The structure makes search results more relevant.
+The types help too. When the agent is about to make an architectural choice, it can search specifically for past decisions. When it's setting up a new workflow, it looks for procedures. The structure makes search results more relevant.
 
 ### Hybrid search: full-text + semantic
 
-When the assistant needs context, it searches — not loads. The search combines two approaches:
+When the agent needs context, it searches — not loads. The search combines two approaches:
 
 1. **Full-text search** for keyword matching — fast, reliable, handles exact terms well
 2. **Local vector embeddings** for semantic similarity — finds related concepts even when the wording differs
@@ -65,12 +65,12 @@ This means your knowledge base is:
 
 ### Agent-driven, not user-driven
 
-The assistant drives everything. The installer injects instructions that teach the assistant to:
+The agent drives everything. The installer injects instructions that teach the agent to:
 - **Search before starting work** — check for relevant context
 - **Store knowledge as it discovers it** — decisions, preferences, patterns
 - **Maintain the knowledge base** — review aging notes, find duplicates, promote useful knowledge
 
-You don't interact with the knowledge base directly (though you can). The assistant learns what to remember and when to recall it.
+You don't interact with the knowledge base directly (though you can). The agent learns what to remember and when to recall it.
 
 ## The technical stack
 
@@ -80,7 +80,7 @@ You don't interact with the knowledge base directly (though you can). The assist
 - **MCP protocol** — works with any MCP-compatible client (Claude Code, Cursor, Windsurf, OpenCode, Zed)
 - **Zero configuration** — `bunx open-zk-kb@latest` handles everything
 
-The approach is inspired by the [Zettelkasten method](https://en.wikipedia.org/wiki/Zettelkasten) — a note-taking system built around atomic, linked notes that was originally designed for human researchers. It turns out the same principles (small notes, typed categories, links between ideas) work even better for AI agents, where context window limits make precision essential.
+The approach is inspired by the [Zettelkasten method](https://en.wikipedia.org/wiki/Zettelkasten) — a note-taking system built around atomic, linked notes that was originally designed for human researchers. It turns out the same principles (small notes, typed categories, links between ideas) work even better for agents, where context window limits make precision essential.
 
 ## What's next
 

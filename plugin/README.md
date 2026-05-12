@@ -1,10 +1,10 @@
 # open-zk-kb
 
-Persistent AI memory across sessions. Search context before work, store preferences, decisions, and observations automatically.
+Persistent memory for your agent. Corrections stick, context compounds.
 
 ## What It Does
 
-open-zk-kb gives Claude Code a persistent knowledge base that survives across sessions. Instead of re-explaining your preferences, project decisions, or learned patterns every time, Claude remembers.
+open-zk-kb gives your agent a memory that persists across sessions. Correct it once, it remembers your preferences, decisions, and the patterns you've taught it.
 
 **Example uses:**
 - "Remember I prefer Bun over Node.js" → stored, applied in future sessions

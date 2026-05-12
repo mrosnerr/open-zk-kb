@@ -5,35 +5,50 @@
 [![npm downloads](https://img.shields.io/npm/dm/open-zk-kb)](https://www.npmjs.com/package/open-zk-kb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Shared, persistent memory for AI assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients.
+You open a new session and your agent has no idea who you are. Again. You re-explain your stack, your conventions, that one edge case you've corrected five times.
 
-## Demo
+open-zk-kb gives your agent a memory — so corrections stick, context compounds, and every session starts smarter than the last.
 
 <p align="center">
   <img src="assets/demo.gif" alt="open-zk-kb demo" width="640">
   <br>
-  <sub>Real MCP calls — store, search, and stats run against a live knowledge base.</sub>
-</p>
-
-<p align="center">
-  <img src="assets/obsidian-home.png" alt="Knowledge Base in Obsidian" width="640">
-  <br>
-  <sub>Browse your knowledge base in Obsidian — homepage dashboard with project stats and navigation.</sub>
+  <sub>Your agent stores what it learns and searches it next session — automatically.</sub>
 </p>
 
 ## Why open-zk-kb?
 
-AI assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
+Your agent starts from zero every session. No memory, no learning curve. You correct the same mistakes, re-explain the same conventions, re-teach the same context. Switch tools and it's even worse — your Cursor agent doesn't know what your Claude agent learned.
 
-- **Hybrid search** — full-text + [local embeddings](docs/configuration.md#embeddings-local-first), so only relevant notes surface
-- **Atomic notes** — one concept per note ([9 kinds](docs/note-lifecycle.md#note-kinds--defaults), [lifecycle management](docs/note-lifecycle.md)) keeps results precise
-- **Local-first** — no API keys, works offline, scales to thousands of notes
-- **Human-readable** — Markdown + YAML frontmatter, [rebuildable from files](docs/architecture.md#dual-storage-model)
-- **Obsidian-native** — [browse your knowledge graph](docs/obsidian.md), navigate by kind, and explore connections visually
-- **Shared memory across tools** — one knowledge base for [OpenCode, Claude Code, Cursor, Windsurf, and Zed](docs/setup-guide.md)
-- **MIT-licensed**
+open-zk-kb fixes that.
 
-## Quick Start
+- **Correct it once, it sticks** — your agent stores corrections, preferences, and decisions. Next session, it already knows.
+- **Works across every tool** — one knowledge base shared by [Claude Code, Cursor, Windsurf, OpenCode, and Zed](docs/setup-guide.md)
+- **Finds what's relevant** — hybrid search matches meaning, not just keywords, so only useful context surfaces
+- **Runs locally** — no API keys, no cloud, works offline. Your data stays on your machine.
+- **Human-readable** — plain Markdown files [you can browse, edit, and version control](docs/architecture.md#dual-storage-model)
+- **Open source** — MIT licensed
+
+## How it works
+
+1. **You install it** — one command, picks up your client automatically
+2. **Your agent stores what it learns** — corrections, preferences, decisions, gotchas, workflows
+3. **Next session, it searches first** — relevant context surfaces before your agent writes a single line
+
+Your agent gets sharper the longer you use it — for *your* specific workflow.
+
+## Browse your notes in Obsidian
+
+Your knowledge base is a fully themed [Obsidian](https://obsidian.md) vault — homepage dashboard, kind-based folders with icons, breadcrumb navigation, and quick-add buttons. No manual setup.
+
+<p align="center">
+  <img src="assets/obsidian-home.png" alt="Knowledge base in Obsidian" width="640">
+  <br>
+  <sub>Homepage with project stats, navigation, and your full knowledge graph.</sub>
+</p>
+
+See the [Obsidian Guide](docs/obsidian.md) for the full walkthrough.
+
+## Quick start
 
 > **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
 
@@ -43,37 +58,34 @@ bunx open-zk-kb@latest
 
 That's it. The interactive installer:
 1. Adds the MCP server to your client config
-2. Installs knowledge base instructions (skill for Claude Code, managed block for OpenCode/Windsurf)
+2. Installs knowledge base instructions so your agent knows when and how to use it
 3. Creates a local vault at `~/.local/share/open-zk-kb`
 
 Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**
 
-See the [Setup Guide](docs/setup-guide.md) for manual installation, client-specific configs, and troubleshooting.
+See the [Setup Guide](docs/setup-guide.md) for manual installation and troubleshooting.
 
 ## Configuration
 
-Zero configuration required. The installer creates `~/.config/open-zk-kb/config.yaml` with sensible defaults — local embeddings work out of the box with no API key.
+Zero configuration required. Local embeddings work out of the box with no API key.
 
-See the [Configuration Reference](docs/configuration.md) for embeddings, vault path, lifecycle tuning, and Obsidian scaffold options.
+See the [Configuration Guide](docs/configuration.md) for embeddings, vault path, lifecycle tuning, and Obsidian scaffold options.
 
-## Development
+## Under the hood
 
-```bash
-git clone https://github.com/mrosnerr/open-zk-kb
-cd open-zk-kb
-bun install && bun run build
-bun run setup            # interactive installer
-```
+Built on the Zettelkasten method — atomic, linked notes with structured kinds. Each note captures one concept (a decision, a preference, a gotcha) and links to related notes, building an interconnected knowledge graph.
+
+Search combines SQLite FTS5 full-text indexing with local vector embeddings (MiniLM-L6-v2) for semantic matching. Markdown files are the source of truth; the database is a rebuildable index.
 
 ## Documentation
 
-- [Setup Guide](docs/setup-guide.md) — installation, manual config, client-specific setup, troubleshooting
+- [Setup Guide](docs/setup-guide.md) — installation, client-specific setup, troubleshooting
 - [Tools Reference](docs/tools-reference.md) — all 8 MCP tools with parameters and examples
-- [Note Lifecycle](docs/note-lifecycle.md) — 9 note kinds, statuses, review system, promotion
-- [Configuration](docs/configuration.md) — embeddings, vault, logging, Obsidian scaffold
-- [Obsidian Guide](docs/obsidian.md) — managed scaffold, 14 plugins, navigation, screenshots
+- [Note Lifecycle](docs/note-lifecycle.md) — note kinds, statuses, review system
+- [Configuration](docs/configuration.md) — embeddings, vault, Obsidian scaffold
+- [Obsidian Guide](docs/obsidian.md) — managed scaffold, plugins, navigation
 - [Architecture](docs/architecture.md) — dual storage, ownership model, design decisions
-- [Development](docs/development.md) — local dev, testing, debugging, adding tools
+- [Development](docs/development.md) — local dev, testing, debugging
 - [Contributing](.github/CONTRIBUTING.md) — guidelines for contributors
 
 ## License

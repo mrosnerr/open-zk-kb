@@ -1,5 +1,7 @@
 # Development Guide
 
+Everything you need to contribute to open-zk-kb or run it from source.
+
 ## Prerequisites
 - Bun >= 1.0.0 (required — Node.js is NOT compatible). See [Setup Guide](setup-guide.md) for user-facing installation.
 - Git

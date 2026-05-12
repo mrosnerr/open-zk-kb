@@ -2,7 +2,7 @@
 
 ## Overview
 
-Shared, persistent memory for AI assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients. TypeScript/Bun, SQLite FTS5, Markdown files with YAML frontmatter. Entry point: `mcp-server.ts` (MCP stdio).
+Persistent memory for agents. One knowledge base for all your tools — so context persists across sessions and clients. TypeScript/Bun, SQLite FTS5, Markdown files with YAML frontmatter. Entry point: `mcp-server.ts` (MCP stdio). See [BRAND.md](./BRAND.md) for public voice and positioning.
 
 ## Commands
 

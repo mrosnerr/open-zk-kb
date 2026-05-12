@@ -1,6 +1,6 @@
 # Tools Reference
 
-open-zk-kb exposes eight MCP tools. Your AI assistant calls these automatically based on injected [instructions](setup-guide.md#agent-instructions) — you rarely need to invoke them manually.
+open-zk-kb exposes eight MCP tools. Your agent calls these automatically based on injected [instructions](setup-guide.md#agent-instructions) — you rarely need to invoke them manually.
 
 | Tool | What it does |
 |------|-------------|
