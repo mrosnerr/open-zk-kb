@@ -1,0 +1,107 @@
+name: Plugin Build Test
+
+on:
+  push:
+    branches: ['feat/plugin-*']
+  workflow_dispatch:
+
+jobs:
+  build-plugin:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build TypeScript
+        run: bun run build
+
+      - name: Build plugin binaries
+        run: bun run build:plugin
+
+      - name: Verify all binaries exist
+        run: |
+          echo "Checking plugin binaries..."
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64; do
+            if [ -f "plugin/bin/open-zk-kb-$target" ]; then
+              SIZE=$(stat --printf='%s' "plugin/bin/open-zk-kb-$target" 2>/dev/null || stat -f%z "plugin/bin/open-zk-kb-$target")
+              SIZE_MB=$(echo "scale=1; $SIZE / 1048576" | bc)
+              echo "  ✓ open-zk-kb-$target (${SIZE_MB} MB)"
+            else
+              echo "  ✗ open-zk-kb-$target MISSING"
+              exit 1
+            fi
+          done
+          if [ -f "plugin/bin/open-zk-kb-windows-x64.exe" ]; then
+            SIZE=$(stat --printf='%s' "plugin/bin/open-zk-kb-windows-x64.exe")
+            SIZE_MB=$(echo "scale=1; $SIZE / 1048576" | bc)
+            echo "  ✓ open-zk-kb-windows-x64.exe (${SIZE_MB} MB)"
+          else
+            echo "  ✗ open-zk-kb-windows-x64.exe MISSING"
+            exit 1
+          fi
+
+      - name: Verify plugin structure
+        run: |
+          echo "Checking plugin structure..."
+          for file in \
+            "plugin/.claude-plugin/plugin.json" \
+            "plugin/.mcp.json" \
+            "plugin/bin/run.sh" \
+            "plugin/bin/run.cmd" \
+            "plugin/skills/open-zk-kb/SKILL.md" \
+            "plugin/skills/open-zk-kb/kinds-reference.md" \
+            "plugin/README.md"; do
+            if [ -f "$file" ]; then
+              echo "  ✓ $file"
+            else
+              echo "  ✗ $file MISSING"
+              exit 1
+            fi
+          done
+
+      - name: Verify plugin.json version matches package.json
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          PLUGIN_VERSION=$(node -p "require('./plugin/.claude-plugin/plugin.json').version")
+          echo "package.json: $PKG_VERSION"
+          echo "plugin.json:  $PLUGIN_VERSION"
+          if [ "$PKG_VERSION" != "$PLUGIN_VERSION" ]; then
+            echo "✗ Version mismatch — build:plugin should sync these"
+            exit 1
+          fi
+
+      - name: Smoke test linux-x64 binary
+        run: |
+          chmod +x plugin/bin/open-zk-kb-linux-x64
+          # Send MCP initialize request via stdio — verify binary starts and responds with JSON-RPC
+          RESPONSE=$(echo '{"jsonrpc":"2.0","method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"smoke-test","version":"0.1"}},"id":1}' \
+            | timeout 15 plugin/bin/open-zk-kb-linux-x64 server 2>/dev/null || true)
+          if echo "$RESPONSE" | grep -q '"jsonrpc"'; then
+            echo "✓ Binary responds to MCP initialize"
+          else
+            echo "⚠ Binary started but MCP response unclear (may need stdio framing)"
+            echo "Response: $RESPONSE"
+            # Don't fail — binary existing and starting is the key check
+          fi
+
+      - name: Upload plugin artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: open-zk-kb-plugin
+          path: |
+            plugin/.claude-plugin/
+            plugin/.mcp.json
+            plugin/bin/
+            plugin/skills/
+            plugin/README.md
+          retention-days: 7

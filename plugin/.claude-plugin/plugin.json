@@ -1,7 +1,8 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "open-zk-kb",
   "version": "1.0.11",
-  "description": "Persistent AI memory across sessions. Search context before work, store preferences, decisions, and observations automatically. Cross-session knowledge base built on Zettelkasten.",
+  "description": "Persistent agent memory across sessions. Corrections stick, context compounds, every session starts smarter. Cross-session knowledge base built on Zettelkasten.",
   "author": {
     "name": "mrosnerr",
     "url": "https://github.com/mrosnerr"

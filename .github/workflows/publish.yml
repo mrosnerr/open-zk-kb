@@ -97,6 +97,10 @@ jobs:
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'dev'
         run: npm publish --provenance --access public --tag dev --ignore-scripts
 
+      - name: Build plugin binaries
+        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
+        run: bun run build:plugin
+
       - name: Create GitHub Release
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
         env:
@@ -113,8 +117,14 @@ jobs:
           gh release create "$TAG" \
             --title "$TAG" \
             --notes "**Install:** \`bunx open-zk-kb@$VERSION\`
-          **npm:** https://www.npmjs.com/package/open-zk-kb/v/$VERSION" \
-            $PRERELEASE_FLAG
+          **npm:** https://www.npmjs.com/package/open-zk-kb/v/$VERSION
+          **Claude Code plugin:** \`/plugin install github:mrosnerr/open-zk-kb/plugin\`" \
+            $PRERELEASE_FLAG \
+            plugin/bin/open-zk-kb-darwin-arm64 \
+            plugin/bin/open-zk-kb-darwin-x64 \
+            plugin/bin/open-zk-kb-linux-x64 \
+            plugin/bin/open-zk-kb-linux-arm64 \
+            plugin/bin/open-zk-kb-windows-x64.exe
 
       - name: Install mcp-publisher
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'

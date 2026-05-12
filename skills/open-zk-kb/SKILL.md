@@ -1,11 +1,24 @@
 ---
 name: open-zk-kb
-version: 1.0.12
+version: 1.0.13
 description: >
   Persistent knowledge base for cross-session memory. BEFORE responding to any
   user message: (1) knowledge-search for relevant context, (2) scan for storage
   triggers (remember, always, never, I prefer, corrections) and call
   knowledge-store FIRST. Then proceed with the task.
+when_to_use: >
+  remember this, always do, never do, I prefer, store this, save this,
+  knowledge base, what do you know about, search memory, review notes,
+  capture learnings, mine sessions
+allowed-tools:
+  - mcp__open-zk-kb__knowledge-search
+  - mcp__open-zk-kb__knowledge-store
+  - mcp__open-zk-kb__knowledge-template
+  - mcp__open-zk-kb__knowledge-maintain
+  - mcp__open-zk-kb__knowledge-ingest
+  - mcp__open-zk-kb__knowledge-overview
+  - mcp__open-zk-kb__knowledge-mine
+  - mcp__open-zk-kb__knowledge-open
 ---
 
 ## Knowledge Base (open-zk-kb)
@@ -13,7 +26,7 @@ description: >
 ### Pre-Flight
 ALWAYS do all of these **before any other work**:
 
-1. **Search** — `knowledge-search` with `client: "claude-code"`. Use `kind`/`project`/`tags` filters to narrow. Try broader keywords if no results.
+1. **Search** — `knowledge-search` for relevant context. Use `kind`/`project`/`tags` filters to narrow. Try broader keywords if no results.
 2. **Apply results** — follow each note's `<guidance>` tag. Personalization shapes style, decisions are binding, procedures are step-by-step, observations are verified gotchas.
 3. **Scan for triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding.
 
@@ -91,7 +104,6 @@ guidance: "Check the database."
 - One concept per note — split if in doubt
 - Include both `summary` and `guidance` on every store call
 - Search before storing to avoid duplicates
-- Pass `client: "claude-code"` on search calls
 
 ⚠️ **Ask first**:
 - Before archiving or deleting notes you didn't create this session
