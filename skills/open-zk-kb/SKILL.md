@@ -26,7 +26,7 @@ allowed-tools:
 ### Pre-Flight
 ALWAYS do all of these **before any other work**:
 
-1. **Search** — `knowledge-search` for relevant context. Use `kind`/`project`/`tags` filters to narrow. Try broader keywords if no results.
+1. **Search** — `knowledge-search` for relevant context. Pass `client` matching your client (e.g., `"claude-code"`, `"opencode"`, `"cursor"`). Use `kind`/`project`/`tags` filters to narrow. Try broader keywords if no results.
 2. **Apply results** — follow each note's `<guidance>` tag. Personalization shapes style, decisions are binding, procedures are step-by-step, observations are verified gotchas.
 3. **Scan for triggers** — if the user's message matches a trigger below, call `knowledge-store` before proceeding.
 
