@@ -79,13 +79,24 @@ function runPatch(reverse = false): void {
   cleanupPatchArtifacts();
 }
 
-function needsTransformersPatch(): boolean {
+function applyTransformersPatch(): boolean {
   if (isTransformersPatchApplied()) {
     console.log('  Transformers patch already applied');
     return false;
   }
 
-  return true;
+  console.log('  Applying Transformers WASM patch...');
+  try {
+    runPatch();
+    return true;
+  } catch (error) {
+    try {
+      runPatch(true);
+    } catch (restoreError) {
+      console.error(`Failed to restore Transformers source after patch failure: ${restoreError instanceof Error ? restoreError.message : String(restoreError)}`);
+    }
+    throw error;
+  }
 }
 
 async function main() {
@@ -102,11 +113,7 @@ async function main() {
   let shouldRestoreTransformers = false;
 
   try {
-    shouldRestoreTransformers = needsTransformersPatch();
-    if (shouldRestoreTransformers) {
-      console.log('  Applying Transformers WASM patch...');
-      runPatch();
-    }
+    shouldRestoreTransformers = applyTransformersPatch();
 
     // Ensure plugin/bin directory exists
     fs.mkdirSync(PLUGIN_BIN, { recursive: true });
