@@ -621,7 +621,7 @@ describe('setup.ts', () => {
     expect(content).not.toContain('<!-- OPEN-ZK-KB:END -->');
   });
 
-  it('inject leaves multiply-marked files intact apart from marker cleanup and fresh block', async () => {
+  it('inject removes duplicate managed block bodies while preserving surrounding content', async () => {
     const env = createIsolatedInstallEnv();
     const agentDocsModule = await loadFreshAgentDocsModule();
 
@@ -634,8 +634,8 @@ describe('setup.ts', () => {
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('Intro');
     expect(content).toContain('Between');
-    expect(content).toContain('Old A');
-    expect(content).toContain('Old B');
+    expect(content).not.toContain('Old A');
+    expect(content).not.toContain('Old B');
     expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
     expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
   });
@@ -675,6 +675,8 @@ describe('setup.ts', () => {
 
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('Intro');
+    expect(content).not.toContain('Block A');
+    expect(content).not.toContain('Block B');
     expect(content.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
     expect(content.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
   });

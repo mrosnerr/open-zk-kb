@@ -661,6 +661,8 @@ describe('MCP Tool: knowledge-maintain', () => {
       expect(output).toContain('repaired duplicate markers');
       const repaired = fs.readFileSync(agentDocsPath, 'utf-8');
       expect(repaired).toContain('Intro');
+      expect(repaired).not.toContain('Old A');
+      expect(repaired).not.toContain('Old B');
       expect(repaired.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
       expect(repaired.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
     } finally {
