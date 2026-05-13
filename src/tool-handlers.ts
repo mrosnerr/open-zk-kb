@@ -1575,7 +1575,12 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
 
         if (inspection.status === 'multiple-markers') {
-          output += '- Result: manual review recommended; skipped to avoid touching ambiguous content\n\n';
+          if (dryRun) {
+            output += '- Result: would strip all duplicate markers and inject a single fresh block\n\n';
+          } else {
+            const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion);
+            output += `- Result: ${result.action} (repaired duplicate markers)\n\n`;
+          }
           continue;
         }
 

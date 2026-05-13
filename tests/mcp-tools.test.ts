@@ -646,7 +646,7 @@ describe('MCP Tool: knowledge-maintain', () => {
     }
   });
 
-  it('should skip ambiguous multiple-marker agent docs files during repair', async () => {
+  it('should repair multiple-marker agent docs files by stripping duplicates and injecting fresh block', async () => {
     const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
     const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-agent-docs-'));
 
@@ -658,8 +658,11 @@ describe('MCP Tool: knowledge-maintain', () => {
       fs.writeFileSync(agentDocsPath, original, 'utf-8');
 
       const output = await handleMaintain({ action: 'agent-docs', dryRun: false }, ctx.engine, ctx.config);
-      expect(output).toContain('manual review recommended; skipped');
-      expect(fs.readFileSync(agentDocsPath, 'utf-8')).toBe(original);
+      expect(output).toContain('repaired duplicate markers');
+      const repaired = fs.readFileSync(agentDocsPath, 'utf-8');
+      expect(repaired).toContain('Intro');
+      expect(repaired.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+      expect(repaired.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
     } finally {
       if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
       else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;

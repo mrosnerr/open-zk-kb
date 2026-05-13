@@ -24,8 +24,7 @@ const START_MARKER_PREFIX = '<!-- OPEN-ZK-KB:START';
 const START_MARKER_SUFFIX = ' -- managed by open-zk-kb, do not edit -->';
 const END_MARKER = '<!-- OPEN-ZK-KB:END -->';
 
-// Regex to match start marker with optional version: <!-- OPEN-ZK-KB:START v1.0.0 -- managed... -->
-const START_MARKER_REGEX = /<!-- OPEN-ZK-KB:START(?: v[\d.]+)? -- managed by open-zk-kb, do not edit -->/g;
+const START_MARKER_REGEX = /<!-- OPEN-ZK-KB:START(?: v[^\s]+)? -- managed by open-zk-kb, do not edit -->/g;
 
 function buildStartMarker(version?: string): string {
   if (version) {
@@ -58,7 +57,7 @@ function countStartMarkers(content: string): number {
  * Returns null if no version is found or marker doesn't exist.
  */
 export function extractManagedBlockVersion(content: string): string | null {
-  const match = content.match(/<!-- OPEN-ZK-KB:START v([\d.]+)/);
+  const match = content.match(/<!-- OPEN-ZK-KB:START v([^\s]+)/);
   return match ? match[1] : null;
 }
 

@@ -554,7 +554,7 @@ describe('setup.ts', () => {
 
     const installedContent = fs.readFileSync(agentDocsPath, 'utf-8');
     // Match versioned or unversioned start marker
-    const managedBlock = installedContent.match(/<!-- OPEN-ZK-KB:START(?: v[\d.]+)? -- managed by open-zk-kb, do not edit -->[\s\S]*?<!-- OPEN-ZK-KB:END -->/)?.[0];
+    const managedBlock = installedContent.match(/<!-- OPEN-ZK-KB:START(?: v[^\s]+)? -- managed by open-zk-kb, do not edit -->[\s\S]*?<!-- OPEN-ZK-KB:END -->/)?.[0];
     expect(managedBlock).toBeDefined();
 
     fs.writeFileSync(agentDocsPath, `Intro\n\n${managedBlock}\n\nTail\n`, 'utf-8');
@@ -638,6 +638,79 @@ describe('setup.ts', () => {
     expect(content).toContain('Old B');
     expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
     expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+  });
+
+  it('inject replaces a block with a pre-release versioned marker', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:START v1.0.0-dev.gabc1234 -- managed by open-zk-kb, do not edit -->\nOld content\n<!-- OPEN-ZK-KB:END -->\n', 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full', false, undefined, '1.1.0');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content).not.toContain('Old content');
+    expect(content).not.toContain('v1.0.0-dev');
+    expect(content.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+    expect(content.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
+  });
+
+  it('inject repairs duplicate blocks with pre-release versioned markers', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath,
+      'Intro\n\n' +
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gc67c501 -- managed by open-zk-kb, do not edit -->\nBlock A\n<!-- OPEN-ZK-KB:END -->\n\n' +
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gda98bb8 -- managed by open-zk-kb, do not edit -->\nBlock B\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8'
+    );
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+    expect(content.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
+  });
+
+  it('extractManagedBlockVersion handles pre-release suffixes', async () => {
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    expect(agentDocsModule.extractManagedBlockVersion(
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gc67c501 -- managed by open-zk-kb, do not edit -->'
+    )).toBe('1.1.0-dev.gc67c501');
+
+    expect(agentDocsModule.extractManagedBlockVersion(
+      '<!-- OPEN-ZK-KB:START v1.0.0 -- managed by open-zk-kb, do not edit -->'
+    )).toBe('1.0.0');
+
+    expect(agentDocsModule.extractManagedBlockVersion(
+      '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->'
+    )).toBeNull();
+  });
+
+  it('inspectAgentDocs detects multiple-markers with pre-release versions', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath,
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gc67c501 -- managed by open-zk-kb, do not edit -->\nA\n<!-- OPEN-ZK-KB:END -->\n\n' +
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gda98bb8 -- managed by open-zk-kb, do not edit -->\nB\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8'
+    );
+
+    const inspection = agentDocsModule.inspectAgentDocs(agentDocsPath);
+    expect(inspection.status).toBe('multiple-markers');
+    expect(inspection.startCount).toBe(2);
+    expect(inspection.endCount).toBe(2);
   });
 
   it('dry-run inject and remove do not modify malformed files', async () => {
