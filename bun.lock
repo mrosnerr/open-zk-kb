@@ -9,6 +9,7 @@
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@mozilla/readability": "^0.6.0",
         "linkedom": "^0.18.12",
+        "onnxruntime-web": "1.25.0-dev.20260327-722743c0e2",
         "picocolors": "^1.1.1",
         "turndown": "^7.2.4",
         "yaml": "^2.3.4",
@@ -416,7 +417,7 @@
 
     "once": ["once@1.4.0", "", { "dependencies": { "wrappy": "1" } }, "sha512-lNaJgI+2Q5URQBkccEKHTQOPaXdUxnZZElQTZY0MFUAuaEqe1E+Nyvgdz/aIyNi6Z9MzO5dv1H8n58/GELp3+w=="],
 
-    "onnxruntime-common": ["onnxruntime-common@1.24.3", "", {}, "sha512-GeuPZO6U/LBJXvwdaqHbuUmoXiEdeCjWi/EG7Y1HNnDwJYuk6WUbNXpF6luSUY8yASul3cmUlLGrCCL1ZgVXqA=="],
+    "onnxruntime-common": ["onnxruntime-common@1.24.0-dev.20251116-b39e144322", "", {}, "sha512-BOoomdHYmNRL5r4iQ4bMvsl2t0/hzVQ3OM3PHD0gxeXu1PmggqBv3puZicEUVOA3AtHHYmqZtjMj9FOfGrATTw=="],
 
     "onnxruntime-node": ["onnxruntime-node@1.24.3", "", { "dependencies": { "adm-zip": "^0.5.16", "global-agent": "^3.0.0", "onnxruntime-common": "1.24.3" }, "os": [ "linux", "win32", "darwin", ] }, "sha512-JH7+czbc8ALA819vlTgcV+Q214/+VjGeBHDjX81+ZCD0PCVCIFGFNtT0V4sXG/1JXypKPgScQcB3ij/hk3YnTg=="],
 
@@ -552,7 +553,7 @@
 
     "eslint/ignore": ["ignore@5.3.2", "", {}, "sha512-hsBTNUqQTDwkWtcdYI2i06Y/nUBEsNEDJKjWdigLvegy8kDuJAS8uRlpkkcQpyEXL0Z/pjDy5HBmMjRCJ2gq+g=="],
 
-    "onnxruntime-web/onnxruntime-common": ["onnxruntime-common@1.24.0-dev.20251116-b39e144322", "", {}, "sha512-BOoomdHYmNRL5r4iQ4bMvsl2t0/hzVQ3OM3PHD0gxeXu1PmggqBv3puZicEUVOA3AtHHYmqZtjMj9FOfGrATTw=="],
+    "onnxruntime-node/onnxruntime-common": ["onnxruntime-common@1.24.3", "", {}, "sha512-GeuPZO6U/LBJXvwdaqHbuUmoXiEdeCjWi/EG7Y1HNnDwJYuk6WUbNXpF6luSUY8yASul3cmUlLGrCCL1ZgVXqA=="],
 
     "@modelcontextprotocol/sdk/ajv/json-schema-traverse": ["json-schema-traverse@1.0.0", "", {}, "sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug=="],
 

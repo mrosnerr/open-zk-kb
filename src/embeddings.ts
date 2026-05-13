@@ -3,7 +3,11 @@
 // Falls back gracefully when no provider is configured.
 
 import { logToFile } from './logger.js';
+import { wasmBinPath, wasmMjsPath } from './onnx-wasm-paths.js';
 import type { FeatureExtractionPipeline } from '@huggingface/transformers';
+
+type TransformersModule = typeof import('@huggingface/transformers');
+type PipelineOptions = Parameters<TransformersModule['pipeline']>[2];
 
 export interface EmbeddingConfig {
   provider: 'local' | 'api';
@@ -31,6 +35,27 @@ let localPipeline: FeatureExtractionPipeline | null = null;
 let localPipelineLoading: Promise<FeatureExtractionPipeline | null> | null = null;
 let loadedModelName: string | null = null;
 
+function isCompiledBinary(): boolean {
+  return typeof Bun !== 'undefined' && Bun.main?.startsWith('/$bunfs/') === true;
+}
+
+function configureCompiledBinaryWasm(env: TransformersModule['env']): void {
+  if (!isCompiledBinary()) return;
+
+  const ortWasm = env.backends.onnx.wasm;
+  if (!ortWasm) {
+    logToFile('ERROR', 'ONNX WASM backend unavailable in compiled binary');
+    return;
+  }
+
+  ortWasm.numThreads = 1;
+  ortWasm.proxy = false;
+  ortWasm.wasmPaths = {
+    mjs: `file://${wasmMjsPath}`,
+    wasm: `file://${wasmBinPath}`,
+  };
+}
+
 function getModelCacheDir(): string {
   const xdgCache = process.env.XDG_CACHE_HOME || (
     process.env.HOME ? `${process.env.HOME}/.cache` : '/tmp'
@@ -47,7 +72,11 @@ async function getLocalPipeline(modelName: string): Promise<FeatureExtractionPip
     try {
       const { pipeline, env } = await import('@huggingface/transformers');
       env.cacheDir = getModelCacheDir();
-      localPipeline = await pipeline('feature-extraction', modelName, { dtype: 'q8' }) as FeatureExtractionPipeline;
+      configureCompiledBinaryWasm(env);
+      const pipelineOptions: PipelineOptions = isCompiledBinary()
+        ? { dtype: 'q8', device: 'wasm' }
+        : { dtype: 'q8' };
+      localPipeline = await pipeline('feature-extraction', modelName, pipelineOptions) as FeatureExtractionPipeline;
       logToFile('INFO', 'Local embedding model loaded', { model: modelName, cacheDir: env.cacheDir });
       return localPipeline;
     } catch (error) {
