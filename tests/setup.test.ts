@@ -360,6 +360,9 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:END');
     expect(content).toContain('knowledge-search');
     expect(content).toContain('knowledge-store');
+    expect(content).toContain('Use open-zk-kb for concise cross-session agent memory');
+    expect(content).toContain("project's existing knowledge location");
+    expect(content).toContain('docs, specs, ADRs, wikis, notes, or another convention');
   });
 
   it('install preserves existing content in agent docs file', async () => {
@@ -438,6 +441,9 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:START');
     // Compact version has the triggers line but no "Capture Checkpoints" section
     expect(content).toContain('Triggers');
+    expect(content).toContain('Use open-zk-kb for concise cross-session agent memory');
+    expect(content).toContain("project's existing knowledge location");
+    expect(content).toContain('docs, specs, ADRs, wikis, notes, or another convention');
     expect(content).not.toContain('Capture Checkpoints');
   });
 

@@ -2,6 +2,8 @@
 
 ALWAYS use the open-zk-kb MCP tools for persistent memory across sessions.
 
+Use open-zk-kb for concise cross-session agent memory. Put full project analysis in the project's existing knowledge location — docs, specs, ADRs, wikis, notes, or another convention. When both apply, store the agent-facing takeaway in the KB and the full project-facing artifact in project-local files.
+
 - **FIRST**: Before every response: (1) `knowledge-search` for relevant context (always pass `client: "{{CLIENT_NAME}}"`), (2) follow each note's `<guidance>` tag, (3) scan for storage triggers (remember, always, never, I prefer, corrections) and call `knowledge-store` BEFORE other work.
 - **Store knowledge**: `knowledge-store` — **one concept per note**, include `summary` and `guidance`. Multiple findings = multiple calls. For structured kinds, `knowledge-template --kind {kind}` shows expected sections (e.g. decision: Context/Options/Decision/Tradeoffs/Consequences).
   - Kinds (target words): personalization (~50), decision (~150), observation (~100), reference (~120), procedure (~150), resource (~50), domain (~500 — project operating manual, one per project). Note: index and log are auto-generated — never create manually.
