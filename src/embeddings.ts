@@ -5,6 +5,7 @@
 import { logToFile } from './logger.js';
 import { wasmBinPath, wasmMjsPath } from './onnx-wasm-paths.js';
 import type { FeatureExtractionPipeline } from '@huggingface/transformers';
+import { pathToFileURL } from 'node:url';
 
 type TransformersModule = typeof import('@huggingface/transformers');
 type PipelineOptions = Parameters<TransformersModule['pipeline']>[2];
@@ -51,8 +52,8 @@ function configureCompiledBinaryWasm(env: TransformersModule['env']): void {
   ortWasm.numThreads = 1;
   ortWasm.proxy = false;
   ortWasm.wasmPaths = {
-    mjs: `file://${wasmMjsPath}`,
-    wasm: `file://${wasmBinPath}`,
+    mjs: pathToFileURL(wasmMjsPath).href,
+    wasm: pathToFileURL(wasmBinPath).href,
   };
 }
 

@@ -79,14 +79,12 @@ function runPatch(reverse = false): void {
   cleanupPatchArtifacts();
 }
 
-function applyTransformersPatch(): boolean {
+function needsTransformersPatch(): boolean {
   if (isTransformersPatchApplied()) {
     console.log('  Transformers patch already applied');
     return false;
   }
 
-  console.log('  Applying Transformers WASM patch...');
-  runPatch();
   return true;
 }
 
@@ -101,9 +99,15 @@ async function main() {
   }
 
   console.log(`Building open-zk-kb v${version} for Claude Code plugin...\n`);
-  const shouldRestoreTransformers = applyTransformersPatch();
+  let shouldRestoreTransformers = false;
 
   try {
+    shouldRestoreTransformers = needsTransformersPatch();
+    if (shouldRestoreTransformers) {
+      console.log('  Applying Transformers WASM patch...');
+      runPatch();
+    }
+
     // Ensure plugin/bin directory exists
     fs.mkdirSync(PLUGIN_BIN, { recursive: true });
 
