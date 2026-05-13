@@ -2,7 +2,7 @@
 
 ALWAYS use the open-zk-kb MCP tools to maintain persistent memory across sessions.
 
-Use open-zk-kb for cross-session agent memory (preferences, gotchas, decisions); use project files for domain research or software docs. When both apply, store concise guidance in the KB and put full analysis in project docs.
+Use open-zk-kb for concise cross-session agent memory: preferences, gotchas, decisions, and reusable guidance. Put full project analysis in the project's existing knowledge location — docs, specs, ADRs, wikis, notes, or another convention. When both apply, store the agent-facing takeaway in the KB and the full project-facing artifact in project-local files.
 
 ### Pre-Flight: Before Responding to Any Message
 
