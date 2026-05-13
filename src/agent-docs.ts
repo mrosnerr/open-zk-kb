@@ -115,12 +115,14 @@ function inspectAgentDocsContent(content: string): Omit<AgentDocsInspection, 'fi
 function stripManagedMarkers(content: string): string {
   let stripped = '';
   let cursor = 0;
+  const startMatches = [...content.matchAll(START_MARKER_REGEX)];
 
-  for (const match of content.matchAll(START_MARKER_REGEX)) {
+  for (const [index, match] of startMatches.entries()) {
     const startIdx = match.index ?? 0;
     const endIdx = content.indexOf(END_MARKER, startIdx + match[0].length);
+    const nextStartIdx = startMatches[index + 1]?.index;
 
-    if (endIdx === -1) {
+    if (endIdx === -1 || (nextStartIdx !== undefined && nextStartIdx < endIdx)) {
       stripped += content.slice(cursor, startIdx);
       cursor = startIdx + match[0].length;
       continue;

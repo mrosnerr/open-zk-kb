@@ -640,6 +640,25 @@ describe('setup.ts', () => {
     expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
   });
 
+  it('inject preserves content after unmatched start markers before later managed blocks', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nUser text\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld block\n<!-- OPEN-ZK-KB:END -->\nTail\n', 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content).toContain('User text');
+    expect(content).toContain('Tail');
+    expect(content).not.toContain('Old block');
+    expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
+    expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+  });
+
   it('inject replaces a block with a pre-release versioned marker', async () => {
     const env = createIsolatedInstallEnv();
     const agentDocsModule = await loadFreshAgentDocsModule();
