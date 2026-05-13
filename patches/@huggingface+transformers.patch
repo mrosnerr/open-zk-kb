@@ -74,8 +74,10 @@ diff --git a/node_modules/@huggingface/transformers/src/utils/image.js b/node_mo
 diff --git a/node_modules/@huggingface/transformers/src/utils/model-loader.js b/node_modules/@huggingface/transformers/src/utils/model-loader.js
 --- a/node_modules/@huggingface/transformers/src/utils/model-loader.js
 +++ b/node_modules/@huggingface/transformers/src/utils/model-loader.js
-@@ -45,7 +45,7 @@ export async function getCoreModelFile(pretrained_model_name_or_path, name, opti
-     const baseName = `${name}${suffix}.onnx`;
+@@ -43,34 +43,34 @@ import { apis } from '../env.js';
+  */
+ export async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
+     const baseName = `${fileName}${suffix}.onnx`;
      const fullPath = `${options.subfolder ?? ''}/${baseName}`;
  
 -    return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, apis.IS_NODE_ENV);
@@ -83,13 +85,32 @@ diff --git a/node_modules/@huggingface/transformers/src/utils/model-loader.js b/
  }
  
  /**
-@@ -70,5 +70,5 @@ export async function getModelDataFiles(
-     const baseName = `${name}${suffix}.onnx`;
+  * Loads external data files for a model.
+  *
+  * @param {string} pretrained_model_name_or_path The path to the directory containing the model files.
+  * @param {string} fileName The base name of the model file (without suffix or extension).
+  * @param {string} suffix The suffix to append to the file name (e.g., '_q4').
+  * @param {import('./hub.js').PretrainedModelOptions} options Additional options for loading the model.
+  * @param {import('./hub.js').ExternalData|Record<string, import('./hub.js').ExternalData>|undefined} use_external_data_format External data format configuration.
+  * @param {any} [session_options] Optional session options that may contain externalData configuration.
+  * @returns {Promise<Array<string|{path: string, data: Uint8Array}>>} A Promise that resolves to an array of external data files.
+  */
+ export async function getModelDataFiles(
+     pretrained_model_name_or_path,
+     fileName,
+     suffix,
+     options,
+     use_external_data_format,
+     session_options = {},
+ ) {
+     const baseName = `${fileName}${suffix}.onnx`;
 -    const return_path = apis.IS_NODE_ENV;
 +    const return_path = false;
  
      /** @type {Promise<string|{path: string, data: Uint8Array}>[]} */
      let externalDataPromises = [];
+ 
+     const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
 diff --git a/node_modules/@huggingface/transformers/dist/transformers.node.mjs b/node_modules/@huggingface/transformers/dist/transformers.node.mjs
 --- a/node_modules/@huggingface/transformers/dist/transformers.node.mjs
 +++ b/node_modules/@huggingface/transformers/dist/transformers.node.mjs
@@ -146,13 +167,23 @@ diff --git a/node_modules/@huggingface/transformers/dist/transformers.node.mjs b
 +  };
  }
  var RESAMPLING_MAPPING = {
-@@ -22396,3 +22384,3 @@
+@@ -22388,18 +22376,18 @@ function getExternalDataChunkNames(fullName, numChunks) {
+   for (let i = 0; i < numChunks; ++i) {
+     names.push(`${fullName}_data${i === 0 ? "" : "_" + i}`);
+   }
+   return names;
+ }
+ async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
+   const baseName = `${fileName}${suffix}.onnx`;
    const fullPath = `${options.subfolder ?? ""}/${baseName}`;
 -  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, apis.IS_NODE_ENV);
 +  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, false);
  }
-@@ -22401,3 +22389,3 @@
+ async function getModelDataFiles(pretrained_model_name_or_path, fileName, suffix, options, use_external_data_format, session_options = {}) {
+   const baseName = `${fileName}${suffix}.onnx`;
 -  const return_path = apis.IS_NODE_ENV;
 +  const return_path = false;
    let externalDataPromises = [];
-   const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, name);
+   const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
+   if (num_chunks > 0) {
+     if (num_chunks > MAX_EXTERNAL_DATA_CHUNKS) {
