@@ -83,7 +83,7 @@ jobs:
 
       - name: Prepare bin scripts
         if: steps.check.outputs.skip == 'false'
-        run: chmod +x dist/cli.js dist/setup.js dist/mcp-server.js
+        run: chmod +x dist/cli.js dist/setup.js dist/mcp-server.js dist/opencode-plugin/index.js
 
       - name: Set dev version in package.json
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'dev'

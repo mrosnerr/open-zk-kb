@@ -75,7 +75,7 @@ function getNestedValue(obj: unknown, keys: string[]): unknown {
 function getExpectedOpenCodePluginEntry(): string {
   const testFilePath = fileURLToPath(import.meta.url);
   const projectRoot = path.resolve(path.dirname(testFilePath), '..');
-  return pathToFileURL(projectRoot).toString();
+  return pathToFileURL(path.join(projectRoot, 'dist', 'opencode-plugin', 'index.js')).toString();
 }
 
 describe('setup.ts', () => {

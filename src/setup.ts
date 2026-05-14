@@ -170,11 +170,18 @@ function detectServerPath(): string | undefined {
 
 function buildOpenCodePluginEntry(): string {
   const projectRoot = detectProjectRoot();
-  return projectRoot ? pathToFileURL(projectRoot).toString() : `${OPENCODE_PLUGIN_PACKAGE}/plugin`;
+  if (projectRoot) {
+    return pathToFileURL(path.join(projectRoot, 'dist', 'opencode-plugin', 'index.js')).toString();
+  }
+  return `${OPENCODE_PLUGIN_PACKAGE}@${detectNpmTag()}`;
 }
 
 function isOpenCodePluginEntry(value: string): boolean {
   if (value === OPENCODE_PLUGIN_PACKAGE || value === `${OPENCODE_PLUGIN_PACKAGE}/plugin`) {
+    return true;
+  }
+
+  if (value.startsWith(`${OPENCODE_PLUGIN_PACKAGE}@`)) {
     return true;
   }
 
