@@ -1,6 +1,6 @@
 # Setup Guide
 
-This guide covers installation for all supported clients. For configuration details, see [configuration.md](configuration.md).
+Get your agent remembering in under a minute. This guide covers installation for all supported clients. For configuration details, see [configuration.md](configuration.md). For the full tool inventory, see the [Tools Reference](tools-reference.md).
 
 ## Prerequisites
 - [Bun](https://bun.sh) >= 1.0.0 (required — uses `bun:sqlite` for storage)
@@ -28,7 +28,21 @@ Add to your client's MCP configuration — no cloning required:
   }
 }
 ```
-For OpenCode, use the `mcp` key with `"type": "local"` and `"command": ["bunx", "open-zk-kb@latest", "server"]`.
+For OpenCode, include both the `plugin` array and the `mcp` key:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": ["open-zk-kb/plugin"],
+  "mcp": {
+    "open-zk-kb": {
+      "type": "local",
+      "command": ["bunx", "open-zk-kb@latest", "server"],
+      "enabled": true
+    }
+  }
+}
+```
 
 ## Install from source (for development)
 
@@ -37,15 +51,12 @@ git clone https://github.com/mrosnerr/open-zk-kb
 cd open-zk-kb
 bun install
 bun run build
-bun run setup            # interactive installer
+bun run setup install --client <name> --force
 ```
 
-Verification: `ls dist/mcp-server.js` should exist.
+The installer auto-detects the source checkout (via `.git` presence) and wires your client to local paths — MCP server points at `dist/mcp-server.js`, plugin uses `file://` URLs, and agent instructions are injected.
 
-For scripted/CI use:
-```bash
-bun run setup install --client opencode
-```
+See the [Development Guide](development.md#development-setup) for the full contributor workflow.
 
 ### Config file locations
 
@@ -60,15 +71,20 @@ bun run setup install --client opencode
 ## Verify Installation
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.
-3. Ask your assistant: **"Run `knowledge-maintain stats`"**
-4. You should see vault statistics (0 notes on fresh install). This confirms the 3 tools are available:
+3. Ask your agent: **"Run `knowledge-maintain stats`"**
+4. You should see vault statistics (0 notes on fresh install). This confirms the 8 tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
+   - `knowledge-template` -- canonical note template for a kind
+   - `knowledge-mine` -- bulk-screen candidates for duplicates and store
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
+   - `knowledge-ingest` -- extract article content from URLs or HTML
+   - `knowledge-overview` -- project entry point with auto-generated index and recent log
+   - `knowledge-open` -- open the vault in Obsidian for visual browsing (see [Obsidian Guide](obsidian.md))
 
 ## Agent Instructions
 
-During installation, open-zk-kb delivers knowledge base instructions to clients that support it. The delivery mechanism varies by client:
+During installation, open-zk-kb delivers knowledge base instructions to clients that support it. These instructions teach your agent when to search, what to store, and how to keep memory useful across sessions. The delivery mechanism varies by client:
 
 | Client | Mechanism | Location |
 |--------|-----------|----------|
@@ -76,7 +92,7 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
 | Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
 
-Cursor and Zed get the MCP server config automatically, but do not currently receive agent instructions.
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions.
 
 ### Claude Code (Skill)
 
@@ -104,13 +120,34 @@ Instructions are injected as a managed block wrapped in markers:
 ## Optional Configuration
 - **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and vector embeddings in a single file. See [configuration.md](configuration.md).
 
+## Release Channels
+
+| Channel | npm tag | Stability | Use when |
+|---------|---------|-----------|----------|
+| **Stable** | `@latest` | Production-ready | Default for all users |
+| **Dev** | `@dev` | Bleeding-edge, may break | Testing unreleased changes from the `dev` branch |
+
+To install from the dev channel:
+
+```bash
+bunx open-zk-kb@dev install --client <name> --force
+```
+
+The installer auto-detects the dev release and writes `@dev` to your MCP config. Dev versions follow the format `X.Y.Z-dev.g<short-sha>` (e.g., `1.1.0-dev.g751771b`). Each push to the `dev` branch publishes a new release automatically.
+
+To switch back to stable:
+
+```bash
+bunx open-zk-kb@latest install --client <name> --force
+```
+
 ## Updating
 
 ### How Updates Work
 
 | Component | Auto-updates? | Mechanism |
 |-----------|---------------|-----------|
-| **MCP server** | ✅ Yes | `bunx open-zk-kb@latest` checks npm registry on each client restart |
+| **MCP server** | ✅ Yes | `bunx open-zk-kb@latest` (or `@dev`) checks npm registry on each client restart |
 | **Agent instructions** | ❌ No | Requires manual `install --force` to update |
 | **User config** | ❌ No | Your `config.yaml` is never modified after initial copy |
 
@@ -182,9 +219,9 @@ bunx open-zk-kb@latest uninstall --client opencode --remove-vault --confirm
 | Dry run first | Add `--dry-run` to any setup command to preview changes without applying them |
 
 ## For AI Agents -- Integration Checklist
-This section is specifically for AI coding assistants setting up open-zk-kb:
+This section is specifically for agents setting up open-zk-kb:
 1. Run `bun --version` -- confirm >= 1.0.0 (if missing: `curl -fsSL https://bun.sh/install | bash`)
 2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor
 4. Verify by calling `knowledge-maintain stats`
-5. Knowledge capture is driven by agent instructions (skill for Claude Code, managed block for OpenCode/Windsurf) provided during setup. Calling models use `knowledge-store` directly.
+5. Knowledge capture is driven by agent instructions (skill for Claude Code, managed block for OpenCode/Windsurf) provided during setup. Calling models use MCP tools directly, primarily querying the SQLite-backed server layer rather than browsing raw vault files.

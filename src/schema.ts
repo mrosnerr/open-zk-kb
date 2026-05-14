@@ -5,7 +5,7 @@ import { Database } from 'bun:sqlite';
 import { logToFile } from './logger.js';
 
 export class SchemaManager {
-  static readonly SCHEMA_VERSION = 5;
+  static readonly SCHEMA_VERSION = 8;
 
   private static readonly MIGRATIONS: Array<{
     version: number;
@@ -87,7 +87,70 @@ export class SchemaManager {
         db.run('DROP TABLE IF EXISTS capture_metrics');
       },
     },
+    {
+      version: 6,
+      description: 'Add lifecycle column',
+      migrate: (db) => {
+        const columns = db.prepare('PRAGMA table_info(notes)').all() as Array<{ name: string }>;
+        if (!columns.some(c => c.name === 'lifecycle')) {
+          db.run("ALTER TABLE notes ADD COLUMN lifecycle TEXT DEFAULT 'living'");
+        }
+      },
+    },
+    {
+      version: 7,
+      description: 'Add local tool telemetry and last access index',
+      migrate: (db) => {
+        const columns = db.prepare('PRAGMA table_info(notes)').all() as Array<{ name: string }>;
+        if (!columns.some(c => c.name === 'last_accessed_at')) {
+          db.run('ALTER TABLE notes ADD COLUMN last_accessed_at INTEGER');
+        }
+        db.run('CREATE INDEX IF NOT EXISTS idx_notes_last_accessed_at ON notes(last_accessed_at)');
+        SchemaManager.createTelemetryTable(db);
+      },
+    },
+    {
+      version: 8,
+      description: 'Add template conformance tracking',
+      migrate: (db) => {
+        SchemaManager.createConformanceTable(db);
+      },
+    },
   ];
+
+  private static createTelemetryTable(db: Database): void {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS tool_telemetry (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        session_id TEXT NOT NULL,
+        tool_name TEXT NOT NULL,
+        arg_kind TEXT,
+        timestamp INTEGER NOT NULL,
+        result_count INTEGER
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON tool_telemetry(timestamp)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_session ON tool_telemetry(session_id)');
+  }
+
+  private static createConformanceTable(db: Database): void {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS template_conformance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        note_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        action TEXT NOT NULL,
+        model TEXT,
+        coverage REAL NOT NULL,
+        matched_categories TEXT NOT NULL,
+        missing_categories TEXT NOT NULL,
+        hint_triggered INTEGER NOT NULL,
+        timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_conformance_kind ON template_conformance(kind)');
+    db.run('CREATE INDEX IF NOT EXISTS idx_conformance_timestamp ON template_conformance(timestamp)');
+  }
 
   private db: Database;
 
@@ -95,7 +158,7 @@ export class SchemaManager {
     this.db = db;
   }
 
-  private getVersion(): number {
+  getVersion(): number {
     const row = this.db.prepare('PRAGMA user_version').get() as { user_version: number };
     return row.user_version;
   }
@@ -131,6 +194,14 @@ export class SchemaManager {
       return false;
     }
 
+    if (current > SchemaManager.SCHEMA_VERSION) {
+      logToFile('WARN', 'DB schema is newer than code — possible version downgrade', {
+        dbVersion: current,
+        codeVersion: SchemaManager.SCHEMA_VERSION,
+      });
+      return false;
+    }
+
     if (current < SchemaManager.SCHEMA_VERSION) {
       for (const migration of SchemaManager.MIGRATIONS) {
         if (migration.version > current) {
@@ -142,7 +213,6 @@ export class SchemaManager {
       return false;
     }
 
-    // Already at latest version
     return false;
   }
 
@@ -167,11 +237,15 @@ export class SchemaManager {
         guidance TEXT DEFAULT '',
         embedding BLOB DEFAULT NULL,
         embedding_model TEXT DEFAULT NULL,
-        content_hash TEXT DEFAULT NULL
+        content_hash TEXT DEFAULT NULL,
+        lifecycle TEXT DEFAULT 'living'
       )
     `);
 
     this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
+    this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_last_accessed_at ON notes(last_accessed_at)');
+    SchemaManager.createTelemetryTable(this.db);
+    SchemaManager.createConformanceTable(this.db);
 
     this.db.run(`
       CREATE TABLE IF NOT EXISTS note_links (

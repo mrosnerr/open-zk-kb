@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
 
@@ -69,6 +70,12 @@ function getNestedValue(obj: unknown, keys: string[]): unknown {
   }
 
   return current;
+}
+
+function getExpectedOpenCodePluginEntry(): string {
+  const testFilePath = fileURLToPath(import.meta.url);
+  const projectRoot = path.resolve(path.dirname(testFilePath), '..');
+  return pathToFileURL(projectRoot).toString();
 }
 
 describe('setup.ts', () => {
@@ -162,6 +169,7 @@ describe('setup.ts', () => {
         expect(output).toContain('"type": "local"');
         expect(output).toContain('"command": [');
         expect(output).toContain('"enabled": true');
+        expect(output).toContain(`Would ensure plugin entry: ${getExpectedOpenCodePluginEntry()}`);
       } else {
         expect(output).toContain('"command": "bun"');
         expect(output).toContain('"args": [');
@@ -195,6 +203,7 @@ describe('setup.ts', () => {
           command: ['bun', 'run', env.fakeServerPath],
           enabled: true,
         });
+        expect(config.plugin).toEqual([getExpectedOpenCodePluginEntry()]);
       } else {
         expect(entry).toEqual({
           command: 'bun',
@@ -249,6 +258,91 @@ describe('setup.ts', () => {
     expect(config.mcp?.['open-zk-kb']).toBeUndefined();
   });
 
+  it('opencode install preserves existing plugins and adds open-zk-kb plugin entry', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugin: ['oh-my-openagent', '@rehydra/opencode'],
+    }, null, 2));
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+      mcp?: Record<string, unknown>;
+    };
+
+    expect(config.plugin).toEqual(['oh-my-openagent', '@rehydra/opencode', getExpectedOpenCodePluginEntry()]);
+    expect(config.mcp?.['open-zk-kb']).toEqual({
+      type: 'local',
+      command: ['bun', 'run', env.fakeServerPath],
+      enabled: true,
+    });
+  });
+
+  it('opencode uninstall removes only the open-zk-kb plugin entry', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugin: ['oh-my-openagent', '@rehydra/opencode', getExpectedOpenCodePluginEntry()],
+    }, null, 2));
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    setupModule.uninstall({ client: 'opencode' });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+      mcp?: Record<string, unknown>;
+    };
+
+    expect(config.plugin).toEqual(['oh-my-openagent', '@rehydra/opencode']);
+    expect(config.mcp?.['open-zk-kb']).toBeUndefined();
+  });
+
+  it('opencode install normalizes legacy plugin entries to the expected specifier', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      plugin: ['open-zk-kb/plugin'],
+      mcp: {
+        'open-zk-kb': {
+          type: 'local',
+          command: ['bun', 'run', env.fakeServerPath],
+          enabled: true,
+        },
+      },
+    }, null, 2));
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+    };
+
+    expect(config.plugin).toEqual([getExpectedOpenCodePluginEntry()]);
+  });
+
   it('install injects agent docs into client docs file', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
@@ -266,6 +360,9 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:END');
     expect(content).toContain('knowledge-search');
     expect(content).toContain('knowledge-store');
+    expect(content).toContain('Use open-zk-kb for concise cross-session agent memory');
+    expect(content).toContain("project's existing knowledge location");
+    expect(content).toContain('docs, specs, ADRs, wikis, notes, or another convention');
   });
 
   it('install preserves existing content in agent docs file', async () => {
@@ -344,6 +441,9 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:START');
     // Compact version has the triggers line but no "Capture Checkpoints" section
     expect(content).toContain('Triggers');
+    expect(content).toContain('Use open-zk-kb for concise cross-session agent memory');
+    expect(content).toContain("project's existing knowledge location");
+    expect(content).toContain('docs, specs, ADRs, wikis, notes, or another convention');
     expect(content).not.toContain('Capture Checkpoints');
   });
 
@@ -460,7 +560,7 @@ describe('setup.ts', () => {
 
     const installedContent = fs.readFileSync(agentDocsPath, 'utf-8');
     // Match versioned or unversioned start marker
-    const managedBlock = installedContent.match(/<!-- OPEN-ZK-KB:START(?: v[\d.]+)? -- managed by open-zk-kb, do not edit -->[\s\S]*?<!-- OPEN-ZK-KB:END -->/)?.[0];
+    const managedBlock = installedContent.match(/<!-- OPEN-ZK-KB:START(?: v[^\s]+)? -- managed by open-zk-kb, do not edit -->[\s\S]*?<!-- OPEN-ZK-KB:END -->/)?.[0];
     expect(managedBlock).toBeDefined();
 
     fs.writeFileSync(agentDocsPath, `Intro\n\n${managedBlock}\n\nTail\n`, 'utf-8');
@@ -527,7 +627,7 @@ describe('setup.ts', () => {
     expect(content).not.toContain('<!-- OPEN-ZK-KB:END -->');
   });
 
-  it('inject leaves multiply-marked files intact apart from marker cleanup and fresh block', async () => {
+  it('inject removes duplicate managed block bodies while preserving surrounding content', async () => {
     const env = createIsolatedInstallEnv();
     const agentDocsModule = await loadFreshAgentDocsModule();
 
@@ -540,10 +640,104 @@ describe('setup.ts', () => {
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('Intro');
     expect(content).toContain('Between');
-    expect(content).toContain('Old A');
-    expect(content).toContain('Old B');
+    expect(content).not.toContain('Old A');
+    expect(content).not.toContain('Old B');
     expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
     expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+  });
+
+  it('inject preserves content after unmatched start markers before later managed blocks', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nUser text\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld block\n<!-- OPEN-ZK-KB:END -->\nTail\n', 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content).toContain('User text');
+    expect(content).toContain('Tail');
+    expect(content).not.toContain('Old block');
+    expect(content.match(/OPEN-ZK-KB:START -- managed by open-zk-kb/g)?.length).toBe(1);
+    expect(content.match(/<!-- OPEN-ZK-KB:END -->/g)?.length).toBe(1);
+  });
+
+  it('inject replaces a block with a pre-release versioned marker', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath, 'Intro\n\n<!-- OPEN-ZK-KB:START v1.0.0-dev.gabc1234 -- managed by open-zk-kb, do not edit -->\nOld content\n<!-- OPEN-ZK-KB:END -->\n', 'utf-8');
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full', false, undefined, '1.1.0');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content).not.toContain('Old content');
+    expect(content).not.toContain('v1.0.0-dev');
+    expect(content.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+    expect(content.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
+  });
+
+  it('inject repairs duplicate blocks with pre-release versioned markers', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath,
+      'Intro\n\n' +
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gc67c501 -- managed by open-zk-kb, do not edit -->\nBlock A\n<!-- OPEN-ZK-KB:END -->\n\n' +
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gda98bb8 -- managed by open-zk-kb, do not edit -->\nBlock B\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8'
+    );
+
+    agentDocsModule.injectAgentDocs(agentDocsPath, 'full');
+
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('Intro');
+    expect(content).not.toContain('Block A');
+    expect(content).not.toContain('Block B');
+    expect(content.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+    expect(content.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
+  });
+
+  it('extractManagedBlockVersion handles pre-release suffixes', async () => {
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    expect(agentDocsModule.extractManagedBlockVersion(
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gc67c501 -- managed by open-zk-kb, do not edit -->'
+    )).toBe('1.1.0-dev.gc67c501');
+
+    expect(agentDocsModule.extractManagedBlockVersion(
+      '<!-- OPEN-ZK-KB:START v1.0.0 -- managed by open-zk-kb, do not edit -->'
+    )).toBe('1.0.0');
+
+    expect(agentDocsModule.extractManagedBlockVersion(
+      '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->'
+    )).toBeNull();
+  });
+
+  it('inspectAgentDocs detects multiple-markers with pre-release versions', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.writeFileSync(agentDocsPath,
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gc67c501 -- managed by open-zk-kb, do not edit -->\nA\n<!-- OPEN-ZK-KB:END -->\n\n' +
+      '<!-- OPEN-ZK-KB:START v1.1.0-dev.gda98bb8 -- managed by open-zk-kb, do not edit -->\nB\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8'
+    );
+
+    const inspection = agentDocsModule.inspectAgentDocs(agentDocsPath);
+    expect(inspection.status).toBe('multiple-markers');
+    expect(inspection.startCount).toBe(2);
+    expect(inspection.endCount).toBe(2);
   });
 
   it('dry-run inject and remove do not modify malformed files', async () => {
@@ -577,6 +771,7 @@ describe('setup.ts', () => {
     expect(output).toContain(`OK Vault exists at ${path.join(env.xdgDataHome, 'open-zk-kb')}`);
     expect(output).toContain(`OK Config file exists at ${path.join(env.xdgConfigHome, 'open-zk-kb', 'config.yaml')}`);
     expect(output).toContain(`OK OpenCode: MCP config looks healthy in ${path.join(env.xdgConfigHome, 'opencode', 'opencode.json')}`);
+    expect(output).toContain(`OK OpenCode: plugin config looks healthy in ${path.join(env.xdgConfigHome, 'opencode', 'opencode.json')}`);
     expect(output).toContain(`OK OpenCode: managed instructions are healthy in ${path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md')}`);
     expect(output).toContain('- ERROR: 0');
   });
@@ -643,6 +838,36 @@ describe('setup.ts', () => {
       command: ['bun', 'run', env.fakeServerPath],
       enabled: true,
     });
+    expect(repaired.plugin).toEqual([getExpectedOpenCodePluginEntry()]);
+  });
+
+  it('doctor --fix repairs a missing opencode plugin entry', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+    });
+
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcp: {
+        'open-zk-kb': {
+          type: 'local',
+          command: ['bun', 'run', env.fakeServerPath],
+          enabled: true,
+        },
+      },
+    }, null, 2));
+
+    const output = setupModule.doctor({ client: 'opencode', fix: true });
+    const repaired = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      plugin?: string[];
+    };
+
+    expect(output).toContain(`FIXED OpenCode: repaired plugin config in ${configPath}`);
+    expect(repaired.plugin).toEqual([getExpectedOpenCodePluginEntry()]);
   });
 
   it('doctor --fix repairs missing managed instructions for configured clients', async () => {

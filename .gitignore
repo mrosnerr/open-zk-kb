@@ -12,6 +12,7 @@ test-binary
 # Database & vault artifacts
 .index/
 .kb/
+.obsidian/
 *.db
 *.db-journal
 *.db-wal
@@ -39,10 +40,16 @@ Thumbs.db
 *~
 
 # Agent / AI tool artifacts
-.opencode/
+.opencode/*
+!.opencode/agents/
+.opencode/agents/*
+!.opencode/agents/reviewer.md
 .claude/
 .sisyphus/
 CONTEXT_*.md
+
+# Local test workspace (isolated OpenCode sessions for plugin dev)
+.test-workspace/
 
 # Runtime artifacts
 NoteRepository

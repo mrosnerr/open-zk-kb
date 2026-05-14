@@ -1,7 +1,9 @@
 # Development Guide
 
+Everything you need to contribute to open-zk-kb or run it from source.
+
 ## Prerequisites
-- Bun >= 1.0.0 (required — Node.js is NOT compatible)
+- Bun >= 1.0.0 (required — Node.js is NOT compatible). See [Setup Guide](setup-guide.md) for user-facing installation.
 - Git
 - A text editor with TypeScript support
 
@@ -29,15 +31,72 @@ For rapid iteration:
 - bun test --watch — re-runs tests on file change
 - Note: there's no watch mode for the build itself — you need to run bun run build each time
 
+## Development Setup
+
+Two paths depending on whether you're editing source code or just testing unreleased changes.
+
+### Path 1: Source checkout (contributor workflow)
+
+For making and testing code changes locally.
+
+```bash
+git clone https://github.com/mrosnerr/open-zk-kb
+cd open-zk-kb
+bun install
+bun run build
+bun run setup install --client <name> --force
+```
+
+Replace `<name>` with your client: `opencode`, `claude-code`, `cursor`, `windsurf`, or `zed`.
+
+The installer auto-detects the source checkout (via `.git` presence) and wires everything to local paths:
+- **MCP server** → your local `dist/mcp-server.js`
+- **Plugin** (OpenCode) → `file://` URL pointing at your checkout
+- **Agent instructions** → managed block in your client's instruction file
+
+After every source change:
+```bash
+bun run build
+bun run setup install --client <name> --force   # re-registers updated paths
+# Restart your client so it reloads the MCP server and plugin
+```
+
+### Path 2: Dev channel (testing unreleased changes)
+
+For testing the latest `dev` branch without cloning the repo.
+
+```bash
+bunx open-zk-kb@dev install --client <name> --force
+```
+
+That's it. The installer detects it's running from a dev release and writes `@dev` to your MCP config automatically. Each push to the `dev` branch publishes a new version (format: `X.Y.Z-dev.g<sha>`).
+
+To switch back to stable:
+```bash
+bunx open-zk-kb@latest install --client <name> --force
+```
+
+See [Release Channels](setup-guide.md#release-channels) for more details.
+
+### Navigation UX boundary
+
+- Treat Obsidian as the human UX layer; MCP + SQLite as the agent query layer.
+- Keep core knowledge notes markdown-native.
+- Generated `index` and `log` notes may adopt richer Obsidian-native functionality when it improves human navigation.
+- Prefer Dataview for rendering index-page lists/tables; keep the server focused on storage and guarantees.
+- Prefer the Breadcrumbs plugin for per-note navigation instead of injecting breadcrumb markdown into note bodies.
+
 ## Project Structure
 (See [architecture.md](architecture.md) for details)
 
 ```
 src/
 ├── mcp-server.ts       # MCP server entry point (stdio transport)
-├── tool-handlers.ts    # Shared logic for all 3 tools
+├── tool-handlers.ts    # Shared logic for all 8 tools
 ├── storage/
-│   └── NoteRepository.ts  # Core CRUD, FTS5, link tracking
+│   ├── NoteRepository.ts  # Core CRUD, FTS5, link tracking
+│   ├── IndexBuilder.ts    # Auto-generates per-project index notes
+│   └── LogAppender.ts     # Auto-appends to per-project log notes
 ├── config.ts           # Config loading (YAML with defaults)
 ├── schema.ts           # DB schema versioning + migrations
 ├── data-migrations.ts  # Agent-driven content upgrades
@@ -106,11 +165,21 @@ ESLint is configured with TypeScript plugin in eslint.config.cjs.
 - NEVER use console.log in server code — it breaks MCP stdio transport
 - Exception: src/setup.ts and scripts/ are CLI tools where console output is fine
 
+## Working on Obsidian UX
+
+When improving Obsidian browsing:
+
+1. Prefer enhancing generated `index` and `log` notes over changing canonical note bodies.
+2. Keep plugin-specific markup out of core knowledge notes unless there is a strong indexing/story reason.
+3. Remember that agents primarily query the MCP server and SQLite-backed repository, while humans consume the generated vault surfaces.
+
 ## Adding a New Tool
 1. Add handler function in src/tool-handlers.ts
 2. Register in src/mcp-server.ts (Zod schema + server.registerTool)
 3. Add tests in tests/mcp-tools.test.ts
 4. Rebuild: bun run build
+
+See the [Tools Reference](tools-reference.md) for the current tool inventory and the [Configuration Reference](configuration.md) for config options.
 
 ## Adding a New Installer Client
 1. Add entry to CLIENT_CONFIGS in src/setup.ts

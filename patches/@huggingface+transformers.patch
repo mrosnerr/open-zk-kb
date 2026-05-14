@@ -1,0 +1,189 @@
+diff --git a/node_modules/@huggingface/transformers/src/backends/onnx.js b/node_modules/@huggingface/transformers/src/backends/onnx.js
+--- a/node_modules/@huggingface/transformers/src/backends/onnx.js
++++ b/node_modules/@huggingface/transformers/src/backends/onnx.js
+@@ -20,7 +20,7 @@ import { env, apis, LogLevel } from '../env.js';
+ 
+ // NOTE: Import order matters here. We need to import `onnxruntime-node` before `onnxruntime-web`.
+ // In either case, we select the default export if it exists, otherwise we use the named export.
+-import * as ONNX_NODE from 'onnxruntime-node';
++const ONNX_NODE = undefined;
+ import * as ONNX_WEB from 'onnxruntime-web/webgpu';
+ import { loadWasmBinary, loadWasmFactory } from './utils/cacheWasm.js';
+ import { isBlobURL, toAbsoluteURL } from '../utils/hub/utils.js';
+@@ -106,33 +106,9 @@ if (ORT_SYMBOL in globalThis) {
+     ONNX = globalThis[ORT_SYMBOL];
+ } else if (apis.IS_NODE_ENV) {
+-    ONNX = ONNX_NODE;
+-
+-    // Updated as of ONNX Runtime 1.23.0-dev.20250612-70f14d7670
+-    // The following table lists the supported versions of ONNX Runtime Node.js binding provided with pre-built binaries.
+-    // | EPs/Platforms         | Windows x64        | Windows arm64      | Linux x64          | Linux arm64        | MacOS x64          | MacOS arm64        |
+-    // | --------------------- | ------------------ | ------------------ | ------------------ | ------------------ | ------------------ | ------------------ |
+-    // | CPU                   | ✔️                  | ✔️                  | ✔️                  | ✔️                  | ✔️                  | ✔️                  |
+-    // | WebGPU (experimental) | ✔️                  | ✔️                  | ✔️                  | ❌                  | ✔️                  | ✔️                  |
+-    // | DirectML              | ✔️                  | ✔️                  | ❌                  | ❌                  | ❌                  | ❌                  |
+-    // | CUDA                  | ❌                  | ❌                  | ✔️ (CUDA v12)       | ❌                  | ❌                  | ❌                  |
+-    // | CoreML                | ❌                  | ❌                  | ❌                  | ❌                  | ✔️                  | ✔️                  |
+-    switch (process.platform) {
+-        case 'win32': // Windows x64 and Windows arm64
+-            supportedDevices.push('dml');
+-            break;
+-        case 'linux': // Linux x64 and Linux arm64
+-            if (process.arch === 'x64') {
+-                supportedDevices.push('cuda');
+-            }
+-            break;
+-        case 'darwin': // MacOS x64 and MacOS arm64
+-            supportedDevices.push('coreml');
+-            break;
+-    }
+-
+-    supportedDevices.push('webgpu');
+-    supportedDevices.push('cpu');
+-    defaultDevices = ['cpu'];
++    ONNX = ONNX_WEB;
++
++    supportedDevices.push('wasm');
++    defaultDevices = ['wasm'];
+ } else {
+     ONNX = ONNX_WEB;
+ 
+diff --git a/node_modules/@huggingface/transformers/src/utils/image.js b/node_modules/@huggingface/transformers/src/utils/image.js
+--- a/node_modules/@huggingface/transformers/src/utils/image.js
++++ b/node_modules/@huggingface/transformers/src/utils/image.js
+@@ -14,7 +14,7 @@ import { Tensor } from './tensor.js';
+ import { saveBlob } from './io.js';
+ 
+ // Will be empty (or not used) if running in browser or web-worker
+-import sharp from 'sharp';
++const sharp = undefined;
+ import { logger } from './logger.js';
+ 
+ let createCanvasFunction;
+@@ -48,7 +48,9 @@ if (apis.IS_WEB_ENV) {
+         return newImage;
+     };
+ } else {
+-    throw new Error('Unable to load image processing library.');
++    loadImageFunction = async () => {
++        throw new Error('Image processing is unavailable in this build.');
++    };
+ }
+ 
+ // Defined here: https://github.com/python-pillow/Pillow/blob/a405e8406b83f8bfb8916e93971edc7407b8b1ff/src/libImaging/Imaging.h#L262-L268
+diff --git a/node_modules/@huggingface/transformers/src/utils/model-loader.js b/node_modules/@huggingface/transformers/src/utils/model-loader.js
+--- a/node_modules/@huggingface/transformers/src/utils/model-loader.js
++++ b/node_modules/@huggingface/transformers/src/utils/model-loader.js
+@@ -43,34 +43,34 @@ import { apis } from '../env.js';
+  */
+ export async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
+     const baseName = `${fileName}${suffix}.onnx`;
+     const fullPath = `${options.subfolder ?? ''}/${baseName}`;
+ 
+-    return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, apis.IS_NODE_ENV);
++    return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, false);
+ }
+ 
+ /**
+  * Loads external data files for a model.
+  *
+  * @param {string} pretrained_model_name_or_path The path to the directory containing the model files.
+  * @param {string} fileName The base name of the model file (without suffix or extension).
+  * @param {string} suffix The suffix to append to the file name (e.g., '_q4').
+  * @param {import('./hub.js').PretrainedModelOptions} options Additional options for loading the model.
+  * @param {import('./hub.js').ExternalData|Record<string, import('./hub.js').ExternalData>|undefined} use_external_data_format External data format configuration.
+  * @param {any} [session_options] Optional session options that may contain externalData configuration.
+  * @returns {Promise<Array<string|{path: string, data: Uint8Array}>>} A Promise that resolves to an array of external data files.
+  */
+ export async function getModelDataFiles(
+     pretrained_model_name_or_path,
+     fileName,
+     suffix,
+     options,
+     use_external_data_format,
+     session_options = {},
+ ) {
+     const baseName = `${fileName}${suffix}.onnx`;
+-    const return_path = apis.IS_NODE_ENV;
++    const return_path = false;
+ 
+     /** @type {Promise<string|{path: string, data: Uint8Array}>[]} */
+     let externalDataPromises = [];
+ 
+     const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
+diff --git a/node_modules/@huggingface/transformers/dist/transformers.node.mjs b/node_modules/@huggingface/transformers/dist/transformers.node.mjs
+--- a/node_modules/@huggingface/transformers/dist/transformers.node.mjs
++++ b/node_modules/@huggingface/transformers/dist/transformers.node.mjs
+@@ -7542,6 +7542,6 @@ var float16ToFloat32 = (() => {
+ 
+ // src/backends/onnx.js
+-import * as ONNX_NODE from "onnxruntime-node";
++const ONNX_NODE = undefined;
+ 
+ // ../../node_modules/.pnpm/onnxruntime-web@1.25.0-dev.20260327-722743c0e2/node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs
+ var ort_webgpu_bundle_min_exports = {};
+@@ -11557,23 +11557,9 @@ var ORT_SYMBOL = /* @__PURE__ */ Symbol.for("onnxruntime");
+ if (ORT_SYMBOL in globalThis) {
+   ONNX = globalThis[ORT_SYMBOL];
+ } else if (apis.IS_NODE_ENV) {
+-  ONNX = ONNX_NODE;
+-  switch (process.platform) {
+-    case "win32":
+-      supportedDevices.push("dml");
+-      break;
+-    case "linux":
+-      if (process.arch === "x64") {
+-        supportedDevices.push("cuda");
+-      }
+-      break;
+-    case "darwin":
+-      supportedDevices.push("coreml");
+-      break;
+-  }
+-  supportedDevices.push("webgpu");
+-  supportedDevices.push("cpu");
+-  defaultDevices = ["cpu"];
++  ONNX = ort_webgpu_bundle_min_exports;
++  supportedDevices.push("wasm");
++  defaultDevices = ["wasm"];
+ } else {
+   ONNX = ort_webgpu_bundle_min_exports;
+   if (apis.IS_WEBNN_AVAILABLE) {
+@@ -17728,6 +17714,6 @@ var AutomaticSpeechRecognitionPipeline = class extends ChunkPipeline {
+ 
+ // src/utils/image.js
+-import sharp from "sharp";
++const sharp = undefined;
+ var createCanvasFunction;
+ var ImageDataClass;
+ var loadImageFunction;
+@@ -17751,6 +17737,8 @@ if (apis.IS_WEB_ENV) {
+     return newImage;
+   };
+ } else {
+-  throw new Error("Unable to load image processing library.");
++  loadImageFunction = async () => {
++    throw new Error("Image processing is unavailable in this build.");
++  };
+ }
+ var RESAMPLING_MAPPING = {
+@@ -22388,18 +22376,18 @@ function getExternalDataChunkNames(fullName, numChunks) {
+   for (let i = 0; i < numChunks; ++i) {
+     names.push(`${fullName}_data${i === 0 ? "" : "_" + i}`);
+   }
+   return names;
+ }
+ async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
+   const baseName = `${fileName}${suffix}.onnx`;
+   const fullPath = `${options.subfolder ?? ""}/${baseName}`;
+-  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, apis.IS_NODE_ENV);
++  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, false);
+ }
+ async function getModelDataFiles(pretrained_model_name_or_path, fileName, suffix, options, use_external_data_format, session_options = {}) {
+   const baseName = `${fileName}${suffix}.onnx`;
+-  const return_path = apis.IS_NODE_ENV;
++  const return_path = false;
+   let externalDataPromises = [];
+   const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
+   if (num_chunks > 0) {
+     if (num_chunks > MAX_EXTERNAL_DATA_CHUNKS) {

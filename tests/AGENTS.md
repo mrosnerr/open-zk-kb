@@ -11,14 +11,15 @@ tests/
 ├── setup.ts               # Exports bun:test globals, sets NODE_ENV=test
 ├── harness.ts             # TestContext: temp dirs, NoteRepository lifecycle, file helpers
 ├── fixtures.ts            # 5 note fixtures + 2 content snippets
-├── mcp-tools.test.ts      # Tests handleStore/Search/Maintain via tool-handlers.ts
+├── mcp-tools.test.ts      # Tests handleStore/Search/Maintain/Overview via tool-handlers.ts
 ├── integration.test.ts    # NoteRepository direct: kind defaults, frontmatter, search filters
 ├── edge-cases.test.ts     # FTS5 edge cases (operators, injection, unicode) + input validation
 ├── embeddings.test.ts     # Pure functions: cosineSimilarity, blob round-trip, buildEmbeddingText
 ├── simhash.test.ts        # SimHash duplicate detection
 ├── config.test.ts         # Config loading: defaults, YAML override, partial, malformed
-├── schema.test.ts         # DB schema: fresh creation, migrations v1→v5
+├── schema.test.ts         # DB schema: fresh creation, migrations v1→v6
 ├── setup.test.ts          # CLI installer: install, uninstall, skill + instruction injection
+├── obsidian.test.ts       # Obsidian detection, vault registry, launch, handleOpen
 ├── knowledge-quality-assessment.test.ts  # Content quality scoring
 ├── injection-quality-test.ts  # Agent self-search quality via MCP
 ├── docker/                # Docker-based integration tests

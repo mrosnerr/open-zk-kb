@@ -24,8 +24,7 @@ const START_MARKER_PREFIX = '<!-- OPEN-ZK-KB:START';
 const START_MARKER_SUFFIX = ' -- managed by open-zk-kb, do not edit -->';
 const END_MARKER = '<!-- OPEN-ZK-KB:END -->';
 
-// Regex to match start marker with optional version: <!-- OPEN-ZK-KB:START v1.0.0 -- managed... -->
-const START_MARKER_REGEX = /<!-- OPEN-ZK-KB:START(?: v[\d.]+)? -- managed by open-zk-kb, do not edit -->/g;
+const START_MARKER_REGEX = /<!-- OPEN-ZK-KB:START(?: v[^\s]+)? -- managed by open-zk-kb, do not edit -->/g;
 
 function buildStartMarker(version?: string): string {
   if (version) {
@@ -58,7 +57,7 @@ function countStartMarkers(content: string): number {
  * Returns null if no version is found or marker doesn't exist.
  */
 export function extractManagedBlockVersion(content: string): string | null {
-  const match = content.match(/<!-- OPEN-ZK-KB:START v([\d.]+)/);
+  const match = content.match(/<!-- OPEN-ZK-KB:START v([^\s]+)/);
   return match ? match[1] : null;
 }
 
@@ -75,7 +74,7 @@ export function getAgentDocsVersion(filePath: string): string | null {
 function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string, version?: string): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const filename = size === 'compact' ? 'agent-instructions-compact.md' : 'agent-instructions-full.md';
-  const instructionsPath = path.join(projectRoot, filename);
+  const instructionsPath = path.join(projectRoot, 'templates', 'install', filename);
   let content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
   if (clientName) {
     content = content.replace(/\{\{CLIENT_NAME\}\}/g, clientName);
@@ -114,8 +113,26 @@ function inspectAgentDocsContent(content: string): Omit<AgentDocsInspection, 'fi
 }
 
 function stripManagedMarkers(content: string): string {
-  return content
-    .replace(START_MARKER_REGEX, '')
+  let stripped = '';
+  let cursor = 0;
+  const startMatches = [...content.matchAll(START_MARKER_REGEX)];
+
+  for (const [index, match] of startMatches.entries()) {
+    const startIdx = match.index ?? 0;
+    const endIdx = content.indexOf(END_MARKER, startIdx + match[0].length);
+    const nextStartIdx = startMatches[index + 1]?.index;
+
+    if (endIdx === -1 || (nextStartIdx !== undefined && nextStartIdx < endIdx)) {
+      stripped += content.slice(cursor, startIdx);
+      cursor = startIdx + match[0].length;
+      continue;
+    }
+
+    stripped += content.slice(cursor, startIdx);
+    cursor = endIdx + END_MARKER.length;
+  }
+
+  return (stripped + content.slice(cursor))
     .split(END_MARKER).join('')
     .replace(/\n{3,}/g, '\n\n');
 }

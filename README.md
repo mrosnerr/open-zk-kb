@@ -5,28 +5,50 @@
 [![npm downloads](https://img.shields.io/npm/dm/open-zk-kb)](https://www.npmjs.com/package/open-zk-kb)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Shared, persistent memory for AI assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients.
+You open a new session and your agent has no idea who you are. Again. You re-explain your stack, your conventions, that one edge case you've corrected five times.
 
-## Demo
+open-zk-kb gives your agent a memory — so corrections stick, context compounds, and every session starts smarter than the last.
 
 <p align="center">
   <img src="assets/demo.gif" alt="open-zk-kb demo" width="640">
   <br>
-  <sub>Real MCP calls — store, search, and stats run against a live knowledge base.</sub>
+  <sub>Your agent stores what it learns and searches it next session — automatically.</sub>
 </p>
 
 ## Why open-zk-kb?
 
-AI assistants forget everything between sessions. open-zk-kb gives your assistant a persistent, structured memory it queries automatically.
+Your agent starts from zero every session. No memory, no learning curve. You correct the same mistakes, re-explain the same conventions, re-teach the same context. Switch tools and it's even worse — your Cursor agent doesn't know what your Claude agent learned.
 
-- **Hybrid search** — full-text + local embeddings, so only relevant notes surface
-- **Atomic notes** — one concept per note (6 kinds, lifecycle management) keeps results precise
-- **Local-first** — no API keys, works offline, scales to thousands of notes
-- **Human-readable** — Markdown + YAML frontmatter, rebuildable from files
-- **Shared memory across tools** — one knowledge base for OpenCode, Claude Code, Cursor, Windsurf, and Zed
-- **MIT-licensed**
+open-zk-kb fixes that.
 
-## Quick Start
+- **Correct it once, it sticks** — your agent stores corrections, preferences, and decisions. Next session, it already knows.
+- **Works across every tool** — one knowledge base shared by [Claude Code, Cursor, Windsurf, OpenCode, and Zed](docs/setup-guide.md)
+- **Finds what's relevant** — hybrid search matches meaning, not just keywords, so only useful context surfaces
+- **Runs locally** — no API keys, no cloud, works offline. Your data stays on your machine.
+- **Human-readable** — plain Markdown files [you can browse, edit, and version control](docs/architecture.md#dual-storage-model)
+- **Open source** — MIT licensed
+
+## How it works
+
+1. **You install it** — one command, picks up your client automatically
+2. **Your agent stores what it learns** — corrections, preferences, decisions, gotchas, workflows
+3. **Next session, it searches first** — relevant context surfaces before your agent writes a single line
+
+Your agent gets sharper the longer you use it — for *your* specific workflow.
+
+## Browse your notes in Obsidian
+
+Your knowledge base is a fully themed [Obsidian](https://obsidian.md) vault — homepage dashboard, kind-based folders with icons, breadcrumb navigation, and quick-add buttons. No manual setup.
+
+<p align="center">
+  <img src="assets/obsidian-home.png" alt="Knowledge base in Obsidian" width="640">
+  <br>
+  <sub>Homepage with project stats, navigation, and your full knowledge graph.</sub>
+</p>
+
+See the [Obsidian Guide](docs/obsidian.md) for the full walkthrough.
+
+## Quick start
 
 > **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
 
@@ -36,158 +58,35 @@ bunx open-zk-kb@latest
 
 That's it. The interactive installer:
 1. Adds the MCP server to your client config
-2. Installs knowledge base instructions (skill for Claude Code, managed block for OpenCode/Windsurf)
+2. Installs knowledge base instructions so your agent knows when and how to use it
 3. Creates a local vault at `~/.local/share/open-zk-kb`
 
 Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**
 
-## How It Works
-
-Your AI assistant gets three MCP tools:
-
-| Tool | What it does |
-|------|-------------|
-| `knowledge-search` | Search the knowledge base before starting work |
-| `knowledge-store` | Save decisions, preferences, procedures, and insights |
-| `knowledge-maintain` | Review, promote, archive, and rebuild notes |
-
-The installer injects instructions that guide the AI to **proactively search** for relevant context before starting work and **store valuable knowledge** as it discovers it. No plugin required — the AI drives everything through tool calls.
-
-Notes are stored as Markdown files with YAML frontmatter. A SQLite index provides fast full-text search, with local vector embeddings for semantic matching. No API key needed.
+See the [Setup Guide](docs/setup-guide.md) for manual installation and troubleshooting.
 
 ## Configuration
 
-Zero configuration required for basic usage. The installer creates `~/.config/open-zk-kb/config.yaml` automatically.
+Zero configuration required. Local embeddings work out of the box with no API key.
 
-To use an API provider for embeddings instead of local models:
+See the [Configuration Guide](docs/configuration.md) for embeddings, vault path, lifecycle tuning, and Obsidian scaffold options.
 
-```yaml
-embeddings:
-  provider: "api"
-  base_url: "https://openrouter.ai/api/v1"
-  api_key: "your-api-key-here"
-  model: "openai/text-embedding-3-small"
-  dimensions: 1536
-```
+## Under the hood
 
-Any OpenAI-compatible API works (OpenRouter, Together, Groq, local vLLM, etc.). See [docs/configuration.md](docs/configuration.md) for the full reference.
+Built on the Zettelkasten method — atomic, linked notes with structured kinds. Each note captures one concept (a decision, a preference, a gotcha) and links to related notes, building an interconnected knowledge graph.
 
-## Note Kinds
+Search combines SQLite FTS5 full-text indexing with local vector embeddings (MiniLM-L6-v2) for semantic matching. Markdown files are the source of truth; the database is a rebuildable index.
 
-| Kind | Default Status | Use Case |
-|------|----------------|----------|
-| `personalization` | permanent | User preferences, habits, and personal style |
-| `reference` | fleeting | Technical facts, API details, and documentation snippets |
-| `decision` | permanent | Architectural choices, project commitments, and trade-offs |
-| `procedure` | fleeting | Step-by-step workflows and recurring tasks |
-| `resource` | permanent | Links, tools, libraries, and external documentation |
-| `observation` | fleeting | Insights, patterns, and temporary findings |
+## Documentation
 
-Notes follow a lifecycle: **fleeting** → **permanent** → **archived**. See [Note Lifecycle](docs/note-lifecycle.md) for details.
-
-<details>
-<summary><h2>Manual Install</h2></summary>
-
-If you prefer manual configuration, add open-zk-kb to your client's MCP config file. No cloning required — the npm package includes everything.
-
-> **Note**: Manual install only adds the MCP server. To also inject the agent instructions, run `bunx open-zk-kb@latest install --client <name>` or add the contents of `agent-instructions-full.md` (or `agent-instructions-compact.md` for token-constrained clients) to your client's instruction file.
-
-### OpenCode
-
-`~/.config/opencode/opencode.json`
-
-```json
-{
-  "mcp": {
-    "open-zk-kb": {
-      "type": "local",
-      "command": ["bunx", "open-zk-kb@latest", "server"],
-      "enabled": true
-    }
-  }
-}
-```
-
-### Claude Code
-
-`~/.claude/settings.json`
-
-```json
-{
-  "mcpServers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb@latest", "server"]
-    }
-  }
-}
-```
-
-### Cursor
-
-`~/.cursor/mcp.json`
-
-```json
-{
-  "mcpServers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb@latest", "server"]
-    }
-  }
-}
-```
-
-### Windsurf
-
-`~/.codeium/windsurf/mcp_config.json`
-
-```json
-{
-  "mcpServers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb@latest", "server"]
-    }
-  }
-}
-```
-
-### Zed
-
-`~/.config/zed/settings.json`
-
-```json
-{
-  "context_servers": {
-    "open-zk-kb": {
-      "command": "bunx",
-      "args": ["open-zk-kb@latest", "server"]
-    }
-  }
-}
-```
-
-</details>
-
-## Development
-
-```bash
-git clone https://github.com/mrosnerr/open-zk-kb
-cd open-zk-kb
-bun install && bun run build
-bun run setup            # interactive installer
-```
-
-## Links
-
-- [Setup Guide](docs/setup-guide.md) — installation, instruction injection, verification
-- [Tools Reference](docs/tools-reference.md) — all 3 MCP tools, parameters, examples
-- [Configuration Reference](docs/configuration.md) — embeddings, vault, logging
-- [Note Lifecycle](docs/note-lifecycle.md) — statuses, review, promotion
-- [Architecture Design](docs/architecture.md) — system design, dual storage, instruction injection
-- [Development & Contributing](docs/development.md) — local dev, testing, debugging
-- [Contributing Guidelines](CONTRIBUTING.md)
+- [Setup Guide](docs/setup-guide.md) — installation, client-specific setup, troubleshooting
+- [Tools Reference](docs/tools-reference.md) — all 8 MCP tools with parameters and examples
+- [Note Lifecycle](docs/note-lifecycle.md) — note kinds, statuses, review system
+- [Configuration](docs/configuration.md) — embeddings, vault, Obsidian scaffold
+- [Obsidian Guide](docs/obsidian.md) — managed scaffold, plugins, navigation
+- [Architecture](docs/architecture.md) — dual storage, ownership model, design decisions
+- [Development](docs/development.md) — local dev, testing, debugging
+- [Contributing](.github/CONTRIBUTING.md) — guidelines for contributors
 
 ## License
 

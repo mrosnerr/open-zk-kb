@@ -146,7 +146,7 @@ describe('Input Validation', () => {
     expect(output).toContain('Knowledge stored');
   });
 
-  it('should store a note with very long title', async () => {
+  it('should reject a title exceeding the hard limit', async () => {
     const longTitle = 'A'.repeat(500);
     const output = await handleStore({
       title: longTitle,
@@ -156,7 +156,35 @@ describe('Input Validation', () => {
       guidance: 'Test long title handling',
     }, ctx.engine);
 
+    expect(output).toContain('Title rejected');
+    expect(output).toContain('max 10 words');
+  });
+
+  it('should warn on titles over 6 words', async () => {
+    const output = await handleStore({
+      title: 'This title has seven whole words here',
+      content: 'Some content',
+      kind: 'reference',
+      summary: 'Soft warning test',
+      guidance: 'Test soft title warning',
+    }, ctx.engine);
+
     expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Title is 7 words');
+  });
+
+  it('should accept titles within the 3-6 word target', async () => {
+    const output = await handleStore({
+      title: 'Short valid title',
+      content: 'Some content',
+      kind: 'reference',
+      summary: 'Good title test',
+      guidance: 'Test valid title',
+    }, ctx.engine);
+
+    expect(output).toContain('Knowledge stored');
+    expect(output).not.toContain('Title is');
+    expect(output).not.toContain('Title rejected');
   });
 
   it('should store a note with special characters in title', async () => {
@@ -502,7 +530,7 @@ Legacy content`;
   });
 });
 
-describe('handleStore non-blocking embedding', () => {
+describe('handleStore embedding handling', () => {
   let ctx: TestContext;
 
   beforeEach(() => {
@@ -513,7 +541,7 @@ describe('handleStore non-blocking embedding', () => {
     cleanupTestHarness(ctx);
   });
 
-  it('should return result without embedding config', async () => {
+  it('should return successfully without embedding config', async () => {
     const result = await handleStore({
       title: 'Quick Note',
       content: 'This should return immediately',

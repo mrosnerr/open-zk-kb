@@ -1,0 +1,70 @@
+# open-zk-kb configuration
+# Location: ~/.config/open-zk-kb/config.yaml
+#
+# Copy this file there and fill in your values:
+#   mkdir -p ~/.config/open-zk-kb
+#   cp config.example.yaml ~/.config/open-zk-kb/config.yaml
+
+# ─── Core Settings ───────────────────────────────────────────────────────────
+
+# vault: ~/.local/share/open-zk-kb       # Where notes are stored (default shown)
+# logLevel: INFO                          # DEBUG | INFO | WARN | ERROR
+# lifecycle:
+#   reviewAfterDays: 14                   # Days before a note is surfaced for review
+#   promotionThreshold: 2                 # Accesses needed to recommend promotion
+#   exemptKinds:                          # Kinds exempt from review
+#     - personalization
+#     - decision
+
+# ─── Lifecycle Defaults ───────────────────────────────────────────────────────
+# Per-kind lifecycle defaults and slug-based snapshot auto-detection.
+# lifecycleDefaults:
+#   defaultForKind:
+#     personalization: living
+#     decision: snapshot
+#     observation: snapshot
+#     reference: living
+#     procedure: living
+#     resource: living
+#     domain: living
+#   detectSnapshotFromSlug: true          # Titles with YYYY-MM-DD auto-default to snapshot
+
+# ─── Search ───────────────────────────────────────────────────────────────────
+# search:
+#   alwaysIncludeDomainNote: true         # Prepend domain note to project-scoped searches
+#   excludeLogFromSearch: true            # Exclude structural log notes from default search results
+
+# ─── Telemetry ────────────────────────────────────────────────────────────────
+# Local-only SQLite counters for tool invocation rates. No content or queries are recorded.
+# Disabled by default — uncomment and set true to opt in.
+# telemetry:
+#   enabled: false                        # Set true to enable counters and access timestamps
+
+# ─── Navigation ───────────────────────────────────────────────────────────────
+# Auto-generated per-project index and operations log.
+# navigation:
+#   enableProjectIndex: true              # Auto-rebuild project index on every store/archive/promote/delete/rebuild
+#   enableProjectLog: true               # Auto-append to project log on every event
+#   overviewLogEntryLimit: 10            # Recent log entries shown in knowledge-overview
+
+# ─── Obsidian Vault Experience ────────────────────────────────────────────────
+# Batteries-included vault scaffold used by knowledge-open.
+# obsidian:
+#   scaffold: true                        # Create/update .obsidian config, plugins, theme, snippets
+#   autoUpgrade: true                     # Refresh pinned scaffold assets when the server starts
+#   readOnly: true                        # Default to Reading View + read-only helpers
+
+# ─── Embeddings ──────────────────────────────────────────────────────────────
+# Local embeddings (23MB MiniLM model) are enabled by default — no config needed.
+# To use an API provider instead, uncomment below:
+
+# embeddings:
+#   provider: api
+#   model: openai/text-embedding-3-small  # Any embeddings model
+#   dimensions: 1536                      # Must match model's output dimensions
+#   base_url: https://openrouter.ai/api/v1
+#   api_key: "your-api-key-here"
+
+# To disable embeddings entirely (keyword search only):
+# embeddings:
+#   enabled: false

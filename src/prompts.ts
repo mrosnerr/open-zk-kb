@@ -14,11 +14,26 @@ export const KIND_GUIDANCE: Record<string, string> = {
   procedure: 'Follow these steps when performing this task.',
   resource: 'Recommended resource — reference when relevant.',
   observation: 'Unverified insight — consider but verify before relying on.',
+  domain: 'Project operating manual — follow conventions and boundaries defined here.',
+  index: 'Auto-generated project catalog — use knowledge-overview to view.',
+  log: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
 };
 
 // Kinds that benefit from a content preview in compact rendering
 const CONTENT_PREVIEW_KINDS = new Set(['procedure', 'reference', 'observation', 'resource']);
 const CONTENT_PREVIEW_MAX_CHARS = 150;
+
+// ---- Staleness metric ----
+
+/**
+ * Compute staleness in whole days from the most recent activity timestamp.
+ * Uses last_accessed_at if available, otherwise falls back to created_at.
+ * Pure computation — no judgment, no filtering.
+ */
+export function computeStaleness(note: { created_at: number; last_accessed_at?: number }): number {
+  const anchor = note.last_accessed_at ?? note.created_at;
+  return Math.max(0, Math.floor((Date.now() - anchor) / (1000 * 60 * 60 * 24)));
+}
 
 // ---- Shared note attributes ----
 
@@ -28,6 +43,12 @@ function buildNoteAttrs(note: NoteMetadata): string {
     `kind="${note.kind || 'observation'}"`,
     `status="${note.status}"`,
   ];
+
+  if (note.lifecycle && note.lifecycle !== 'living') {
+    attrs.push(`lifecycle="${note.lifecycle}"`);
+  }
+
+  attrs.push(`staleness_days="${computeStaleness(note)}"`);
 
   const tags = Array.isArray(note.tags) ? note.tags : [];
   if (tags.length > 0) {

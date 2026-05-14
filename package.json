@@ -1,8 +1,8 @@
 {
   "name": "open-zk-kb",
-  "version": "1.0.11",
+  "version": "1.1.0",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
-  "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method.",
+  "description": "Persistent memory for agents. Corrections stick, context compounds, every session starts smarter.",
   "type": "module",
   "main": "dist/mcp-server.js",
   "types": "dist/mcp-server.d.ts",
@@ -10,6 +10,10 @@
     ".": {
       "types": "./dist/mcp-server.d.ts",
       "import": "./dist/mcp-server.js"
+    },
+    "./plugin": {
+      "types": "./dist/opencode-plugin/index.d.ts",
+      "import": "./dist/opencode-plugin/index.js"
     }
   },
   "sideEffects": false,
@@ -30,9 +34,7 @@
   "files": [
     "dist/",
     "skills/",
-    "config.example.yaml",
-    "agent-instructions-full.md",
-    "agent-instructions-compact.md",
+    "templates/",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
@@ -41,6 +43,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "postbuild": "bun run scripts/dev-scaffold.ts --no-build",
     "prepublishOnly": "bun run build && bun test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
@@ -56,11 +59,16 @@
     "@clack/prompts": "^1.1.0",
     "@huggingface/transformers": "^4.0.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "^0.18.12",
+    "onnxruntime-web": "1.25.0-dev.20260327-722743c0e2",
     "picocolors": "^1.1.1",
+    "turndown": "^7.2.4",
     "yaml": "^2.3.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/turndown": "^5.0.6",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
     "@typescript-eslint/parser": "^8.58.1",
     "bun-types": "^1.2.2",
