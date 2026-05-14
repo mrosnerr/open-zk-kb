@@ -1,5 +1,6 @@
 // tests/integration.test.ts - Integration tests for knowledge base
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'fs';
 import {
   createTestHarness,
   cleanupTestHarness,
@@ -409,6 +410,26 @@ describe('Knowledge Capture Integration Tests', () => {
       // Verify notes are still accessible
       const statsAfter = context.engine.getStats();
       expect(statsAfter.total).toBe(2);
+    });
+
+    it('should leave changed note embeddings pending after rebuild', () => {
+      const result = context.engine.store('Original note content', {
+        title: 'Embedding Source',
+        kind: 'reference',
+        summary: 'Original summary',
+      });
+      expect(context.engine.storeEmbedding(result.id, [1, 0, 0], 'test-model')).toBe(true);
+
+      const originalFile = fs.readFileSync(result.path, 'utf-8');
+      fs.writeFileSync(result.path, originalFile.replace('Original note content', 'Changed note content'), 'utf-8');
+
+      const rebuild = context.engine.rebuildFromFiles();
+      expect(rebuild.errors).toBe(0);
+
+      const note = context.engine.getById(result.id);
+      expect(note!.content).toContain('Changed note content');
+      const pendingEmbeddings = context.engine.getNotesWithoutEmbeddings();
+      expect(pendingEmbeddings.some(n => n.id === result.id)).toBe(true);
     });
   });
 
