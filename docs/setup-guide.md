@@ -33,7 +33,7 @@ For OpenCode, include both the `plugin` array and the `mcp` key:
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["open-zk-kb/plugin"],
+  "plugin": ["open-zk-kb@latest"],
   "mcp": {
     "open-zk-kb": {
       "type": "local",
