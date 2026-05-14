@@ -313,6 +313,43 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('Rebuild complete');
   });
 
+  it('should backfill embeddings in bounded batches', async () => {
+    ctx.engine.clearAll();
+    for (let i = 0; i < 51; i++) {
+      ctx.engine.store(`Batch content ${i}`, {
+        title: `Batch Note ${i}`,
+        kind: 'reference',
+        summary: `Batch summary ${i}`,
+      });
+    }
+
+    const originalFetch = globalThis.fetch;
+    const batchSizes: number[] = [];
+    globalThis.fetch = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body || '{}')) as { input?: string[] | string; model?: string };
+      const inputs = Array.isArray(body.input) ? body.input : body.input ? [body.input] : [];
+      batchSizes.push(inputs.length);
+      return new Response(JSON.stringify({
+        model: body.model || 'test-model',
+        data: inputs.map((_text, index) => ({ index, embedding: [index, 0, 0] })),
+      }), { status: 200 });
+    };
+
+    try {
+      const output = await handleMaintain(
+        { action: 'embed', limit: 51 },
+        ctx.engine,
+        ctx.config,
+        { provider: 'api', baseUrl: 'https://example.invalid/v1', apiKey: 'test-key', model: 'test-model', dimensions: 3 },
+      );
+
+      expect(output).toContain('Embedded 51/51');
+      expect(batchSizes).toEqual([50, 1]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('should require noteId for promote/archive/delete', async () => {
     expect(await handleMaintain({ action: 'promote' }, ctx.engine, ctx.config)).toContain('noteId is required');
     expect(await handleMaintain({ action: 'archive' }, ctx.engine, ctx.config)).toContain('noteId is required');

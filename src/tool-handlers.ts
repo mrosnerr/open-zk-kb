@@ -37,6 +37,7 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
 
 /** Absolute word-count ceiling — warns regardless of kind. */
 export const ABSOLUTE_WARN_THRESHOLD = 300;
+const EMBEDDING_BACKFILL_BATCH_SIZE = 50;
 
 // ---- Helper functions ----
 
@@ -253,13 +254,16 @@ async function backfillEmbeddings(
   const texts = notesWithout.map(n => buildEmbeddingText(n.title, n.summary || '', n.content));
   const noteIds = notesWithout.map(n => n.id);
 
-  const results = await generateEmbeddingBatch(texts, embeddingConfig, timeoutMs);
   let stored = 0;
-  for (let i = 0; i < results.length; i++) {
-    const result = results[i];
-    if (result) {
-      repo.storeEmbedding(noteIds[i], result.embedding, result.model);
-      stored++;
+  for (let start = 0; start < texts.length; start += EMBEDDING_BACKFILL_BATCH_SIZE) {
+    const batchTexts = texts.slice(start, start + EMBEDDING_BACKFILL_BATCH_SIZE);
+    const results = await generateEmbeddingBatch(batchTexts, embeddingConfig, timeoutMs);
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result) {
+        repo.storeEmbedding(noteIds[start + i], result.embedding, result.model);
+        stored++;
+      }
     }
   }
   logToFile('INFO', 'Embedding backfill completed', { requested: notesWithout.length, stored });
