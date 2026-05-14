@@ -3,6 +3,7 @@
 // FTS5 is manually managed (no triggers) for reliability with TEXT primary keys
 
 import { Database } from 'bun:sqlite';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { expandPath } from '../utils/path.js';
@@ -114,6 +115,16 @@ function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
     }
   }
   throw new Error('unreachable');
+}
+
+function computeEmbeddingSourceHash(title: string, summary: string, content: string): string {
+  return createHash('sha256')
+    .update(title)
+    .update('\0')
+    .update(summary)
+    .update('\0')
+    .update(content)
+    .digest('hex');
 }
 
 // Monotonic timestamp tracking to avoid ID collisions within a process
@@ -1698,6 +1709,11 @@ export class NoteRepository {
     const warnings: string[] = [];
     let errors = 0;
 
+    // Embeddings live only in SQLite (not in .md files), so save before DELETE.
+    const savedEmbeddings = this.db.prepare(
+      'SELECT id, embedding, embedding_model, title, summary, content FROM notes WHERE embedding IS NOT NULL'
+    ).all() as Array<{ id: string; embedding: Buffer; embedding_model: string; title: string; summary: string | null; content: string }>;
+
     // Clear existing data
     this.db.run('DELETE FROM note_links');
     this.db.run('DELETE FROM notes');
@@ -1773,6 +1789,28 @@ export class NoteRepository {
       } catch (err) {
         logToFile('WARN', 'Failed to index file during rebuild', { file, error: String(err) });
         errors++;
+      }
+    }
+
+    if (savedEmbeddings.length > 0) {
+      const restoreStmt = this.db.prepare(
+        'UPDATE notes SET embedding = ?, embedding_model = ? WHERE id = ?'
+      );
+      for (const saved of savedEmbeddings) {
+        if (!uniqueIds.has(saved.id)) continue;
+
+        const current = this.db.prepare(
+          'SELECT title, summary, content FROM notes WHERE id = ?'
+        ).get(saved.id) as { title: string; summary: string | null; content: string } | undefined;
+
+        const savedHash = computeEmbeddingSourceHash(saved.title, saved.summary || '', saved.content);
+        const currentHash = current
+          ? computeEmbeddingSourceHash(current.title, current.summary || '', current.content)
+          : null;
+
+        if (savedHash === currentHash) {
+          restoreStmt.run(saved.embedding, saved.embedding_model, saved.id);
+        }
       }
     }
 

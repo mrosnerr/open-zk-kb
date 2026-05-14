@@ -70,6 +70,7 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
 
 /** Absolute word-count ceiling — warns regardless of kind. */
 export const ABSOLUTE_WARN_THRESHOLD = 300;
+const EMBEDDING_BACKFILL_BATCH_SIZE = 50;
 
 export const TITLE_SOFT_WARN_WORDS = 6;
 export const TITLE_HARD_LIMIT_WORDS = 10;
@@ -1032,6 +1033,34 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   return output + clientWarning;
 }
 
+async function backfillEmbeddings(
+  repo: NoteRepository,
+  embeddingConfig: EmbeddingConfig,
+  limit: number = 999999,
+  timeoutMs: number = 120000,
+): Promise<{ requested: number; stored: number }> {
+  const notesWithout = repo.getNotesWithoutEmbeddings(limit);
+  if (notesWithout.length === 0) return { requested: 0, stored: 0 };
+
+  const texts = notesWithout.map(n => buildEmbeddingText(n.title, n.summary || '', n.content));
+  const noteIds = notesWithout.map(n => n.id);
+
+  let stored = 0;
+  for (let start = 0; start < texts.length; start += EMBEDDING_BACKFILL_BATCH_SIZE) {
+    const batchTexts = texts.slice(start, start + EMBEDDING_BACKFILL_BATCH_SIZE);
+    const results = await generateEmbeddingBatch(batchTexts, embeddingConfig, timeoutMs);
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i];
+      if (result) {
+        repo.storeEmbedding(noteIds[start + i], result.embedding, result.model);
+        stored++;
+      }
+    }
+  }
+  logToFile('INFO', 'Embedding backfill completed', { requested: notesWithout.length, stored });
+  return { requested: notesWithout.length, stored };
+}
+
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
   scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action));
   switch (args.action) {
@@ -1229,14 +1258,26 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     case 'rebuild': {
       if (gitVersioning) await gitVersioning.checkpoint('Pre-rebuild snapshot');
       const result = repo.rebuildFromFiles();
+      let output = `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuild complete.`;
       const projects = repo.getAllProjects();
       for (const project of projects) {
         rebuildProjectIndex(project, repo, config);
         appendProjectLog(project, 'Full DB rebuild', repo, config);
       }
       updateGlobalNavigation(null, 'Full DB rebuild', repo, config);
+      output += `\nRebuilt index for ${projects.length} project(s).`;
+      if (embeddingConfig) {
+        try {
+          const embResult = await backfillEmbeddings(repo, embeddingConfig);
+          if (embResult.requested > 0) {
+            output += `\nEmbeddings: backfilled ${embResult.stored}/${embResult.requested} notes.`;
+          }
+        } catch (err) {
+          output += `\nEmbedding backfill failed: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
       if (gitVersioning) await gitVersioning.checkpoint(`Full DB rebuild (${result.indexed} indexed)`);
-      return `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuilt index for ${projects.length} project(s).\nRebuild complete.`;
+      return output;
     }
     case 'format': {
       const result = repo.formatAllFiles();
@@ -1517,30 +1558,19 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         return 'Embedding not configured. Add provider + embeddings section to config.yaml to enable vector search.';
       }
 
-      const notesWithout = repo.getNotesWithoutEmbeddings(args.limit || 50);
-      if (notesWithout.length === 0) {
+      const limit = args.limit || 50;
+      const pending = repo.getNotesWithoutEmbeddings(limit);
+      if (pending.length === 0) {
         return 'All notes already have embeddings. Nothing to backfill.';
       }
 
       if (args.dryRun) {
-        return `Dry run: Would generate embeddings for ${notesWithout.length} notes using ${embeddingConfig.model}.`;
+        return `Dry run: Would generate embeddings for ${pending.length} notes using ${embeddingConfig.model}.`;
       }
 
-      const texts = notesWithout.map(n => buildEmbeddingText(n.title, n.summary || '', n.content));
-      const noteIds = notesWithout.map(n => n.id);
-
       try {
-        const results = await generateEmbeddingBatch(texts, embeddingConfig, 60000);
-        let stored = 0;
-        for (let i = 0; i < results.length; i++) {
-          const result = results[i];
-          if (result) {
-            repo.storeEmbedding(noteIds[i], result.embedding, result.model);
-            stored++;
-          }
-        }
-        logToFile('INFO', 'Embed backfill completed', { requested: noteIds.length, stored });
-        return `Embedded ${stored}/${notesWithout.length} notes using ${embeddingConfig.model}.`;
+        const embResult = await backfillEmbeddings(repo, embeddingConfig, limit);
+        return `Embedded ${embResult.stored}/${embResult.requested} notes using ${embeddingConfig.model}.`;
       } catch (err) {
         return `Embedding failed: ${err instanceof Error ? err.message : String(err)}`;
       }
