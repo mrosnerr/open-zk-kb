@@ -1039,6 +1039,11 @@ export class NoteRepository {
     const uniqueIds = new Set<string>();
     let errors = 0;
 
+    // Embeddings live only in SQLite (not in .md files), so save before DELETE.
+    const savedEmbeddings = this.db.prepare(
+      'SELECT id, embedding, embedding_model FROM notes WHERE embedding IS NOT NULL'
+    ).all() as Array<{ id: string; embedding: Buffer; embedding_model: string }>;
+
     // Clear existing data
     this.db.run('DELETE FROM note_links');
     this.db.run('DELETE FROM notes');
@@ -1089,6 +1094,17 @@ export class NoteRepository {
       } catch (err) {
         logToFile('WARN', 'Failed to index file during rebuild', { file, error: String(err) });
         errors++;
+      }
+    }
+
+    if (savedEmbeddings.length > 0) {
+      const restoreStmt = this.db.prepare(
+        'UPDATE notes SET embedding = ?, embedding_model = ? WHERE id = ?'
+      );
+      for (const saved of savedEmbeddings) {
+        if (uniqueIds.has(saved.id)) {
+          restoreStmt.run(saved.embedding, saved.embedding_model, saved.id);
+        }
       }
     }
 

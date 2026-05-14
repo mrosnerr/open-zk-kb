@@ -1062,8 +1062,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should add client tag when client param provided', () => {
-    handleStore({
+  it('should add client tag when client param provided', async () => {
+    await handleStore({
       title: 'Claude Code Workflow',
       content: 'Use skills directory for prompts',
       kind: 'procedure',
@@ -1077,8 +1077,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).toContain('client:claude-code');
   });
 
-  it('should auto-detect client from .opencode/ in content', () => {
-    handleStore({
+  it('should auto-detect client from .opencode/ in content', async () => {
+    await handleStore({
       title: 'OpenCode Config',
       content: 'Edit .opencode/config.json to change settings',
       kind: 'reference',
@@ -1090,8 +1090,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).toContain('client:opencode');
   });
 
-  it('should auto-detect client from .claude/ in guidance', () => {
-    handleStore({
+  it('should auto-detect client from .claude/ in guidance', async () => {
+    await handleStore({
       title: 'Claude Instructions',
       content: 'Project instructions go in the root',
       kind: 'reference',
@@ -1103,8 +1103,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).toContain('client:claude-code');
   });
 
-  it('should NOT auto-tag universal content', () => {
-    handleStore({
+  it('should NOT auto-tag universal content', async () => {
+    await handleStore({
       title: 'General Preference',
       content: 'User prefers TypeScript',
       kind: 'personalization',
@@ -1117,8 +1117,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(clientTags).toHaveLength(0);
   });
 
-  it('should warn on unrecognized client name', () => {
-    const output = handleStore({
+  it('should warn on unrecognized client name', async () => {
+    const output = await handleStore({
       title: 'Unknown Client Note',
       content: 'Some content',
       kind: 'reference',
@@ -1131,8 +1131,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(output).toContain('Known clients:');
   });
 
-  it('should NOT warn on recognized client name', () => {
-    const output = handleStore({
+  it('should NOT warn on recognized client name', async () => {
+    const output = await handleStore({
       title: 'Known Client Note',
       content: 'Some content',
       kind: 'reference',
@@ -1144,8 +1144,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(output).not.toContain('Unrecognized client');
   });
 
-  it('should use explicit client over auto-detection', () => {
-    handleStore({
+  it('should use explicit client over auto-detection', async () => {
+    await handleStore({
       title: 'Cross-Client Note',
       content: 'Edit .opencode/config for opencode',
       kind: 'reference',
@@ -1159,8 +1159,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).not.toContain('client:opencode');
   });
 
-  it('should not auto-tag when multiple clients detected (ambiguous)', () => {
-    handleStore({
+  it('should not auto-tag when multiple clients detected (ambiguous)', async () => {
+    await handleStore({
       title: 'Client Comparison',
       content: 'Compare .opencode/config.json vs .claude/settings.json',
       kind: 'reference',
@@ -1173,8 +1173,8 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(clientTags).toHaveLength(0);
   });
 
-  it('should coexist client and project tags', () => {
-    handleStore({
+  it('should coexist client and project tags', async () => {
+    await handleStore({
       title: 'Project-Client Note',
       content: 'Edit .cursor/rules for project config',
       kind: 'reference',

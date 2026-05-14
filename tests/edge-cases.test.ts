@@ -513,8 +513,8 @@ describe('handleStore non-blocking embedding', () => {
     cleanupTestHarness(ctx);
   });
 
-  it('should return synchronously without embedding config', () => {
-    const result = handleStore({
+  it('should return result without embedding config', async () => {
+    const result = await handleStore({
       title: 'Quick Note',
       content: 'This should return immediately',
       kind: 'observation',
@@ -522,15 +522,14 @@ describe('handleStore non-blocking embedding', () => {
       guidance: 'Test guidance',
     }, ctx.engine);
 
-    // handleStore returns string directly (not a Promise)
     expect(typeof result).toBe('string');
     expect(result).toContain('Knowledge stored');
     expect(result).toContain('Kind: observation');
   });
 
-  it('should store note successfully even with embedding config', () => {
+  it('should store note successfully even with embedding config', async () => {
     // Pass a dummy embedding config — embedding will fail but store should succeed
-    const result = handleStore({
+    const result = await handleStore({
       title: 'Note with embedding',
       content: 'Content that triggers embedding path',
       kind: 'reference',
