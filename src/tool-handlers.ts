@@ -1259,6 +1259,13 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       if (gitVersioning) await gitVersioning.checkpoint('Pre-rebuild snapshot');
       const result = repo.rebuildFromFiles();
       let output = `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuild complete.`;
+      const projects = repo.getAllProjects();
+      for (const project of projects) {
+        rebuildProjectIndex(project, repo, config);
+        appendProjectLog(project, 'Full DB rebuild', repo, config);
+      }
+      updateGlobalNavigation(null, 'Full DB rebuild', repo, config);
+      output += `\nRebuilt index for ${projects.length} project(s).`;
       if (embeddingConfig) {
         try {
           const embResult = await backfillEmbeddings(repo, embeddingConfig);
@@ -1269,14 +1276,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += `\nEmbedding backfill failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
-      const projects = repo.getAllProjects();
-      for (const project of projects) {
-        rebuildProjectIndex(project, repo, config);
-        appendProjectLog(project, 'Full DB rebuild', repo, config);
-      }
-      updateGlobalNavigation(null, 'Full DB rebuild', repo, config);
       if (gitVersioning) await gitVersioning.checkpoint(`Full DB rebuild (${result.indexed} indexed)`);
-      output += `\nRebuilt index for ${projects.length} project(s).`;
       return output;
     }
     case 'format': {
