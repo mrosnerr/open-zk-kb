@@ -987,6 +987,49 @@ describe('renderNoteForAgent', () => {
     // No tags attribute when empty
     expect(xml).not.toContain('tags=');
   });
+
+  it('should include related_notes with wikilink targets', () => {
+    const xml = renderNoteForAgent({
+      id: '202602110848',
+      path: '/tmp/test.md',
+      title: 'Prefers Tailwind',
+      kind: 'procedure',
+      status: 'permanent',
+      type: 'atomic',
+      tags: [],
+      content: 'Follow these steps. See [[2026051500000002-related-note|Related Note]] for more.',
+      summary: 'User prefers Tailwind CSS over Bootstrap',
+      guidance: 'Use Tailwind when suggesting CSS frameworks',
+      updated_at: Date.now(),
+      created_at: Date.now(),
+      word_count: 5,
+    });
+
+    expect(xml).toContain('<related_notes');
+    expect(xml).toContain('noteId="2026051500000002"');
+    expect(xml).toContain('Related Note');
+    expect(xml).toContain('Use `knowledge-get` with noteId');
+  });
+
+  it('should not include related_notes when no wikilinks exist', () => {
+    const xml = renderNoteForAgent({
+      id: '202602110848',
+      path: '/tmp/test.md',
+      title: 'Prefers Tailwind',
+      kind: 'procedure',
+      status: 'permanent',
+      type: 'atomic',
+      tags: [],
+      content: 'The user prefers Tailwind CSS.',
+      summary: 'User prefers Tailwind CSS over Bootstrap',
+      guidance: 'Use Tailwind when suggesting CSS frameworks',
+      updated_at: Date.now(),
+      created_at: Date.now(),
+      word_count: 5,
+    });
+
+    expect(xml).not.toContain('<related_notes');
+  });
 });
 
 // ---- Staleness metric tests ----
@@ -1093,6 +1136,49 @@ describe('staleness_days in XML rendering', () => {
       word_count: 0,
     });
     expect(xml).toContain('staleness_days="2"');
+  });
+});
+
+describe('renderNoteForSearch with wikilinks', () => {
+  it('should include related_notes with wikilink targets', () => {
+    const xml = renderNoteForSearch({
+      id: '202602110848',
+      path: '/tmp/test.md',
+      title: 'Parent Note',
+      kind: 'reference',
+      status: 'permanent',
+      type: 'atomic',
+      tags: [],
+      content: 'See [[2026051500000002-related-note|Related Note]] and [[2026051500000003-another|Another]].',
+      updated_at: Date.now(),
+      created_at: Date.now(),
+      word_count: 5,
+    });
+
+    expect(xml).toContain('<related_notes');
+    expect(xml).toContain('noteId="2026051500000002"');
+    expect(xml).toContain('noteId="2026051500000003"');
+    expect(xml).toContain('Related Note');
+    expect(xml).toContain('Another');
+    expect(xml).toContain('Use `knowledge-get` with noteId');
+  });
+
+  it('should not include related_notes when no wikilinks exist', () => {
+    const xml = renderNoteForSearch({
+      id: '202602110848',
+      path: '/tmp/test.md',
+      title: 'Simple Note',
+      kind: 'reference',
+      status: 'permanent',
+      type: 'atomic',
+      tags: [],
+      content: 'Just plain text.',
+      updated_at: Date.now(),
+      created_at: Date.now(),
+      word_count: 2,
+    });
+
+    expect(xml).not.toContain('<related_notes');
   });
 });
 
