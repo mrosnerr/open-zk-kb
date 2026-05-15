@@ -47,10 +47,37 @@ export function fetchKbContext(repo: NoteRepository, project: string): KbContext
   return { domainNote, recentNotes, project };
 }
 
+function buildInjectionBanner(ctx: KbContext): string {
+  const allNotes = ctx.domainNote
+    ? [ctx.domainNote, ...ctx.recentNotes]
+    : ctx.recentNotes;
+
+  const total = allNotes.length;
+  if (total === 0) return '';
+
+  const counts: Record<string, number> = {};
+  for (const note of allNotes) {
+    const kind = note.kind || 'observation';
+    counts[kind] = (counts[kind] || 0) + 1;
+  }
+
+  const kindSummary = Object.entries(counts)
+    .map(([kind, count]) => `${count} ${kind}${count > 1 ? 's' : ''}`)
+    .join(', ');
+
+  return `> **Knowledge Base**: ${total} note${total > 1 ? 's' : ''} injected (${kindSummary})\n`;
+}
+
 export function formatContext(ctx: KbContext): string {
   const parts: string[] = [];
 
   parts.push(`## Knowledge Base Context (project: ${ctx.project})\n`);
+
+  const banner = buildInjectionBanner(ctx);
+  if (banner) {
+    parts.push(banner);
+  }
+
   parts.push('Before storing structured notes, run `knowledge-template --kind {kind}` for the canonical structure.\n');
 
   if (ctx.domainNote) {
