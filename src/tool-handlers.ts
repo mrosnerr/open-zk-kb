@@ -2003,6 +2003,16 @@ export interface TemplateArgs {
   model?: string;
 }
 
+export interface GetArgs {
+  noteId: string;
+}
+
+export function handleGet(args: GetArgs, repo: NoteRepository): string {
+  const note = repo.getById(args.noteId);
+  if (!note) return `Note not found: ${args.noteId}`;
+  return renderNoteForSearch(note);
+}
+
 export function handleTemplate(args: TemplateArgs, repo?: NoteRepository): string {
   let projectOverridePath: string | undefined;
 

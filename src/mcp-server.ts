@@ -437,6 +437,32 @@ server.registerTool(
   },
 );
 
+const getSchema = z.object({
+  noteId: z.string().describe('Exact note ID to retrieve'),
+});
+
+server.registerTool(
+  'knowledge-get',
+  {
+    description: 'Retrieve a single note by its exact ID. Faster and more precise than knowledge-search. Use when you already know the note ID (e.g. from injected context hints).',
+    inputSchema: getSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof getSchema>) => {
+    try {
+      const result = handleGet({ noteId: args.noteId }, await getOrCreateRepo());
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-get failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
 // ---- knowledge-template ----
 
 const templateSchema = z.object({

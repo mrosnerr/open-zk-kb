@@ -11,7 +11,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
-import { handleStore, handleSearch, handleMaintain, handleOverview } from '../src/tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleOverview, handleGet } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -515,6 +515,31 @@ describe('MCP Tool: knowledge-search', () => {
   it('should return no results message with hint', () => {
     const output = handleSearch({ query: 'xyznonexistent' }, ctx.engine);
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
+  });
+});
+
+describe('MCP Tool: knowledge-get', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => {
+    ctx = createTestHarness();
+    ctx.engine.store('API endpoint is /api/v2', { title: 'API Ref', kind: 'reference', status: 'permanent' });
+  });
+
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should retrieve a note by exact ID', () => {
+    const result = ctx.engine.store('Full API docs here', { title: 'Full API Ref', kind: 'reference', status: 'permanent' });
+    const output = handleGet({ noteId: result.id }, ctx.engine);
+    expect(output).toContain('Full API Ref');
+    expect(output).toContain('kind="reference"');
+    expect(output).toContain('<content>');
+    expect(output).toContain('Full API docs here');
+  });
+
+  it('should return error for nonexistent ID', () => {
+    const output = handleGet({ noteId: '9999999999999999' }, ctx.engine);
+    expect(output).toBe('Note not found: 9999999999999999');
   });
 });
 

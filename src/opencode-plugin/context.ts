@@ -55,17 +55,17 @@ function buildInjectionBanner(ctx: KbContext): string {
   const total = allNotes.length;
   if (total === 0) return '';
 
-  const counts: Record<string, number> = {};
+  const lines: string[] = [
+    `> **Knowledge Base**: ${total} note${total > 1 ? 's' : ''} injected`,
+  ];
+
   for (const note of allNotes) {
     const kind = note.kind || 'observation';
-    counts[kind] = (counts[kind] || 0) + 1;
+    const title = note.title || note.id;
+    lines.push(`> - [${kind}] ${title}`);
   }
 
-  const kindSummary = Object.entries(counts)
-    .map(([kind, count]) => `${count} ${kind}${count > 1 ? 's' : ''}`)
-    .join(', ');
-
-  return `> **Knowledge Base**: ${total} note${total > 1 ? 's' : ''} injected (${kindSummary})\n`;
+  return lines.join('\n') + '\n';
 }
 
 export function formatContext(ctx: KbContext): string {

@@ -275,7 +275,10 @@ describe('formatContext', () => {
         },
       ],
     });
-    expect(result).toContain('> **Knowledge Base**: 3 notes injected (1 domain, 1 decision, 1 personalization)');
+    expect(result).toContain('> **Knowledge Base**: 3 notes injected');
+    expect(result).toContain('> - [domain] myapp domain');
+    expect(result).toContain('> - [decision] Auth decision');
+    expect(result).toContain('> - [personalization] Style preference');
   });
 
   it('omits injection banner when no notes are present', () => {
