@@ -2010,6 +2010,7 @@ export interface GetArgs {
 export function handleGet(args: GetArgs, repo: NoteRepository): string {
   const note = repo.getById(args.noteId);
   if (!note) return `Note not found: ${args.noteId}`;
+  scheduleTelemetryWrite('get access', () => repo.updateLastAccessed([note.id]));
   return renderNoteForSearch(note);
 }
 

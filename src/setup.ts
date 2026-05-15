@@ -659,7 +659,10 @@ export function doctor(args: DoctorArgs = {}): string {
         const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
         const config = JSON.parse(content) as Record<string, unknown>;
         const plugins = Array.isArray(config['plugin']) ? config['plugin'] as string[] : [];
-        if (plugins.includes(clientConfig.pluginPackage)) {
+        const hasRegisteredEntry = plugins.some(
+          (entry) => typeof entry === 'string' && isOpenCodePluginEntry(entry)
+        );
+        if (hasRegisteredEntry) {
           pushCheck('OK', `${clientConfig.name}: plugin "${clientConfig.pluginPackage}" registered`);
         } else if (args.fix) {
           plugins.push(clientConfig.pluginPackage);

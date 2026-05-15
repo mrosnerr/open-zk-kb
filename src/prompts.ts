@@ -76,7 +76,7 @@ export function renderNoteForAgent(note: NoteMetadata): string {
       : content;
     xml += `  <content_preview>${preview}</content_preview>\n`;
     if (content.length > CONTENT_PREVIEW_MAX_CHARS) {
-      xml += `  <hint>Use \`knowledge-get\` with id="${note.id}" to retrieve full content</hint>\n`;
+      xml += `  <hint>Use \`knowledge-get\` with noteId="${note.id}" to retrieve full content</hint>\n`;
     }
   }
 

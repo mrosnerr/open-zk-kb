@@ -21,7 +21,7 @@ import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { ensureObsidianScaffold } from './obsidian-scaffold.js';
-import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate } from './tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import { createGitVersioning } from './git-versioning.js';
 import type { GitVersioning } from './git-versioning.js';

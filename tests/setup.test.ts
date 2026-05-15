@@ -832,15 +832,14 @@ describe('setup.ts', () => {
     };
 
     expect(output).toContain(`FIXED OpenCode: repaired MCP config in ${configPath}`);
-    expect(output).toContain('FIXED OpenCode: added "open-zk-kb" to plugin array');
-    expect(output).toContain('- FIXED: 2');
+    expect(output).toContain('OK OpenCode: plugin "open-zk-kb" registered');
+    expect(output).toContain('- FIXED: 1');
     expect(repaired.mcp['open-zk-kb']).toEqual({
       type: 'local',
       command: ['bun', 'run', env.fakeServerPath],
       enabled: true,
     });
     expect(repaired.plugin).toContain(getExpectedOpenCodePluginEntry());
-    expect(repaired.plugin).toContain('open-zk-kb');
   });
 
   it('doctor --fix repairs a missing opencode plugin entry', async () => {
@@ -868,9 +867,9 @@ describe('setup.ts', () => {
       plugin?: string[];
     };
 
-    expect(output).toContain(`FIXED OpenCode: added "open-zk-kb" to plugin array`);
+    expect(output).toContain('FIXED OpenCode: repaired plugin config in');
+    expect(output).toContain('OK OpenCode: plugin "open-zk-kb" registered');
     expect(repaired.plugin).toContain(getExpectedOpenCodePluginEntry());
-    expect(repaired.plugin).toContain('open-zk-kb');
   });
 
   it('doctor --fix repairs missing managed instructions for configured clients', async () => {
@@ -889,7 +888,7 @@ describe('setup.ts', () => {
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
 
     expect(output).toContain(`FIXED OpenCode: repaired managed instructions in ${agentDocsPath}`);
-    expect(output).toContain('- FIXED: 2');
+    expect(output).toContain('- FIXED: 1');
     expect(content).toContain('# Custom rules only');
     expect(content).toContain('OPEN-ZK-KB:START');
     expect(content).toContain('OPEN-ZK-KB:END');
