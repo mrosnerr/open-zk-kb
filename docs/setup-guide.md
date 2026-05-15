@@ -28,12 +28,11 @@ Add to your client's MCP configuration — no cloning required:
   }
 }
 ```
-For OpenCode, include both the `plugin` array and the `mcp` key:
+For OpenCode, use the `mcp` key:
 
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugin": ["open-zk-kb@latest"],
   "mcp": {
     "open-zk-kb": {
       "type": "local",
@@ -54,7 +53,7 @@ bun run build
 bun run setup install --client <name> --force
 ```
 
-The installer auto-detects the source checkout (via `.git` presence) and wires your client to local paths — MCP server points at `dist/mcp-server.js`, plugin uses `file://` URLs, and agent instructions are injected.
+The installer auto-detects the source checkout (via `.git` presence) and wires your client to local paths — the MCP server points at `dist/mcp-server.js`, and agent instructions are injected where the client supports managed instructions.
 
 See the [Development Guide](development.md#development-setup) for the full contributor workflow.
 

@@ -51,14 +51,13 @@ Replace `<name>` with your client: `opencode`, `claude-code`, `cursor`, `windsur
 
 The installer auto-detects the source checkout (via `.git` presence) and wires everything to local paths:
 - **MCP server** → your local `dist/mcp-server.js`
-- **Plugin** (OpenCode) → `file://` URL pointing at your checkout
 - **Agent instructions** → managed block in your client's instruction file
 
 After every source change:
 ```bash
 bun run build
 bun run setup install --client <name> --force   # re-registers updated paths
-# Restart your client so it reloads the MCP server and plugin
+# Restart your client so it reloads the MCP server and managed instructions
 ```
 
 ### Path 2: Dev channel (testing unreleased changes)
