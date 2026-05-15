@@ -40,6 +40,7 @@ Thumbs.db
 *~
 
 # Agent / AI tool artifacts
+opencode.json
 .opencode/*
 !.opencode/agents/
 .opencode/agents/*
