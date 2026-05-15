@@ -4,6 +4,7 @@
  */
 
 import type { NoteMetadata } from './storage/NoteRepository.js';
+import { extractWikiLinks } from './utils/wikilink.js';
 
 // ---- Kind-specific fallback guidance ----
 
@@ -58,6 +59,18 @@ function buildNoteAttrs(note: NoteMetadata): string {
   return attrs.join(' ');
 }
 
+function renderRelatedNotes(content: string): string {
+  const links = extractWikiLinks(content);
+  if (links.length === 0) return '';
+
+  let xml = '  <related_notes hint="Use `knowledge-get` with noteId to retrieve full content">\n';
+  for (const link of links) {
+    xml += `    <link noteId="${link.id}">${link.display || link.slug}</link>\n`;
+  }
+  xml += '  </related_notes>\n';
+  return xml;
+}
+
 // ---- Compact note rendering (summary + guidance) ----
 
 export function renderNoteForAgent(note: NoteMetadata): string {
@@ -76,10 +89,11 @@ export function renderNoteForAgent(note: NoteMetadata): string {
       : content;
     xml += `  <content_preview>${preview}</content_preview>\n`;
     if (content.length > CONTENT_PREVIEW_MAX_CHARS) {
-      xml += `  <hint>Use knowledge-search to retrieve full content</hint>\n`;
+      xml += `  <hint>Use \`knowledge-get\` with noteId="${note.id}" to retrieve full content</hint>\n`;
     }
   }
 
+  xml += renderRelatedNotes(content);
   xml += `</note>`;
 
   return xml;
@@ -100,6 +114,7 @@ export function renderNoteForSearch(note: NoteMetadata): string {
     xml += `  <content>${content}</content>\n`;
   }
 
+  xml += renderRelatedNotes(content);
   xml += `</note>`;
 
   return xml;

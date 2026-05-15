@@ -21,7 +21,7 @@ import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { ensureObsidianScaffold } from './obsidian-scaffold.js';
-import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate } from './tool-handlers.js';
+import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import { createGitVersioning } from './git-versioning.js';
 import type { GitVersioning } from './git-versioning.js';
@@ -427,6 +427,32 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-mine failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
+const getSchema = z.object({
+  noteId: z.string().describe('Exact note ID to retrieve'),
+});
+
+server.registerTool(
+  'knowledge-get',
+  {
+    description: 'Retrieve a single note by its exact ID. Faster and more precise than knowledge-search. Use when you already know the note ID (e.g. from injected context hints).',
+    inputSchema: getSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof getSchema>) => {
+    try {
+      const result = handleGet({ noteId: args.noteId }, await getOrCreateRepo());
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-get failed', {
         error: error instanceof Error ? error.message : String(error),
       }, config);
       return {

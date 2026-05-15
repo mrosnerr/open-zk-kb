@@ -10,15 +10,15 @@ export interface KbContext {
   project: string;
 }
 
-export function createReadonlyRepo(vaultOverride?: string): NoteRepository | null {
+export function createReadonlyRepo(): NoteRepository | null {
   try {
     const testVault = process.env.NODE_ENV === 'test' ? process.env.__OPEN_ZK_KB_TEST_VAULT : undefined;
-    const vault = vaultOverride
-      || testVault
-      || getConfig().vault;
+    const vault = testVault || getConfig().vault;
     return new NoteRepository(vault, { readonly: true });
-  } catch {
-    logToFile('WARN', 'opencode-plugin: failed to open read-only repository');
+  } catch (error) {
+    logToFile('WARN', 'opencode-plugin: failed to open read-only repository', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }
@@ -47,10 +47,37 @@ export function fetchKbContext(repo: NoteRepository, project: string): KbContext
   return { domainNote, recentNotes, project };
 }
 
+function buildInjectionBanner(ctx: KbContext): string {
+  const allNotes = ctx.domainNote
+    ? [ctx.domainNote, ...ctx.recentNotes]
+    : ctx.recentNotes;
+
+  const total = allNotes.length;
+  if (total === 0) return '';
+
+  const lines: string[] = [
+    `> **Knowledge Base**: ${total} note${total > 1 ? 's' : ''} injected`,
+  ];
+
+  for (const note of allNotes) {
+    const kind = note.kind || 'observation';
+    const title = note.title || note.id;
+    lines.push(`> - [${kind}] ${title}`);
+  }
+
+  return lines.join('\n') + '\n';
+}
+
 export function formatContext(ctx: KbContext): string {
   const parts: string[] = [];
 
   parts.push(`## Knowledge Base Context (project: ${ctx.project})\n`);
+
+  const banner = buildInjectionBanner(ctx);
+  if (banner) {
+    parts.push(banner);
+  }
+
   parts.push('Before storing structured notes, run `knowledge-template --kind {kind}` for the canonical structure.\n');
 
   if (ctx.domainNote) {

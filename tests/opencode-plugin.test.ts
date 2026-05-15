@@ -220,6 +220,71 @@ describe('formatContext', () => {
     expect(result).toContain('<note');
     expect(result).toContain('kind="domain"');
   });
+
+  it('includes injection banner with note counts and kinds', () => {
+    const result = formatContext({
+      project: 'myapp',
+      domainNote: {
+        id: '2026043000000001',
+        title: 'myapp domain',
+        kind: 'domain',
+        status: 'permanent',
+        lifecycle: 'living',
+        type: 'atomic',
+        tags: ['project:myapp'],
+        content: '',
+        summary: 'Project rules',
+        guidance: 'Follow these',
+        path: '/tmp/test.md',
+        updated_at: Date.now(),
+        created_at: Date.now(),
+        word_count: 10,
+      },
+      recentNotes: [
+        {
+          id: '2026043000000002',
+          title: 'Auth decision',
+          kind: 'decision',
+          status: 'permanent',
+          lifecycle: 'living',
+          type: 'atomic',
+          tags: ['project:myapp'],
+          content: '',
+          summary: 'Use JWT',
+          guidance: 'Follow this',
+          path: '/tmp/test.md',
+          updated_at: Date.now(),
+          created_at: Date.now(),
+          word_count: 5,
+        },
+        {
+          id: '2026043000000003',
+          title: 'Style preference',
+          kind: 'personalization',
+          status: 'permanent',
+          lifecycle: 'living',
+          type: 'atomic',
+          tags: ['project:myapp'],
+          content: '',
+          summary: 'Prefer arrow functions',
+          guidance: 'Follow this',
+          path: '/tmp/test.md',
+          updated_at: Date.now(),
+          created_at: Date.now(),
+          word_count: 5,
+        },
+      ],
+    });
+    expect(result).toContain('> **Knowledge Base**: 3 notes injected');
+    expect(result).toContain('> - [domain] myapp domain');
+    expect(result).toContain('> - [decision] Auth decision');
+    expect(result).toContain('> - [personalization] Style preference');
+  });
+
+  it('omits injection banner when no notes are present', () => {
+    const result = formatContext({ domainNote: null, recentNotes: [], project: 'test' });
+    expect(result).toBe('');
+  });
 });
 
 // ── plugin lifecycle (3-hook integration) ──
@@ -232,6 +297,7 @@ describe('createKbPlugin lifecycle', () => {
   });
 
   afterEach(() => {
+    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
     cleanupTestHarness(ctx);
   });
 
@@ -270,7 +336,6 @@ describe('createKbPlugin lifecycle', () => {
 
     process.env.__OPEN_ZK_KB_TEST_VAULT = ctx.tempDir;
     const hooks = await factory(mockCtx);
-    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
 
     await hooks.event({
       event: {
@@ -309,7 +374,6 @@ describe('createKbPlugin lifecycle', () => {
 
     process.env.__OPEN_ZK_KB_TEST_VAULT = ctx.tempDir;
     const hooks = await factory(mockCtx);
-    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
 
     await hooks.event({
       event: { type: 'session.created', properties: { info: { id: 'ses_once' } } },
@@ -349,7 +413,6 @@ describe('createKbPlugin lifecycle', () => {
 
     process.env.__OPEN_ZK_KB_TEST_VAULT = ctx.tempDir;
     const hooks = await factory(mockCtx);
-    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
 
     await hooks.event({
       event: { type: 'session.created', properties: { info: { id: 'ses_compact' } } },
@@ -397,7 +460,6 @@ describe('createKbPlugin lifecycle', () => {
 
     process.env.__OPEN_ZK_KB_TEST_VAULT = ctx.tempDir;
     const hooks = await factory(mockCtx);
-    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
 
     await hooks.event({
       event: { type: 'session.created', properties: { info: { id: 'ses_del' } } },

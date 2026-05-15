@@ -51,6 +51,8 @@ export interface ClientConfig {
   instructionSize?: InstructionSize;
   /** Path where a Claude Code skill directory should be installed (e.g. ~/.claude/skills/open-zk-kb) */
   skillPath?: string;
+  /** npm package name to register in the client's plugin array (OpenCode only) */
+  pluginPackage?: string;
 }
 
 const OPENCODE_PLUGIN_PACKAGE = 'open-zk-kb';
@@ -64,6 +66,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpFormat: 'opencode',
     agentDocsPath: path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
     instructionSize: 'full',
+    pluginPackage: 'open-zk-kb',
   },
   'claude-code': {
     name: 'Claude Code',
@@ -648,6 +651,29 @@ export function doctor(args: DoctorArgs = {}): string {
         }
       } catch (error) {
         pushCheck('ERROR', `${clientConfig.name}: failed to parse ${clientConfig.configPath} (${error instanceof Error ? error.message : String(error)})`);
+      }
+    }
+
+    if (configured && clientConfig.pluginPackage) {
+      try {
+        const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
+        const config = JSON.parse(content) as Record<string, unknown>;
+        const plugins = Array.isArray(config['plugin']) ? config['plugin'] as string[] : [];
+        const hasRegisteredEntry = plugins.some(
+          (entry) => typeof entry === 'string' && isOpenCodePluginEntry(entry)
+        );
+        if (hasRegisteredEntry) {
+          pushCheck('OK', `${clientConfig.name}: plugin "${clientConfig.pluginPackage}" registered`);
+        } else if (args.fix) {
+          plugins.push(clientConfig.pluginPackage);
+          config['plugin'] = plugins;
+          fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
+          pushCheck('FIXED', `${clientConfig.name}: added "${clientConfig.pluginPackage}" to plugin array`);
+        } else {
+          pushCheck('WARN', `${clientConfig.name}: plugin "${clientConfig.pluginPackage}" missing from plugin array — run with --fix to add`);
+        }
+      } catch {
+        // Config already validated above; ignore parse errors here
       }
     }
 
