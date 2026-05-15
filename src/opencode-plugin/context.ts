@@ -10,15 +10,15 @@ export interface KbContext {
   project: string;
 }
 
-export function createReadonlyRepo(vaultOverride?: string): NoteRepository | null {
+export function createReadonlyRepo(): NoteRepository | null {
   try {
     const testVault = process.env.NODE_ENV === 'test' ? process.env.__OPEN_ZK_KB_TEST_VAULT : undefined;
-    const vault = vaultOverride
-      || testVault
-      || getConfig().vault;
+    const vault = testVault || getConfig().vault;
     return new NoteRepository(vault, { readonly: true });
-  } catch {
-    logToFile('WARN', 'opencode-plugin: failed to open read-only repository');
+  } catch (error) {
+    logToFile('WARN', 'opencode-plugin: failed to open read-only repository', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     return null;
   }
 }

@@ -832,7 +832,8 @@ describe('setup.ts', () => {
     };
 
     expect(output).toContain(`FIXED OpenCode: repaired MCP config in ${configPath}`);
-    expect(output).toContain('- FIXED: 1');
+    expect(output).toContain('FIXED OpenCode: added "open-zk-kb" to plugin array');
+    expect(output).toContain('- FIXED: 2');
     expect(repaired.mcp['open-zk-kb']).toEqual({
       type: 'local',
       command: ['bun', 'run', env.fakeServerPath],

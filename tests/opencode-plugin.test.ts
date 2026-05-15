@@ -232,6 +232,7 @@ describe('createKbPlugin lifecycle', () => {
   });
 
   afterEach(() => {
+    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
     cleanupTestHarness(ctx);
   });
 
@@ -270,7 +271,6 @@ describe('createKbPlugin lifecycle', () => {
 
     process.env.__OPEN_ZK_KB_TEST_VAULT = ctx.tempDir;
     const hooks = await factory(mockCtx);
-    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
 
     await hooks.event({
       event: {
@@ -309,7 +309,6 @@ describe('createKbPlugin lifecycle', () => {
 
     process.env.__OPEN_ZK_KB_TEST_VAULT = ctx.tempDir;
     const hooks = await factory(mockCtx);
-    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
 
     await hooks.event({
       event: { type: 'session.created', properties: { info: { id: 'ses_once' } } },
@@ -349,7 +348,6 @@ describe('createKbPlugin lifecycle', () => {
 
     process.env.__OPEN_ZK_KB_TEST_VAULT = ctx.tempDir;
     const hooks = await factory(mockCtx);
-    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
 
     await hooks.event({
       event: { type: 'session.created', properties: { info: { id: 'ses_compact' } } },
@@ -397,7 +395,6 @@ describe('createKbPlugin lifecycle', () => {
 
     process.env.__OPEN_ZK_KB_TEST_VAULT = ctx.tempDir;
     const hooks = await factory(mockCtx);
-    delete process.env.__OPEN_ZK_KB_TEST_VAULT;
 
     await hooks.event({
       event: { type: 'session.created', properties: { info: { id: 'ses_del' } } },
