@@ -34,11 +34,6 @@
 - **Add orphan and broken wikilink detection** — `knowledge-maintain orphans` and `knowledge-maintain broken-links` with line numbers and content-relative positions
 - **Add model-aware capability detection** — agents self-report model identity for tiered feature gating
 
-### OpenCode Integration
-
-- **Add OpenCode plugin** — session-start context injection with project detection and readonly repository access
-- **Add OpenCode reviewer agent** — shadow review workflow for PR quality assurance
-
 ### Infrastructure
 
 - **Add schema v7** — telemetry table for local-only, opt-in tool invocation counters (no content or query strings stored)
@@ -153,7 +148,6 @@ First stable release. Highlights from the beta period:
 
 ## 0.1.0-beta.5
 
-- **Remove OpenCode plugin** — knowledge capture now fully agent-driven via MCP tools + injected AGENTS.md/CLAUDE.md instructions
 - **Local embeddings default** — `@huggingface/transformers` MiniLM-L6-v2 (~23MB, no API key required); optional API override
 - **Instruction injection** — installer auto-injects KB instructions into client global instruction files; upgrade-safe marker-based system
 - **Restore Zed client** — 5 supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed

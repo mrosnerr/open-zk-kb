@@ -26,8 +26,8 @@ bun test         # Verify everything works
 
 ### OpenCode local development
 
-- Run `bun run build && bun run setup install --client opencode --force` for local testing. The installer configures the MCP entry, plugin entry, and managed `AGENTS.md` block automatically.
-- Do **not** manually edit OpenCode's `plugin` array — the installer manages it. See [docs/development.md](docs/development.md) for the full workflow.
+- Run `bun run build && bun run setup install --client opencode --force` for local testing. The installer configures the MCP entry and managed `AGENTS.md` block automatically.
+- OpenCode integration is MCP-only. The installer removes stale open-zk-kb plugin entries from older local configs; do not add them back manually. See [docs/development.md](docs/development.md) for the full workflow.
 
 ## Available Commands
 

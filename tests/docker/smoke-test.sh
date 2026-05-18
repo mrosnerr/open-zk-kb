@@ -474,25 +474,7 @@ fi
 bun run src/setup.ts uninstall --client cursor >/dev/null 2>&1 || true
 echo ""
 
-# ─── 18. OpenCode plugin hook verification ───
-echo "▸ OpenCode Plugin Verification"
-
-PLUGIN_VAULT_DIR=$(mktemp -d)
-PLUGIN_OUTPUT=$(XDG_DATA_HOME="$PLUGIN_VAULT_DIR" timeout 20 bun run tests/docker/plugin-verify-test.ts 2>/dev/null || true)
-rm -rf "$PLUGIN_VAULT_DIR"
-echo "$PLUGIN_OUTPUT" | grep -E "^  [✅❌]" || true
-
-PLUGIN_RESULT=$(echo "$PLUGIN_OUTPUT" | grep "PLUGIN_RESULT" || echo "PLUGIN_RESULT:0:24")
-PLUGIN_PASS=$(echo "$PLUGIN_RESULT" | cut -d: -f2)
-PLUGIN_FAIL=$(echo "$PLUGIN_RESULT" | cut -d: -f3)
-PASS=$((PASS + PLUGIN_PASS))
-FAIL=$((FAIL + PLUGIN_FAIL))
-if [ "$PLUGIN_FAIL" -gt 0 ]; then
-  TESTS+=("FAIL: plugin verification — $PLUGIN_FAIL failures")
-fi
-echo ""
-
-# ─── 19. npm pack produces valid package ───
+# ─── 18. npm pack produces valid package ───
 echo "▸ npm pack Validation"
 
 (bun pm pack || npm pack) >/dev/null 2>&1 || true

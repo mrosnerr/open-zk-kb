@@ -4,12 +4,12 @@
   "mcpName": "io.github.mrosnerr/open-zk-kb",
   "description": "Persistent memory for agents. Corrections stick, context compounds, every session starts smarter.",
   "type": "module",
-  "main": "dist/opencode-plugin/index.js",
-  "types": "dist/opencode-plugin/index.d.ts",
+  "main": "dist/mcp-server.js",
+  "types": "dist/mcp-server.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/opencode-plugin/index.d.ts",
-      "import": "./dist/opencode-plugin/index.js"
+      "types": "./dist/mcp-server.d.ts",
+      "import": "./dist/mcp-server.js"
     },
     "./server": {
       "types": "./dist/opencode-plugin/index.d.ts",
@@ -18,10 +18,6 @@
     "./mcp-server": {
       "types": "./dist/mcp-server.d.ts",
       "import": "./dist/mcp-server.js"
-    },
-    "./server": {
-      "types": "./dist/opencode-plugin/index.d.ts",
-      "import": "./dist/opencode-plugin/index.js"
     }
   },
   "sideEffects": false,
