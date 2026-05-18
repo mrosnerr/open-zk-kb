@@ -46,7 +46,18 @@ opencode.json
 .opencode/agents/*
 !.opencode/agents/reviewer.md
 .claude/
-.sisyphus/
+# Agent runtime state (ephemeral). Plans and other tracked assets stay visible.
+.agents/tmp/
+.agents/cache/
+.agents/local/
+.agents/private/
+.agents/**/.env*
+.agents/**/*secret*
+.agents/**/*secrets*
+.agents/**/*token*
+.agents/**/*credential*
+.agents/**/*.local.md
+.agents/**/*.private.md
 CONTEXT_*.md
 
 # Local test workspace (isolated OpenCode sessions for plugin dev)
