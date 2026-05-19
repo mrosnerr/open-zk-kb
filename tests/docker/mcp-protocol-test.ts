@@ -1,10 +1,11 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+const totalExpected = 19;
+
 async function run() {
   let passed = 0;
   let failed = 0;
-  const totalExpected = 16;
 
   const check = (name: string, ok: boolean, detail?: string) => {
     if (ok) { console.log(`  ✅ ${name}`); passed++; }

@@ -40,8 +40,8 @@ export async function runCli(rawArgs: string[] = process.argv.slice(2), deps: Cl
   if (command === 'serve') {
     const portStr = parseFlag(rawArgs, '--port');
     const host = parseFlag(rawArgs, '--host');
-    const port = portStr ? parseInt(portStr, 10) : undefined;
-    if (port !== undefined && (!Number.isInteger(port) || port < 1 || port > 65535)) {
+    const port = portStr === undefined ? undefined : Number(portStr);
+    if (portStr !== undefined && (!/^\d+$/.test(portStr) || !Number.isInteger(port) || port! < 1 || port! > 65535)) {
       throw new Error(`Invalid --port value: ${portStr}. Must be an integer between 1 and 65535.`);
     }
 
