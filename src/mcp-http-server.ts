@@ -51,6 +51,40 @@ export function readServerState(): ServerState | null {
   try {
     const content = fs.readFileSync(SERVER_STATE_FILE, 'utf-8');
     const state = JSON.parse(content) as ServerState;
+
+    // Validate the host is a loopback address — reject state files
+    // pointing to non-local hosts to prevent traffic redirection attacks
+    // when the state file lives in a world-writable directory like /tmp.
+    const loopback = new Set(['127.0.0.1', '::1', 'localhost']);
+    if (!loopback.has(state.host)) {
+      logToFile('WARN', 'Server state file has non-loopback host, ignoring', {
+        host: state.host,
+        stateFile: SERVER_STATE_FILE,
+      }, config);
+      removeServerState();
+      return null;
+    }
+
+    // On Unix, verify the state file is owned by the current user
+    // to prevent other local users from planting a fake state file.
+    if (process.platform !== 'win32') {
+      try {
+        const stat = fs.statSync(SERVER_STATE_FILE);
+        if (stat.uid !== process.getuid!()) {
+          logToFile('WARN', 'Server state file owned by different user, ignoring', {
+            fileUid: stat.uid,
+            processUid: process.getuid!(),
+            stateFile: SERVER_STATE_FILE,
+          }, config);
+          removeServerState();
+          return null;
+        }
+      } catch {
+        // statSync failed — treat as missing
+        return null;
+      }
+    }
+
     // Validate the process is still alive
     try {
       process.kill(state.pid, 0);

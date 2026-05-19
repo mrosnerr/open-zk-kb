@@ -131,7 +131,24 @@ export async function tryStdioBridge(): Promise<boolean> {
       const response = await forwardToHttp(state, message);
       if (response !== null) {
         writeToStdout(response);
+      } else if (
+        message !== null &&
+        typeof message === 'object' &&
+        'id' in (message as Record<string, unknown>)
+      ) {
+        // JSON-RPC requests (with an `id`) must always receive a response.
+        // Dropping them leaves the client waiting indefinitely.
+        const id = (message as Record<string, unknown>).id;
+        writeToStdout({
+          jsonrpc: '2.0',
+          id,
+          error: {
+            code: -32603, // Internal error
+            message: 'HTTP bridge failed to forward request to server',
+          },
+        });
       }
+      // Notifications (no `id`) — suppressing output is correct per JSON-RPC spec
     }
 
     // stdin closed — exit cleanly
