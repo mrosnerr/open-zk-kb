@@ -1,8 +1,10 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CompatibilityCallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 
 interface JsonSchema {
@@ -50,6 +52,7 @@ interface BeforeAgentStartResult {
 interface BridgeOptions {
   server: StdioServerParameters;
   clientName: string;
+  httpUrl?: string;
 }
 
 type ToolName = typeof TOOL_DEFINITIONS[number]['name'];
@@ -261,9 +264,10 @@ function textFromMcpContent(content: unknown[]): string {
 
 class OpenZkKbMcpBridge {
   private client: Client | undefined;
-  private transport: StdioClientTransport | undefined;
+  private transport: (StdioClientTransport | StreamableHTTPClientTransport) | undefined;
   private connecting: Promise<Client> | undefined;
   private stderrTail = '';
+  private httpDisabled = false;
 
   constructor(private readonly options: BridgeOptions) {}
 
@@ -320,6 +324,24 @@ class OpenZkKbMcpBridge {
 
   private async connect(): Promise<Client> {
     const client = new Client({ name: this.options.clientName, version: '1.0.0' });
+
+    if (this.options.httpUrl && !this.httpDisabled) {
+      try {
+        const transport = new StreamableHTTPClientTransport(
+          new URL(this.options.httpUrl),
+        );
+        this.transport = transport;
+        await client.connect(transport);
+        this.client = client;
+        this.connecting = undefined;
+        return client;
+      } catch {
+        // HTTP connection failed — fall back to stdio for this and future calls
+        this.httpDisabled = true;
+        this.transport = undefined;
+      }
+    }
+
     const transport = new StdioClientTransport(this.options.server);
     this.transport = transport;
     this.captureStderr(transport);
@@ -350,11 +372,44 @@ class OpenZkKbMcpBridge {
   }
 }
 
+function isLoopbackHost(host: string): boolean {
+  return host === '127.0.0.1' || host === 'localhost' || host === '::1';
+}
+
+function detectHttpServer(): string | undefined {
+  try {
+    // Prefer XDG_RUNTIME_DIR (per-user, secure permissions on Linux).
+    // Fall back to TMPDIR (macOS sets this to a per-user private temp dir).
+    // Never fall back to /tmp — it's world-writable and allows state-file injection.
+    const runtimeDir = process.env.XDG_RUNTIME_DIR || process.env.TMPDIR;
+    if (!runtimeDir) return undefined;
+
+    const stateFile = path.join(runtimeDir, 'open-zk-kb', 'server.json');
+    const content = fs.readFileSync(stateFile, 'utf-8');
+    const state = JSON.parse(content) as { pid: number; host: string; port: number };
+
+    // Validate shape
+    if (typeof state.pid !== 'number' || typeof state.host !== 'string' || typeof state.port !== 'number') {
+      return undefined;
+    }
+
+    // Only trust loopback addresses for auto-discovery
+    if (!isLoopbackHost(state.host)) return undefined;
+
+    // Verify process is alive
+    process.kill(state.pid, 0);
+    return `http://${state.host}:${state.port}/mcp`;
+  } catch {
+    return undefined;
+  }
+}
+
 export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
   return (pi: PiExtensionApi): void => {
     const bridge = new OpenZkKbMcpBridge({
       server: options?.server ?? defaultServerParameters(),
       clientName: options?.clientName ?? 'open-zk-kb-pi',
+      httpUrl: options?.httpUrl ?? detectHttpServer(),
     });
 
     for (const definition of TOOL_DEFINITIONS) {

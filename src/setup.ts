@@ -11,6 +11,7 @@ import { expandPath } from './utils/path.js';
 import { injectAgentDocs, inspectAgentDocs, removeAgentDocs } from './agent-docs.js';
 import type { InstructionSize } from './agent-docs.js';
 import { PKG_VERSION } from './version.js';
+import { getConfig } from './config.js';
 
 function detectNpmTag(): 'dev' | 'latest' {
   return PKG_VERSION.includes('-dev.') ? 'dev' : 'latest';
@@ -21,9 +22,12 @@ const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 
 export type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf' | 'zed' | 'pi' | 'omp';
 
+export type McpTransport = 'stdio' | 'http';
+
 export interface InstallArgs {
   client: McpClient;
   serverPath?: string;
+  transport?: McpTransport;
   force?: boolean;
   dryRun?: boolean;
   instructionSize?: InstructionSize;
@@ -148,11 +152,26 @@ type McpEntry =
   | {
       command: 'bun' | 'bunx';
       args: [string, ...string[]];
+    }
+  | {
+      type: 'http';
+      url: string;
     };
 
-function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string): McpEntry {
+function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string, transport?: McpTransport): McpEntry {
   if (!clientConfig.mcpFormat) {
     throw new Error(`${clientConfig.name} does not use MCP config entries`);
+  }
+
+  if (transport === 'http') {
+    const config = getConfig();
+    const clientHost = config.server.host === '0.0.0.0' || config.server.host === '::'
+      ? '127.0.0.1'
+      : config.server.host;
+    return {
+      type: 'http',
+      url: `http://${clientHost}:${config.server.port}/mcp`,
+    };
   }
 
   if (!serverPath) {
@@ -624,6 +643,11 @@ function validateMcpEntry(clientConfig: ClientConfig, entry: unknown): string[] 
   const record = entry as Record<string, unknown>;
   const issues: string[] = [];
 
+  // HTTP transport entries are valid if they have a url
+  if (record.type === 'http') {
+    if (typeof record.url !== 'string' || record.url.length === 0) issues.push('missing url for http entry');
+    return issues;
+  }
   if (clientConfig.mcpFormat === 'opencode') {
     if (record.type !== 'local') issues.push('expected type "local"');
     if (!Array.isArray(record.command) || record.command.length === 0) issues.push('missing command array');
@@ -664,6 +688,10 @@ function inferServerPathFromEntry(clientConfig: ClientConfig, entry: unknown): s
 function repairClientConfig(clientConfig: ClientConfig, config: Record<string, unknown>, existingEntry: unknown): void {
   if (!clientConfig.mcpPath) {
     throw new Error(`${clientConfig.name} does not use MCP config entries`);
+  }
+  // Don't repair HTTP entries — they are intentional transport overrides
+  if (existingEntry && typeof existingEntry === 'object' && (existingEntry as Record<string, unknown>).type === 'http') {
+    return;
   }
   const inferredServerPath = inferServerPathFromEntry(clientConfig, existingEntry);
   const repairedEntry = buildMcpEntry(clientConfig, inferredServerPath);
@@ -905,11 +933,13 @@ export function doctor(args: DoctorArgs = {}): string {
 export function install(args: InstallArgs): string {
   const clientConfig = CLIENT_CONFIGS[args.client];
   const usesPiPackage = isPiPackageClient(clientConfig);
-  const serverPath = usesPiPackage ? args.serverPath : args.serverPath || detectServerPath();
+  const serverPath = usesPiPackage ? args.serverPath :
+    args.transport === 'http' ? args.serverPath :
+    args.serverPath || detectServerPath();
   const piPackageSource = usesPiPackage ? buildPiPackageSource() : null;
   const vaultPath = getVaultPath();
   
-  if (!usesPiPackage && serverPath && !fs.existsSync(serverPath)) {
+  if (!usesPiPackage && args.transport !== 'http' && serverPath && !fs.existsSync(serverPath)) {
     throw new Error(`Server not found at: ${serverPath}`);
   }
   
@@ -940,7 +970,7 @@ export function install(args: InstallArgs): string {
     return `Already installed for ${clientConfig.name}. Use --force to overwrite.`;
   }
   
-  const mcpEntry = usesPiPackage ? null : buildMcpEntry(clientConfig, serverPath);
+  const mcpEntry = usesPiPackage ? null : buildMcpEntry(clientConfig, serverPath, args.transport);
   
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const templatesDir = path.join(projectRoot, 'templates');
@@ -1222,6 +1252,7 @@ install:
   --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed, pi, omp)
   --server-path <path> Path to dist/mcp-server.js (auto-detected; MCP clients only)
   --instructions <size> Agent instruction size: compact (~140 tokens) or full (~420 tokens)
+  --transport <type>   Transport type: stdio (default) or http
   --force              Overwrite existing config
   --dry-run            Preview changes without applying
   --yes                Non-interactive, accept defaults
@@ -1274,6 +1305,12 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     const serverPath = parseFlagValue(args, '--server-path');
     const clientArg = parseFlagValue(args, '--client');
     const instructionsArg = parseFlagValue(args, '--instructions');
+    const transportArg = parseFlagValue(args, '--transport');
+    const transport: McpTransport | undefined =
+      transportArg === 'stdio' || transportArg === 'http' ? transportArg : undefined;
+    if (transportArg && !transport) {
+      throw new Error(`Invalid --transport value: ${transportArg}. Use 'stdio' or 'http'.`);
+    }
     const instructionSize: InstructionSize | undefined =
       instructionsArg === 'compact' || instructionsArg === 'full' ? instructionsArg : undefined;
     if (instructionsArg && !instructionSize) {
@@ -1291,7 +1328,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     /** Prompt for symlinked agent docs and install a single client. */
     async function installWithSymlinkPrompt(
       client: McpClient,
-      opts: { serverPath?: string; force?: boolean; dryRun?: boolean; instructionSize?: InstructionSize; yes?: boolean },
+      opts: { serverPath?: string; transport?: McpTransport; force?: boolean; dryRun?: boolean; instructionSize?: InstructionSize; yes?: boolean },
     ): Promise<string> {
       const clientConfig = CLIENT_CONFIGS[client];
       let injectSharedAgentDocs: boolean | undefined;
@@ -1319,6 +1356,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       return install({
         client,
         serverPath: opts.serverPath,
+        transport: opts.transport,
         force: opts.force,
         dryRun: opts.dryRun,
         instructionSize: opts.instructionSize,
@@ -1327,14 +1365,14 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     }
 
     if (client) {
-      const result = await installWithSymlinkPrompt(client, { serverPath, force, dryRun, instructionSize, yes });
+      const result = await installWithSymlinkPrompt(client, { serverPath, transport, force, dryRun, instructionSize, yes });
       console.log(result);
       return;
     }
 
     if (yes) {
       for (const client of ALL_CLIENTS) {
-        const result = await installWithSymlinkPrompt(client, { serverPath, force, dryRun, instructionSize, yes: true });
+        const result = await installWithSymlinkPrompt(client, { serverPath, transport, force, dryRun, instructionSize, yes: true });
         console.log(result);
       }
       return;
@@ -1366,7 +1404,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
     for (const client of selected) {
       try {
-        await installWithSymlinkPrompt(client, { serverPath, force, dryRun, instructionSize });
+        await installWithSymlinkPrompt(client, { serverPath, transport, force, dryRun, instructionSize });
         p.log.success(`Installed for ${CLIENT_CONFIGS[client].name}`);
       } catch (e) {
         p.log.error(`${CLIENT_CONFIGS[client].name}: ${e instanceof Error ? e.message : e}`);
