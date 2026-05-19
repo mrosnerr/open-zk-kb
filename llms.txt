@@ -14,7 +14,7 @@ bunx open-zk-kb@latest
 
 The interactive installer adds the MCP server to your client config and installs knowledge base instructions.
 
-## MCP Tools (8 tools)
+## MCP Tools (9 tools)
 
 ### knowledge-search
 Search the knowledge base for relevant context. Uses full-text search (SQLite FTS5) and local semantic embeddings (MiniLM-L6-v2). No API key required.
@@ -77,6 +77,12 @@ Open the knowledge base vault in Obsidian. Detects Obsidian installation, regist
 Parameters:
 - project (string, optional): Project to focus on after opening
 
+### knowledge-get
+Retrieve a single note by its exact ID. Faster and more precise than knowledge-search. Use when you already know the note ID (e.g. from search results or context hints).
+
+Parameters:
+- noteId (string, required): Exact note ID to retrieve
+
 ## Zettelkasten Concepts
 
 The Zettelkasten ("slip box") method stores one atomic concept per note, with explicit links between related ideas. This enables emergent knowledge discovery as the network grows.
@@ -99,7 +105,7 @@ Notes follow the Zettelkasten lifecycle: fleeting (temporary captures) → perma
 
 ## Supported Clients
 
-OpenCode, Claude Code, Cursor, Windsurf, Zed
+OpenCode, Claude Code, Cursor, Windsurf, Zed, Pi, OMP
 
 ## Links
 

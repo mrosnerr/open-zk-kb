@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { fileURLToPath } from 'url';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
 
@@ -236,6 +237,8 @@ describe('setup.ts', () => {
     const agentDocs = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(agentDocs).toContain('OPEN-ZK-KB:START');
     expect(agentDocs).toContain('client: "pi"');
+    expect(output).toContain('pi install');
+    expect(output).toContain('Pi does not support MCP natively');
   });
 
   it('Pi dry-run previews package setup without requiring an MCP server path', async () => {
@@ -250,6 +253,7 @@ describe('setup.ts', () => {
     expect(output).toContain(`Dry run: Would add Pi package source to ${path.join(env.homeDir, '.pi', 'agent', 'settings.json')}`);
     expect(output).toContain(getExpectedPiPackageSource());
     expect(output).toContain(`Would inject agent docs into ${path.join(env.homeDir, '.pi', 'agent', 'AGENTS.md')}`);
+    expect(output).toContain('Pi does not support MCP natively');
   });
 
   it('Pi uninstall removes only the open-zk-kb package source and managed instructions', async () => {

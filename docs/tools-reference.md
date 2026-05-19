@@ -1,6 +1,6 @@
 # Tools Reference
 
-open-zk-kb exposes eight MCP tools. Your agent calls these automatically based on injected [instructions](setup-guide.md#agent-instructions) — you rarely need to invoke them manually.
+open-zk-kb exposes nine MCP tools. Your agent calls these automatically based on injected [instructions](setup-guide.md#agent-instructions) — you rarely need to invoke them manually.
 
 | Tool | What it does |
 |------|-------------|
@@ -12,6 +12,7 @@ open-zk-kb exposes eight MCP tools. Your agent calls these automatically based o
 | `knowledge-template` | Get the canonical note template for a specific kind |
 | `knowledge-mine` | Bulk-screen candidates from session history for duplicates and store |
 | `knowledge-open` | Open the vault in [Obsidian](obsidian.md) with a scaffolded theme, plugins, and homepage |
+| [`knowledge-get`](#knowledge-get) | Retrieve a single note by its exact ID |
 
 Notes use [9 kinds with lifecycle management](note-lifecycle.md). For configuration options, see the [Configuration Reference](configuration.md).
 
@@ -275,4 +276,34 @@ Get a project overview combining the auto-generated index (a catalog of all proj
   "project": "my-app",
   "logEntries": 5
 }
+```
+---
+
+## knowledge-get
+
+Retrieve a single note by its exact ID. Faster and more precise than knowledge-search. Use when you already know the note ID (e.g. from search results, context hints, or wikilink references).
+
+### Parameters
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `noteId` | string | Yes | Exact note ID to retrieve |
+| `model` | string | No | Your model identifier. Enables richer responses for capable models |
+
+### What happens
+
+1. Looks up the note by ID in the SQLite index
+2. Returns the full note content in the same format as search results
+3. Returns an error message if no note exists with the given ID
+
+### When to use
+
+- **Following references**: Search results and overview pages contain note IDs. Use `knowledge-get` to retrieve referenced notes without a full search.
+- **After store**: The `knowledge-store` response includes the new note's ID. Use `knowledge-get` to verify or retrieve it later.
+- **Compact rendering hints**: When `renderNoteForAgent` shows a truncated content preview with a hint, use `knowledge-get` with the note's ID to get the full content.
+
+### Example
+
+```json
+{ "noteId": "2026030919130100" }
 ```

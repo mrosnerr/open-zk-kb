@@ -22,7 +22,7 @@ Your agent starts from zero every session. No memory, no learning curve. You cor
 open-zk-kb fixes that.
 
 - **Correct it once, it sticks** — your agent stores corrections, preferences, and decisions. Next session, it already knows.
-- **Works across every tool** — one knowledge base shared by [Claude Code, Cursor, Windsurf, OpenCode, and Zed](docs/setup-guide.md)
+- **Works across every tool** — one knowledge base shared by [Claude Code, Cursor, Windsurf, OpenCode, Zed, Pi, and OMP](docs/setup-guide.md)
 - **Finds what's relevant** — hybrid search matches meaning, not just keywords, so only useful context surfaces
 - **Runs locally** — no API keys, no cloud, works offline. Your data stays on your machine.
 - **Human-readable** — plain Markdown files [you can browse, edit, and version control](docs/architecture.md#dual-storage-model)
@@ -61,7 +61,7 @@ That's it. The interactive installer:
 2. Installs knowledge base instructions so your agent knows when and how to use it
 3. Creates a local vault at `~/.local/share/open-zk-kb`
 
-Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**
+Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **Pi**, **OMP**
 
 See the [Setup Guide](docs/setup-guide.md) for manual installation and troubleshooting.
 
@@ -80,7 +80,7 @@ Search combines SQLite FTS5 full-text indexing with local vector embeddings (Min
 ## Documentation
 
 - [Setup Guide](docs/setup-guide.md) — installation, client-specific setup, troubleshooting
-- [Tools Reference](docs/tools-reference.md) — all 8 MCP tools with parameters and examples
+- [Tools Reference](docs/tools-reference.md) — all 9 MCP tools with parameters and examples
 - [Note Lifecycle](docs/note-lifecycle.md) — note kinds, statuses, review system
 - [Configuration](docs/configuration.md) — embeddings, vault, Obsidian scaffold
 - [Obsidian Guide](docs/obsidian.md) — managed scaffold, plugins, navigation

@@ -13,7 +13,7 @@ Run the interactive installer:
 bunx open-zk-kb@latest
 ```
 
-This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed, and Pi.
+This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed, Pi, and OMP.
 
 > **Note**: The installer automatically copies `config.example.yaml` to `~/.config/open-zk-kb/config.yaml` if no config file exists yet. Local embeddings (MiniLM, 23MB) are enabled by default and require no API key.
 
@@ -83,6 +83,7 @@ See the [Development Guide](development.md#development-setup) for the full contr
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | Zed | `~/.config/zed/settings.json` |
 | Pi | `~/.pi/agent/settings.json` |
+| OMP | `~/.omp/agent/mcp.json` |
 
 ## Verify Installation
 1. Restart your editor/client.
@@ -109,8 +110,9 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
 | Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
 | Pi | Managed block | `~/.pi/agent/AGENTS.md` |
+| OMP | Skill + Managed block | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/RULES.md` |
 
-Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions.
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets a skill plus managed `RULES.md` instructions.
 
 ### Claude Code (Skill)
 
@@ -242,4 +244,4 @@ This section is specifically for agents setting up open-zk-kb:
 2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor
 4. Verify by calling `knowledge-maintain stats`
-5. Knowledge capture is driven by agent instructions (skill for Claude Code, managed block for OpenCode/Windsurf) provided during setup. Calling models use MCP tools directly, primarily querying the SQLite-backed server layer rather than browsing raw vault files.
+5. Knowledge capture is driven by agent instructions (skill for Claude Code and OMP, managed block for OpenCode/Windsurf/Pi, package extension for Pi) provided during setup. Calling models use MCP tools directly, primarily querying the SQLite-backed server layer rather than browsing raw vault files.

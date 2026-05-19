@@ -5,7 +5,7 @@
 // to hide notes scoped to other clients during search.
 
 /** Known client identifiers. Used for soft validation — unrecognized clients are warned, not rejected. */
-export const KNOWN_CLIENTS = new Set(['opencode', 'claude-code', 'cursor', 'windsurf', 'zed']);
+export const KNOWN_CLIENTS = new Set(['opencode', 'claude-code', 'cursor', 'windsurf', 'zed', 'omp']);
 
 /** Returns true if the client name is recognized. 'all' is always valid. */
 export function isKnownClient(client: string): boolean {
@@ -19,6 +19,7 @@ export const CLIENT_CONTENT_PATTERNS: Record<string, RegExp[]> = {
   'cursor':      [/\.cursor\//],
   'windsurf':    [/\.codeium\/windsurf\//],
   'zed':         [/\.config\/zed\//],
+  'omp':         [/\.omp\//],
 };
 
 export const CLIENT_TAG_PREFIX = 'client:';

@@ -33,8 +33,8 @@ Dev is 271 commits ahead — this plan executes AFTER that release lands.
   tagline: Shared persistent memory for AI assistants, built on Zettelkasten
   description: >-
     Zettelkasten-based knowledge base with SQLite FTS5, local embeddings,
-    Markdown files, Obsidian integration, and 8 MCP tools.
-    Works with OpenCode, Claude Code, Cursor, Windsurf, and Zed.
+    Markdown files, Obsidian integration, and 9 MCP tools.
+    Works with OpenCode, Claude Code, Cursor, Windsurf, Zed, Pi, and OMP.
   ```
 - **Why first**: Smallest review queue, OpenCode-native, YAML-only PR
 - **Effort**: 15 min
@@ -43,7 +43,7 @@ Dev is 271 commits ahead — this plan executes AFTER that release lands.
 
 - **Repo**: `punkpeye/awesome-mcp-servers`
 - **Process**: Fork, edit README.md, add entry in Knowledge & Memory section (alphabetical), PR
-- **Format**: `- [mrosnerr/open-zk-kb](https://github.com/mrosnerr/open-zk-kb) 📇 🏠 - Zettelkasten-based persistent memory with SQLite FTS5, local embeddings, Obsidian integration. 8 MCP tools across 5 AI clients.`
+- **Format**: `- [mrosnerr/open-zk-kb](https://github.com/mrosnerr/open-zk-kb) 📇 🏠 - Zettelkasten-based persistent memory with SQLite FTS5, local embeddings, Obsidian integration. 9 MCP tools across 7 AI clients.`
 - **Fast-track**: Add `🤖🤖🤖` to PR title for automated merge
 - **Category**: Knowledge & Memory (159 entries, alphabetical ordering)
 - **Effort**: 20 min
@@ -94,6 +94,14 @@ Submit to whichever are still active at time of execution:
 Batch these — most are "paste URL" submissions.
 - **Effort**: 30 min total
 
+### 3C. OMP Marketplace
+
+- **Docs**: https://omp.sh/docs/extension-authoring → "Ship it through a marketplace"
+- **Format**: Git repo with `.claude-plugin/marketplace.json` catalog
+- **Pre-work**: Migrate `pi` → `omp` key in `package.json` (legacy `pi.extensions` still works but `omp.extensions` is recommended). Handle dual-load concern: if someone installs via both `omp install` AND MCP config, the extension bridge and MCP server would create duplicate tools. Extension should detect OMP and skip tool registration when MCP is already available.
+- **Effort**: 1-2 hours (includes package.json migration + duplicate-detection logic + marketplace catalog PR)
+- **Blocked on**: Resolving the extension vs MCP dual-load conflict first
+
 ---
 
 ## Phase 4: Content (Week 2 post-release)
@@ -107,7 +115,7 @@ Batch these — most are "paste URL" submissions.
   - Zettelkasten as a knowledge structure for agents
   - Dual storage architecture (SQLite + Markdown)
   - Local embeddings without API keys
-  - Multi-client challenge (5 clients, different config formats)
+  - Multi-client challenge (7 clients, different config formats)
 - **Do NOT**: Pitch the project in the intro. Let the engineering speak.
 - **Effort**: 2-4 hours
 

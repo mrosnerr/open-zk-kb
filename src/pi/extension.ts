@@ -89,8 +89,11 @@ const TOOL_DEFINITIONS = [
       guidance: { type: 'string' },
       project: { type: 'string' },
       tags: STRING_ARRAY_SCHEMA,
-      existingId: { type: 'string' },
       lifecycle: enumSchema(['living', 'snapshot', 'append-only']),
+      client: { type: 'string' },
+      status: enumSchema(['fleeting', 'permanent', 'archived']),
+      related: STRING_ARRAY_SCHEMA,
+      model: { type: 'string' },
     }, ['kind', 'title', 'content', 'summary', 'guidance']),
   },
   {
@@ -101,7 +104,7 @@ const TOOL_DEFINITIONS = [
     parameters: objectSchema({
       url: { type: 'string' },
       html: { type: 'string' },
-      title: { type: 'string' },
+      model: { type: 'string' },
     }),
   },
   {
@@ -116,7 +119,9 @@ const TOOL_DEFINITIONS = [
       kind: enumSchema(['personalization', 'decision', 'procedure', 'reference', 'resource', 'observation', 'domain', 'index', 'log']),
       tags: STRING_ARRAY_SCHEMA,
       limit: { type: 'number' },
-      mode: enumSchema(['keyword', 'semantic', 'hybrid']),
+      status: enumSchema(['fleeting', 'permanent', 'archived']),
+      lifecycle: enumSchema(['living', 'snapshot', 'append-only']),
+      model: { type: 'string' },
     }, ['query']),
   },
   {
@@ -127,28 +132,32 @@ const TOOL_DEFINITIONS = [
     parameters: objectSchema({
       project: { type: 'string' },
       logEntries: { type: 'number' },
+      model: { type: 'string' },
     }, ['project']),
   },
   {
     name: 'knowledge-open',
-    label: 'Open Knowledge Note',
-    description: 'Open a specific knowledge note or the vault in Obsidian when available.',
+    label: 'Open in Obsidian',
+    description: 'Open the knowledge base vault in Obsidian for visual browsing. Detects Obsidian installation and launches it pointed at the vault.',
     promptSnippet: 'Open open-zk-kb notes for human review when requested.',
     parameters: objectSchema({
-      noteId: { type: 'string' },
-      path: { type: 'string' },
+      project: { type: 'string' },
     }),
   },
   {
     name: 'knowledge-maintain',
     label: 'Maintain Knowledge',
-    description: 'Run knowledge base maintenance actions such as stats, review, promote, archive, delete, embed, and broken-links.',
+    description: 'Run knowledge base maintenance actions: stats, promote, archive, delete, rebuild, format, upgrade, upgrade-read, upgrade-apply, review, dedupe, embed, agent-docs, scope-audit, orphans, broken-links, migrate-layout, upgrade-vault, full.',
     promptSnippet: 'Inspect or maintain open-zk-kb health and lifecycle state.',
     parameters: objectSchema({
-      action: enumSchema(['stats', 'review', 'promote', 'archive', 'delete', 'embed', 'broken-links']),
+      action: enumSchema(['stats', 'promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'orphans', 'broken-links', 'migrate-layout', 'upgrade-vault', 'full']),
       noteId: { type: 'string' },
       limit: { type: 'number' },
-      dry_run: { type: 'boolean' },
+      dryRun: { type: 'boolean' },
+      filter: enumSchema(['fleeting', 'permanent']),
+      days: { type: 'number' },
+      telemetry: { type: 'boolean' },
+      model: { type: 'string' },
     }, ['action']),
   },
   {
@@ -163,15 +172,17 @@ const TOOL_DEFINITIONS = [
       },
       dry_run: { type: 'boolean' },
       project: { type: 'string' },
+      model: { type: 'string' },
     }, ['candidates']),
   },
   {
     name: 'knowledge-get',
     label: 'Get Knowledge Note',
-    description: 'Fetch a specific knowledge note by note id.',
-    promptSnippet: 'Fetch a specific open-zk-kb note by id.',
+    description: 'Retrieve a single note by its exact ID. Faster and more precise than knowledge-search. Use when you already know the note ID (e.g. from injected context hints).',
+    promptSnippet: 'Fetch a specific open-zk-kb note by id for fast retrieval.',
     parameters: objectSchema({
       noteId: { type: 'string' },
+      model: { type: 'string' },
     }, ['noteId']),
   },
   {
@@ -180,7 +191,9 @@ const TOOL_DEFINITIONS = [
     description: 'Get the canonical note template for a knowledge kind before storing structured memory.',
     promptSnippet: 'Load an open-zk-kb note template before storing structured knowledge.',
     parameters: objectSchema({
-      kind: enumSchema(['personalization', 'decision', 'procedure', 'reference', 'resource', 'observation', 'domain']),
+      kind: enumSchema(['personalization', 'decision', 'procedure', 'reference', 'resource', 'observation', 'domain', 'index', 'log']),
+      project: { type: 'string' },
+      model: { type: 'string' },
     }, ['kind']),
   },
 ] as const;

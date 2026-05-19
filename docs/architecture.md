@@ -20,7 +20,7 @@ Obsidian plays a separate role: it is the primary human browsing and interaction
 ┌──────────▼──────────┐
 │   MCP Server        │
 │   (mcp-server.ts)   │
-│   - 8 MCP tools     │
+│   - 9 MCP tools     │
 │   - stdio transport │
 └──────────┬──────────┘
            │
@@ -29,6 +29,7 @@ Obsidian plays a separate role: it is the primary human browsing and interaction
 │   (tool-handlers.ts)│
 │   handleStore()     │
 │   handleSearch()    │
+│   handleGet()       │
 │   handleMaintain()  │
 │   handleIngest()    │
 │   handleOverview()  │

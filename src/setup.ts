@@ -814,14 +814,16 @@ export function doctor(args: DoctorArgs = {}): string {
         }
 
         // Check for stale CLAUDE.md managed block (pre-skill migration)
-        const oldAgentDocsPath = getLegacyClaudeMdPath();
-        const oldInspection = inspectAgentDocs(oldAgentDocsPath);
-        if (oldInspection.exists && oldInspection.status !== 'missing') {
-          if (args.fix) {
-            migrateFromAgentDocs(oldAgentDocsPath, false);
-            pushCheck('FIXED', `${clientConfig.name}: removed stale CLAUDE.md managed block`);
-          } else {
-            pushCheck('WARN', `${clientConfig.name}: stale CLAUDE.md managed block found — run with --fix to remove`);
+        if (client === 'claude-code') {
+          const oldAgentDocsPath = getLegacyClaudeMdPath();
+          const oldInspection = inspectAgentDocs(oldAgentDocsPath);
+          if (oldInspection.exists && oldInspection.status !== 'missing') {
+            if (args.fix) {
+              migrateFromAgentDocs(oldAgentDocsPath, false);
+              pushCheck('FIXED', `${clientConfig.name}: removed stale CLAUDE.md managed block`);
+            } else {
+              pushCheck('WARN', `${clientConfig.name}: stale CLAUDE.md managed block found — run with --fix to remove`);
+            }
           }
         }
       }
@@ -915,6 +917,10 @@ export function install(args: InstallArgs): string {
     }
   }
 
+  const removedStaleOpenCodePlugins = !usesPiPackage && clientConfig.mcpFormat === 'opencode'
+    ? removeStaleOpenCodePluginEntries(config)
+    : false;
+
   const existing = usesPiPackage
     ? validatePiPackageConfig(config, piPackageSource ?? '').length === 0
     : clientConfig.mcpPath ? getNestedValue(config, clientConfig.mcpPath) !== undefined : false;
@@ -936,9 +942,8 @@ export function install(args: InstallArgs): string {
 
   if (args.dryRun) {
     let output = usesPiPackage
-      ? `Dry run: Would add Pi package source to ${clientConfig.configPath}:\n${piPackageSource}`
+      ? `Dry run: Would add Pi package source to ${clientConfig.configPath}:\n${piPackageSource}\nNote: Also run \`pi install ${piPackageSource}\` — Pi does not support MCP natively`
       : `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
-    }
     if (clientConfig.skillPath) {
       output += `\nWould install skill to ${clientConfig.skillPath}`;
     }
@@ -1002,8 +1007,10 @@ export function install(args: InstallArgs): string {
   if (clientConfig.skillPath) {
     skillResult = installSkill(clientConfig.skillPath, args.dryRun);
 
-    // Migrate away from old CLAUDE.md managed block if present
-    migrationResult = migrateFromAgentDocs(getLegacyClaudeMdPath(), args.dryRun);
+    // Migrate away from old CLAUDE.md managed block if present (Claude Code only)
+    if (args.client === 'claude-code') {
+      migrationResult = migrateFromAgentDocs(getLegacyClaudeMdPath(), args.dryRun);
+    }
   }
   let agentDocsSkippedSymlink: string | null = null;
   if (clientConfig.agentDocsPath) {
@@ -1055,12 +1062,15 @@ export function install(args: InstallArgs): string {
     output += `Templates: ${templatesCopied} files → ${vaultTemplatesDir}\n`;
   }
   output += `\nNext steps:\n`;
-  const restartTarget = usesPiPackage ? 'Pi to load the package extension' : `${clientConfig.name} to load the MCP server`;
+  let step = 1;
   if (configCopied) {
-    output += `1. Review ${configYamlPath} if you want to customize settings or use API embeddings\n`;
-    output += `2. Restart ${restartTarget}\n`;
+    output += `${step++}. Review ${configYamlPath} if you want to customize settings or use API embeddings\n`;
+  }
+  if (usesPiPackage) {
+    output += `${step++}. Run \`pi install ${piPackageSource}\` if you haven't already (Pi does not support MCP natively — this installs the package extension)\n`;
+    output += `${step}. Restart Pi to load the package extension\n`;
   } else {
-    output += `1. Restart ${restartTarget}\n`;
+    output += `${step}. Restart ${clientConfig.name} to load the MCP server\n`;
   }
   
   return output;

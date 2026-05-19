@@ -2005,6 +2005,7 @@ export interface TemplateArgs {
 
 export interface GetArgs {
   noteId: string;
+  model?: string;
 }
 
 export function handleGet(args: GetArgs, repo: NoteRepository): string {
