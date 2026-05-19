@@ -13,9 +13,25 @@ Run the interactive installer:
 bunx open-zk-kb@latest
 ```
 
-This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed.
+This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed, and Pi.
 
 > **Note**: The installer automatically copies `config.example.yaml` to `~/.config/open-zk-kb/config.yaml` if no config file exists yet. Local embeddings (MiniLM, 23MB) are enabled by default and require no API key.
+
+### Pi Installation
+
+Pi does not include native MCP support, so open-zk-kb ships as a Pi package extension that bridges the existing MCP server into Pi-native `knowledge-*` tools:
+
+```bash
+pi install npm:open-zk-kb
+```
+
+The open-zk-kb installer can also wire Pi settings and managed `AGENTS.md` instructions:
+
+```bash
+bunx open-zk-kb@latest install --client pi
+```
+
+Restart Pi after either install path so it can load the package extension.
 
 ### Manual Installation (for any MCP client)
 
@@ -53,7 +69,7 @@ bun run build
 bun run setup install --client <name> --force
 ```
 
-The installer auto-detects the source checkout (via `.git` presence) and wires your client to local paths — the MCP server points at `dist/mcp-server.js`, and agent instructions are injected where the client supports managed instructions.
+The installer auto-detects the source checkout (via `.git` presence) and wires your client to local paths — the MCP server points at `dist/mcp-server.js`, Pi uses the local package path, and agent instructions are injected where the client supports managed instructions.
 
 See the [Development Guide](development.md#development-setup) for the full contributor workflow.
 
@@ -66,12 +82,13 @@ See the [Development Guide](development.md#development-setup) for the full contr
 | Cursor | `~/.cursor/mcp.json` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | Zed | `~/.config/zed/settings.json` |
+| Pi | `~/.pi/agent/settings.json` |
 
 ## Verify Installation
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.
 3. Ask your agent: **"Run `knowledge-maintain stats`"**
-4. You should see vault statistics (0 notes on fresh install). This confirms the 8 tools are available:
+4. You should see vault statistics (0 notes on fresh install). This confirms the knowledge tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
    - `knowledge-template` -- canonical note template for a kind
@@ -79,6 +96,7 @@ See the [Development Guide](development.md#development-setup) for the full contr
    - `knowledge-maintain` -- stats, review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML
    - `knowledge-overview` -- project entry point with auto-generated index and recent log
+   - `knowledge-get` -- fetch a specific note by id
    - `knowledge-open` -- open the vault in Obsidian for visual browsing (see [Obsidian Guide](obsidian.md))
 
 ## Agent Instructions
@@ -90,8 +108,9 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | Claude Code | [Skill](https://code.claude.com/docs/en/skills) | `~/.claude/skills/open-zk-kb/SKILL.md` |
 | OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
 | Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
+| Pi | Managed block | `~/.pi/agent/AGENTS.md` |
 
-Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions.
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions.
 
 ### Claude Code (Skill)
 

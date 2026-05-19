@@ -19,7 +19,7 @@ function detectNpmTag(): 'dev' | 'latest' {
 const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 const xdgDataHome = process.env.XDG_DATA_HOME || expandPath('~/.local/share');
 
-export type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf' | 'zed';
+export type McpClient = 'opencode' | 'claude-code' | 'cursor' | 'windsurf' | 'zed' | 'pi' | 'omp';
 
 export interface InstallArgs {
   client: McpClient;
@@ -27,6 +27,8 @@ export interface InstallArgs {
   force?: boolean;
   dryRun?: boolean;
   instructionSize?: InstructionSize;
+  /** Inject agent docs even when the path is a symlink to a shared file. */
+  injectSharedAgentDocs?: boolean;
 }
 
 export interface UninstallArgs {
@@ -45,14 +47,16 @@ export interface ClientConfig {
   name: string;
   configPath: string;
   configFormat: 'json' | 'jsonc';
-  mcpPath: string[];
-  mcpFormat: 'opencode' | 'standard';
+  integration?: 'mcp' | 'pi-package';
+  mcpPath?: string[];
+  mcpFormat?: 'opencode' | 'standard';
   agentDocsPath?: string;
   instructionSize?: InstructionSize;
   /** Path where a Claude Code skill directory should be installed (e.g. ~/.claude/skills/open-zk-kb) */
   skillPath?: string;
 }
 
+const PI_PACKAGE_NAME = 'open-zk-kb';
 export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
   'opencode': {
     name: 'OpenCode',
@@ -94,9 +98,27 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['context_servers', 'open-zk-kb'],
     mcpFormat: 'standard',
   },
+  'pi': {
+    name: 'Pi',
+    configPath: path.join(expandPath('~/.pi'), 'agent', 'settings.json'),
+    configFormat: 'json',
+    integration: 'pi-package',
+    agentDocsPath: path.join(expandPath('~/.pi'), 'agent', 'AGENTS.md'),
+    instructionSize: 'full',
+  },
+  'omp': {
+    name: 'OMP',
+    configPath: path.join(expandPath('~/.omp'), 'agent', 'mcp.json'),
+    configFormat: 'json',
+    mcpPath: ['mcpServers', 'open-zk-kb'],
+    mcpFormat: 'standard',
+    skillPath: path.join(expandPath('~/.omp'), 'agent', 'skills', 'open-zk-kb'),
+    agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'AGENTS.md'),
+    instructionSize: 'full',
+  },
 };
 
-const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf', 'zed'];
+const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf', 'zed', 'pi', 'omp'];
 
 const CLIENT_PROMPT_OPTIONS: Array<{ value: McpClient; label: string; hint: string }> = [
   { value: 'opencode', label: 'OpenCode', hint: 'MCP server + managed instructions' },
@@ -104,6 +126,8 @@ const CLIENT_PROMPT_OPTIONS: Array<{ value: McpClient; label: string; hint: stri
   { value: 'cursor', label: 'Cursor', hint: 'MCP server integration' },
   { value: 'windsurf', label: 'Windsurf', hint: 'MCP server integration' },
   { value: 'zed', label: 'Zed', hint: 'MCP server integration' },
+  { value: 'pi', label: 'Pi', hint: 'Pi package + managed instructions' },
+  { value: 'omp', label: 'OMP', hint: 'MCP server + skill' },
 ];
 
 type McpEntry =
@@ -118,6 +142,10 @@ type McpEntry =
     };
 
 function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string): McpEntry {
+  if (!clientConfig.mcpFormat) {
+    throw new Error(`${clientConfig.name} does not use MCP config entries`);
+  }
+
   if (!serverPath) {
     const tag = detectNpmTag();
     if (clientConfig.mcpFormat === 'opencode') {
@@ -212,6 +240,113 @@ function formatServerCommand(serverPath?: string): string {
   return serverPath ? `bun run ${serverPath}` : `bunx open-zk-kb@${detectNpmTag()} server`;
 }
 
+function buildPiPackageSource(): string {
+  const projectRoot = detectProjectRoot();
+  if (projectRoot) {
+    return projectRoot;
+  }
+
+  const tag = detectNpmTag();
+  return tag === 'dev' ? `npm:${PI_PACKAGE_NAME}@dev` : `npm:${PI_PACKAGE_NAME}`;
+}
+
+function getPackageArray(config: JsonObject): unknown[] | undefined {
+  return Array.isArray(config.packages) ? config.packages : undefined;
+}
+
+function packageSourceValue(entry: unknown): string | undefined {
+  if (typeof entry === 'string') {
+    return entry;
+  }
+
+  if (isJsonObject(entry) && typeof entry.source === 'string') {
+    return entry.source;
+  }
+
+  return undefined;
+}
+
+function isOpenZkKbPiPackageSource(source: string): boolean {
+  if (source === PI_PACKAGE_NAME || source === `npm:${PI_PACKAGE_NAME}` || source.startsWith(`npm:${PI_PACKAGE_NAME}@`)) {
+    return true;
+  }
+
+  if (source.startsWith('file://')) {
+    try {
+      return isOpenZkKbLocalPackagePath(fileURLToPath(source));
+    } catch {
+      return false;
+    }
+  }
+
+  return path.isAbsolute(source) && isOpenZkKbLocalPackagePath(source);
+}
+
+function isOpenZkKbLocalPackagePath(source: string): boolean {
+  const normalized = path.normalize(source);
+  return path.basename(normalized) === PI_PACKAGE_NAME;
+}
+
+function normalizePiPackages(config: JsonObject, desiredSource: string): void {
+  const existing = getPackageArray(config) ?? [];
+  const preserved = existing.filter((entry) => {
+    const source = packageSourceValue(entry);
+    return source === undefined || !isOpenZkKbPiPackageSource(source);
+  });
+  config.packages = [...preserved, desiredSource];
+}
+
+function removePiPackage(config: JsonObject): void {
+  const existing = getPackageArray(config);
+  if (!existing) {
+    return;
+  }
+
+  const preserved = existing.filter((entry) => {
+    const source = packageSourceValue(entry);
+    return source === undefined || !isOpenZkKbPiPackageSource(source);
+  });
+
+  if (preserved.length === 0) {
+    delete config.packages;
+    return;
+  }
+
+  config.packages = preserved;
+}
+
+function validatePiPackageConfig(config: JsonObject, expectedSource: string): string[] {
+  if (!("packages" in config)) {
+    return ['missing packages array'];
+  }
+
+  if (!Array.isArray(config.packages)) {
+    return ['packages is not an array'];
+  }
+
+  const matches = config.packages
+    .map(packageSourceValue)
+    .filter((source): source is string => source !== undefined && isOpenZkKbPiPackageSource(source));
+
+  if (matches.length === 0) {
+    return ['missing open-zk-kb package source'];
+  }
+
+  if (matches.length > 1) {
+    return ['duplicate open-zk-kb package sources'];
+  }
+
+  if (matches[0] !== expectedSource) {
+    return [`expected package source "${expectedSource}"`];
+  }
+
+  return [];
+}
+
+function isPiPackageClient(clientConfig: ClientConfig): boolean {
+  return clientConfig.integration === 'pi-package';
+}
+
 /**
  * Check if open-zk-kb is already installed for a given client.
  */
@@ -224,7 +359,13 @@ function isClientInstalled(client: McpClient): boolean {
   
   try {
     const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
-    const config = JSON.parse(content);
+    const config = parseJsonObject(content);
+    if (isPiPackageClient(clientConfig)) {
+      return validatePiPackageConfig(config, buildPiPackageSource()).length === 0;
+    }
+    if (!clientConfig.mcpPath) {
+      return false;
+    }
     const entry = getNestedValue(config, clientConfig.mcpPath);
     return entry !== undefined;
   } catch {
@@ -299,6 +440,18 @@ function getVaultPath(): string {
 
 function getConfigYamlPath(): string {
   return path.join(xdgConfigHome, 'open-zk-kb', 'config.yaml');
+}
+
+/**
+ * If the path is a symlink, return the resolved target. Otherwise return null.
+ */
+function resolveSymlinkTarget(filePath: string): string | null {
+  try {
+    if (fs.lstatSync(filePath).isSymbolicLink()) {
+      return fs.realpathSync(filePath);
+    }
+  } catch { /* path doesn't exist */ }
+  return null;
 }
 
 // --- Skill installation helpers (Claude Code) ---
@@ -500,6 +653,9 @@ function inferServerPathFromEntry(clientConfig: ClientConfig, entry: unknown): s
 }
 
 function repairClientConfig(clientConfig: ClientConfig, config: Record<string, unknown>, existingEntry: unknown): void {
+  if (!clientConfig.mcpPath) {
+    throw new Error(`${clientConfig.name} does not use MCP config entries`);
+  }
   const inferredServerPath = inferServerPathFromEntry(clientConfig, existingEntry);
   const repairedEntry = buildMcpEntry(clientConfig, inferredServerPath);
   setNestedValue(config, clientConfig.mcpPath, repairedEntry);
@@ -569,30 +725,49 @@ export function doctor(args: DoctorArgs = {}): string {
     } else {
       try {
         const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
-        const config = JSON.parse(content) as Record<string, unknown>;
-        const entry = getNestedValue(config, clientConfig.mcpPath);
+        const config = parseJsonObject(content);
 
-        if (!entry) {
-          pushCheck('INFO', `${clientConfig.name}: open-zk-kb is not configured in ${clientConfig.configPath}`);
-        } else {
-          const issues = validateMcpEntry(clientConfig, entry);
-          if (issues.length === 0) {
+        if (isPiPackageClient(clientConfig)) {
+          const packageIssues = validatePiPackageConfig(config, buildPiPackageSource());
+          if (packageIssues.length === 0) {
             configured = true;
-            pushCheck('OK', `${clientConfig.name}: MCP config looks healthy in ${clientConfig.configPath}`);
-            if (clientConfig.mcpFormat === 'opencode' && removeStaleOpenCodePluginEntries(config)) {
-              if (args.fix) {
-                fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
-                pushCheck('FIXED', `${clientConfig.name}: removed stale open-zk-kb plugin entries from ${clientConfig.configPath}`);
-              } else {
-                pushCheck('WARN', `${clientConfig.name}: stale open-zk-kb plugin entries remain in ${clientConfig.configPath} — run with --fix to remove`);
-              }
-            }
-          } else if (args.fix) {
-            repairClientConfig(clientConfig, config, entry);
+            pushCheck('OK', `${clientConfig.name}: package source looks healthy in ${clientConfig.configPath}`);
+          } else if (args.fix && getPackageArray(config)?.some((entry) => {
+            const source = packageSourceValue(entry);
+            return source !== undefined && isOpenZkKbPiPackageSource(source);
+          })) {
+            normalizePiPackages(config, buildPiPackageSource());
+            fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
             configured = true;
-            pushCheck('FIXED', `${clientConfig.name}: repaired MCP config in ${clientConfig.configPath}`);
+            pushCheck('FIXED', `${clientConfig.name}: repaired package source in ${clientConfig.configPath}`);
           } else {
-            pushCheck('ERROR', `${clientConfig.name}: MCP config is invalid (${issues.join(', ')})`);
+            pushCheck('INFO', `${clientConfig.name}: open-zk-kb package is not configured in ${clientConfig.configPath}`);
+          }
+        } else if (clientConfig.mcpPath) {
+          const entry = getNestedValue(config, clientConfig.mcpPath);
+
+          if (!entry) {
+            pushCheck('INFO', `${clientConfig.name}: open-zk-kb is not configured in ${clientConfig.configPath}`);
+          } else {
+            const issues = validateMcpEntry(clientConfig, entry);
+            if (issues.length === 0) {
+              configured = true;
+              pushCheck('OK', `${clientConfig.name}: MCP config looks healthy in ${clientConfig.configPath}`);
+              if (clientConfig.mcpFormat === 'opencode' && removeStaleOpenCodePluginEntries(config)) {
+                if (args.fix) {
+                  fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
+                  pushCheck('FIXED', `${clientConfig.name}: removed stale open-zk-kb plugin entries from ${clientConfig.configPath}`);
+                } else {
+                  pushCheck('WARN', `${clientConfig.name}: stale open-zk-kb plugin entries remain in ${clientConfig.configPath} — run with --fix to remove`);
+                }
+              }
+            } else if (args.fix) {
+              repairClientConfig(clientConfig, config, entry);
+              configured = true;
+              pushCheck('FIXED', `${clientConfig.name}: repaired MCP config in ${clientConfig.configPath}`);
+            } else {
+              pushCheck('ERROR', `${clientConfig.name}: MCP config is invalid (${issues.join(', ')})`);
+            }
           }
         }
       } catch (error) {
@@ -601,7 +776,7 @@ export function doctor(args: DoctorArgs = {}): string {
     }
 
     if (clientConfig.skillPath) {
-      // Skill-based client (Claude Code)
+      // Skill-based client (e.g. Claude Code, OMP)
       if (!configured) {
         if (fs.existsSync(clientConfig.skillPath)) {
           pushCheck('INFO', `${clientConfig.name}: skill exists at ${clientConfig.skillPath}, but open-zk-kb is not installed for this client`);
@@ -647,8 +822,12 @@ export function doctor(args: DoctorArgs = {}): string {
           }
         }
       }
-    } else if (clientConfig.agentDocsPath) {
-      if (!configured) {
+    }
+    if (clientConfig.agentDocsPath) {
+      const symlinkTarget = resolveSymlinkTarget(clientConfig.agentDocsPath);
+      if (symlinkTarget) {
+        pushCheck('INFO', `${clientConfig.name}: agent docs path is a symlink (→ ${symlinkTarget}) — skipping to avoid modifying a shared file`);
+      } else if (!configured) {
         if (fs.existsSync(clientConfig.agentDocsPath)) {
           pushCheck('INFO', `${clientConfig.name}: instruction file exists at ${clientConfig.agentDocsPath}, but open-zk-kb is not installed for this client`);
         } else {
@@ -676,7 +855,8 @@ export function doctor(args: DoctorArgs = {}): string {
           pushCheck('WARN', `${clientConfig.name}: managed instructions need repair (${inspection.status}) in ${clientConfig.agentDocsPath}`);
         }
       }
-    } else {
+    }
+    if (!clientConfig.skillPath && !clientConfig.agentDocsPath) {
       pushCheck('INFO', `${clientConfig.name}: managed instructions are not currently supported`);
     }
   }
@@ -697,10 +877,12 @@ export function doctor(args: DoctorArgs = {}): string {
 
 export function install(args: InstallArgs): string {
   const clientConfig = CLIENT_CONFIGS[args.client];
-  const serverPath = args.serverPath || detectServerPath();
+  const usesPiPackage = isPiPackageClient(clientConfig);
+  const serverPath = usesPiPackage ? args.serverPath : args.serverPath || detectServerPath();
+  const piPackageSource = usesPiPackage ? buildPiPackageSource() : null;
   const vaultPath = getVaultPath();
   
-  if (serverPath && !fs.existsSync(serverPath)) {
+  if (!usesPiPackage && serverPath && !fs.existsSync(serverPath)) {
     throw new Error(`Server not found at: ${serverPath}`);
   }
   
@@ -715,10 +897,9 @@ export function install(args: InstallArgs): string {
     }
   }
 
-  const existing = getNestedValue(config, clientConfig.mcpPath);
-  const removedStaleOpenCodePlugins = clientConfig.mcpFormat === 'opencode'
-    ? removeStaleOpenCodePluginEntries(config)
-    : false;
+  const existing = usesPiPackage
+    ? validatePiPackageConfig(config, piPackageSource ?? '').length === 0
+    : clientConfig.mcpPath ? getNestedValue(config, clientConfig.mcpPath) !== undefined : false;
 
   if (existing && !args.force) {
     if (removedStaleOpenCodePlugins && !args.dryRun) {
@@ -728,7 +909,7 @@ export function install(args: InstallArgs): string {
     return `Already installed for ${clientConfig.name}. Use --force to overwrite.`;
   }
   
-  const mcpEntry = buildMcpEntry(clientConfig, serverPath);
+  const mcpEntry = usesPiPackage ? null : buildMcpEntry(clientConfig, serverPath);
   
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const templatesDir = path.join(projectRoot, 'templates');
@@ -736,14 +917,20 @@ export function install(args: InstallArgs): string {
   const templateFileCount = fs.existsSync(templatesDir) ? fs.readdirSync(templatesDir).filter(f => f.endsWith('.md')).length : 0;
 
   if (args.dryRun) {
-    let output = `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
-    if (removedStaleOpenCodePlugins) {
-      output += '\nWould remove stale open-zk-kb plugin entries';
+    let output = usesPiPackage
+      ? `Dry run: Would add Pi package source to ${clientConfig.configPath}:\n${piPackageSource}`
+      : `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
     }
     if (clientConfig.skillPath) {
       output += `\nWould install skill to ${clientConfig.skillPath}`;
-    } else if (clientConfig.agentDocsPath) {
-      output += `\nWould inject agent docs into ${clientConfig.agentDocsPath}`;
+    }
+    if (clientConfig.agentDocsPath) {
+      const symlinkTarget = resolveSymlinkTarget(clientConfig.agentDocsPath);
+      if (!symlinkTarget || args.injectSharedAgentDocs) {
+        output += `\nWould inject agent docs into ${clientConfig.agentDocsPath}`;
+      } else {
+        output += `\nWould skip agent docs (${clientConfig.agentDocsPath} → ${symlinkTarget})`;
+      }
     }
     if (templateFileCount > 0) {
       output += `\nWould copy ${templateFileCount} template files to ${vaultTemplatesDir}`;
@@ -751,7 +938,11 @@ export function install(args: InstallArgs): string {
     return output;
   }
   
-  setNestedValue(config, clientConfig.mcpPath, mcpEntry);
+  if (usesPiPackage) {
+    normalizePiPackages(config, piPackageSource ?? buildPiPackageSource());
+  } else if (clientConfig.mcpPath) {
+    setNestedValue(config, clientConfig.mcpPath, mcpEntry);
+  }
   
   const configDir = path.dirname(clientConfig.configPath);
   if (!fs.existsSync(configDir)) {
@@ -795,20 +986,34 @@ export function install(args: InstallArgs): string {
 
     // Migrate away from old CLAUDE.md managed block if present
     migrationResult = migrateFromAgentDocs(getLegacyClaudeMdPath(), args.dryRun);
-  } else if (clientConfig.agentDocsPath) {
-    const size = args.instructionSize || clientConfig.instructionSize || 'full';
-    agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client, PKG_VERSION);
+  }
+  let agentDocsSkippedSymlink: string | null = null;
+  if (clientConfig.agentDocsPath) {
+    const symlinkTarget = resolveSymlinkTarget(clientConfig.agentDocsPath);
+    if (symlinkTarget && !args.injectSharedAgentDocs) {
+      agentDocsSkippedSymlink = symlinkTarget;
+    } else {
+      const size = args.instructionSize || clientConfig.instructionSize || 'full';
+      agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client, PKG_VERSION);
+    }
   }
 
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;
   output += `Config: ${clientConfig.configPath}\n`;
   output += `Vault: ${vaultPath}\n`;
-  output += `Server: ${formatServerCommand(serverPath)}\n`;
+  if (usesPiPackage) {
+    output += `Package: ${piPackageSource}\n`;
+  } else {
+    output += `Server: ${formatServerCommand(serverPath)}\n`;
+  }
   if (skillResult) {
     output += `Skill: ${skillResult.skillPath} (${skillResult.action})\n`;
   }
   if (agentDocsResult) {
     output += `Agent docs: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
+  }
+  if (agentDocsSkippedSymlink) {
+    output += `Agent docs: skipped (${clientConfig.agentDocsPath} → ${agentDocsSkippedSymlink})\n`;
   }
   if (migrationResult?.migrated) {
     output += `Migration: removed old CLAUDE.md managed block${migrationResult.fileDeleted ? ' (file deleted — was empty)' : ''}\n`;
@@ -817,11 +1022,12 @@ export function install(args: InstallArgs): string {
     output += `Templates: ${templatesCopied} files → ${vaultTemplatesDir}\n`;
   }
   output += `\nNext steps:\n`;
+  const restartTarget = usesPiPackage ? 'Pi to load the package extension' : `${clientConfig.name} to load the MCP server`;
   if (configCopied) {
     output += `1. Review ${configYamlPath} if you want to customize settings or use API embeddings\n`;
-    output += `2. Restart ${clientConfig.name} to load the MCP server\n`;
+    output += `2. Restart ${restartTarget}\n`;
   } else {
-    output += `1. Restart ${clientConfig.name} to load the MCP server\n`;
+    output += `1. Restart ${restartTarget}\n`;
   }
   
   return output;
@@ -829,6 +1035,7 @@ export function install(args: InstallArgs): string {
 
 export function uninstall(args: UninstallArgs): string {
   const clientConfig = CLIENT_CONFIGS[args.client];
+  const usesPiPackage = isPiPackageClient(clientConfig);
   const vaultPath = getVaultPath();
   
   if (!fs.existsSync(clientConfig.configPath)) {
@@ -843,7 +1050,9 @@ export function uninstall(args: UninstallArgs): string {
     throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`, { cause: e });
   }
 
-  const existing = getNestedValue(config, clientConfig.mcpPath);
+  const existing = usesPiPackage
+    ? validatePiPackageConfig(config, buildPiPackageSource()).length === 0
+    : clientConfig.mcpPath ? getNestedValue(config, clientConfig.mcpPath) !== undefined : false;
   if (!existing) {
     return `open-zk-kb not configured for ${clientConfig.name}`;
   }
@@ -852,7 +1061,8 @@ export function uninstall(args: UninstallArgs): string {
     let output = `Dry run: Would remove from ${clientConfig.configPath}\n`;
     if (clientConfig.skillPath) {
       output += `Would remove skill from ${clientConfig.skillPath}\n`;
-    } else if (clientConfig.agentDocsPath) {
+    }
+    if (clientConfig.agentDocsPath && !resolveSymlinkTarget(clientConfig.agentDocsPath)) {
       output += `Would remove agent docs from ${clientConfig.agentDocsPath}\n`;
     }
     if (args.removeVault) {
@@ -887,20 +1097,25 @@ export function uninstall(args: UninstallArgs): string {
     }
   }
   
-  deleteNestedValue(config, clientConfig.mcpPath);
+  if (usesPiPackage) {
+    removePiPackage(config);
+  } else if (clientConfig.mcpPath) {
+    deleteNestedValue(config, clientConfig.mcpPath);
+  }
   if (clientConfig.mcpFormat === 'opencode') {
     removeStaleOpenCodePluginEntries(config);
   }
 
   fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
 
-  // Remove skill or agent docs depending on client
+  // Remove skill and/or agent docs depending on client
   let skillResult: { action: string; skillPath: string } | null = null;
   let agentDocsResult: { action: string; filePath: string } | null = null;
 
   if (clientConfig.skillPath) {
     skillResult = removeSkill(clientConfig.skillPath, args.dryRun);
-  } else if (clientConfig.agentDocsPath) {
+  }
+  if (clientConfig.agentDocsPath && !resolveSymlinkTarget(clientConfig.agentDocsPath)) {
     agentDocsResult = removeAgentDocs(clientConfig.agentDocsPath, args.dryRun);
   }
 
@@ -949,13 +1164,13 @@ server:
 
 doctor:
   Check install health for one client or all clients
-  --client <name>      Check a specific client (opencode, claude-code, cursor, windsurf, zed)
+  --client <name>      Check a specific client (opencode, claude-code, cursor, windsurf, zed, pi, omp)
   --fix                Repair safe doctor findings when possible
 
 install:
   (no flags)           Interactive client selection
-  --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed)
-  --server-path <path> Path to dist/mcp-server.js (auto-detected)
+  --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed, pi, omp)
+  --server-path <path> Path to dist/mcp-server.js (auto-detected; MCP clients only)
   --instructions <size> Agent instruction size: compact (~140 tokens) or full (~420 tokens)
   --force              Overwrite existing config
   --dry-run            Preview changes without applying
@@ -963,7 +1178,7 @@ install:
 
 uninstall:
   (no flags)           Interactive client selection
-  --client <name>      Uninstall from specific client
+  --client <name>      Uninstall from specific client (opencode, claude-code, cursor, windsurf, zed, pi, omp)
   --remove-vault       Also delete the knowledge base data
   --confirm            Required with --remove-vault
   --dry-run            Preview changes without applying
@@ -1023,15 +1238,53 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       client = clientArg;
     }
 
+    /** Prompt for symlinked agent docs and install a single client. */
+    async function installWithSymlinkPrompt(
+      client: McpClient,
+      opts: { serverPath?: string; force?: boolean; dryRun?: boolean; instructionSize?: InstructionSize; yes?: boolean },
+    ): Promise<string> {
+      const clientConfig = CLIENT_CONFIGS[client];
+      let injectSharedAgentDocs: boolean | undefined;
+
+      if (clientConfig.agentDocsPath) {
+        const symlinkTarget = resolveSymlinkTarget(clientConfig.agentDocsPath);
+        if (symlinkTarget) {
+          if (opts.yes) {
+            // Non-interactive: skip by default
+            injectSharedAgentDocs = false;
+          } else {
+            const answer = await p.confirm({
+              message: `${clientConfig.name}: agent docs path is a symlink:\n  ${color.dim(`${clientConfig.agentDocsPath} → ${symlinkTarget}`)}\n  Inject managed instructions into the shared file?`,
+              initialValue: false,
+            });
+            if (p.isCancel(answer)) {
+              p.cancel('Setup cancelled.');
+              process.exit(0);
+            }
+            injectSharedAgentDocs = answer;
+          }
+        }
+      }
+
+      return install({
+        client,
+        serverPath: opts.serverPath,
+        force: opts.force,
+        dryRun: opts.dryRun,
+        instructionSize: opts.instructionSize,
+        injectSharedAgentDocs,
+      });
+    }
+
     if (client) {
-      const result = install({ client, serverPath, force, dryRun, instructionSize });
+      const result = await installWithSymlinkPrompt(client, { serverPath, force, dryRun, instructionSize, yes });
       console.log(result);
       return;
     }
 
     if (yes) {
       for (const client of ALL_CLIENTS) {
-        const result = install({ client, serverPath, force, dryRun, instructionSize });
+        const result = await installWithSymlinkPrompt(client, { serverPath, force, dryRun, instructionSize, yes: true });
         console.log(result);
       }
       return;
@@ -1063,7 +1316,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
     for (const client of selected) {
       try {
-        install({ client, serverPath, force, dryRun, instructionSize });
+        await installWithSymlinkPrompt(client, { serverPath, force, dryRun, instructionSize });
         p.log.success(`Installed for ${CLIENT_CONFIGS[client].name}`);
       } catch (e) {
         p.log.error(`${CLIENT_CONFIGS[client].name}: ${e instanceof Error ? e.message : e}`);

@@ -68,7 +68,7 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 | Configuration | `src/config.ts` | YAML config with defaults |
 | Types/interfaces | `src/types.ts` | NoteKind, NoteStatus, Lifecycle, AppConfig |
 | Note rendering | `src/prompts.ts` | XML format for agent consumption |
-| Install/uninstall CLI | `src/setup.ts` | 5 clients: opencode, claude-code, cursor, windsurf, zed |
+| Install/uninstall CLI | `src/setup.ts` | 7 clients: opencode, claude-code, cursor, windsurf, zed, pi, omp |
 | Tests | `tests/` | bun:test with harness + fixtures |
 
 ## Code Map

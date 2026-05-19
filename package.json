@@ -18,7 +18,16 @@
     "./mcp-server": {
       "types": "./dist/mcp-server.d.ts",
       "import": "./dist/mcp-server.js"
+    },
+    "./pi-extension": {
+      "types": "./dist/pi/extension.d.ts",
+      "import": "./dist/pi/extension.js"
     }
+  },
+  "pi": {
+    "extensions": [
+      "./dist/pi/extension.js"
+    ]
   },
   "sideEffects": false,
   "bin": {
@@ -98,6 +107,8 @@
     "llm",
     "claude-code",
     "opencode",
+    "pi-package",
+    "pi-coding-agent",
     "cursor",
     "windsurf",
     "ai-coding-assistant",
