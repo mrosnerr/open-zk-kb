@@ -710,8 +710,16 @@ function repairClientConfig(clientConfig: ClientConfig, config: Record<string, u
   ) {
     return;
   }
+  // Preserve HTTP transport when repairing a broken HTTP entry —
+  // without this, a malformed HTTP URL gets silently replaced with stdio.
+  const transport: McpTransport | undefined =
+    existingEntry &&
+    typeof existingEntry === 'object' &&
+    (existingEntry as Record<string, unknown>).type === 'http'
+      ? 'http'
+      : undefined;
   const inferredServerPath = inferServerPathFromEntry(clientConfig, existingEntry);
-  const repairedEntry = buildMcpEntry(clientConfig, inferredServerPath);
+  const repairedEntry = buildMcpEntry(clientConfig, inferredServerPath, transport);
   setNestedValue(config, clientConfig.mcpPath, repairedEntry);
   if (clientConfig.mcpFormat === 'opencode') {
     removeStaleOpenCodePluginEntries(config);
