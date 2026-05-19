@@ -3,7 +3,7 @@ import { expandPath } from './utils/path.js';
 import type { InstructionSize } from './agent-docs.js';
 
 export interface AgentDocsTarget {
-  client: 'opencode' | 'windsurf' | 'omp';
+  client: 'opencode' | 'windsurf' | 'pi' | 'omp';
   name: string;
   filePath: string;
   instructionSize: InstructionSize;
@@ -25,6 +25,12 @@ export function getAgentDocsTargets(): AgentDocsTarget[] {
       name: 'Windsurf',
       filePath: path.join(expandPath('~/.codeium'), 'windsurf', 'memories', 'global_rules.md'),
       instructionSize: 'compact',
+    },
+    {
+      client: 'pi',
+      name: 'Pi',
+      filePath: path.join(expandPath('~/.pi/agent'), 'AGENTS.md'),
+      instructionSize: 'full',
     },
     {
       client: 'omp',

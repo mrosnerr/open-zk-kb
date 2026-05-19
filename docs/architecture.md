@@ -75,7 +75,7 @@ This distinction is intentional. Core knowledge notes (`decision`, `procedure`, 
 The MCP server provides a reactive interface to the knowledge base:
 
 * **Transport**: Uses `@modelcontextprotocol/sdk` with stdio transport.
-* **Tools**: Registers [eight core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-template`, `knowledge-mine`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
+* **Tools**: Registers [nine core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-template`, `knowledge-mine`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).
     * **Model**: `Xenova/all-MiniLM-L6-v2` (quantized q8, ~23MB).
@@ -89,8 +89,10 @@ During setup, open-zk-kb delivers knowledge base instructions to guide the AI to
 * **Claude Code** uses a native [Claude Code skill](https://code.claude.com/docs/en/skills) installed to `~/.claude/skills/open-zk-kb/`. Claude auto-loads the instructions when it detects KB-related intent (preferences, decisions, lookups). The skill description is always in context (~80 tokens); full instructions load on-demand. See `installSkill()` in `src/setup.ts`.
 * **OpenCode** uses an MCP entry in `~/.config/opencode/opencode.json` plus a managed markdown block injected into `~/.config/opencode/AGENTS.md`. The managed block is wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` / `<!-- OPEN-ZK-KB:END -->`). See `injectAgentDocs()` in `src/agent-docs.ts` and the OpenCode helpers in `src/setup.ts`.
 * **Windsurf** uses a managed markdown block injected into `~/.codeium/windsurf/memories/global_rules.md`. Blocks are wrapped in comment-delimited markers (`<!-- OPEN-ZK-KB:START -->` / `<!-- OPEN-ZK-KB:END -->`). See `injectAgentDocs()` in `src/agent-docs.ts`.
+* **Pi** does not support MCP natively. open-zk-kb ships as a Pi package extension (`src/pi/extension.ts`) that bridges the MCP server into Pi-native tools. Managed instructions are injected into `~/.pi/agent/AGENTS.md`.
+* **OMP** uses standard MCP config at `~/.omp/agent/mcp.json`, a skill at `~/.omp/agent/skills/open-zk-kb/`, and a compact managed block in `~/.omp/agent/RULES.md`.
 * **Cursor and Zed** currently receive MCP config only.
-* **Instruction templates**: `templates/agent-instructions-full.md` (~420 tokens) and `templates/agent-instructions-compact.md` (~140 tokens) ship with the package for OpenCode/Windsurf. The skill uses its own `SKILL.md` + supporting files in `skills/open-zk-kb/`.
+* **Instruction templates**: `templates/agent-instructions-full.md` (~420 tokens) and `templates/agent-instructions-compact.md` (~140 tokens) ship with the package for OpenCode/Windsurf/Pi/OMP. The skill uses its own `SKILL.md` + supporting files in `skills/open-zk-kb/`.
 
 ## Configuration Architecture
 

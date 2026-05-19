@@ -868,6 +868,7 @@ export function doctor(args: DoctorArgs = {}): string {
     if (clientConfig.staleAgentDocsPaths) {
       for (const stalePath of clientConfig.staleAgentDocsPaths) {
         if (stalePath === clientConfig.agentDocsPath) continue;
+        if (resolveSymlinkTarget(stalePath)) continue; // don't modify shared files via symlink
         const staleInspection = inspectAgentDocs(stalePath);
         if (staleInspection.exists && staleInspection.status !== 'missing') {
           if (args.fix) {

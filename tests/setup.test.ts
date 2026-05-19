@@ -1494,11 +1494,12 @@ describe('setup.ts', () => {
       force: true,
     });
 
-    // Shared file must NOT be touched — stale cleanup uses removeAgentDocs
-    // which follows the symlink. The managed block should still be there.
-    // This is acceptable: we only clean non-symlinked stale locations.
-    // (removeAgentDocs writes to the resolved path, which is the shared file)
-    // So we verify RULES.md was created correctly:
+    // Shared file must NOT be touched — stale cleanup skips symlinks
+    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
+    expect(sharedContent).toContain('OPEN-ZK-KB:START'); // still has the old block
+    expect(sharedContent).toContain('# Shared'); // original content preserved
+
+    // RULES.md should be created correctly
     const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
     expect(fs.readFileSync(rulesPath, 'utf-8')).toContain('OPEN-ZK-KB:START');
   });

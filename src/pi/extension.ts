@@ -62,7 +62,7 @@ const STRING_ARRAY_SCHEMA = {
 const CANDIDATE_SCHEMA = {
   type: 'object',
   properties: {
-    kind: { type: 'string' },
+    kind: { type: 'string', enum: ['personalization', 'decision', 'procedure', 'reference', 'resource', 'observation', 'domain'] },
     title: { type: 'string' },
     content: { type: 'string' },
     summary: { type: 'string' },

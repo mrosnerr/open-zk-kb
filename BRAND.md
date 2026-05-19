@@ -120,7 +120,7 @@ Use these as building blocks. Mix and match per context.
 - Context compounds — what you teach it once, it knows forever.
 
 ### The Differentiators
-- Works across Claude Code, Cursor, Windsurf, OpenCode, and Zed.
+- Works across Claude Code, Cursor, Windsurf, OpenCode, Zed, Pi, and OMP.
 - Local-first — no API keys, no cloud, works offline.
 - Human-readable — plain Markdown files you can browse in Obsidian.
 - Open source, MIT licensed.
