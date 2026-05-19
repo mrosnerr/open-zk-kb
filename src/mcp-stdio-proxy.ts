@@ -133,19 +133,35 @@ export async function tryStdioBridge(): Promise<boolean> {
       const response = await forwardToHttp(state, message);
       if (response !== null) {
         writeToStdout(response);
+      } else if (Array.isArray(message)) {
+        // Batch JSON-RPC: emit error responses for each request in the batch.
+        // Notifications (no `id`) are omitted per spec.
+        const errors = message
+          .filter((m): m is Record<string, unknown> =>
+            m !== null && typeof m === 'object' && 'id' in m)
+          .map(m => ({
+            jsonrpc: '2.0' as const,
+            id: m.id,
+            error: {
+              code: -32603,
+              message: 'HTTP bridge failed to forward request to server',
+            },
+          }));
+        if (errors.length > 0) {
+          writeToStdout(errors);
+        }
       } else if (
         message !== null &&
         typeof message === 'object' &&
         'id' in (message as Record<string, unknown>)
       ) {
-        // JSON-RPC requests (with an `id`) must always receive a response.
-        // Dropping them leaves the client waiting indefinitely.
+        // Single JSON-RPC request: emit error response.
         const id = (message as Record<string, unknown>).id;
         writeToStdout({
           jsonrpc: '2.0',
           id,
           error: {
-            code: -32603, // Internal error
+            code: -32603,
             message: 'HTTP bridge failed to forward request to server',
           },
         });

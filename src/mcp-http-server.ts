@@ -142,13 +142,16 @@ async function handleMcpRequest(req: Request): Promise<Response> {
   };
 
   await server.connect(transport);
-  const response = await transport.handleRequest(req);
 
-  // Clean up: close transport and server for this request
-  await transport.close().catch(() => {});
-  await server.close();
-
-  return response;
+  try {
+    const response = await transport.handleRequest(req);
+    return response;
+  } finally {
+    // Clean up: close transport and server for this request.
+    // Must run even if handleRequest throws to avoid resource leaks.
+    await transport.close().catch(() => {});
+    await server.close();
+  }
 }
 
 export interface StartHttpServerOptions {
