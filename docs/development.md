@@ -47,7 +47,7 @@ bun run build
 bun run setup install --client <name> --force
 ```
 
-Replace `<name>` with your client: `opencode`, `claude-code`, `cursor`, `windsurf`, or `zed`.
+Replace `<name>` with your client: `opencode`, `claude-code`, `cursor`, `windsurf`, `zed`, `pi`, or `omp`.
 
 The installer auto-detects the source checkout (via `.git` presence) and wires everything to local paths:
 - **MCP server** → your local `dist/mcp-server.js`
@@ -91,7 +91,7 @@ See [Release Channels](setup-guide.md#release-channels) for more details.
 ```
 src/
 ├── mcp-server.ts       # MCP server entry point (stdio transport)
-├── tool-handlers.ts    # Shared logic for all 8 tools
+├── tool-handlers.ts    # Shared logic for all 9 tools
 ├── storage/
 │   ├── NoteRepository.ts  # Core CRUD, FTS5, link tracking
 │   ├── IndexBuilder.ts    # Auto-generates per-project index notes
@@ -102,7 +102,7 @@ src/
 ├── embeddings.ts       # Vector embedding support
 ├── logger.ts           # File-based logging (never stdout)
 ├── prompts.ts          # Note rendering to XML format
-├── setup.ts            # CLI installer for 5 clients
+├── setup.ts            # CLI installer for 7 clients
 ├── types.ts            # TypeScript interfaces
 └── utils/
     ├── path.ts         # Path expansion, XDG resolution

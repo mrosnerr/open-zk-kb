@@ -68,7 +68,7 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 | Configuration | `src/config.ts` | YAML config with defaults |
 | Types/interfaces | `src/types.ts` | NoteKind, NoteStatus, Lifecycle, AppConfig |
 | Note rendering | `src/prompts.ts` | XML format for agent consumption |
-| Install/uninstall CLI | `src/setup.ts` | 5 clients: opencode, claude-code, cursor, windsurf, zed |
+| Install/uninstall CLI | `src/setup.ts` | 7 clients: opencode, claude-code, cursor, windsurf, zed, pi, omp |
 | Tests | `tests/` | bun:test with harness + fixtures |
 
 ## Code Map
@@ -191,9 +191,9 @@ For any new feature, ask in order:
 - **CI uses Bun** (`.github/workflows/ci.yml`)
 - **Install via CLI**: `bun run setup install --client <name>` — single mechanism via `src/setup.ts`
 - **Wiki-links**: Obsidian-compatible `[[slug|display]]` format with backlink tracking in `note_links` table
-- **Knowledge capture**: Claude Code uses skills (`~/.claude/skills/open-zk-kb/`); other clients use injected `AGENTS.md` instructions. Calling models use `knowledge-store` directly.
+- **Knowledge capture**: Claude Code and OMP use skills; OpenCode, Windsurf, and Pi use injected managed blocks (`AGENTS.md` or `rules/`). Calling models use `knowledge-store` directly.
 - **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
-- **8 MCP tools**: knowledge-store, knowledge-search, knowledge-template, knowledge-mine, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open
+- **9 MCP tools**: knowledge-store, knowledge-search, knowledge-get, knowledge-template, knowledge-mine, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open
 - **Auto-generated notes**: `index` (per-project catalog, wikilinks grouped by kind) and `log` (per-project append-only event log) are auto-generated on project-scoped events. Agents cannot create them manually.
 - **Human vs agent surfaces**: Obsidian is the primary human browsing layer; agents primarily use MCP tools backed by SQLite/indexed metadata rather than navigating raw vault files.

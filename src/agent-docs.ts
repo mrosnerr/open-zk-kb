@@ -200,8 +200,9 @@ function appendManagedBlock(content: string, replacement: string): string {
  * If the file doesn't exist, it is created.
  * Content outside the managed block is preserved.
  * @param version - Version string to embed in the start marker (e.g., "1.0.0")
+ * @param preamble - Content prepended before the managed block when creating the file (e.g. YAML frontmatter)
  */
-export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean, clientName?: string, version?: string): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
+export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean, clientName?: string, version?: string, preamble?: string): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
   let existing = '';
   const fileExists = fs.existsSync(filePath);
 
@@ -235,7 +236,7 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
     newContent = spliceManagedBlock(existing, template);
     action = 'updated';
   } else {
-    newContent = template + '\n';
+    newContent = (preamble ?? '') + template + '\n';
     action = 'created';
   }
 

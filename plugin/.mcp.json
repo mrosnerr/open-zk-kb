@@ -1,6 +1,8 @@
 {
-  "open-zk-kb": {
-    "command": "${CLAUDE_PLUGIN_ROOT}/bin/run.sh",
-    "args": ["server"]
+  "mcpServers": {
+    "open-zk-kb": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/run.sh",
+      "args": ["server"]
+    }
   }
 }

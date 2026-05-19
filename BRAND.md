@@ -120,7 +120,7 @@ Use these as building blocks. Mix and match per context.
 - Context compounds — what you teach it once, it knows forever.
 
 ### The Differentiators
-- Works across Claude Code, Cursor, Windsurf, OpenCode, and Zed.
+- Works across Claude Code, Cursor, Windsurf, OpenCode, Zed, Pi, and OMP.
 - Local-first — no API keys, no cloud, works offline.
 - Human-readable — plain Markdown files you can browse in Obsidian.
 - Open source, MIT licensed.
@@ -145,7 +145,7 @@ Use these as building blocks. Mix and match per context.
 > "You know how every new chat, you have to re-explain your whole project? And your agent keeps making the same mistakes you've already corrected? I built the thing that fixes that. You correct it once, it remembers. And it gets better the more you use it."
 
 ### Technical Pitch (to developers)
-> "It's an MCP server that gives agents persistent, structured memory. Local SQLite + Markdown, hybrid search, works across five clients. Your agent checks it every message — preferences, decisions, gotchas, corrections, all there."
+> "It's an MCP server that gives agents persistent, structured memory. Local SQLite + Markdown, hybrid search, works across seven clients. Your agent checks it every message — preferences, decisions, gotchas, corrections, all there."
 
 ## What We Don't Say
 

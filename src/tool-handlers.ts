@@ -40,7 +40,7 @@ import type { EmbeddingConfig } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
 import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
 import { getAgentDocsTargets } from './agent-docs-targets.js';
-import { injectAgentDocs, inspectAgentDocs } from './agent-docs.js';
+import { injectAgentDocs, inspectAgentDocs, removeAgentDocs } from './agent-docs.js';
 import { detectClient, isVisibleToClient, getClientTags, clientTag, isKnownClient } from './client-heuristics.js';
 import { getInstalledInstructionVersions } from './instruction-versions.js';
 import { classifyModel, MODEL_HINT } from './model-capabilities.js';
@@ -1598,7 +1598,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           if (dryRun) {
             output += '- Result: would refresh managed instructions to current template\n\n';
           } else {
-            const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion);
+            const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion, target.preamble);
             output += `- Result: ${result.action}\n\n`;
           }
           continue;
@@ -1608,7 +1608,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           if (dryRun) {
             output += '- Result: would strip all duplicate markers and inject a single fresh block\n\n';
           } else {
-            const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion);
+            const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion, target.preamble);
             output += `- Result: ${result.action} (repaired duplicate markers)\n\n`;
           }
           continue;
@@ -1617,8 +1617,28 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         if (dryRun) {
           output += '- Result: would repair markers and append a fresh managed block while preserving other content\n\n';
         } else {
-          const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion);
+          const result = injectAgentDocs(target.filePath, target.instructionSize, false, target.client, currentVersion, target.preamble);
           output += `- Result: ${result.action}\n\n`;
+        }
+      }
+
+      // Clean up legacy file paths
+      for (const target of targets) {
+        if (!target.legacyFilePath || target.legacyFilePath === target.filePath) continue;
+        // Skip symlinked legacy paths to avoid modifying shared files (mirrors install/doctor guard)
+        try { if (fs.lstatSync(target.legacyFilePath).isSymbolicLink()) continue; } catch { /* doesn't exist */ }
+        const legacyInspection = inspectAgentDocs(target.legacyFilePath);
+        if (legacyInspection.exists && legacyInspection.status !== 'missing') {
+          if (dryRun) {
+            output += `### ${target.name} (legacy cleanup)\n`;
+            output += `- Path: ${target.legacyFilePath}\n`;
+            output += `- Result: would remove stale managed block\n\n`;
+          } else {
+            const result = removeAgentDocs(target.legacyFilePath);
+            output += `### ${target.name} (legacy cleanup)\n`;
+            output += `- Path: ${target.legacyFilePath}\n`;
+            output += `- Result: ${result.action}\n\n`;
+          }
         }
       }
 
@@ -2005,6 +2025,7 @@ export interface TemplateArgs {
 
 export interface GetArgs {
   noteId: string;
+  model?: string;
 }
 
 export function handleGet(args: GetArgs, repo: NoteRepository): string {

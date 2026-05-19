@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 // mcp-server.ts - MCP stdio server
-// Exposes knowledge-store, knowledge-search, knowledge-mine, knowledge-maintain as MCP tools.
+// Exposes knowledge-store, knowledge-search, knowledge-get, knowledge-mine, knowledge-maintain as MCP tools.
 // Stdout is the MCP transport — use logToFile() for all logging.
 
 if (typeof globalThis.Bun === 'undefined') {
@@ -340,6 +340,38 @@ server.registerTool(
   },
 );
 
+// ---- knowledge-get ----
+
+const getSchema = z.object({
+  noteId: z.string().describe('Exact note ID to retrieve'),
+  model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
+});
+
+server.registerTool(
+  'knowledge-get',
+  {
+    description: 'Retrieve a single note by its exact ID. Faster and more precise than knowledge-search. Use when you already know the note ID (e.g. from injected context hints).',
+    inputSchema: getSchema as unknown as AnySchema,
+  },
+  async (args: z.infer<typeof getSchema>) => {
+    try {
+      const result = handleGet({
+        noteId: args.noteId,
+        model: args.model,
+      }, await getOrCreateRepo());
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-get failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  },
+);
+
 // ---- knowledge-maintain ----
 
 const maintainSchema = z.object({
@@ -427,32 +459,6 @@ server.registerTool(
       return { content: [{ type: 'text' as const, text: result }] };
     } catch (error) {
       logToFile('ERROR', 'knowledge-mine failed', {
-        error: error instanceof Error ? error.message : String(error),
-      }, config);
-      return {
-        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-        isError: true,
-      };
-    }
-  },
-);
-
-const getSchema = z.object({
-  noteId: z.string().describe('Exact note ID to retrieve'),
-});
-
-server.registerTool(
-  'knowledge-get',
-  {
-    description: 'Retrieve a single note by its exact ID. Faster and more precise than knowledge-search. Use when you already know the note ID (e.g. from injected context hints).',
-    inputSchema: getSchema as unknown as AnySchema,
-  },
-  async (args: z.infer<typeof getSchema>) => {
-    try {
-      const result = handleGet({ noteId: args.noteId }, await getOrCreateRepo());
-      return { content: [{ type: 'text' as const, text: result }] };
-    } catch (error) {
-      logToFile('ERROR', 'knowledge-get failed', {
         error: error instanceof Error ? error.message : String(error),
       }, config);
       return {

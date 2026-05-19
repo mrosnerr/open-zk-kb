@@ -8,8 +8,8 @@ TypeScript source for the MCP server (`mcp-server.ts`), with core logic in `tool
 
 ```
 src/
-├── mcp-server.ts          # MCP stdio server — 8 tools via @modelcontextprotocol/sdk
-├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleTemplate, handleMine, handleMaintain, handleIngest, handleOverview, handleOpen
+├── mcp-server.ts          # MCP stdio server — 9 tools via @modelcontextprotocol/sdk
+├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleGet, handleTemplate, handleMine, handleMaintain, handleIngest, handleOverview, handleOpen
 ├── storage/
 │   ├── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
 │   ├── IndexBuilder.ts    # Auto-generates per-project index notes
@@ -25,7 +25,7 @@ src/
 ├── logger.ts              # logToFile() — file-based, never stdout
 ├── prompts.ts             # renderNoteForAgent() — XML <note> format
 ├── schema.ts              # SchemaManager — PRAGMA user_version (v6)
-├── setup.ts               # CLI install/uninstall for 5 clients (bun run setup)
+├── setup.ts               # CLI install/uninstall for 7 clients (bun run setup)
 └── types.ts               # NoteKind, NoteStatus, Lifecycle, AppConfig
 ```
 
@@ -34,7 +34,7 @@ src/
 ```
 Client request → mcp-server.ts
                         ↓
-               tool-handlers.ts (handleStore/Search/Mine/Maintain/Ingest/Overview/Open)
+               tool-handlers.ts (handleStore/Search/Get/Mine/Maintain/Ingest/Overview/Open)
                         ↓
                NoteRepository.store/search/getStats/...
                     ↓              ↓
