@@ -7,6 +7,10 @@ export interface AgentDocsTarget {
   name: string;
   filePath: string;
   instructionSize: InstructionSize;
+  /** Content prepended before the managed block when creating the file (e.g. YAML frontmatter for OMP rules) */
+  preamble?: string;
+  /** Stale file path to clean up when migrating to a new location */
+  legacyFilePath?: string;
 }
 
 export function getAgentDocsTargets(): AgentDocsTarget[] {
@@ -35,8 +39,10 @@ export function getAgentDocsTargets(): AgentDocsTarget[] {
     {
       client: 'omp',
       name: 'OMP',
-      filePath: path.join(expandPath('~/.omp/agent'), 'RULES.md'),
+      filePath: path.join(expandPath('~/.omp/agent'), 'rules', 'open-zk-kb.md'),
       instructionSize: 'compact',
+      preamble: '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n',
+      legacyFilePath: path.join(expandPath('~/.omp/agent'), 'RULES.md'),
     },
   ];
 }

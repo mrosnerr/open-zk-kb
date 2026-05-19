@@ -56,6 +56,8 @@ export interface ClientConfig {
   skillPath?: string;
   /** Paths where a previous install may have left a managed block that should be cleaned up. */
   staleAgentDocsPaths?: string[];
+  /** Content prepended before the managed block when creating the file (e.g. YAML frontmatter for OMP rules) */
+  preamble?: string;
 }
 
 const PI_PACKAGE_NAME = 'open-zk-kb';
@@ -115,9 +117,13 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
     skillPath: path.join(expandPath('~/.omp'), 'agent', 'skills', 'open-zk-kb'),
-    agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'RULES.md'),
+    agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'rules', 'open-zk-kb.md'),
     instructionSize: 'compact',
-    staleAgentDocsPaths: [path.join(expandPath('~/.omp'), 'agent', 'AGENTS.md')],
+    preamble: '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n',
+    staleAgentDocsPaths: [
+      path.join(expandPath('~/.omp'), 'agent', 'AGENTS.md'),
+      path.join(expandPath('~/.omp'), 'agent', 'RULES.md'),
+    ],
   },
 };
 
@@ -843,7 +849,7 @@ export function doctor(args: DoctorArgs = {}): string {
         if (!inspection.exists) {
           if (args.fix) {
             const size = clientConfig.instructionSize || 'full';
-            injectAgentDocs(clientConfig.agentDocsPath, size, false, client, PKG_VERSION);
+            injectAgentDocs(clientConfig.agentDocsPath, size, false, client, PKG_VERSION, clientConfig.preamble);
             pushCheck('FIXED', `${clientConfig.name}: restored managed instructions in ${clientConfig.agentDocsPath}`);
           } else {
             pushCheck('WARN', `${clientConfig.name}: managed instructions missing at ${clientConfig.agentDocsPath}`);
@@ -852,7 +858,7 @@ export function doctor(args: DoctorArgs = {}): string {
           pushCheck('OK', `${clientConfig.name}: managed instructions are healthy in ${clientConfig.agentDocsPath}`);
         } else if (args.fix) {
           const size = clientConfig.instructionSize || 'full';
-          injectAgentDocs(clientConfig.agentDocsPath, size, false, client, PKG_VERSION);
+          injectAgentDocs(clientConfig.agentDocsPath, size, false, client, PKG_VERSION, clientConfig.preamble);
           pushCheck('FIXED', `${clientConfig.name}: repaired managed instructions in ${clientConfig.agentDocsPath}`);
         } else if (inspection.status === 'missing') {
           pushCheck('WARN', `${clientConfig.name}: instruction file exists but has no managed block at ${clientConfig.agentDocsPath}`);
@@ -1020,7 +1026,7 @@ export function install(args: InstallArgs): string {
       agentDocsSkippedSymlink = symlinkTarget;
     } else {
       const size = args.instructionSize || clientConfig.instructionSize || 'full';
-      agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client, PKG_VERSION);
+      agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client, PKG_VERSION, clientConfig.preamble);
     }
   }
   // Clean up managed blocks from stale locations (e.g. OMP: AGENTS.md → RULES.md migration)
