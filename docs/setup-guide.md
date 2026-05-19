@@ -110,9 +110,9 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
 | Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
 | Pi | Managed block | `~/.pi/agent/AGENTS.md` |
-| OMP | Skill + Managed block | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/RULES.md` |
+| OMP | Skill + Managed rule | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/rules/open-zk-kb.md` |
 
-Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets a skill plus managed `RULES.md` instructions.
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets a skill plus a managed rule file at `~/.omp/agent/rules/open-zk-kb.md`.
 
 ### Claude Code (Skill)
 

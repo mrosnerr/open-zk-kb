@@ -191,7 +191,7 @@ For any new feature, ask in order:
 - **CI uses Bun** (`.github/workflows/ci.yml`)
 - **Install via CLI**: `bun run setup install --client <name>` — single mechanism via `src/setup.ts`
 - **Wiki-links**: Obsidian-compatible `[[slug|display]]` format with backlink tracking in `note_links` table
-- **Knowledge capture**: Claude Code and OMP use skills; OpenCode, Windsurf, and Pi use injected managed blocks (`AGENTS.md` or `RULES.md`). Calling models use `knowledge-store` directly.
+- **Knowledge capture**: Claude Code and OMP use skills; OpenCode, Windsurf, and Pi use injected managed blocks (`AGENTS.md` or `rules/`). Calling models use `knowledge-store` directly.
 - **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
 - **9 MCP tools**: knowledge-store, knowledge-search, knowledge-get, knowledge-template, knowledge-mine, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open

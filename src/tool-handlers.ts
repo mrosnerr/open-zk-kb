@@ -1625,6 +1625,8 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       // Clean up legacy file paths
       for (const target of targets) {
         if (!target.legacyFilePath || target.legacyFilePath === target.filePath) continue;
+        // Skip symlinked legacy paths to avoid modifying shared files (mirrors install/doctor guard)
+        try { if (fs.lstatSync(target.legacyFilePath).isSymbolicLink()) continue; } catch { /* doesn't exist */ }
         const legacyInspection = inspectAgentDocs(target.legacyFilePath);
         if (legacyInspection.exists && legacyInspection.status !== 'missing') {
           if (dryRun) {

@@ -1180,7 +1180,7 @@ describe('setup.ts', () => {
     expect(config.mcpServers['open-zk-kb'].args).toContain('run');
   });
 
-  it('omp install injects agent docs into RULES.md AND installs skill (both)', async () => {
+  it('omp install injects agent docs into rules/open-zk-kb.md AND installs skill (both)', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -1194,8 +1194,8 @@ describe('setup.ts', () => {
     const skillPath = path.join(env.homeDir, '.omp', 'agent', 'skills', 'open-zk-kb');
     expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
 
-    // Agent docs should be injected into RULES.md (not AGENTS.md)
-    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    // Agent docs should be injected into rules/open-zk-kb.md (not AGENTS.md)
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
     expect(fs.existsSync(rulesPath)).toBe(true);
     const content = fs.readFileSync(rulesPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
@@ -1204,6 +1204,8 @@ describe('setup.ts', () => {
     expect(content).toContain('knowledge-store');
     // Client name should be templated in
     expect(content).toContain('client: "omp"');
+    // New file should have YAML frontmatter preamble
+    expect(content).toMatch(/^---\nalwaysApply: true/);
 
     // AGENTS.md should NOT exist (not our file to create)
     const agentsMdPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
@@ -1214,11 +1216,11 @@ describe('setup.ts', () => {
     expect(output).toContain('Agent docs:');
   });
 
-  it('omp install preserves existing RULES.md content when injecting', async () => {
+  it('omp install preserves existing rules/open-zk-kb.md content when injecting', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
-    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
     fs.mkdirSync(path.dirname(rulesPath), { recursive: true });
     fs.writeFileSync(rulesPath, '# My Custom Rules\n\nNever commit secrets.\n', 'utf-8');
 
@@ -1234,7 +1236,7 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:START');
   });
 
-  it('uninstall removes skill, agent docs from RULES.md, and MCP entry for omp', async () => {
+  it('uninstall removes skill, agent docs from rules/open-zk-kb.md, and MCP entry for omp', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -1246,7 +1248,7 @@ describe('setup.ts', () => {
 
     const skillPath = path.join(env.homeDir, '.omp', 'agent', 'skills', 'open-zk-kb');
     const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
-    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
     expect(fs.existsSync(skillPath)).toBe(true);
     expect(fs.existsSync(configPath)).toBe(true);
     expect(fs.readFileSync(rulesPath, 'utf-8')).toContain('OPEN-ZK-KB:START');
@@ -1441,7 +1443,7 @@ describe('setup.ts', () => {
 
   // --- Stale location cleanup tests ---
 
-  it('omp install cleans up stale managed block from AGENTS.md when using RULES.md', async () => {
+  it('omp install cleans up stale managed blocks from AGENTS.md and RULES.md', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -1453,6 +1455,13 @@ describe('setup.ts', () => {
       'utf-8',
     );
 
+    // Simulate a leftover managed block in the old RULES.md location
+    const staleRulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    fs.writeFileSync(staleRulesPath,
+      '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld RULES instructions\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+
     const output = setupModule.install({
       client: 'omp',
       serverPath: env.fakeServerPath,
@@ -1460,13 +1469,18 @@ describe('setup.ts', () => {
     });
 
     // New location should have the compact instructions
-    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
     expect(fs.readFileSync(rulesPath, 'utf-8')).toContain('OPEN-ZK-KB:START');
 
     // Old location should be cleaned up
     const staleContent = fs.readFileSync(staleAgentsPath, 'utf-8');
     expect(staleContent).toContain('# My Rules');
     expect(staleContent).not.toContain('OPEN-ZK-KB:START');
+
+    // Old RULES.md location should also be cleaned up
+    if (fs.existsSync(staleRulesPath)) {
+      expect(fs.readFileSync(staleRulesPath, 'utf-8')).not.toContain('OPEN-ZK-KB:START');
+    }
 
     // Output should mention the cleanup
     expect(output).toContain('Cleanup:');
@@ -1499,8 +1513,8 @@ describe('setup.ts', () => {
     expect(sharedContent).toContain('OPEN-ZK-KB:START'); // still has the old block
     expect(sharedContent).toContain('# Shared'); // original content preserved
 
-    // RULES.md should be created correctly
-    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    // rules/open-zk-kb.md should be created correctly
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
     expect(fs.readFileSync(rulesPath, 'utf-8')).toContain('OPEN-ZK-KB:START');
   });
 
@@ -1508,7 +1522,7 @@ describe('setup.ts', () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
-    // Install normally (goes to RULES.md)
+    // Install normally (goes to rules/open-zk-kb.md)
     setupModule.install({
       client: 'omp',
       serverPath: env.fakeServerPath,
@@ -1551,7 +1565,7 @@ describe('setup.ts', () => {
     expect(cleaned).not.toContain('OPEN-ZK-KB:START');
   });
 
-  it('omp install uses compact instructions for RULES.md (not full)', async () => {
+  it('omp install uses compact instructions for rules/open-zk-kb.md (not full)', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -1561,7 +1575,7 @@ describe('setup.ts', () => {
       force: true,
     });
 
-    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
     const content = fs.readFileSync(rulesPath, 'utf-8');
 
     // Compact template does NOT have these sections (they're full-only)
