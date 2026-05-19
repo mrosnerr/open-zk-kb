@@ -113,7 +113,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
     skillPath: path.join(expandPath('~/.omp'), 'agent', 'skills', 'open-zk-kb'),
-    agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'AGENTS.md'),
+    agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'RULES.md'),
     instructionSize: 'full',
   },
 };

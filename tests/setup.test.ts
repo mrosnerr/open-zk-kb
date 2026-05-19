@@ -1176,7 +1176,7 @@ describe('setup.ts', () => {
     expect(config.mcpServers['open-zk-kb'].args).toContain('run');
   });
 
-  it('omp install injects agent docs AND installs skill (both)', async () => {
+  it('omp install injects agent docs into RULES.md AND installs skill (both)', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -1190,10 +1190,10 @@ describe('setup.ts', () => {
     const skillPath = path.join(env.homeDir, '.omp', 'agent', 'skills', 'open-zk-kb');
     expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
 
-    // Agent docs should also be injected
-    const agentDocsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
-    expect(fs.existsSync(agentDocsPath)).toBe(true);
-    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    // Agent docs should be injected into RULES.md (not AGENTS.md)
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    expect(fs.existsSync(rulesPath)).toBe(true);
+    const content = fs.readFileSync(rulesPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
     expect(content).toContain('OPEN-ZK-KB:END');
     expect(content).toContain('knowledge-search');
@@ -1201,18 +1201,22 @@ describe('setup.ts', () => {
     // Client name should be templated in
     expect(content).toContain('client: "omp"');
 
+    // AGENTS.md should NOT exist (not our file to create)
+    const agentsMdPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
+    expect(fs.existsSync(agentsMdPath)).toBe(false);
+
     // Output should mention both
     expect(output).toContain('Skill:');
     expect(output).toContain('Agent docs:');
   });
 
-  it('omp install preserves existing AGENTS.md content when injecting', async () => {
+  it('omp install preserves existing RULES.md content when injecting', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
-    const agentDocsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
-    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
-    fs.writeFileSync(agentDocsPath, '# My Global Rules\n\nCustom content here.\n', 'utf-8');
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    fs.mkdirSync(path.dirname(rulesPath), { recursive: true });
+    fs.writeFileSync(rulesPath, '# My Custom Rules\n\nNever commit secrets.\n', 'utf-8');
 
     setupModule.install({
       client: 'omp',
@@ -1220,88 +1224,15 @@ describe('setup.ts', () => {
       force: true,
     });
 
-    const content = fs.readFileSync(agentDocsPath, 'utf-8');
-    expect(content).toContain('# My Global Rules');
-    expect(content).toContain('Custom content here.');
+    const content = fs.readFileSync(rulesPath, 'utf-8');
+    expect(content).toContain('# My Custom Rules');
+    expect(content).toContain('Never commit secrets.');
     expect(content).toContain('OPEN-ZK-KB:START');
   });
 
-  it('omp install skips agent docs when path is a symlink to shared file', async () => {
+  it('uninstall removes skill, agent docs from RULES.md, and MCP entry for omp', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
-
-    // Create a shared source file and symlink to it (mimicking ~/.agents/AGENTS.md)
-    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
-    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
-    fs.writeFileSync(sharedFile, '# Shared Global Rules\n', 'utf-8');
-
-    const agentDocsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
-    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
-    fs.symlinkSync(sharedFile, agentDocsPath);
-
-    const output = setupModule.install({
-      client: 'omp',
-      serverPath: env.fakeServerPath,
-      force: true,
-    });
-
-    // Shared file must NOT be modified
-    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
-    expect(sharedContent).not.toContain('OPEN-ZK-KB');
-    expect(sharedContent).toBe('# Shared Global Rules\n');
-
-    // Output should report the skip with the symlink target
-    expect(output).toContain('skipped');
-    expect(output).toContain('.agents/AGENTS.md');
-
-    // Skill should still be installed
-    const skillPath = path.join(env.homeDir, '.omp', 'agent', 'skills', 'open-zk-kb');
-    expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
-  });
-
-  it('omp install injects into symlinked file when injectSharedAgentDocs is set', async () => {
-    const env = createIsolatedInstallEnv();
-    const setupModule = await loadFreshSetupModule();
-
-    // Create a shared source file and symlink
-    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
-    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
-    fs.writeFileSync(sharedFile, '# Shared Rules\n', 'utf-8');
-
-    const agentDocsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
-    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
-    fs.symlinkSync(sharedFile, agentDocsPath);
-
-    const output = setupModule.install({
-      client: 'omp',
-      serverPath: env.fakeServerPath,
-      force: true,
-      injectSharedAgentDocs: true,
-    });
-
-    // Shared file SHOULD be modified when user confirms
-    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
-    expect(sharedContent).toContain('# Shared Rules');
-    expect(sharedContent).toContain('OPEN-ZK-KB:START');
-    expect(sharedContent).toContain('client: "omp"');
-
-    // Output should report the injection, not a skip
-    expect(output).toContain('Agent docs:');
-    expect(output).not.toContain('skipped');
-  });
-
-  it('doctor reports symlink info for omp when AGENTS.md is symlinked', async () => {
-    const env = createIsolatedInstallEnv();
-    const setupModule = await loadFreshSetupModule();
-
-    // Create symlink setup
-    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
-    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
-    fs.writeFileSync(sharedFile, '# Shared\n', 'utf-8');
-
-    const agentDocsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
-    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
-    fs.symlinkSync(sharedFile, agentDocsPath);
 
     setupModule.install({
       client: 'omp',
@@ -1309,10 +1240,22 @@ describe('setup.ts', () => {
       force: true,
     });
 
-    const output = setupModule.doctor({ client: 'omp' });
-    expect(output).toContain('OK OMP: skill is healthy');
-    expect(output).toContain('INFO OMP: agent docs path is a symlink (');
-    expect(output).toContain('- ERROR: 0');
+    const skillPath = path.join(env.homeDir, '.omp', 'agent', 'skills', 'open-zk-kb');
+    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    expect(fs.existsSync(skillPath)).toBe(true);
+    expect(fs.existsSync(configPath)).toBe(true);
+    expect(fs.readFileSync(rulesPath, 'utf-8')).toContain('OPEN-ZK-KB:START');
+
+    setupModule.uninstall({ client: 'omp' });
+    expect(fs.existsSync(skillPath)).toBe(false);
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers['open-zk-kb']).toBeUndefined();
+    // Agent docs block should be removed (file deleted since it was only the managed block)
+    if (fs.existsSync(rulesPath)) {
+      const content = fs.readFileSync(rulesPath, 'utf-8');
+      expect(content).not.toContain('OPEN-ZK-KB:START');
+    }
   });
 
   it('omp install preserves existing mcpServers entries', async () => {
@@ -1336,34 +1279,6 @@ describe('setup.ts', () => {
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers['other-server']).toBeDefined();
     expect(config.mcpServers['open-zk-kb']).toBeDefined();
-  });
-
-  it('uninstall removes skill, agent docs, and MCP entry for omp', async () => {
-    const env = createIsolatedInstallEnv();
-    const setupModule = await loadFreshSetupModule();
-
-    setupModule.install({
-      client: 'omp',
-      serverPath: env.fakeServerPath,
-      force: true,
-    });
-
-    const skillPath = path.join(env.homeDir, '.omp', 'agent', 'skills', 'open-zk-kb');
-    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
-    const agentDocsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
-    expect(fs.existsSync(skillPath)).toBe(true);
-    expect(fs.existsSync(configPath)).toBe(true);
-    expect(fs.readFileSync(agentDocsPath, 'utf-8')).toContain('OPEN-ZK-KB:START');
-
-    setupModule.uninstall({ client: 'omp' });
-    expect(fs.existsSync(skillPath)).toBe(false);
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    expect(config.mcpServers['open-zk-kb']).toBeUndefined();
-    // Agent docs block should be removed (file deleted since it was only the managed block)
-    if (fs.existsSync(agentDocsPath)) {
-      const content = fs.readFileSync(agentDocsPath, 'utf-8');
-      expect(content).not.toContain('OPEN-ZK-KB:START');
-    }
   });
 
   it('doctor reports healthy skill and agent docs for omp', async () => {
