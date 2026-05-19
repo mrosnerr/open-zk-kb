@@ -1296,4 +1296,142 @@ describe('setup.ts', () => {
     expect(output).toContain('OK OMP: managed instructions are healthy');
     expect(output).toContain('- ERROR: 0');
   });
+
+  // --- Symlink safety tests (generic, affects any client with agentDocsPath) ---
+
+  it('install skips agent docs when path is a symlink to shared file', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Simulate ~/.config/opencode/AGENTS.md → ~/.agents/AGENTS.md
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, '# Shared Global Rules\n', 'utf-8');
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, agentDocsPath);
+
+    const output = setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Shared file must NOT be modified
+    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
+    expect(sharedContent).not.toContain('OPEN-ZK-KB');
+    expect(sharedContent).toBe('# Shared Global Rules\n');
+
+    // Output should report the skip with the resolved target
+    expect(output).toContain('skipped');
+    expect(output).toContain('.agents/AGENTS.md');
+  });
+
+  it('install injects into symlinked file when injectSharedAgentDocs is confirmed', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Simulate symlinked AGENTS.md
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, '# Shared Rules\n', 'utf-8');
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, agentDocsPath);
+
+    const output = setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+      injectSharedAgentDocs: true,
+    });
+
+    // Shared file SHOULD be modified when user confirms
+    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
+    expect(sharedContent).toContain('# Shared Rules');
+    expect(sharedContent).toContain('OPEN-ZK-KB:START');
+    expect(sharedContent).toContain('client: "opencode"');
+
+    // Output should report the injection, not a skip
+    expect(output).toContain('Agent docs:');
+    expect(output).not.toContain('skipped');
+  });
+
+  it('uninstall does not touch symlinked agent docs file', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Install with confirmed injection into shared file
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, '# Shared Rules\n', 'utf-8');
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, agentDocsPath);
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+      injectSharedAgentDocs: true,
+    });
+    expect(fs.readFileSync(sharedFile, 'utf-8')).toContain('OPEN-ZK-KB:START');
+
+    // Uninstall should NOT touch the symlinked file
+    setupModule.uninstall({ client: 'opencode' });
+    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
+    expect(sharedContent).toContain('OPEN-ZK-KB:START');
+  });
+
+  it('doctor reports symlink info for client with symlinked agentDocsPath', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Simulate symlinked AGENTS.md for opencode
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, '# Shared\n', 'utf-8');
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, agentDocsPath);
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const output = setupModule.doctor({ client: 'opencode' });
+    expect(output).toContain('OK OpenCode: MCP config looks healthy');
+    expect(output).toContain('INFO OpenCode: agent docs path is a symlink');
+    expect(output).toContain('- ERROR: 0');
+  });
+
+  it('non-symlinked agentDocsPath is injected and cleaned up normally', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Windsurf uses a non-symlinked path
+    setupModule.install({
+      client: 'windsurf',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const agentDocsPath = path.join(env.homeDir, '.codeium', 'windsurf', 'memories', 'global_rules.md');
+    expect(fs.existsSync(agentDocsPath)).toBe(true);
+    const content = fs.readFileSync(agentDocsPath, 'utf-8');
+    expect(content).toContain('OPEN-ZK-KB:START');
+    expect(content).toContain('client: "windsurf"');
+
+    // Uninstall should clean up
+    setupModule.uninstall({ client: 'windsurf' });
+    if (fs.existsSync(agentDocsPath)) {
+      expect(fs.readFileSync(agentDocsPath, 'utf-8')).not.toContain('OPEN-ZK-KB:START');
+    }
+  });
 });
