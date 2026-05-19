@@ -54,6 +54,8 @@ export interface ClientConfig {
   instructionSize?: InstructionSize;
   /** Path where a Claude Code skill directory should be installed (e.g. ~/.claude/skills/open-zk-kb) */
   skillPath?: string;
+  /** Paths where a previous install may have left a managed block that should be cleaned up. */
+  staleAgentDocsPaths?: string[];
 }
 
 const PI_PACKAGE_NAME = 'open-zk-kb';
@@ -114,7 +116,8 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpFormat: 'standard',
     skillPath: path.join(expandPath('~/.omp'), 'agent', 'skills', 'open-zk-kb'),
     agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'RULES.md'),
-    instructionSize: 'full',
+    instructionSize: 'compact',
+    staleAgentDocsPaths: [path.join(expandPath('~/.omp'), 'agent', 'AGENTS.md')],
   },
 };
 
@@ -859,6 +862,21 @@ export function doctor(args: DoctorArgs = {}): string {
     if (!clientConfig.skillPath && !clientConfig.agentDocsPath) {
       pushCheck('INFO', `${clientConfig.name}: managed instructions are not currently supported`);
     }
+    // Check for stale managed blocks in old locations
+    if (clientConfig.staleAgentDocsPaths) {
+      for (const stalePath of clientConfig.staleAgentDocsPaths) {
+        if (stalePath === clientConfig.agentDocsPath) continue;
+        const staleInspection = inspectAgentDocs(stalePath);
+        if (staleInspection.exists && staleInspection.status !== 'missing') {
+          if (args.fix) {
+            removeAgentDocs(stalePath);
+            pushCheck('FIXED', `${clientConfig.name}: removed stale managed block from ${stalePath}`);
+          } else {
+            pushCheck('WARN', `${clientConfig.name}: stale managed block in ${stalePath} — run with --fix to remove`);
+          }
+        }
+      }
+    }
   }
 
   return [
@@ -997,6 +1015,18 @@ export function install(args: InstallArgs): string {
       agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client, PKG_VERSION);
     }
   }
+  // Clean up managed blocks from stale locations (e.g. OMP: AGENTS.md → RULES.md migration)
+  const staleCleaned: string[] = [];
+  if (clientConfig.staleAgentDocsPaths && !args.dryRun) {
+    for (const stalePath of clientConfig.staleAgentDocsPaths) {
+      if (stalePath === clientConfig.agentDocsPath) continue; // don't clean the current target
+      if (resolveSymlinkTarget(stalePath)) continue; // don't modify shared files via symlink
+      const staleResult = removeAgentDocs(stalePath);
+      if (staleResult.action === 'removed' || staleResult.action === 'file-deleted') {
+        staleCleaned.push(stalePath);
+      }
+    }
+  }
 
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;
   output += `Config: ${clientConfig.configPath}\n`;
@@ -1017,6 +1047,9 @@ export function install(args: InstallArgs): string {
   }
   if (migrationResult?.migrated) {
     output += `Migration: removed old CLAUDE.md managed block${migrationResult.fileDeleted ? ' (file deleted — was empty)' : ''}\n`;
+  }
+  for (const cleaned of staleCleaned) {
+    output += `Cleanup: removed stale managed block from ${cleaned}\n`;
   }
   if (templatesCopied > 0) {
     output += `Templates: ${templatesCopied} files → ${vaultTemplatesDir}\n`;
