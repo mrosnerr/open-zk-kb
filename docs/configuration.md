@@ -6,7 +6,7 @@ open-zk-kb uses a single YAML configuration file:
 
 **Location**: `~/.config/open-zk-kb/config.yaml`
 
-The file contains core settings for the MCP server, including vault location, log level, note lifecycle, the Obsidian vault scaffold, and vector embeddings.
+The file contains core settings for the MCP server, including vault location, log level, note lifecycle, the Obsidian vault scaffold, vector embeddings, and shared HTTP server configuration.
 
 For a detailed explanation of note statuses, kinds, and the review system, see [Note Lifecycle](note-lifecycle.md).
 
@@ -151,6 +151,25 @@ telemetry:
 obsidian:
   readOnly: false
 ```
+
+## Server
+
+Settings for the shared HTTP server mode (`open-zk-kb serve`).
+
+| Key | Type | Default | Description |
+|-----|------|---------|-------------|
+| `server.port` | integer | `17244` | Port for the HTTP server |
+| `server.host` | string | `127.0.0.1` | Bind address (localhost recommended for security) |
+
+Example:
+
+```yaml
+server:
+  port: 18000
+  host: 127.0.0.1
+```
+
+See [Setup Guide: Shared Server Mode](setup-guide.md#shared-server-mode-multi-session) for usage instructions.
 
 ## Environment & Paths
 

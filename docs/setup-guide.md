@@ -85,6 +85,61 @@ See the [Development Guide](development.md#development-setup) for the full contr
 | Pi | `~/.pi/agent/settings.json` |
 | OMP | `~/.omp/agent/mcp.json` |
 
+
+## Shared Server Mode (Multi-Session)
+
+By default, each MCP client session spawns its own server process. For environments with multiple concurrent sessions (OMP, multiple terminals), you can run a single shared HTTP server instead:
+
+### Quick Start
+
+```bash
+# Start the shared server (runs in foreground)
+open-zk-kb serve
+
+# Or with custom port/host
+open-zk-kb serve --port 18000 --host 0.0.0.0
+```
+
+### Configure OMP for HTTP
+
+```bash
+# Install with HTTP transport (use --force to convert from existing stdio config)
+bun run src/setup.ts install --client omp --transport http --force
+```
+
+This writes to `~/.omp/agent/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "open-zk-kb": {
+      "type": "http",
+      "url": "http://127.0.0.1:17244/mcp"
+    }
+  }
+}
+```
+
+### Transparent Proxy
+
+Existing stdio configurations automatically benefit from a running HTTP server. When `open-zk-kb server` (stdio mode) starts, it checks for a running HTTP server and bridges to it transparently — no config changes needed.
+
+### Configuration
+
+Optional `config.yaml` settings:
+
+```yaml
+server:
+  port: 17244      # Default port
+  host: 127.0.0.1  # Localhost only (recommended)
+```
+
+### Benefits
+
+- **Memory**: One ONNX embedding model (~23MB) instead of one per session
+- **SQLite**: Single database connection eliminates SQLITE_BUSY contention
+- **Startup**: Sessions connect instantly instead of loading the model
+
 ## Verify Installation
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.

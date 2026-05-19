@@ -86,6 +86,11 @@ export interface StoreConfig {
   relatedNotes: RelatedNotesConfig;
 }
 
+export interface ServerConfig {
+  port: number;
+  host: string;
+}
+
 export interface AppConfig {
   logLevel: 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
   vault: string;
@@ -102,6 +107,7 @@ export interface AppConfig {
   telemetry: TelemetryConfig;
   obsidian: ObsidianConfig;
   versioning: VersioningConfig;
+  server: ServerConfig;
 }
 
 // NOTE: NoteMetadata and StoreResult are defined in storage/NoteRepository.ts

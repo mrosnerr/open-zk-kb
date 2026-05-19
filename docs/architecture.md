@@ -14,14 +14,22 @@ Obsidian plays a separate role: it is the primary human browsing and interaction
 ┌─────────────────────────────────────────────────────┐
 │                   Client Layer                       │
 │  MCP Clients (OpenCode, Claude Code,                 │
-│  Cursor, Windsurf, Zed)                              │
+│  Cursor, Windsurf, Zed, OMP, Pi)                     │
 └──────────┬──────────────────────────────────────────┘
+           │
+      ┌────┴────┐
+      │         │
+┌─────▼─────┐ ┌─▼──────────────┐
+│  stdio     │ │  HTTP (shared)  │
+│  (default) │ │  Bun.serve()    │
+└─────┬─────┘ └─┬──────────────┘
+      │         │
+      └────┬────┘
            │
 ┌──────────▼──────────┐
 │   MCP Server        │
 │   (mcp-server.ts)   │
 │   - 9 MCP tools     │
-│   - stdio transport │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
@@ -74,7 +82,10 @@ This distinction is intentional. Core knowledge notes (`decision`, `procedure`, 
 
 The MCP server provides a reactive interface to the knowledge base:
 
-* **Transport**: Uses `@modelcontextprotocol/sdk` with stdio transport.
+* **Transport**: Supports two modes:
+    * **Stdio** (default): One process per client connection. Used by all MCP clients.
+    * **Streamable HTTP** (`open-zk-kb serve`): Single shared process for all clients. Uses `Bun.serve()` with `WebStandardStreamableHTTPServerTransport` in stateless mode. Recommended for multi-session environments (OMP, multiple terminals).
+* **Shared Server Discovery**: When running in stdio mode, the server first checks if a shared HTTP server is available (via `$XDG_RUNTIME_DIR/open-zk-kb/server.json`). If found and healthy, it transparently bridges stdio→HTTP, avoiding resource duplication.
 * **Tools**: Registers [nine core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-template`, `knowledge-mine`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).

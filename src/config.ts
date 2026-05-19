@@ -70,6 +70,10 @@ interface RawConfig {
     enabled?: boolean;
     debounceMs?: number;
   };
+  server?: {
+    port?: number;
+    host?: string;
+  };
   embeddings?: EmbeddingsConfig;
 }
 
@@ -122,6 +126,10 @@ export const DEFAULT_CONFIG: AppConfig = {
     enabled: true,
     debounceMs: 30000,
   },
+  server: {
+    port: 17244,
+    host: '127.0.0.1',
+  },
 };
 
 // ── Loader ──
@@ -151,6 +159,12 @@ function loadYamlConfig(): RawConfig | null {
 
 function positiveInt(value: unknown, fallback: number): number {
   return Number.isInteger(value) && (value as number) > 0 ? (value as number) : fallback;
+}
+
+function validPort(value: unknown, fallback: number): number {
+  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 65535
+    ? (value as number)
+    : fallback;
 }
 
 export function getConfig(): AppConfig {
@@ -242,6 +256,12 @@ export function getConfig(): AppConfig {
         ? raw.versioning.enabled
         : DEFAULT_CONFIG.versioning.enabled,
       debounceMs: positiveInt(raw?.versioning?.debounceMs, DEFAULT_CONFIG.versioning.debounceMs),
+    },
+    server: {
+      port: validPort(raw?.server?.port, DEFAULT_CONFIG.server.port),
+      host: typeof raw?.server?.host === 'string' && raw.server.host.length > 0
+        ? raw.server.host
+        : DEFAULT_CONFIG.server.host,
     },
   };
 }
