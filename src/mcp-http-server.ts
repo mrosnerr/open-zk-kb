@@ -52,17 +52,24 @@ export function readServerState(): ServerState | null {
     const content = fs.readFileSync(SERVER_STATE_FILE, 'utf-8');
     const state = JSON.parse(content) as ServerState;
 
-    // Validate the host is a loopback address — reject state files
-    // pointing to non-local hosts to prevent traffic redirection attacks
-    // when the state file lives in a world-writable directory like /tmp.
+    // Validate the host is loopback or a wildcard bind address — reject
+    // state files pointing to non-local hosts to prevent traffic redirection
+    // attacks when the state file lives in a world-writable directory like /tmp.
     const loopback = new Set(['127.0.0.1', '::1', 'localhost']);
-    if (!loopback.has(state.host)) {
-      logToFile('WARN', 'Server state file has non-loopback host, ignoring', {
+    const wildcardBind = new Set(['0.0.0.0', '::']);
+    if (!loopback.has(state.host) && !wildcardBind.has(state.host)) {
+      logToFile('WARN', 'Server state file has non-local host, ignoring', {
         host: state.host,
         stateFile: SERVER_STATE_FILE,
       }, config);
       removeServerState();
       return null;
+    }
+
+    // Wildcard bind addresses (0.0.0.0, ::) listen on all interfaces but
+    // must be reached via loopback for local probing.
+    if (wildcardBind.has(state.host)) {
+      state.host = '127.0.0.1';
     }
 
     // On Unix, verify the state file is owned by the current user
@@ -155,14 +162,39 @@ export async function startHttpServer(options: StartHttpServerOptions = {}): Pro
 
   ensureShutdownHandlers();
 
-  // Check if another instance is already running
+  // Check if another instance is already running.
+  // PID-alive alone is not sufficient — after an unclean shutdown, PID reuse
+  // can make a stale state file block startup. Probe the health endpoint to
+  // verify the process is actually serving before rejecting.
   const existingState = readServerState();
   if (existingState) {
-    logToFile('ERROR', 'Another HTTP server is already running', {
-      pid: existingState.pid,
-      port: existingState.port,
-    }, config);
-    throw new Error(`Another open-zk-kb HTTP server is already running (pid: ${existingState.pid}, port: ${existingState.port})`);
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 2000);
+      const response = await fetch(
+        `http://${existingState.host}:${existingState.port}/health`,
+        { signal: controller.signal },
+      );
+      clearTimeout(timeout);
+      if (response.ok) {
+        logToFile('ERROR', 'Another HTTP server is already running', {
+          pid: existingState.pid,
+          port: existingState.port,
+        }, config);
+        throw new Error(`Another open-zk-kb HTTP server is already running (pid: ${existingState.pid}, port: ${existingState.port})`);
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes('already running')) {
+        throw err; // Re-throw the "already running" error from above
+      }
+      // Health probe failed — the PID-alive process is not our server.
+      // Remove the stale state file and proceed with startup.
+      logToFile('INFO', 'Stale server state file detected (PID alive but not responding), removing', {
+        pid: existingState.pid,
+        port: existingState.port,
+      }, config);
+      removeServerState();
+    }
   }
 
   const httpServer = Bun.serve({
