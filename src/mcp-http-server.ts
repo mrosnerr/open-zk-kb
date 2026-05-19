@@ -172,7 +172,7 @@ export async function startHttpServer(options: StartHttpServerOptions = {}): Pro
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 2000);
       const response = await fetch(
-        `http://${existingState.host}:${existingState.port}/health`,
+        `http://${existingState.host.includes(':') ? `[${existingState.host}]` : existingState.host}:${existingState.port}/health`,
         { signal: controller.signal },
       );
       clearTimeout(timeout);

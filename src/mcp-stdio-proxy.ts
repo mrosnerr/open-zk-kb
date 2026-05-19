@@ -17,7 +17,8 @@ async function probeHttpServer(state: ServerState): Promise<ServerState | null> 
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 2000);
-    const response = await fetch(`http://${state.host}:${state.port}/health`, {
+    const hostForUrl = state.host.includes(':') ? `[${state.host}]` : state.host;
+    const response = await fetch(`http://${hostForUrl}:${state.port}/health`, {
       signal: controller.signal,
     });
     clearTimeout(timeout);
@@ -66,7 +67,8 @@ async function forwardToHttp(
   message: unknown,
 ): Promise<unknown | null> {
   try {
-    const response = await fetch(`http://${state.host}:${state.port}/mcp`, {
+    const hostForUrl = state.host.includes(':') ? `[${state.host}]` : state.host;
+    const response = await fetch(`http://${hostForUrl}:${state.port}/mcp`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

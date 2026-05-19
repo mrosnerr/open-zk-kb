@@ -170,7 +170,7 @@ function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string, transpor
       : config.server.host;
     return {
       type: 'http',
-      url: `http://${clientHost}:${config.server.port}/mcp`,
+      url: `http://${clientHost.includes(':') ? `[${clientHost}]` : clientHost}:${config.server.port}/mcp`,
     };
   }
 
