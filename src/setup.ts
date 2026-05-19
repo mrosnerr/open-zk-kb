@@ -645,7 +645,18 @@ function validateMcpEntry(clientConfig: ClientConfig, entry: unknown): string[] 
 
   // HTTP transport entries are valid if they have a url
   if (record.type === 'http') {
-    if (typeof record.url !== 'string' || record.url.length === 0) issues.push('missing url for http entry');
+    if (typeof record.url !== 'string' || record.url.length === 0) {
+      issues.push('missing url for http entry');
+    } else {
+      try {
+        const url = new URL(record.url);
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+          issues.push('http entry url must use http or https');
+        }
+      } catch {
+        issues.push('invalid url for http entry');
+      }
+    }
     return issues;
   }
   if (clientConfig.mcpFormat === 'opencode') {
@@ -689,8 +700,14 @@ function repairClientConfig(clientConfig: ClientConfig, config: Record<string, u
   if (!clientConfig.mcpPath) {
     throw new Error(`${clientConfig.name} does not use MCP config entries`);
   }
-  // Don't repair HTTP entries — they are intentional transport overrides
-  if (existingEntry && typeof existingEntry === 'object' && (existingEntry as Record<string, unknown>).type === 'http') {
+  // Don't repair valid HTTP entries — they are intentional transport overrides.
+  // Invalid HTTP entries should still be repaired (e.g. malformed URL).
+  if (
+    existingEntry &&
+    typeof existingEntry === 'object' &&
+    (existingEntry as Record<string, unknown>).type === 'http' &&
+    validateMcpEntry(clientConfig, existingEntry).length === 0
+  ) {
     return;
   }
   const inferredServerPath = inferServerPathFromEntry(clientConfig, existingEntry);

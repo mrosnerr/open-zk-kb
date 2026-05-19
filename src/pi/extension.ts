@@ -376,6 +376,10 @@ function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
 }
 
+function isLocalHost(host: string): boolean {
+  return isLoopbackHost(host) || host === '0.0.0.0' || host === '::';
+}
+
 function detectHttpServer(): string | undefined {
   try {
     // Prefer XDG_RUNTIME_DIR (per-user, secure permissions on Linux).
@@ -393,12 +397,20 @@ function detectHttpServer(): string | undefined {
       return undefined;
     }
 
-    // Only trust loopback addresses for auto-discovery
-    if (!isLoopbackHost(state.host)) return undefined;
+    // Only trust loopback and wildcard bind addresses for auto-discovery
+    if (!isLocalHost(state.host)) return undefined;
+
+    // Normalize wildcard bind addresses to loopback for probing
+    const probeHost = (state.host === '0.0.0.0' || state.host === '::')
+      ? '127.0.0.1'
+      : state.host;
 
     // Verify process is alive
     process.kill(state.pid, 0);
-    return `http://${state.host}:${state.port}/mcp`;
+
+    // Bracket IPv6 hosts per RFC 3986
+    const hostForUrl = probeHost.includes(':') ? `[${probeHost}]` : probeHost;
+    return `http://${hostForUrl}:${state.port}/mcp`;
   } catch {
     return undefined;
   }
