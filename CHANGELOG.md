@@ -31,7 +31,7 @@
 
 ### Maintenance & Quality
 
-- **Add orphan and broken wikilink detection** — `knowledge-maintain orphans` and `knowledge-maintain broken-links` with line numbers and content-relative positions
+- **Add unlinked note and broken wikilink detection** — `knowledge-maintain unlinked` and `knowledge-maintain broken-links` with line numbers and content-relative positions
 - **Add model-aware capability detection** — agents self-report model identity for tiered feature gating
 
 ### Infrastructure

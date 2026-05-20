@@ -55,7 +55,7 @@ Parameters:
 Maintenance actions for the knowledge base.
 
 Parameters:
-- action (string, required): stats, review, promote, archive, delete, rebuild, embed, dedupe, orphans, broken-links
+- action (string, required): stats, review, promote, archive, delete, rebuild, embed, dedupe, unlinked, broken-links, link-health
 
 ### knowledge-ingest
 Extract article content from URLs or raw HTML into clean markdown. Returns title, content, word count, and metadata.
