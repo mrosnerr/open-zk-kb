@@ -19,15 +19,29 @@ export async function runCli(rawArgs: string[] = process.argv.slice(2), deps: Cl
   const command = rawArgs[0];
 
   if (command === 'server') {
+    // Try to bridge to an existing shared HTTP server
     try {
       const tryBridge = deps.tryStdioBridge ?? (await import('./mcp-stdio-proxy.js')).tryStdioBridge;
       const bridged = await tryBridge();
       if (bridged) return;  // Bridge established, stdio proxy running
     } catch {
-      // Bridge unavailable — fall through to in-process server
+      // Bridge unavailable — fall through
     }
 
-    // No HTTP server available — run full server in-process
+    // No shared HTTP server found — start one alongside the stdio server
+    // so subsequent clients can discover it and bridge to it (lightweight).
+    try {
+      if (deps.startHttpServer) {
+        await deps.startHttpServer();
+      } else {
+        const { startHttpServer } = await import('./mcp-http-server.js');
+        await startHttpServer();
+      }
+    } catch {
+      // HTTP server failed to start (port in use, permissions, etc.)
+      // Continue with stdio-only — this client still gets served.
+    }
+
     if (deps.startServer) {
       await deps.startServer();
       return;
