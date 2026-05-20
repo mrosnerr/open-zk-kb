@@ -8,10 +8,7 @@ import { getConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { createMcpServer, shutdownServer, ensureShutdownHandlers } from './mcp-server.js';
 import { PKG_VERSION } from './version.js';
-import {
-  readServerState, writeServerState, removeServerState,
-  type ServerState,
-} from './server-state.js';
+import { readServerState, writeServerState, removeServerState } from './server-state.js';
 
 // Re-export for consumers that imported from here previously
 export { readServerState, type ServerState } from './server-state.js';
