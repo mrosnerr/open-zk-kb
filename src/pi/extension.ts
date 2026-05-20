@@ -150,10 +150,10 @@ const TOOL_DEFINITIONS = [
   {
     name: 'knowledge-maintain',
     label: 'Maintain Knowledge',
-    description: 'Run knowledge base maintenance actions: stats, promote, archive, delete, rebuild, format, upgrade, upgrade-read, upgrade-apply, review, dedupe, embed, agent-docs, scope-audit, orphans, broken-links, migrate-layout, upgrade-vault, full.',
+    description: 'Run knowledge base maintenance actions: stats, promote, archive, delete, rebuild, format, upgrade, upgrade-read, upgrade-apply, review, dedupe, embed, agent-docs, scope-audit, unlinked, broken-links, link-health, migrate-layout, upgrade-vault, full.',
     promptSnippet: 'Inspect or maintain open-zk-kb health and lifecycle state.',
     parameters: objectSchema({
-      action: enumSchema(['stats', 'promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'orphans', 'broken-links', 'migrate-layout', 'upgrade-vault', 'full']),
+      action: enumSchema(['stats', 'promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'unlinked', 'broken-links', 'link-health', 'migrate-layout', 'upgrade-vault', 'full']),
       noteId: { type: 'string' },
       limit: { type: 'number' },
       dryRun: { type: 'boolean' },

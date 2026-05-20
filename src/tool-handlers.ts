@@ -1135,6 +1135,22 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += `- Notes missing summary: ${upgradeStatus.needsSummary}/${upgradeStatus.total}\n`;
         output += `- Notes missing guidance: ${upgradeStatus.needsGuidance}/${upgradeStatus.total}\n`;
       }
+      {
+        const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
+        const oneWayLinks = repo.getOneWayLinks();
+        const unlinkedNotes = repo.getUnlinkedNotes();
+        const linkIssueCount = brokenLinks.length + oneWayLinks.length + unlinkedNotes.length;
+        output += '\n## Link Health\n';
+        if (linkIssueCount > 0) {
+          const parts: string[] = [];
+          if (unlinkedNotes.length > 0) parts.push(`${unlinkedNotes.length} unlinked`);
+          if (brokenLinks.length > 0) parts.push(`${brokenLinks.length} broken`);
+          if (oneWayLinks.length > 0) parts.push(`${oneWayLinks.length} one-way`);
+          output += `- Issues: ${parts.join(', ')} (run \`knowledge-maintain link-health\` for details)\n`;
+        } else {
+          output += '- All clear ✓\n';
+        }
+      }
       if (stats.total > 0) {
         const recentNotes = repo.getRecentNotes(5);
         output += '\n## Recent Notes\n';
@@ -1721,20 +1737,20 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       return output;
     }
-    case 'orphans': {
-      const orphans = repo.getOrphanNotes();
-      if (orphans.length === 0) {
-        return 'No orphan notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
+    case 'unlinked': {
+      const unlinked = repo.getUnlinkedNotes();
+      if (unlinked.length === 0) {
+        return 'No unlinked notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
       }
 
-      let output = `## Orphan Notes (${orphans.length})\n\n`;
+      let output = `## Unlinked Notes (${unlinked.length})\n\n`;
       output += 'Notes with no incoming or outgoing wikilinks:\n\n';
-      for (const note of orphans) {
+      for (const note of unlinked) {
         const wordCount = countWords(note.content || '');
         output += `- "${note.title}" [${note.id}] | ${note.kind} | ${note.status} | ${wordCount} words\n`;
       }
       output += '\n## Next Steps\n';
-      output += '[A] Add wikilinks to connect orphan notes to related notes\n';
+      output += '[A] Add wikilinks to connect unlinked notes to related notes\n';
       output += '[B] Archive notes that are no longer relevant\n';
       return output;
     }
@@ -1752,6 +1768,49 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       output += '\n## Next Steps\n';
       output += '[A] Create the missing target notes\n';
       output += '[B] Update or remove the broken links\n';
+      return output;
+    }
+    case 'link-health': {
+      const unlinked = repo.getUnlinkedNotes();
+      const broken = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
+      const oneWay = repo.getOneWayLinks();
+
+      const total = unlinked.length + broken.length + oneWay.length;
+      if (total === 0) {
+        return 'Link health: all clear. No unlinked notes, broken links, or one-way links found.';
+      }
+
+      let output = '## Link Health Report\n\n';
+
+      if (unlinked.length > 0) {
+        output += `### Unlinked Notes (${unlinked.length})\n\n`;
+        output += 'Notes with no incoming or outgoing wikilinks:\n\n';
+        for (const note of unlinked) {
+          output += `- "${note.title}" [${note.id}] | ${note.kind} | ${note.status}\n`;
+        }
+        output += '\n';
+      }
+
+      if (broken.length > 0) {
+        output += `### Broken Wikilinks (${broken.length})\n\n`;
+        output += 'Links pointing to non-existent notes:\n\n';
+        for (const { sourceId, sourceTitle, brokenTarget, line } of broken) {
+          output += `- "${sourceTitle}" [${sourceId}] content:${line} → [[${brokenTarget}]] (not found)\n`;
+        }
+        output += '\n';
+      }
+
+      if (oneWay.length > 0) {
+        output += `### One-Way Links (${oneWay.length})\n\n`;
+        output += 'A links to B but B does not link back to A:\n\n';
+        for (const { sourceId, sourceTitle, targetId, targetTitle } of oneWay) {
+          output += `- "${sourceTitle}" [${sourceId}] → "${targetTitle}" [${targetId}] (no reverse link)\n`;
+        }
+        output += '\n';
+      }
+
+      output += '## Summary\n';
+      output += `Unlinked: ${unlinked.length} | Broken: ${broken.length} | One-way: ${oneWay.length}\n`;
       return output;
     }
     case 'migrate-layout': {
@@ -1861,22 +1920,29 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
         const embeddingStats = repo.getEmbeddingStats();
         const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
+        const oneWayLinks = repo.getOneWayLinks();
+        const unlinkedNotes = repo.getUnlinkedNotes();
+        const linkIssues = brokenLinks.length + oneWayLinks.length + unlinkedNotes.length;
 
         output += '\n\n## Health Summary\n';
         if (embeddingStats.withoutEmbedding > 0) {
           output += `Embeddings: ${embeddingStats.withoutEmbedding}/${embeddingStats.total} notes need backfill (run \`knowledge-maintain embed\`)\n`;
         }
-        if (brokenLinks.length > 0) {
-          output += `Link health: ${brokenLinks.length} broken wikilinks found (run \`knowledge-maintain broken-links\` for details)\n`;
+        if (linkIssues > 0) {
+          const parts: string[] = [];
+          if (unlinkedNotes.length > 0) parts.push(`${unlinkedNotes.length} unlinked`);
+          if (brokenLinks.length > 0) parts.push(`${brokenLinks.length} broken`);
+          if (oneWayLinks.length > 0) parts.push(`${oneWayLinks.length} one-way`);
+          output += `Link health: ${parts.join(', ')} (run \`knowledge-maintain link-health\` for details)\n`;
         } else {
-          output += 'Link health: all links resolve ✓\n';
+          output += 'Link health: all clear ✓\n';
         }
 
         output += '\n## Next Steps\n';
         if (embeddingStats.withoutEmbedding > 0) {
           output += '- Backfill embeddings: knowledge-maintain embed\n';
         }
-        output += '- Check link health: knowledge-maintain broken-links\n';
+        output += '- Check link health: knowledge-maintain link-health\n';
         output += '- View vault stats: knowledge-maintain stats\n';
       }
 
@@ -1894,7 +1960,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         { action: 'format', label: 'Format', stepArgs: { action: 'format' } },
         { action: 'dedupe', label: 'Dedupe', stepArgs: { action: 'dedupe' } },
         { action: 'embed', label: 'Embed', stepArgs: { action: 'embed', limit: 999999 } },
-        { action: 'broken-links', label: 'Link Health', stepArgs: { action: 'broken-links' } },
+        { action: 'link-health', label: 'Link Health', stepArgs: { action: 'link-health' } },
         { action: 'stats', label: 'Stats', stepArgs: { action: 'stats', telemetry: args.telemetry, model: args.model } },
       ];
 

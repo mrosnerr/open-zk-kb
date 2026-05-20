@@ -2026,27 +2026,27 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
   });
 });
 
-describe('MCP Tool: knowledge-maintain orphans', () => {
+describe('MCP Tool: knowledge-maintain unlinked', () => {
   let ctx: TestContext;
 
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should detect orphan notes with no links', async () => {
-    ctx.engine.store('Standalone note', { title: 'Orphan A', kind: 'reference' });
-    ctx.engine.store('Another standalone', { title: 'Orphan B', kind: 'observation' });
+  it('should detect unlinked notes with no links', async () => {
+    ctx.engine.store('Standalone note', { title: 'Unlinked A', kind: 'reference' });
+    ctx.engine.store('Another standalone', { title: 'Unlinked B', kind: 'observation' });
 
-    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
-    expect(output).toContain('Orphan Notes (2)');
-    expect(output).toContain('Orphan A');
-    expect(output).toContain('Orphan B');
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
+    expect(output).toContain('Unlinked Notes (2)');
+    expect(output).toContain('Unlinked A');
+    expect(output).toContain('Unlinked B');
   });
 
-  it('should exclude archived notes from orphans', async () => {
+  it('should exclude archived notes from unlinked detection', async () => {
     ctx.engine.store('Archived note', { title: 'Old Note', kind: 'reference', status: 'archived' });
-    ctx.engine.store('Active orphan', { title: 'Active Note', kind: 'observation' });
+    ctx.engine.store('Active unlinked', { title: 'Active Note', kind: 'observation' });
 
-    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).toContain('Active Note');
     expect(output).not.toContain('Old Note');
   });
@@ -2055,7 +2055,7 @@ describe('MCP Tool: knowledge-maintain orphans', () => {
     const target = ctx.engine.store('Target note', { title: 'Target', kind: 'reference' });
     ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Linker', kind: 'observation' });
 
-    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Linker');
   });
 
@@ -2063,31 +2063,31 @@ describe('MCP Tool: knowledge-maintain orphans', () => {
     const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
     ctx.engine.store(`See also [[${target.id}]]`, { title: 'Source', kind: 'observation' });
 
-    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Target');
   });
 
-  it('should return clean message when no orphans', async () => {
+  it('should return clean message when no unlinked notes', async () => {
     const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
     ctx.engine.store(`References [[${noteA.id}]]`, { title: 'Note B', kind: 'observation' });
 
-    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
-    expect(output).toContain('No orphan notes found');
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
+    expect(output).toContain('No unlinked notes found');
   });
 
-  it('should not flag notes with broken wikilinks as orphans', async () => {
+  it('should not flag notes with broken wikilinks as unlinked', async () => {
     ctx.engine.store('See [[9999999999999999-nonexistent]]', { title: 'Has Broken Link', kind: 'reference' });
 
-    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Has Broken Link');
   });
 
-  it('should not flag as orphan when note has wikilink syntax to archived target', async () => {
+  it('should not flag as unlinked when note has wikilink syntax to archived target', async () => {
     const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
     ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Linker To Archived', kind: 'observation' });
     ctx.engine.archive(target.id);
 
-    const output = await handleMaintain({ action: 'orphans' }, ctx.engine, ctx.config);
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Linker To Archived');
   });
 });
@@ -2132,6 +2132,153 @@ describe('MCP Tool: knowledge-maintain broken-links', () => {
 
     const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
     expect(output).toContain('No broken wikilinks found');
+  });
+});
+
+describe('MCP Tool: knowledge-maintain link-health', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should return clean message when no issues', async () => {
+    const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
+    const noteB = ctx.engine.store(`References [[${noteA.id}]]`, { title: 'Note B', kind: 'reference' });
+    // Make bidirectional
+    ctx.engine.store(`Links back to [[${noteB.id}]]`, { title: 'Note A', kind: 'reference', existingId: noteA.id });
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).toContain('all clear');
+  });
+
+  it('should detect one-way links', async () => {
+    const target = ctx.engine.store('Target content', { title: 'Target Note', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Source Note', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).toContain('One-Way Links (1)');
+    expect(output).toContain('Source Note');
+    expect(output).toContain('Target Note');
+    expect(output).toContain('no reverse link');
+  });
+
+  it('should not flag bidirectional links as one-way', async () => {
+    const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
+    const noteB = ctx.engine.store(`Links to [[${noteA.id}]]`, { title: 'Note B', kind: 'reference' });
+    // Update A to link back to B
+    ctx.engine.store(`Updated to link back [[${noteB.id}]]`, { title: 'Note A', kind: 'reference', existingId: noteA.id });
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('One-Way Links');
+  });
+
+  it('should combine unlinked notes, broken links, and one-way links', async () => {
+    // Unlinked
+    ctx.engine.store('Standalone note', { title: 'Lonely Note', kind: 'reference' });
+    // Broken link
+    ctx.engine.store('See [[9999999999999999-nonexistent]]', { title: 'Broken Linker', kind: 'reference' });
+    // One-way link
+    const target = ctx.engine.store('Target only', { title: 'One Way Target', kind: 'reference' });
+    ctx.engine.store(`See [[${target.id}]]`, { title: 'One Way Source', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).toContain('Link Health Report');
+    expect(output).toContain('Unlinked Notes (1)');
+    expect(output).toContain('Lonely Note');
+    expect(output).toContain('Broken Wikilinks (1)');
+    expect(output).toContain('nonexistent');
+    expect(output).toContain('One-Way Links (1)');
+    expect(output).toContain('One Way Source');
+    expect(output).toContain('Unlinked: 1 | Broken: 1 | One-way: 1');
+  });
+
+  it('should exclude archived notes from one-way link detection', async () => {
+    const target = ctx.engine.store('Target content', { title: 'Archived Target', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Active Source', kind: 'observation' });
+    ctx.engine.archive(target.id);
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('One-Way Links');
+  });
+
+  it('should show summary counts', async () => {
+    const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Source', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).toContain('Unlinked: 0');
+    expect(output).toContain('Broken: 0');
+    expect(output).toContain('One-way: 1');
+  });
+
+  it('should exclude structural notes (index/log) from one-way link detection', async () => {
+    // Create a content note
+    const contentNote = ctx.engine.store('Content note', { title: 'Content Note', kind: 'reference', tags: ['project:testproj'] });
+    // Simulate an index note that links to contentNote but contentNote doesn't link back
+    // Index notes are auto-generated navigation; they intentionally link out without expecting reciprocal links
+    ctx.engine.store(`Project index: [[${contentNote.id}]]`, { title: 'testproj Index', kind: 'index', tags: ['project:testproj'] });
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).not.toContain('One-Way Links');
+  });
+});
+
+describe('MCP Tool: knowledge-maintain stats link health', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should surface one-way link count in health summary', async () => {
+    const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Source', kind: 'observation' });
+
+    const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Link Health');
+    expect(output).toContain('1 one-way');
+    expect(output).toContain('knowledge-maintain link-health');
+  });
+
+  it('should surface unlinked note count in health summary', async () => {
+    ctx.engine.store('Standalone note', { title: 'Standalone', kind: 'reference' });
+
+    const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Link Health');
+    expect(output).toContain('1 unlinked');
+    expect(output).toContain('knowledge-maintain link-health');
+  });
+
+  it('should show all clear when no link issues', async () => {
+    const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
+    const noteB = ctx.engine.store(`References [[${noteA.id}]]`, { title: 'Note B', kind: 'reference' });
+    ctx.engine.store(`Links back to [[${noteB.id}]]`, { title: 'Note A', kind: 'reference', existingId: noteA.id });
+
+    const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Link Health');
+    expect(output).toContain('All clear');
+  });
+});
+
+describe('MCP Tool: knowledge-maintain full with link-health', () => {
+  let ctx: TestContext;
+  const originalFetch = globalThis.fetch;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => {
+    cleanupTestHarness(ctx);
+    globalThis.fetch = originalFetch;
+    clearVersionCheckCache();
+  });
+
+  it('should run link-health step in full composite', async () => {
+    // Create an unlinked note — survives rebuild regardless of file ordering
+    ctx.engine.store('Standalone content', { title: 'Standalone', kind: 'reference' });
+
+    globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
+    const output = await handleMaintain({ action: 'full' }, ctx.engine, ctx.config);
+    expect(output).toContain('Link Health');
+    expect(output).toContain('Unlinked Notes');
+    expect(output).toContain('Standalone');
   });
 });
 
