@@ -4,11 +4,12 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
 import { expandPath } from './utils/path.js';
-import { injectAgentDocs, inspectAgentDocs, removeAgentDocs } from './agent-docs.js';
+import { injectAgentDocs, inspectAgentDocs, removeAgentDocs, getAgentDocsVersion } from './agent-docs.js';
 import type { InstructionSize } from './agent-docs.js';
 import { PKG_VERSION } from './version.js';
 import { getConfig } from './config.js';
@@ -35,11 +36,39 @@ export interface InstallArgs {
   injectSharedAgentDocs?: boolean;
 }
 
+export type InstallStatus = 'installed' | 'already-installed' | 'dry-run';
+
+export interface InstallResult {
+  status: InstallStatus;
+  clientName: string;
+  output: string;
+  /** Key files touched during install, for compact display. */
+  details: string[];
+  /** Stale symlinks that were skipped (user declined or non-interactive). */
+  staleSkippedSymlinks: Array<{ stalePath: string; symlinkTarget: string }>;
+  /** Agent docs symlink target if injection was skipped. */
+  agentDocsSkippedSymlink: string | null;
+}
+
 export interface UninstallArgs {
   client: McpClient;
   removeVault?: boolean;
   confirm?: boolean;
   dryRun?: boolean;
+  /** Remove agent docs even when the path is a symlink to a shared file. */
+  removeSharedAgentDocs?: boolean;
+}
+
+export type UninstallStatus = 'uninstalled' | 'not-installed' | 'dry-run';
+
+export interface UninstallResult {
+  status: UninstallStatus;
+  clientName: string;
+  output: string;
+  /** Key files touched during uninstall, for compact display. */
+  details: string[];
+  /** Agent docs symlink target if removal was skipped. */
+  agentDocsSkippedSymlink: string | null;
 }
 
 export interface DoctorArgs {
@@ -55,6 +84,8 @@ export interface ClientConfig {
   mcpPath?: string[];
   mcpFormat?: 'opencode' | 'standard';
   agentDocsPath?: string;
+  /** Display label for the agent docs file (e.g. "Rule", "Instructions"). */
+  agentDocsLabel?: string;
   instructionSize?: InstructionSize;
   /** Path where a Claude Code skill directory should be installed (e.g. ~/.claude/skills/open-zk-kb) */
   skillPath?: string;
@@ -62,6 +93,8 @@ export interface ClientConfig {
   staleAgentDocsPaths?: string[];
   /** Content prepended before the managed block when creating the file (e.g. YAML frontmatter for OMP rules) */
   preamble?: string;
+  /** CLI binary name for "try it out" launch (e.g. "claude", "pi", "omp"). */
+  cliBinary?: string;
 }
 
 const PI_PACKAGE_NAME = 'open-zk-kb';
@@ -73,7 +106,9 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['mcp', 'open-zk-kb'],
     mcpFormat: 'opencode',
     agentDocsPath: path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
+    agentDocsLabel: 'Instructions',
     instructionSize: 'full',
+    cliBinary: 'opencode',
   },
   'claude-code': {
     name: 'Claude Code',
@@ -82,6 +117,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
     skillPath: path.join(expandPath('~/.claude'), 'skills', 'open-zk-kb'),
+    cliBinary: 'claude',
   },
   'cursor': {
     name: 'Cursor',
@@ -98,6 +134,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpFormat: 'standard',
     agentDocsPath: path.join(expandPath('~/.codeium'), 'windsurf', 'memories', 'global_rules.md'),
     instructionSize: 'compact',
+    agentDocsLabel: 'Global rules',
   },
   'zed': {
     name: 'Zed',
@@ -112,7 +149,9 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     integration: 'pi-package',
     agentDocsPath: path.join(expandPath('~/.pi'), 'agent', 'AGENTS.md'),
+    agentDocsLabel: 'Instructions',
     instructionSize: 'full',
+    cliBinary: 'pi',
   },
   'omp': {
     name: 'OMP',
@@ -122,25 +161,33 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpFormat: 'standard',
     skillPath: path.join(expandPath('~/.omp'), 'agent', 'skills', 'open-zk-kb'),
     agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'rules', 'open-zk-kb.md'),
+    agentDocsLabel: 'Rule',
     instructionSize: 'compact',
     preamble: '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n',
     staleAgentDocsPaths: [
       path.join(expandPath('~/.omp'), 'agent', 'AGENTS.md'),
       path.join(expandPath('~/.omp'), 'agent', 'RULES.md'),
     ],
+    cliBinary: 'omp',
   },
 };
 
 const ALL_CLIENTS: McpClient[] = ['opencode', 'claude-code', 'cursor', 'windsurf', 'zed', 'pi', 'omp'];
 
+
+/** Check if a client's editor/tool appears to be installed on this system. */
+function isClientAvailable(client: McpClient): boolean {
+  const configDir = path.dirname(CLIENT_CONFIGS[client].configPath);
+  return fs.existsSync(configDir);
+}
 const CLIENT_PROMPT_OPTIONS: Array<{ value: McpClient; label: string; hint: string }> = [
-  { value: 'opencode', label: 'OpenCode', hint: 'MCP server + managed instructions' },
   { value: 'claude-code', label: 'Claude Code', hint: 'MCP server + skill' },
   { value: 'cursor', label: 'Cursor', hint: 'MCP server integration' },
+  { value: 'omp', label: 'OMP', hint: 'MCP server + skill' },
+  { value: 'opencode', label: 'OpenCode', hint: 'MCP server + managed instructions' },
+  { value: 'pi', label: 'Pi', hint: 'Pi package + managed instructions' },
   { value: 'windsurf', label: 'Windsurf', hint: 'MCP server integration' },
   { value: 'zed', label: 'Zed', hint: 'MCP server integration' },
-  { value: 'pi', label: 'Pi', hint: 'Pi package + managed instructions' },
-  { value: 'omp', label: 'OMP', hint: 'MCP server + skill' },
 ];
 
 type McpEntry =
@@ -482,6 +529,56 @@ function resolveSymlinkTarget(filePath: string): string | null {
   return null;
 }
 
+/**
+ * Returns real (resolved) paths for all clients' agentDocsPath entries.
+ * Used to avoid removing a managed block that belongs to a sibling client
+ * when stale paths resolve to the same underlying file through symlinks.
+ */
+function getActiveAgentDocsRealPaths(): Set<string> {
+  const paths = new Set<string>();
+  for (const cfg of Object.values(CLIENT_CONFIGS)) {
+    if (cfg.agentDocsPath) {
+      try { paths.add(fs.realpathSync(cfg.agentDocsPath)); } catch { /* doesn't exist */ }
+    }
+  }
+  return paths;
+}
+
+/**
+ * Like `fs.mkdirSync(p, { recursive: true })` but handles dangling symlinks
+ * in the ancestor chain. A common case: `~/.claude/skills` is a symlink whose
+ * target directory doesn't exist yet. Node's `mkdirSync` sees the symlink entry
+ * and assumes the parent exists, then fails with ENOENT when it can't traverse.
+ */
+function ensureDirThroughSymlinks(dirPath: string): void {
+  try {
+    fs.mkdirSync(dirPath, { recursive: true });
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+
+    // Walk up to find the dangling symlink and create its target
+    const segments = path.resolve(dirPath).split(path.sep);
+    for (let i = 1; i <= segments.length; i++) {
+      const partial = segments.slice(0, i).join(path.sep) || '/';
+      try {
+        const stat = fs.lstatSync(partial);
+        if (stat.isSymbolicLink()) {
+          const target = fs.readlinkSync(partial);
+          const resolved = path.isAbsolute(target)
+            ? target
+            : path.resolve(path.dirname(partial), target);
+          if (!fs.existsSync(resolved)) {
+            fs.mkdirSync(resolved, { recursive: true });
+          }
+        }
+      } catch { /* segment doesn't exist yet — mkdirSync below will create it */ }
+    }
+
+    // Retry now that dangling targets are created
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
 // --- Skill installation helpers (Claude Code) ---
 
 /**
@@ -510,7 +607,7 @@ function installSkill(skillPath: string, dryRun?: boolean): { action: 'created' 
   const existed = fs.existsSync(skillPath);
 
   if (!dryRun) {
-    fs.mkdirSync(skillPath, { recursive: true });
+    ensureDirThroughSymlinks(skillPath);
 
     // Copy all files from the template directory
     for (const file of fs.readdirSync(templateDir)) {
@@ -927,14 +1024,20 @@ export function doctor(args: DoctorArgs = {}): string {
     if (clientConfig.staleAgentDocsPaths) {
       for (const stalePath of clientConfig.staleAgentDocsPaths) {
         if (stalePath === clientConfig.agentDocsPath) continue;
-        if (resolveSymlinkTarget(stalePath)) continue; // don't modify shared files via symlink
+        // Skip if real path is actively used by another client's agentDocsPath
+        try {
+          const realStale = fs.realpathSync(stalePath);
+          if (getActiveAgentDocsRealPaths().has(realStale)) continue;
+        } catch { /* doesn't exist */ }
+        const symlinkTarget = resolveSymlinkTarget(stalePath);
         const staleInspection = inspectAgentDocs(stalePath);
         if (staleInspection.exists && staleInspection.status !== 'missing') {
+          const locationDesc = symlinkTarget ? `${stalePath} → ${symlinkTarget}` : stalePath;
           if (args.fix) {
             removeAgentDocs(stalePath);
-            pushCheck('FIXED', `${clientConfig.name}: removed stale managed block from ${stalePath}`);
+            pushCheck('FIXED', `${clientConfig.name}: removed stale managed block from ${locationDesc}`);
           } else {
-            pushCheck('WARN', `${clientConfig.name}: stale managed block in ${stalePath} — run with --fix to remove`);
+            pushCheck('WARN', `${clientConfig.name}: stale managed block in ${locationDesc} — run with --fix to remove`);
           }
         }
       }
@@ -955,7 +1058,7 @@ export function doctor(args: DoctorArgs = {}): string {
   ].join('\n');
 }
 
-export function install(args: InstallArgs): string {
+export function install(args: InstallArgs): InstallResult {
   const clientConfig = CLIENT_CONFIGS[args.client];
   const usesPiPackage = isPiPackageClient(clientConfig);
   const serverPath = usesPiPackage ? args.serverPath :
@@ -992,7 +1095,7 @@ export function install(args: InstallArgs): string {
       fs.mkdirSync(path.dirname(clientConfig.configPath), { recursive: true });
       fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
     }
-    return `Already installed for ${clientConfig.name}. Use --force to overwrite.`;
+    return { status: 'already-installed', clientName: clientConfig.name, output: `Already installed for ${clientConfig.name}. Use --force to overwrite.`, details: [], staleSkippedSymlinks: [], agentDocsSkippedSymlink: null };
   }
   
   const mcpEntry = usesPiPackage ? null : buildMcpEntry(clientConfig, serverPath, args.transport);
@@ -1001,6 +1104,8 @@ export function install(args: InstallArgs): string {
   const templatesDir = path.join(projectRoot, 'templates');
   const vaultTemplatesDir = path.join(vaultPath, 'templates');
   const templateFileCount = fs.existsSync(templatesDir) ? fs.readdirSync(templatesDir).filter(f => f.endsWith('.md')).length : 0;
+
+  const activeRealPaths = getActiveAgentDocsRealPaths();
 
   if (args.dryRun) {
     let output = usesPiPackage
@@ -1012,15 +1117,48 @@ export function install(args: InstallArgs): string {
     if (clientConfig.agentDocsPath) {
       const symlinkTarget = resolveSymlinkTarget(clientConfig.agentDocsPath);
       if (!symlinkTarget || args.injectSharedAgentDocs) {
-        output += `\nWould inject agent docs into ${clientConfig.agentDocsPath}`;
+        const size = args.instructionSize || clientConfig.instructionSize || 'full';
+        const dryResult = injectAgentDocs(clientConfig.agentDocsPath, size, true, args.client, PKG_VERSION, clientConfig.preamble);
+        if (dryResult.action !== 'unchanged') {
+          output += `\nWould inject agent docs into ${clientConfig.agentDocsPath}`;
+        } else {
+          output += `\nAgent docs already up to date: ${clientConfig.agentDocsPath}`;
+        }
       } else {
-        output += `\nWould skip agent docs (${clientConfig.agentDocsPath} → ${symlinkTarget})`;
+        const existingVersion = getAgentDocsVersion(clientConfig.agentDocsPath);
+        if (existingVersion !== PKG_VERSION) {
+          output += `\nWould skip agent docs — symlinked to shared file`;
+          output += `\n  ${clientConfig.agentDocsPath} → ${symlinkTarget}`;
+        } else {
+          output += `\nAgent docs already up to date: ${clientConfig.agentDocsPath}`;
+        }
       }
     }
     if (templateFileCount > 0) {
       output += `\nWould copy ${templateFileCount} template files to ${vaultTemplatesDir}`;
     }
-    return output;
+    if (clientConfig.staleAgentDocsPaths) {
+      for (const stalePath of clientConfig.staleAgentDocsPaths) {
+        if (stalePath === clientConfig.agentDocsPath) continue;
+        // Check real path — another client may own the block through a symlink
+        try {
+          const realStale = fs.realpathSync(stalePath);
+          if (activeRealPaths.has(realStale)) continue;
+        } catch { /* doesn't exist */ }
+        const symlinkTarget = resolveSymlinkTarget(stalePath);
+        const staleInspection = inspectAgentDocs(stalePath);
+        if (staleInspection.exists && staleInspection.status !== 'missing') {
+          if (symlinkTarget && !args.injectSharedAgentDocs) {
+            output += `\nWould skip stale cleanup — symlinked to shared file`;
+            output += `\n  ${stalePath}`;
+            output += `\n  → ${symlinkTarget}`;
+          } else {
+            output += `\nWould remove stale managed block from\n  ${stalePath}`;
+          }
+        }
+      }
+    }
+    return { status: 'dry-run', clientName: clientConfig.name, output, details: [], staleSkippedSymlinks: [], agentDocsSkippedSymlink: null };
   }
   
   if (usesPiPackage) {
@@ -1084,12 +1222,25 @@ export function install(args: InstallArgs): string {
       agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client, PKG_VERSION, clientConfig.preamble);
     }
   }
-  // Clean up managed blocks from stale locations (e.g. OMP: AGENTS.md → RULES.md migration)
   const staleCleaned: string[] = [];
+  const staleSkippedSymlinks: Array<{ stalePath: string; symlinkTarget: string }> = [];
   if (clientConfig.staleAgentDocsPaths && !args.dryRun) {
     for (const stalePath of clientConfig.staleAgentDocsPaths) {
       if (stalePath === clientConfig.agentDocsPath) continue; // don't clean the current target
-      if (resolveSymlinkTarget(stalePath)) continue; // don't modify shared files via symlink
+      // Check real path — another client may own the block through a symlink
+      try {
+        const realStale = fs.realpathSync(stalePath);
+        if (activeRealPaths.has(realStale)) continue;
+      } catch { /* doesn't exist — fall through to cleanup attempt */ }
+      const symlinkTarget = resolveSymlinkTarget(stalePath);
+      if (symlinkTarget && !args.injectSharedAgentDocs) {
+        // Symlink target may have a stale block — warn but don't modify without opt-in
+        const staleInspection = inspectAgentDocs(stalePath);
+        if (staleInspection.exists && staleInspection.status !== 'missing') {
+          staleSkippedSymlinks.push({ stalePath, symlinkTarget });
+        }
+        continue;
+      }
       const staleResult = removeAgentDocs(stalePath);
       if (staleResult.action === 'removed' || staleResult.action === 'file-deleted') {
         staleCleaned.push(stalePath);
@@ -1098,27 +1249,38 @@ export function install(args: InstallArgs): string {
   }
 
   let output = `Installed open-zk-kb for ${clientConfig.name}\n\n`;
-  output += `Config: ${clientConfig.configPath}\n`;
+  const docsLabel = clientConfig.agentDocsLabel || 'Agent docs';
+  output += `MCP config: ${clientConfig.configPath}\n`;
   output += `Vault: ${vaultPath}\n`;
   if (usesPiPackage) {
     output += `Package: ${piPackageSource}\n`;
   } else {
-    output += `Server: ${formatServerCommand(serverPath)}\n`;
+    output += `MCP server: ${formatServerCommand(serverPath)}\n`;
   }
   if (skillResult) {
     output += `Skill: ${skillResult.skillPath} (${skillResult.action})\n`;
   }
   if (agentDocsResult) {
-    output += `Agent docs: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
+    output += `${docsLabel}: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
   }
   if (agentDocsSkippedSymlink) {
-    output += `Agent docs: skipped (${clientConfig.agentDocsPath} → ${agentDocsSkippedSymlink})\n`;
+    output += `${docsLabel}: skipped — symlinked to shared file\n`;
+    output += `  ${clientConfig.agentDocsPath}\n`;
+    output += `  → ${agentDocsSkippedSymlink}\n`;
   }
   if (migrationResult?.migrated) {
-    output += `Migration: removed old CLAUDE.md managed block${migrationResult.fileDeleted ? ' (file deleted — was empty)' : ''}\n`;
+    output += `Migration: removed old CLAUDE.md managed block`;
+    if (migrationResult.fileDeleted) output += ' (file deleted — was empty)';
+    output += '\n';
   }
   for (const cleaned of staleCleaned) {
-    output += `Cleanup: removed stale managed block from ${cleaned}\n`;
+    output += `Cleanup: removed stale managed block\n`;
+    output += `  ${cleaned}\n`;
+  }
+  for (const { stalePath, symlinkTarget } of staleSkippedSymlinks) {
+    output += `Cleanup: stale managed block in symlinked file (skipped)\n`;
+    output += `  ${stalePath}\n`;
+    output += `  → ${symlinkTarget}\n`;
   }
   if (templatesCopied > 0) {
     output += `Templates: ${templatesCopied} files → ${vaultTemplatesDir}\n`;
@@ -1134,19 +1296,39 @@ export function install(args: InstallArgs): string {
   } else {
     output += `${step}. Restart ${clientConfig.name} to load the MCP server\n`;
   }
+
+  const details: string[] = [];
+  details.push(`MCP config: ${clientConfig.configPath}`);
+  details.push(`Vault: ${vaultPath}`);
+  if (skillResult) {
+    details.push(`Skill: ${skillResult.skillPath} (${skillResult.action})`);
+  }
+  if (agentDocsResult) {
+    details.push(`${docsLabel}: ${agentDocsResult.filePath} (${agentDocsResult.action})`);
+  }
+  if (templatesCopied > 0) {
+    details.push(`Templates: ${templatesCopied} files → ${vaultTemplatesDir}`);
+  }
   
-  return output;
+  return { status: 'installed', clientName: clientConfig.name, output, details, staleSkippedSymlinks, agentDocsSkippedSymlink };
 }
 
-export function uninstall(args: UninstallArgs): string {
+export function uninstall(args: UninstallArgs): UninstallResult {
   const clientConfig = CLIENT_CONFIGS[args.client];
   const usesPiPackage = isPiPackageClient(clientConfig);
   const vaultPath = getVaultPath();
-  
+  const docsLabel = clientConfig.agentDocsLabel || 'Agent docs';
+
   if (!fs.existsSync(clientConfig.configPath)) {
-    return `No config found for ${clientConfig.name} at ${clientConfig.configPath}`;
+    return {
+      status: 'not-installed',
+      clientName: clientConfig.name,
+      output: `No config found for ${clientConfig.name} at ${clientConfig.configPath}`,
+      details: [],
+      agentDocsSkippedSymlink: null,
+    };
   }
-  
+
   let config: JsonObject;
   try {
     const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
@@ -1159,31 +1341,77 @@ export function uninstall(args: UninstallArgs): string {
     ? validatePiPackageConfig(config, buildPiPackageSource()).length === 0
     : clientConfig.mcpPath ? getNestedValue(config, clientConfig.mcpPath) !== undefined : false;
   if (!existing) {
-    return `open-zk-kb not configured for ${clientConfig.name}`;
+    return {
+      status: 'not-installed',
+      clientName: clientConfig.name,
+      output: `open-zk-kb not configured for ${clientConfig.name}`,
+      details: [],
+      agentDocsSkippedSymlink: null,
+    };
   }
-  
+
+  // --- Dry-run path ---
   if (args.dryRun) {
     let output = `Dry run: Would remove from ${clientConfig.configPath}\n`;
-    if (clientConfig.skillPath) {
-      output += `Would remove skill from ${clientConfig.skillPath}\n`;
+    const details: string[] = [];
+    if (clientConfig.skillPath && fs.existsSync(clientConfig.skillPath)) {
+      details.push(`Would remove skill from ${clientConfig.skillPath}`);
     }
-    if (clientConfig.agentDocsPath && !resolveSymlinkTarget(clientConfig.agentDocsPath)) {
-      output += `Would remove agent docs from ${clientConfig.agentDocsPath}\n`;
-    }
-    if (args.removeVault) {
-      output += `\nWould also delete vault at ${vaultPath}`;
-      const stats = getVaultStats(vaultPath);
-      if (stats) {
-        output += `\n  - ${stats.noteCount} notes`;
-        output += `\n  - ${stats.sizeMB} MB`;
+    let agentDocsSkippedSymlink: string | null = null;
+    if (clientConfig.agentDocsPath) {
+      const symlinkTarget = resolveSymlinkTarget(clientConfig.agentDocsPath);
+      if (symlinkTarget) {
+        if (args.removeSharedAgentDocs) {
+          details.push(`Would remove ${docsLabel.toLowerCase()} from symlinked file: ${clientConfig.agentDocsPath} → ${symlinkTarget}`);
+        } else {
+          const inspection = inspectAgentDocs(clientConfig.agentDocsPath);
+          if (inspection.exists && inspection.status !== 'missing') {
+            agentDocsSkippedSymlink = symlinkTarget;
+            details.push(`${docsLabel}: skipped — symlinked to shared file (${clientConfig.agentDocsPath} → ${symlinkTarget})`);
+          }
+        }
+      } else {
+        const inspection = inspectAgentDocs(clientConfig.agentDocsPath);
+        if (inspection.exists && inspection.status !== 'missing') {
+          details.push(`Would remove ${docsLabel.toLowerCase()} from ${clientConfig.agentDocsPath}`);
+        }
       }
     }
-    return output;
+    // Stale paths
+    if (clientConfig.staleAgentDocsPaths) {
+      const activeRealPaths = getActiveAgentDocsRealPaths();
+      for (const stalePath of clientConfig.staleAgentDocsPaths) {
+        if (stalePath === clientConfig.agentDocsPath) continue;
+        try {
+          const realStale = fs.realpathSync(stalePath);
+          if (activeRealPaths.has(realStale)) continue;
+        } catch { /* doesn't exist */ }
+        const staleInspection = inspectAgentDocs(stalePath);
+        if (staleInspection.exists && staleInspection.status !== 'missing') {
+          const symlinkTarget = resolveSymlinkTarget(stalePath);
+          const desc = symlinkTarget ? `${stalePath} → ${symlinkTarget}` : stalePath;
+          details.push(`Would remove stale managed block from ${desc}`);
+        }
+      }
+    }
+    if (args.removeVault) {
+      const stats = getVaultStats(vaultPath);
+      let vaultDesc = `Would delete vault at ${vaultPath}`;
+      if (stats) {
+        vaultDesc += ` (${stats.noteCount} notes, ${stats.sizeMB} MB)`;
+      }
+      details.push(vaultDesc);
+    }
+    for (const d of details) {
+      output += `${d}\n`;
+    }
+    return { status: 'dry-run', clientName: clientConfig.name, output, details, agentDocsSkippedSymlink };
   }
-  
+
+  // --- Vault deletion (must precede config removal for confirm gate) ---
   if (args.removeVault) {
     const stats = getVaultStats(vaultPath);
-    
+
     if (!args.confirm) {
       let output = `WARNING: This will permanently delete your knowledge base!\n\n`;
       output += `Vault: ${vaultPath}\n`;
@@ -1194,14 +1422,15 @@ export function uninstall(args: UninstallArgs): string {
         output += `  - ${stats.sizeMB} MB\n`;
       }
       output += `\nTo confirm deletion, call again with confirm: true`;
-      return output;
+      return { status: 'not-installed', clientName: clientConfig.name, output, details: [], agentDocsSkippedSymlink: null };
     }
-    
+
     if (fs.existsSync(vaultPath)) {
       fs.rmSync(vaultPath, { recursive: true });
     }
   }
-  
+
+  // --- Remove MCP config entry ---
   if (usesPiPackage) {
     removePiPackage(config);
   } else if (clientConfig.mcpPath) {
@@ -1213,34 +1442,72 @@ export function uninstall(args: UninstallArgs): string {
 
   fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
 
-  // Remove skill and/or agent docs depending on client
-  let skillResult: { action: string; skillPath: string } | null = null;
-  let agentDocsResult: { action: string; filePath: string } | null = null;
+  // --- Remove skill, agent docs, and stale paths ---
+  const details: string[] = [];
+  details.push(`MCP config: ${clientConfig.configPath}`);
 
   if (clientConfig.skillPath) {
-    skillResult = removeSkill(clientConfig.skillPath, args.dryRun);
-  }
-  if (clientConfig.agentDocsPath && !resolveSymlinkTarget(clientConfig.agentDocsPath)) {
-    agentDocsResult = removeAgentDocs(clientConfig.agentDocsPath, args.dryRun);
+    const skillResult = removeSkill(clientConfig.skillPath);
+    if (skillResult.action !== 'not-found') {
+      details.push(`Skill: ${skillResult.skillPath} (${skillResult.action})`);
+    }
   }
 
-  let output = `Uninstalled open-zk-kb from ${clientConfig.name}\n\n`;
-  output += `Removed from: ${clientConfig.configPath}\n`;
-  if (skillResult && skillResult.action !== 'not-found') {
-    output += `Skill: ${skillResult.skillPath} (${skillResult.action})\n`;
+  let agentDocsSkippedSymlink: string | null = null;
+  if (clientConfig.agentDocsPath) {
+    const symlinkTarget = resolveSymlinkTarget(clientConfig.agentDocsPath);
+    if (symlinkTarget && !args.removeSharedAgentDocs) {
+      // Check if the managed block exists before reporting a skip
+      const inspection = inspectAgentDocs(clientConfig.agentDocsPath);
+      if (inspection.exists && inspection.status !== 'missing') {
+        agentDocsSkippedSymlink = symlinkTarget;
+      }
+    } else {
+      const agentDocsResult = removeAgentDocs(clientConfig.agentDocsPath);
+      if (agentDocsResult.action !== 'not-found') {
+        details.push(`${docsLabel}: ${agentDocsResult.filePath} (${agentDocsResult.action})`);
+      }
+    }
   }
-  if (agentDocsResult && agentDocsResult.action !== 'not-found') {
-    output += `Agent docs: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
+
+  // Clean stale managed blocks (same logic as install)
+  if (clientConfig.staleAgentDocsPaths) {
+    const activeRealPaths = getActiveAgentDocsRealPaths();
+    for (const stalePath of clientConfig.staleAgentDocsPaths) {
+      if (stalePath === clientConfig.agentDocsPath) continue;
+      try {
+        const realStale = fs.realpathSync(stalePath);
+        if (activeRealPaths.has(realStale)) continue;
+      } catch { /* doesn't exist */ }
+      const symlinkTarget = resolveSymlinkTarget(stalePath);
+      if (symlinkTarget && !args.removeSharedAgentDocs) {
+        const staleInspection = inspectAgentDocs(stalePath);
+        if (staleInspection.exists && staleInspection.status !== 'missing') {
+          // Stale block in shared file — skip but don't report (will be cleaned on next install)
+        }
+      } else {
+        const staleResult = removeAgentDocs(stalePath);
+        if (staleResult.action === 'removed' || staleResult.action === 'file-deleted') {
+          details.push(`Stale block removed: ${stalePath}`);
+        }
+      }
+    }
   }
 
   if (args.removeVault && args.confirm) {
-    output += `Deleted vault: ${vaultPath}\n`;
-  } else {
-    output += `Vault preserved at: ${vaultPath}\n`;
+    details.push(`Vault deleted: ${vaultPath}`);
+  }
+
+  let output = `Uninstalled open-zk-kb from ${clientConfig.name}\n\n`;
+  for (const d of details) {
+    output += `${d}\n`;
+  }
+  if (!args.removeVault || !args.confirm) {
+    output += `\nVault preserved at: ${vaultPath}\n`;
     output += `Reinstall anytime with: bunx open-zk-kb@${detectNpmTag()} install --client ${args.client}\n`;
   }
-  
-  return output;
+
+  return { status: 'uninstalled', clientName: clientConfig.name, output, details, agentDocsSkippedSymlink };
 }
 
 function isMcpClient(value: string | undefined): value is McpClient {
@@ -1350,33 +1617,81 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       client = clientArg;
     }
 
-    /** Prompt for symlinked agent docs and install a single client. */
-    async function installWithSymlinkPrompt(
+    /** Detect symlinked agent docs / stale paths and prompt user if interactive. */
+    async function resolveSymlinkChoice(
       client: McpClient,
-      opts: { serverPath?: string; transport?: McpTransport; force?: boolean; dryRun?: boolean; instructionSize?: InstructionSize; yes?: boolean },
-    ): Promise<string> {
+      opts: { yes?: boolean },
+    ): Promise<boolean | undefined> {
       const clientConfig = CLIENT_CONFIGS[client];
-      let injectSharedAgentDocs: boolean | undefined;
 
+      // Check if agent docs through symlink actually need updating.
+      // Compare by version, not full content — the shared file may have been
+      // stamped by a sibling client (e.g. Pi's block says client:"pi" but the
+      // instructions are identical to what OpenCode would inject).
+      let agentDocsSymlinkTarget: string | null = null;
       if (clientConfig.agentDocsPath) {
-        const symlinkTarget = resolveSymlinkTarget(clientConfig.agentDocsPath);
-        if (symlinkTarget) {
-          if (opts.yes) {
-            // Non-interactive: skip by default
-            injectSharedAgentDocs = false;
-          } else {
-            const answer = await p.confirm({
-              message: `${clientConfig.name}: agent docs path is a symlink:\n  ${color.dim(`${clientConfig.agentDocsPath} → ${symlinkTarget}`)}\n  Inject managed instructions into the shared file?`,
-              initialValue: false,
-            });
-            if (p.isCancel(answer)) {
-              p.cancel('Setup cancelled.');
-              process.exit(0);
-            }
-            injectSharedAgentDocs = answer;
+        const target = resolveSymlinkTarget(clientConfig.agentDocsPath);
+        if (target) {
+          const existingVersion = getAgentDocsVersion(clientConfig.agentDocsPath);
+          if (existingVersion !== PKG_VERSION) {
+            agentDocsSymlinkTarget = target;
           }
         }
       }
+      const activeRealPaths = getActiveAgentDocsRealPaths();
+      const staleSymlinks: Array<{ stalePath: string; target: string }> = [];
+      if (clientConfig.staleAgentDocsPaths) {
+        for (const sp of clientConfig.staleAgentDocsPaths) {
+          if (sp === clientConfig.agentDocsPath) continue;
+          // Skip if real path is actively used by another client
+          try {
+            const realStale = fs.realpathSync(sp);
+            if (activeRealPaths.has(realStale)) continue;
+          } catch { /* doesn't exist */ }
+          const target = resolveSymlinkTarget(sp);
+          if (!target) continue;
+          const inspection = inspectAgentDocs(sp);
+          if (inspection.exists && inspection.status !== 'missing') {
+            staleSymlinks.push({ stalePath: sp, target });
+          }
+        }
+      }
+
+      if (!agentDocsSymlinkTarget && staleSymlinks.length === 0) return undefined;
+
+      if (opts.yes) return true; // Non-interactive: default to optimal setup
+
+      const parts: string[] = [];
+      if (agentDocsSymlinkTarget) {
+        parts.push(`  ${color.dim(clientConfig.agentDocsPath!)}\n  ${color.dim(`→ ${agentDocsSymlinkTarget}`)}`);
+      }
+      for (const { stalePath, target } of staleSymlinks) {
+        parts.push(`  ${color.dim(stalePath)}\n  ${color.dim(`→ ${target}`)}\n\n  ⚠️  has stale KB block`);
+      }
+      const actionDesc = staleSymlinks.length > 0 && !agentDocsSymlinkTarget
+        ? 'file to remove the stale block'
+        : agentDocsSymlinkTarget && staleSymlinks.length === 0
+          ? 'file with managed instructions'
+          : 'files';
+      const answer = await p.confirm({
+        message: `${clientConfig.name}: found symlinked agent docs:\n\n${parts.join('\n\n')}\n\n  Update the shared ${actionDesc}?`,
+        initialValue: true,
+      });
+      if (p.isCancel(answer)) {
+        p.cancel('Setup cancelled.');
+        process.exit(0);
+      }
+      return answer;
+    }
+
+    /** Run install for a single client, prompting for symlinks if interactive. */
+    async function installClient(
+      client: McpClient,
+      opts: { serverPath?: string; transport?: McpTransport; force?: boolean; dryRun?: boolean; instructionSize?: InstructionSize; yes?: boolean },
+    ): Promise<InstallResult> {
+      const injectSharedAgentDocs = opts.force
+        ? await resolveSymlinkChoice(client, opts)
+        : undefined; // no prompt when not forcing — install() handles the "already installed" early return
 
       return install({
         client,
@@ -1389,58 +1704,148 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       });
     }
 
+    /** Log an InstallResult using clack formatting. */
+    function logInstallResult(result: InstallResult): void {
+      switch (result.status) {
+        case 'already-installed':
+          p.log.warn(result.output);
+          break;
+        case 'installed': {
+          const clientDetails = result.details.filter(d => !d.startsWith('Vault:'));
+          if (clientDetails.length > 0) {
+            const detailLines = clientDetails.map(d => `  ${color.dim(d)}`).join('\n');
+            p.log.success(`Installed for ${result.clientName}\n${detailLines}`);
+          } else {
+            p.log.success(`Installed for ${result.clientName}`);
+          }
+          for (const { stalePath, symlinkTarget } of result.staleSkippedSymlinks) {
+            p.log.warn(
+              `Stale KB block in symlinked file (skipped)\n` +
+              `  ${stalePath}\n` +
+              `  → ${symlinkTarget}`,
+            );
+          }
+          break;
+        }
+        case 'dry-run':
+          p.log.info(result.output);
+          break;
+      }
+    }
+
+    // --- Single-client mode ---
     if (client) {
-      const result = await installWithSymlinkPrompt(client, { serverPath, transport, force, dryRun, instructionSize, yes });
-      console.log(result);
+      const result = await installClient(client, { serverPath, transport, force, dryRun, instructionSize, yes });
+      console.log(result.output);
       return;
     }
 
+    // --- All-clients non-interactive mode ---
     if (yes) {
-      for (const client of ALL_CLIENTS) {
-        const result = await installWithSymlinkPrompt(client, { serverPath, transport, force, dryRun, instructionSize, yes: true });
-        console.log(result);
+      for (const c of ALL_CLIENTS) {
+        const result = await installClient(c, { serverPath, transport, force, dryRun, instructionSize, yes: true });
+        console.log(result.output);
       }
       return;
     }
 
+    // --- Interactive multi-select mode ---
     p.intro(color.cyan('open-zk-kb — Knowledge Base Setup'));
-    
-    // Pre-select clients that are already installed
-    const alreadyInstalled = getInstalledClients();
-    const hasInstalled = alreadyInstalled.length > 0;
-    
-    const selected = await p.multiselect<McpClient>({
-      message: hasInstalled
-        ? `Select clients to install:\n${color.dim('Already installed clients are pre-selected. Use --force to update.')}`
-        : `Select clients to install:\n${color.dim('space to select, enter to confirm')}`,
-      options: CLIENT_PROMPT_OPTIONS,
-      initialValues: alreadyInstalled,
-    });
 
-    if (p.isCancel(selected)) {
-      p.cancel('Setup cancelled.');
-      process.exit(0);
+    const alreadyInstalled = new Set(getInstalledClients());
+
+    // Build grouped options: Update (pre-selected) → Available (detected) → Other (not detected)
+    type PromptOption = { value: McpClient; label: string; hint: string };
+    const updateOptions: PromptOption[] = [];
+    const availableOptions: PromptOption[] = [];
+    const otherOptions: PromptOption[] = [];
+    for (const opt of CLIENT_PROMPT_OPTIONS) {
+      if (alreadyInstalled.has(opt.value)) {
+        updateOptions.push(opt);
+      } else if (isClientAvailable(opt.value)) {
+        availableOptions.push(opt);
+      } else {
+        otherOptions.push(opt);
+      }
     }
+
+    const groups: Record<string, PromptOption[]> = {};
+    if (updateOptions.length > 0) groups['Update'] = updateOptions;
+    if (availableOptions.length > 0) groups['Available'] = availableOptions;
+    if (otherOptions.length > 0) groups['Other'] = otherOptions;
+
+    // Fallback: if nothing detected at all, show everything flat
+    if (Object.keys(groups).length === 0) {
+      groups['Install'] = [...CLIENT_PROMPT_OPTIONS];
+    }
+
+    const answer = await p.groupMultiselect<McpClient>({
+      message: `Select clients to install or update:\n${color.dim('space to select, enter to confirm')}`,
+      options: groups,
+      initialValues: [...alreadyInstalled],
+      selectableGroups: false,
+    });
+    if (p.isCancel(answer)) { p.cancel('Setup cancelled.'); process.exit(0); }
+    const selected = answer;
 
     if (selected.length === 0) {
-      p.cancel('Setup cancelled.');
+      p.cancel('No clients selected.');
       process.exit(0);
     }
 
-    for (const client of selected) {
+    // Show shared info once before per-client results
+    p.log.info(color.dim(`Vault: ${getVaultPath()}`));
+
+    for (const c of selected) {
       try {
-        await installWithSymlinkPrompt(client, { serverPath, transport, force, dryRun, instructionSize });
-        p.log.success(`Installed for ${CLIENT_CONFIGS[client].name}`);
+        // Selecting an already-installed client = implicit force (user chose to update it)
+        const implicitForce = alreadyInstalled.has(c) || force;
+        const result = await installClient(c, { serverPath, transport, force: implicitForce, dryRun, instructionSize });
+        logInstallResult(result);
       } catch (e) {
-        p.log.error(`${CLIENT_CONFIGS[client].name}: ${e instanceof Error ? e.message : e}`);
+        p.log.error(`${CLIENT_CONFIGS[c].name}: ${e instanceof Error ? e.message : e}`);
         process.exitCode = 1;
       }
     }
 
-    p.outro('Done! Restart your editor to load the MCP server.');
-    return;
-  }
+    // Offer to launch a CLI client to try out the knowledge base
+    if (!dryRun) {
+      const cliClients = selected
+        .filter(c => CLIENT_CONFIGS[c].cliBinary)
+        .filter(c => {
+          try {
+            execFileSync('which', [CLIENT_CONFIGS[c].cliBinary!], { stdio: 'ignore' });
+            return true;
+          } catch { return false; }
+        });
 
+      if (cliClients.length > 0) {
+        const tryIt = await p.select<McpClient | 'skip'>({
+          message: 'Try it out?',
+          options: [
+            ...cliClients.map(c => ({
+              value: c as McpClient | 'skip',
+              label: `Open ${CLIENT_CONFIGS[c].name}`,
+              hint: CLIENT_CONFIGS[c].cliBinary,
+            })),
+            { value: 'skip' as const, label: 'Skip' },
+          ],
+          initialValue: 'skip' as McpClient | 'skip',
+        });
+
+        if (!p.isCancel(tryIt) && tryIt !== 'skip') {
+          const bin = CLIENT_CONFIGS[tryIt].cliBinary!;
+          p.outro(`Launching ${CLIENT_CONFIGS[tryIt].name}...`);
+          execFileSync(bin, ['Search the knowledge base for any existing notes'], {
+            stdio: 'inherit',
+          });
+          return;
+        }
+      }
+    }
+
+    p.outro('Done! Restart your editor to load the MCP server.');
+  } else if (command === 'uninstall') {
   const removeVault = args.includes('--remove-vault');
   const dryRun = args.includes('--dry-run');
   const yes = args.includes('--yes');
@@ -1454,37 +1859,84 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     client = clientArg;
   }
 
+  /** Log an UninstallResult using clack formatting. */
+  function logUninstallResult(result: UninstallResult): void {
+    switch (result.status) {
+      case 'not-installed':
+        // Silently skip in multi-client mode — only noisy when explicitly targeted
+        break;
+      case 'uninstalled': {
+        const clientDetails = result.details.filter(d => !d.startsWith('Vault'));
+        if (clientDetails.length > 0) {
+          const detailLines = clientDetails.map(d => `  ${color.dim(d)}`).join('\n');
+          p.log.success(`Uninstalled from ${result.clientName}\n${detailLines}`);
+        } else {
+          p.log.success(`Uninstalled from ${result.clientName}`);
+        }
+        if (result.agentDocsSkippedSymlink) {
+          const docsLabel = CLIENT_CONFIGS[
+            ALL_CLIENTS.find(c => CLIENT_CONFIGS[c].name === result.clientName) || 'opencode'
+          ].agentDocsLabel || 'Agent docs';
+          p.log.warn(
+            `${docsLabel} in symlinked file (skipped)\n` +
+            `  → ${result.agentDocsSkippedSymlink}`,
+          );
+        }
+        break;
+      }
+      case 'dry-run':
+        p.log.info(result.output);
+        break;
+    }
+  }
+
+  // --- Single-client mode ---
   if (client) {
     const confirm = args.includes('--confirm') || (yes && removeVault);
     const result = uninstall({ client, removeVault, confirm, dryRun });
-    console.log(result);
+    console.log(result.output);
     return;
   }
 
+  // --- All-clients non-interactive mode ---
   if (yes) {
+    const installed = getInstalledClients();
+    if (installed.length === 0) {
+      console.log('No clients are currently installed.');
+      return;
+    }
     const confirm = removeVault;
-    for (const client of ALL_CLIENTS) {
-      const result = uninstall({ client, removeVault, confirm, dryRun });
-      console.log(result);
+    // Delete vault once if requested, not per-client
+    let vaultDeleted = false;
+    for (const c of installed) {
+      const shouldRemoveVault = removeVault && !vaultDeleted;
+      const result = uninstall({ client: c, removeVault: shouldRemoveVault, confirm: shouldRemoveVault ? confirm : false, dryRun });
+      console.log(result.output);
+      if (shouldRemoveVault && result.status === 'uninstalled') vaultDeleted = true;
     }
     return;
   }
 
+  // --- Interactive mode ---
   p.intro(color.yellow('open-zk-kb — Uninstall'));
-  
-  // Pre-select clients that are currently installed
+
   const alreadyInstalled = getInstalledClients();
-  
+
   if (alreadyInstalled.length === 0) {
     p.log.warn('No clients are currently installed.');
     p.outro('Nothing to uninstall.');
     return;
   }
-  
+
+  // Build grouped picker: only show installed clients, no pre-selection (destructive op)
+  const installedOptions = CLIENT_PROMPT_OPTIONS.filter(opt =>
+    alreadyInstalled.includes(opt.value),
+  );
+
   const selected = await p.multiselect<McpClient>({
-    message: `Select clients to uninstall from:\n${color.dim('Installed clients are pre-selected.')}`,
-    options: CLIENT_PROMPT_OPTIONS,
-    initialValues: alreadyInstalled,
+    message: `Select clients to uninstall:\n${color.dim('space to select, enter to confirm')}`,
+    options: installedOptions,
+    required: true,
   });
 
   if (p.isCancel(selected)) {
@@ -1493,7 +1945,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
   }
 
   if (selected.length === 0) {
-    p.cancel('Setup cancelled.');
+    p.cancel('No clients selected.');
     process.exit(0);
   }
 
@@ -1509,35 +1961,54 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
   let confirm = false;
   if (removeVaultPrompt) {
-    const secondConfirm = await p.confirm({
-      message: color.red('This will permanently delete your vault. Continue?'),
-      initialValue: false,
+    const vaultPath = getVaultPath();
+    const stats = getVaultStats(vaultPath);
+    let confirmMsg = 'This will permanently delete your vault';
+    if (stats) {
+      confirmMsg += ` (${stats.noteCount} notes, ${stats.sizeMB} MB)`;
+    }
+    confirmMsg += `. Type "delete" to confirm:`;
+
+    const typed = await p.text({
+      message: color.red(confirmMsg),
+      placeholder: 'delete',
     });
 
-    if (p.isCancel(secondConfirm)) {
-      p.cancel('Setup cancelled.');
-      process.exit(0);
+    if (p.isCancel(typed) || typed?.toLowerCase() !== 'delete') {
+      p.cancel('Vault deletion cancelled. Proceeding without removing vault.');
+      // Continue with uninstall but skip vault deletion
+    } else {
+      confirm = true;
     }
-
-    if (!secondConfirm) {
-      p.cancel('Setup cancelled.');
-      process.exit(0);
-    }
-
-    confirm = true;
   }
 
-  for (const client of selected) {
+  // Delete vault once before per-client loop, not per-client
+  let vaultDeleted = false;
+  for (const c of selected) {
     try {
-      uninstall({ client, removeVault: removeVaultPrompt, confirm, dryRun });
-      p.log.success(`Uninstalled from ${CLIENT_CONFIGS[client].name}`);
+      const shouldRemoveVault = removeVaultPrompt && !vaultDeleted;
+      const result = uninstall({
+        client: c,
+        removeVault: shouldRemoveVault,
+        confirm: shouldRemoveVault ? confirm : false,
+        dryRun,
+      });
+      logUninstallResult(result);
+      if (shouldRemoveVault && result.status === 'uninstalled') vaultDeleted = true;
     } catch (e) {
-      p.log.error(`${CLIENT_CONFIGS[client].name}: ${e instanceof Error ? e.message : e}`);
+      p.log.error(`${CLIENT_CONFIGS[c].name}: ${e instanceof Error ? e.message : e}`);
       process.exitCode = 1;
     }
   }
 
+  if (vaultDeleted) {
+    p.log.info(color.dim(`Vault deleted: ${getVaultPath()}`));
+  } else {
+    p.log.info(color.dim(`Vault preserved: ${getVaultPath()}`));
+  }
+
   p.outro('Done!');
+  }
 }
 
 if (import.meta.main) {
