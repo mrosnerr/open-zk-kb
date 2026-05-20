@@ -16,6 +16,8 @@ describe('cli.ts', () => {
       startServer: async () => {
         startCalls += 1;
       },
+      startHttpServer: async () => {},
+      tryStdioBridge: async () => false,
       runSetupCli: async () => {
         setupCalls += 1;
       },

@@ -128,8 +128,9 @@ describe('HTTP Server', () => {
   });
 
   describe('CLI server command with proxy', () => {
-    it('should try bridge first and fall back to startServer', async () => {
+    it('should try bridge first, start HTTP server, then fall back to startServer', async () => {
       let bridgeCalled = false;
+      let httpStarted = false;
       let serverCalled = false;
       const { runCli } = await import('../src/cli.js');
 
@@ -138,12 +139,16 @@ describe('HTTP Server', () => {
           bridgeCalled = true;
           return false;
         },
+        startHttpServer: async () => {
+          httpStarted = true;
+        },
         startServer: async () => {
           serverCalled = true;
         },
       });
 
       expect(bridgeCalled).toBe(true);
+      expect(httpStarted).toBe(true);
       expect(serverCalled).toBe(true);
     });
 
@@ -153,6 +158,7 @@ describe('HTTP Server', () => {
 
       await runCli(['server'], {
         tryStdioBridge: async () => true,
+        startHttpServer: async () => {},
         startServer: async () => {
           serverCalled = true;
         },
@@ -170,12 +176,15 @@ describe('HTTP Server', () => {
           callOrder.push('bridge');
           return false;
         },
+        startHttpServer: async () => {
+          callOrder.push('http');
+        },
         startServer: async () => {
           callOrder.push('server');
         },
       });
 
-      expect(callOrder).toEqual(['bridge', 'server']);
+      expect(callOrder).toEqual(['bridge', 'http', 'server']);
     });
 
     it('should fall back to startServer when bridge throws', async () => {
@@ -186,12 +195,32 @@ describe('HTTP Server', () => {
         tryStdioBridge: async () => {
           throw new Error('Connection refused');
         },
+        startHttpServer: async () => {},
         startServer: async () => {
           serverCalled = true;
         },
       });
 
       expect(serverCalled).toBe(true);
+    });
+
+    it('should retry bridge when HTTP startup fails (race condition)', async () => {
+      let bridgeAttempts = 0;
+      const { runCli } = await import('../src/cli.js');
+
+      await runCli(['server'], {
+        tryStdioBridge: async () => {
+          bridgeAttempts++;
+          // First call: no server yet. Second call (retry): server found.
+          return bridgeAttempts > 1;
+        },
+        startHttpServer: async () => {
+          throw new Error('Another open-zk-kb HTTP server is already running');
+        },
+        startServer: async () => {},
+      });
+
+      expect(bridgeAttempts).toBe(2);
     });
   });
 
