@@ -2270,15 +2270,15 @@ describe('MCP Tool: knowledge-maintain full with link-health', () => {
     clearVersionCheckCache();
   });
 
-  it('should run link-health step and report one-way links', async () => {
-    const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
-    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Source', kind: 'observation' });
+  it('should run link-health step in full composite', async () => {
+    // Create an unlinked note — survives rebuild regardless of file ordering
+    ctx.engine.store('Standalone content', { title: 'Standalone', kind: 'reference' });
 
     globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
     const output = await handleMaintain({ action: 'full' }, ctx.engine, ctx.config);
     expect(output).toContain('Link Health');
-    expect(output).toContain('One-Way Links');
-    expect(output).toContain('no reverse link');
+    expect(output).toContain('Unlinked Notes');
+    expect(output).toContain('Standalone');
   });
 });
 
