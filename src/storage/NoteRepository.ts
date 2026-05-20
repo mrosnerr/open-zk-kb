@@ -1964,7 +1964,7 @@ export class NoteRepository {
     }));
   }
 
-  getOrphanNotes(): NoteMetadata[] {
+  getUnlinkedNotes(): NoteMetadata[] {
     // Only count links where the neighbor is also non-archived (live links)
     const stmt = this.db.prepare(`
       SELECT * FROM notes
@@ -1987,8 +1987,28 @@ export class NoteRepository {
     }));
 
     // Exclude notes that have wikilinks in content (even if broken) —
-    // those belong in broken-links, not orphans
+    // those belong in broken-links, not unlinked
     return parsed.filter(note => parseAllWikiLinks(note.content || '').length === 0);
+  }
+
+  getOneWayLinks(): Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }> {
+    const stmt = this.db.prepare(`
+      SELECT l.source_id AS sourceId, s.title AS sourceTitle,
+             l.target_id AS targetId, t.title AS targetTitle
+      FROM note_links l
+      JOIN notes s ON l.source_id = s.id
+      JOIN notes t ON l.target_id = t.id
+      WHERE s.status != 'archived'
+        AND t.status != 'archived'
+        AND s.kind NOT IN ('index', 'log')
+        AND t.kind NOT IN ('index', 'log')
+        AND NOT EXISTS (
+          SELECT 1 FROM note_links r
+          WHERE r.source_id = l.target_id AND r.target_id = l.source_id
+        )
+      ORDER BY s.title, t.title
+    `);
+    return stmt.all() as Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }>;
   }
 
   getBrokenLinks(): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> {

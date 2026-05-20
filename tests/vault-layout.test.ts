@@ -397,10 +397,10 @@ Observation content with [[missing-note]]`, '2026042700000002-moveable-note.md')
     expect(output).toContain('## Health Summary');
     expect(output).toContain('Embeddings: ');
     expect(output).toContain('need backfill');
-    expect(output).toContain('broken wikilinks found');
+    expect(output).toMatch(/Link health: .*\d+.*(unlinked|broken|one-way)/);
     expect(output).toContain('## Next Steps');
     expect(output).toContain('- Backfill embeddings: knowledge-maintain embed');
-    expect(output).toContain('- Check link health: knowledge-maintain broken-links');
+    expect(output).toContain('- Check link health: knowledge-maintain link-health');
     expect(output).toContain('- View vault stats: knowledge-maintain stats');
     expect(fs.existsSync(emptyDir)).toBe(false);
 
