@@ -4,8 +4,8 @@
 
 import { logToFile } from './logger.js';
 import { getConfig } from './config.js';
-import { readServerState } from './mcp-http-server.js';
-import type { ServerState } from './mcp-http-server.js';
+import { readServerState } from './server-state.js';
+import type { ServerState } from './server-state.js';
 
 const config = getConfig();
 
