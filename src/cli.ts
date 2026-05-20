@@ -30,6 +30,7 @@ export async function runCli(rawArgs: string[] = process.argv.slice(2), deps: Cl
 
     // No shared HTTP server found — start one alongside the stdio server
     // so subsequent clients can discover it and bridge to it (lightweight).
+    let httpStarted = false;
     try {
       if (deps.startHttpServer) {
         await deps.startHttpServer();
@@ -37,9 +38,26 @@ export async function runCli(rawArgs: string[] = process.argv.slice(2), deps: Cl
         const { startHttpServer } = await import('./mcp-http-server.js');
         await startHttpServer();
       }
+      httpStarted = true;
     } catch {
-      // HTTP server failed to start (port in use, permissions, etc.)
-      // Continue with stdio-only — this client still gets served.
+      // HTTP server failed to start — could be port in use, permissions,
+      // or another instance won the race ("already running"). Retry the
+      // bridge in case a concurrent process just started the HTTP server.
+      try {
+        const tryBridge = deps.tryStdioBridge ?? (await import('./mcp-stdio-proxy.js')).tryStdioBridge;
+        const bridged = await tryBridge();
+        if (bridged) return;
+      } catch {
+        // Still no bridge — fall through to full in-process server
+      }
+    }
+
+    // In combined mode (HTTP + stdio), exit when stdin closes so the
+    // HTTP server doesn't keep the process alive after the client disconnects.
+    // Note: StdioServerTransport already reads stdin (which resumes it);
+    // we just need the exit handler, not an explicit resume().
+    if (httpStarted) {
+      process.stdin.on('end', () => process.exit(0));
     }
 
     if (deps.startServer) {

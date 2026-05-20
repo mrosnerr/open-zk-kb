@@ -203,6 +203,25 @@ describe('HTTP Server', () => {
 
       expect(serverCalled).toBe(true);
     });
+
+    it('should retry bridge when HTTP startup fails (race condition)', async () => {
+      let bridgeAttempts = 0;
+      const { runCli } = await import('../src/cli.js');
+
+      await runCli(['server'], {
+        tryStdioBridge: async () => {
+          bridgeAttempts++;
+          // First call: no server yet. Second call (retry): server found.
+          return bridgeAttempts > 1;
+        },
+        startHttpServer: async () => {
+          throw new Error('Another open-zk-kb HTTP server is already running');
+        },
+        startServer: async () => {},
+      });
+
+      expect(bridgeAttempts).toBe(2);
+    });
   });
 
   describe('CLI default command', () => {
