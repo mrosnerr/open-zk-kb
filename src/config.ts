@@ -162,7 +162,7 @@ function positiveInt(value: unknown, fallback: number): number {
 }
 
 function validPort(value: unknown, fallback: number): number {
-  return Number.isInteger(value) && (value as number) >= 1 && (value as number) <= 65535
+  return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= 65535
     ? (value as number)
     : fallback;
 }

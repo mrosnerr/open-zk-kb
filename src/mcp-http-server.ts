@@ -20,7 +20,7 @@ const config = getConfig();
 // Track active transports for cleanup
 const activeTransports = new Set<Transport>();
 
-async function handleMcpRequest(req: Request): Promise<Response> {
+export async function handleMcpRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
 
   // Health check endpoint
@@ -35,31 +35,56 @@ async function handleMcpRequest(req: Request): Promise<Response> {
     return new Response('Not Found', { status: 404 });
   }
 
-  // Create a fresh McpServer per request — the MCP SDK's Protocol rejects
-  // connecting a second transport to the same instance, so stateless HTTP
-  // mode needs one per request. Shared state (NoteRepository, embeddings)
-  // lives in module-level singletons, not in the McpServer.
-  const server = createMcpServer();
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
-
-  activeTransports.add(transport);
-  transport.onclose = () => {
-    activeTransports.delete(transport);
-  };
-
-  await server.connect(transport);
-
+  // Top-level error isolation: any throw here MUST return an HTTP response,
+  // never propagate to Bun.serve() where it would crash the process.
+  let server: ReturnType<typeof createMcpServer> | undefined;
+  let transport: WebStandardStreamableHTTPServerTransport | undefined;
   try {
+    // Create a fresh McpServer per request — the MCP SDK's Protocol rejects
+    // connecting a second transport to the same instance, so stateless HTTP
+    // mode needs one per request. Shared state (NoteRepository, embeddings)
+    // lives in module-level singletons, not in the McpServer.
+    server = createMcpServer();
+    transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined,
+      enableJsonResponse: true,
+    });
+
+    activeTransports.add(transport);
+    transport.onclose = () => {
+      activeTransports.delete(transport!);
+    };
+
+    await server.connect(transport);
+
     const response = await transport.handleRequest(req);
     return response;
+  } catch (error) {
+    logToFile('ERROR', 'HTTP handler: request failed', {
+      error: error instanceof Error ? error.message : String(error),
+      method: req.method,
+      path: url.pathname,
+    }, config);
+    // Return a JSON-RPC internal error so the bridge/client gets a
+    // parseable response rather than a connection reset.
+    return new Response(
+      JSON.stringify({
+        jsonrpc: '2.0',
+        id: null,
+        error: { code: -32603, message: 'Internal server error' },
+      }),
+      { status: 500, headers: { 'Content-Type': 'application/json' } },
+    );
   } finally {
     // Clean up: close transport and server for this request.
     // Must run even if handleRequest throws to avoid resource leaks.
-    await transport.close().catch(() => {});
-    await server.close();
+    if (transport) {
+      activeTransports.delete(transport);
+      await transport.close().catch(() => {});
+    }
+    if (server) {
+      await server.close();
+    }
   }
 }
 
@@ -123,23 +148,74 @@ export async function startHttpServer(options: StartHttpServerOptions = {}): Pro
     version: PKG_VERSION,
   }, config);
 
-  // Override shutdown to also clean up HTTP resources
+  // Override shutdown to also clean up HTTP resources.
+  // 1. Remove state file immediately so new bridges don't try to connect.
+  // 2. Stop accepting new connections (stop(false) = graceful).
+  // 3. Wait for in-flight requests to complete (up to 5s).
+  // 4. Force-close any stragglers and exit.
   const originalShutdown = () => shutdownServer();
   const httpShutdown = () => {
-    logToFile('INFO', 'MCP HTTP server: shutting down', {}, config);
+    logToFile('INFO', 'MCP HTTP server: shutting down', {
+      activeRequests: activeTransports.size,
+    }, config);
+
+    // Remove state file first — prevents new bridges from connecting
+    // to a server that's about to die.
     removeServerState();
-    for (const transport of activeTransports) {
-      transport.close().catch(() => {});
-    }
-    activeTransports.clear();
-    httpServer.stop(true);
-    originalShutdown();
+
+    // Stop accepting new connections but let in-flight requests finish.
+    httpServer.stop(false);
+
+    // Give in-flight requests up to 5 seconds to complete.
+    const DRAIN_TIMEOUT_MS = 5000;
+    const drainStart = Date.now();
+    const drainInterval = setInterval(() => {
+      if (activeTransports.size === 0 || Date.now() - drainStart > DRAIN_TIMEOUT_MS) {
+        clearInterval(drainInterval);
+        if (activeTransports.size > 0) {
+          logToFile('WARN', 'HTTP server: force-closing remaining transports', {
+            remaining: activeTransports.size,
+          }, config);
+          for (const transport of activeTransports) {
+            transport.close().catch(() => {});
+          }
+          activeTransports.clear();
+        }
+        httpServer.stop(true);
+        originalShutdown();
+      }
+    }, 100);
   };
 
   process.removeAllListeners('SIGINT');
   process.removeAllListeners('SIGTERM');
   process.on('SIGINT', httpShutdown);
   process.on('SIGTERM', httpShutdown);
+
+  // Crash safety: survive unhandled exceptions/rejections instead of dying.
+  // The per-request try/catch in handleMcpRequest covers normal operation,
+  // but module-level errors (e.g. in lazy singleton init) can still escape.
+  // Log and continue — the server is more valuable alive with a logged error
+  // than dead with a clean stack trace.
+  process.on('uncaughtException', (error) => {
+    logToFile('ERROR', 'HTTP server: uncaught exception (survived)', {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+    }, config);
+  });
+  process.on('unhandledRejection', (reason) => {
+    logToFile('ERROR', 'HTTP server: unhandled rejection (survived)', {
+      error: reason instanceof Error ? reason.message : String(reason),
+      stack: reason instanceof Error ? reason.stack : undefined,
+    }, config);
+  });
+
+  // Clean up state file on any exit path — covers scenarios where
+  // SIGINT/SIGTERM handlers don't fire (e.g. Bun internal crash, OOM kill
+  // recovery after the kernel sends SIGKILL to a child but not the parent).
+  process.on('exit', () => {
+    try { removeServerState(); } catch { /* best effort */ }
+  });
 
   // Log the address for the user
   logToFile('INFO', `MCP HTTP server: listening on http://${host}:${httpServer.port}/mcp`, {}, config);
