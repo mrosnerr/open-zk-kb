@@ -186,14 +186,17 @@ export async function tryStdioBridge(): Promise<boolean> {
     for await (const message of readStdinMessages()) {
       let response = await forwardToHttp(state, message);
 
-      // Notifications (no `id`, not a batch) are fire-and-forget — no
-      // response expected. forwardToHttp returns null for both "empty
-      // body" (notification success) and "transport failure", so we must
-      // skip the recovery chain to avoid re-executing notifications.
-      const isNotification = message !== null
-        && typeof message === 'object'
-        && !Array.isArray(message)
-        && !('id' in (message as Record<string, unknown>));
+      // Notifications (no `id`) are fire-and-forget — no response expected.
+      // forwardToHttp returns null for both "empty body" (notification
+      // success) and "transport failure", so we skip the recovery chain to
+      // avoid re-executing notifications. A batch array where every element
+      // lacks an `id` is also entirely fire-and-forget.
+      const isNotification = Array.isArray(message)
+        ? message.every(m =>
+            m === null || typeof m !== 'object' || !('id' in (m as Record<string, unknown>)))
+        : message !== null
+          && typeof message === 'object'
+          && !('id' in (message as Record<string, unknown>));
 
       // On failure, exhaust every recovery option before returning an error.
       // The user should never see -32603 if the server can be recovered.
