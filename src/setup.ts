@@ -117,6 +117,9 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
     skillPath: path.join(expandPath('~/.claude'), 'skills', 'open-zk-kb'),
+    agentDocsPath: path.join(expandPath('~/.claude'), 'rules', 'open-zk-kb.md'),
+    agentDocsLabel: 'Rule',
+    instructionSize: 'rules',
     cliBinary: 'claude',
   },
   'cursor': {
@@ -1608,9 +1611,9 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       throw new Error(`Invalid --transport value: ${transportArg}. Use 'stdio' or 'http'.`);
     }
     const instructionSize: InstructionSize | undefined =
-      instructionsArg === 'compact' || instructionsArg === 'full' ? instructionsArg : undefined;
+      instructionsArg === 'compact' || instructionsArg === 'full' || instructionsArg === 'rules' ? instructionsArg : undefined;
     if (instructionsArg && !instructionSize) {
-      throw new Error(`Invalid --instructions value: ${instructionsArg}. Use 'compact' or 'full'.`);
+      throw new Error(`Invalid --instructions value: ${instructionsArg}. Use 'compact', 'full', or 'rules'.`);
     }
     let client: McpClient | undefined;
 

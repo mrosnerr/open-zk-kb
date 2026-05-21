@@ -1055,6 +1055,36 @@ describe('setup.ts', () => {
     expect(output).toContain('Migration');
   });
 
+  it('claude-code install creates both skill and rules file', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const { output } = setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Skill should be installed
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
+
+    // Rules file should be installed
+    const rulesPath = path.join(env.homeDir, '.claude', 'rules', 'open-zk-kb.md');
+    expect(fs.existsSync(rulesPath)).toBe(true);
+    const rulesContent = fs.readFileSync(rulesPath, 'utf-8');
+    expect(rulesContent).toContain('OPEN-ZK-KB:START');
+    expect(rulesContent).toContain('knowledge-search');
+    expect(rulesContent).toContain('knowledge-maintain');
+    // Rules template is thin — no detailed kind reference
+    expect(rulesContent).not.toContain('### Storing Knowledge');
+    // Should not contain client filtering instructions
+    expect(rulesContent).not.toContain('client: "');
+
+    expect(output).toContain('Skill:');
+    expect(output).toContain('Rule:');
+  });
+
   it('skill install is idempotent with --force', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
@@ -1230,7 +1260,8 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:END');
     expect(content).toContain('knowledge-search');
     expect(content).toContain('knowledge-store');
-    // Client-specific search hint is template-dependent (compact vs full)
+    // Instructions should not contain client-specific filtering
+    expect(content).not.toContain('client: "');
     // New file should have YAML frontmatter preamble
     expect(content).toMatch(/^---\nalwaysApply: true/);
 
@@ -1385,7 +1416,7 @@ describe('setup.ts', () => {
     const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
     expect(sharedContent).toContain('# Shared Rules');
     expect(sharedContent).toContain('OPEN-ZK-KB:START');
-    expect(sharedContent).toContain('knowledge-search');
+    expect(sharedContent).not.toContain('client: "');
 
     // Output should report the injection, not a skip
     expect(output).toContain('Instructions:');
@@ -1459,7 +1490,7 @@ describe('setup.ts', () => {
     expect(fs.existsSync(agentDocsPath)).toBe(true);
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
-    expect(content).toContain('knowledge-store');
+    expect(content).not.toContain('client: "');
 
     // Uninstall should clean up
     setupModule.uninstall({ client: 'windsurf' });
