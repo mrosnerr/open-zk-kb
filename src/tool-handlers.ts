@@ -1574,7 +1574,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         return 'Embedding not configured. Add provider + embeddings section to config.yaml to enable vector search.';
       }
 
-      const limit = args.limit || 50;
+      const limit = args.limit ?? 999999;
       const pending = repo.getNotesWithoutEmbeddings(limit);
       if (pending.length === 0) {
         return 'All notes already have embeddings. Nothing to backfill.';
@@ -1586,7 +1586,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       try {
         const embResult = await backfillEmbeddings(repo, embeddingConfig, limit);
-        return `Embedded ${embResult.stored}/${embResult.requested} notes using ${embeddingConfig.model}.`;
+        const remaining = repo.getEmbeddingStats().withoutEmbedding;
+        const suffix = remaining > 0 ? ` (${remaining} still pending)` : '';
+        return `Embedded ${embResult.stored}/${embResult.requested} notes using ${embeddingConfig.model}.${suffix}`;
       } catch (err) {
         return `Embedding failed: ${err instanceof Error ? err.message : String(err)}`;
       }
@@ -1743,13 +1745,69 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         return 'No unlinked notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
       }
 
-      let output = `## Unlinked Notes (${unlinked.length})\n\n`;
-      output += 'Notes with no incoming or outgoing wikilinks:\n\n';
+      // Group by project, then by kind
+      const byProject = new Map<string, NoteMetadata[]>();
       for (const note of unlinked) {
-        const wordCount = countWords(note.content || '');
-        output += `- "${note.title}" [${note.id}] | ${note.kind} | ${note.status} | ${wordCount} words\n`;
+        const project = extractProjectFromTags(note.tags) || '(no project)';
+        let group = byProject.get(project);
+        if (!group) {
+          group = [];
+          byProject.set(project, group);
+        }
+        group.push(note);
       }
-      output += '\n## Next Steps\n';
+
+      const projectCount = [...byProject.keys()].filter(k => k !== '(no project)').length;
+      const unscopedCount = byProject.get('(no project)')?.length ?? 0;
+      let output = `## Unlinked Notes (${unlinked.length})\n\n`;
+      const summaryParts: string[] = [];
+      if (projectCount > 0) summaryParts.push(`${unlinked.length - unscopedCount} in ${projectCount} project${projectCount > 1 ? 's' : ''}`);
+      if (unscopedCount > 0) summaryParts.push(`${unscopedCount} unscoped`);
+      output += summaryParts.join(', ') + '\n\n';
+
+      const displayCap = 20;
+      let displayed = 0;
+
+      // Sort projects alphabetically, but put (no project) last
+      const sortedProjects = [...byProject.keys()].sort((a, b) => {
+        if (a === '(no project)') return 1;
+        if (b === '(no project)') return -1;
+        return a.localeCompare(b);
+      });
+
+      for (const project of sortedProjects) {
+        if (displayed >= displayCap) break;
+        const notes = byProject.get(project)!;
+        output += `### ${project} (${notes.length})\n`;
+
+        // Group by kind within project
+        const byKind = new Map<string, NoteMetadata[]>();
+        for (const note of notes) {
+          let group = byKind.get(note.kind);
+          if (!group) {
+            group = [];
+            byKind.set(note.kind, group);
+          }
+          group.push(note);
+        }
+
+        for (const [kind, kindNotes] of byKind) {
+          if (displayed >= displayCap) break;
+          output += `**${kind}**:\n`;
+          for (const note of kindNotes) {
+            if (displayed >= displayCap) break;
+            output += `- "${note.title}" [${note.id}] | ${note.status}\n`;
+            displayed++;
+          }
+        }
+        output += '\n';
+      }
+
+      if (displayed < unlinked.length) {
+        output += `(showing ${displayed} of ${unlinked.length} — use \`knowledge-search\` to find specific notes)\n\n`;
+      }
+
+      output += '## Next Steps\n';
       output += '[A] Add wikilinks to connect unlinked notes to related notes\n';
       output += '[B] Archive notes that are no longer relevant\n';
       return output;
