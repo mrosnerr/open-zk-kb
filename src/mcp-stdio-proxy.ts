@@ -106,12 +106,63 @@ function writeToStdout(message: unknown): void {
   Bun.write(Bun.stdout, data);
 }
 
+// Cache the dynamic import so we only load the heavy modules once.
+let localHandler: ((req: Request) => Promise<Response>) | null = null;
+
+/**
+ * Process a JSON-RPC message through a local MCP server instance.
+ * Dynamically imports the heavy modules (NoteRepository, ONNX, MCP SDK)
+ * on first call so the bridge stays lightweight until actually needed.
+ */
+async function processLocally(message: unknown): Promise<unknown | null> {
+  if (!localHandler) {
+    logToFile('INFO', 'Stdio proxy: loading in-process MCP server', {}, config);
+    const mod = await import('./mcp-http-server.js');
+    localHandler = mod.handleMcpRequest;
+  }
+
+  const req = new Request('http://localhost/mcp', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+    },
+    body: JSON.stringify(message),
+  });
+
+  const resp = await localHandler(req);
+  const text = await resp.text();
+  return text.length > 0 ? JSON.parse(text) : null;
+}
+
+/**
+ * Start an HTTP server in the background so other bridges can discover us.
+ * Best-effort: if it fails (port race, etc.), we still serve locally.
+ */
+function startHttpServerBackground(): void {
+  import('./mcp-http-server.js')
+    .then(mod => mod.startHttpServer())
+    .then(() => {
+      const st = readServerState();
+      logToFile('INFO', 'Stdio proxy: background HTTP server started', {
+        pid: st?.pid,
+        port: st?.port,
+      }, config);
+    })
+    .catch(err => {
+      // Another bridge won the race, or port in use — that's fine.
+      logToFile('DEBUG', 'Stdio proxy: background HTTP server skipped', {
+        error: err instanceof Error ? err.message : String(err),
+      }, config);
+    });
+}
+
 /**
  * Attempt to start as a stdio→HTTP bridge.
  * Returns true if the bridge was established, false if fallback is needed.
  */
 export async function tryStdioBridge(): Promise<boolean> {
-  const state = readServerState();
+  let state = readServerState();
   if (!state) {
     return false;
   }
@@ -127,10 +178,70 @@ export async function tryStdioBridge(): Promise<boolean> {
     port: state.port,
   }, config);
 
+  // Track whether we've started a background HTTP server for other bridges.
+  let httpStarted = false;
+
   try {
     // Run the message forwarding loop
     for await (const message of readStdinMessages()) {
-      const response = await forwardToHttp(state, message);
+      let response = await forwardToHttp(state, message);
+
+      // Notifications (no `id`) are fire-and-forget — no response expected.
+      // forwardToHttp returns null for both "empty body" (notification
+      // success) and "transport failure", so we skip the recovery chain to
+      // avoid re-executing notifications. A batch array where every element
+      // lacks an `id` is also entirely fire-and-forget.
+      const isNotification = Array.isArray(message)
+        ? message.length > 0 && message.every(m =>
+            m === null || typeof m !== 'object' || !('id' in (m as Record<string, unknown>)))
+        : message !== null
+          && typeof message === 'object'
+          && !('id' in (message as Record<string, unknown>));
+
+      // On failure, exhaust every recovery option before returning an error.
+      // The user should never see -32603 if the server can be recovered.
+      if (!isNotification && response === null) {
+        // 1. Immediate retry — handles transient network glitches.
+        response = await forwardToHttp(state, message);
+      }
+
+      if (!isNotification && response === null) {
+        // 2. Re-read state file — maybe the server restarted on a new port/PID.
+        const newState = readServerState();
+        if (newState) {
+          const newHealthy = await probeHttpServer(newState);
+          if (newHealthy) {
+            state = newHealthy;
+            logToFile('INFO', 'Stdio proxy: reconnected to HTTP server', {
+              pid: state.pid,
+              port: state.port,
+            }, config);
+            response = await forwardToHttp(state, message);
+          }
+        }
+      }
+
+      if (!isNotification && response === null) {
+        // 3. No server anywhere — process locally. Every bridge can
+        //    independently serve via the shared SQLite database (WAL mode).
+        //    Multiple bridges handling requests in parallel is fine.
+        try {
+          response = await processLocally(message);
+        } catch (err) {
+          logToFile('ERROR', 'Stdio proxy: local fallback failed', {
+            error: err instanceof Error ? err.message : String(err),
+          }, config);
+          response = null;
+        }
+
+        // Also start an HTTP server in the background (best-effort) so
+        // other bridges can reconnect to us rather than all going local.
+        if (!httpStarted) {
+          httpStarted = true;
+          startHttpServerBackground();
+        }
+      }
+
       if (response !== null) {
         writeToStdout(response);
       } else if (Array.isArray(message)) {

@@ -86,6 +86,7 @@ The MCP server provides a reactive interface to the knowledge base:
     * **Stdio** (default): One process per client connection. Used by all MCP clients.
     * **Streamable HTTP** (`open-zk-kb serve`): Single shared process for all clients. Uses `Bun.serve()` with `WebStandardStreamableHTTPServerTransport` in stateless mode. Recommended for multi-session environments (OMP, multiple terminals).
 * **Shared Server Discovery**: When running in stdio mode, the server first checks if a shared HTTP server is available (via `$XDG_RUNTIME_DIR/open-zk-kb/server.json`). If found and healthy, it transparently bridges stdio→HTTP, avoiding resource duplication.
+* **Resilience**: Bridges recover transparently from server crashes or restarts through an internal retry chain (retry → re-probe → process locally). See [Performance and Resilience](performance.md) for latency benchmarks, memory profiles, and failure mode analysis.
 * **Tools**: Registers [nine core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-template`, `knowledge-mine`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).
