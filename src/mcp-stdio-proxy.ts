@@ -186,14 +186,23 @@ export async function tryStdioBridge(): Promise<boolean> {
     for await (const message of readStdinMessages()) {
       let response = await forwardToHttp(state, message);
 
+      // Notifications (no `id`, not a batch) are fire-and-forget — no
+      // response expected. forwardToHttp returns null for both "empty
+      // body" (notification success) and "transport failure", so we must
+      // skip the recovery chain to avoid re-executing notifications.
+      const isNotification = message !== null
+        && typeof message === 'object'
+        && !Array.isArray(message)
+        && !('id' in (message as Record<string, unknown>));
+
       // On failure, exhaust every recovery option before returning an error.
       // The user should never see -32603 if the server can be recovered.
-      if (response === null) {
+      if (!isNotification && response === null) {
         // 1. Immediate retry — handles transient network glitches.
         response = await forwardToHttp(state, message);
       }
 
-      if (response === null) {
+      if (!isNotification && response === null) {
         // 2. Re-read state file — maybe the server restarted on a new port/PID.
         const newState = readServerState();
         if (newState) {
@@ -209,11 +218,18 @@ export async function tryStdioBridge(): Promise<boolean> {
         }
       }
 
-      if (response === null) {
+      if (!isNotification && response === null) {
         // 3. No server anywhere — process locally. Every bridge can
         //    independently serve via the shared SQLite database (WAL mode).
         //    Multiple bridges handling requests in parallel is fine.
-        response = await processLocally(message);
+        try {
+          response = await processLocally(message);
+        } catch (err) {
+          logToFile('ERROR', 'Stdio proxy: local fallback failed', {
+            error: err instanceof Error ? err.message : String(err),
+          }, config);
+          response = null;
+        }
 
         // Also start an HTTP server in the background (best-effort) so
         // other bridges can reconnect to us rather than all going local.

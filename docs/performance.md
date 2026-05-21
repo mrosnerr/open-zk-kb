@@ -70,7 +70,7 @@ The server uses a single-machine, multi-process architecture. One shared HTTP se
 
 When the shared HTTP server becomes unreachable, each bridge independently executes a recovery chain. Every step is attempted before returning an error to the calling agent.
 
-```
+```text
 Forward request to shared HTTP server
   |
   +--> Success? Done (normal path, ~17ms)

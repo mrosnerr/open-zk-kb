@@ -4,6 +4,11 @@ import * as path from 'path';
 import * as os from 'os';
 import type { Server } from 'bun';
 
+const CLI_PATH = path.resolve('dist/cli.js');
+if (!fs.existsSync(CLI_PATH)) {
+  throw new Error('dist/cli.js not found — run `bun run build` before `bun test`');
+}
+
 /**
  * Integration tests for the stdio→HTTP bridge self-healing behavior.
  *
@@ -122,7 +127,7 @@ describe('Stdio Bridge Self-Healing', () => {
     writeStateFile(stateDir, server1.port, process.pid);
 
     const proc = Bun.spawn(
-      ['bun', 'run', path.resolve('dist/cli.js'), 'server'],
+      ['bun', 'run', CLI_PATH, 'server'],
       {
         stdin: 'pipe',
         stdout: 'pipe',
@@ -219,7 +224,7 @@ describe('Stdio Bridge Local Fallback', () => {
     fs.mkdirSync(path.join(tmpDir, 'data', 'open-zk-kb'), { recursive: true });
 
     const proc = Bun.spawn(
-      ['bun', 'run', path.resolve('dist/cli.js'), 'server'],
+      ['bun', 'run', CLI_PATH, 'server'],
       {
         stdin: 'pipe',
         stdout: 'pipe',

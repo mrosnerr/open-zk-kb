@@ -39,6 +39,9 @@ export async function handleMcpRequest(req: Request): Promise<Response> {
   // never propagate to Bun.serve() where it would crash the process.
   let server: ReturnType<typeof createMcpServer> | undefined;
   let transport: WebStandardStreamableHTTPServerTransport | undefined;
+  // Clone request so we can extract the JSON-RPC id in the error path
+  // (transport.handleRequest() consumes the original body stream).
+  const reqForId = req.clone();
   try {
     // Create a fresh McpServer per request — the MCP SDK's Protocol rejects
     // connecting a second transport to the same instance, so stateless HTTP
@@ -65,15 +68,23 @@ export async function handleMcpRequest(req: Request): Promise<Response> {
       method: req.method,
       path: url.pathname,
     }, config);
+    // Best-effort id extraction from the cloned request.
+    let requestId: unknown = null;
+    try {
+      const body = await reqForId.json() as Record<string, unknown>;
+      requestId = body.id ?? null;
+    } catch { /* body wasn't valid JSON */ }
     // Return a JSON-RPC internal error so the bridge/client gets a
-    // parseable response rather than a connection reset.
+    // parseable response rather than a connection reset. HTTP 200 is
+    // intentional — non-2xx causes the bridge to treat this as a
+    // transport failure rather than reading the JSON-RPC error body.
     return new Response(
       JSON.stringify({
         jsonrpc: '2.0',
-        id: null,
+        id: requestId,
         error: { code: -32603, message: 'Internal server error' },
       }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } },
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
     );
   } finally {
     // Clean up: close transport and server for this request.
@@ -83,7 +94,7 @@ export async function handleMcpRequest(req: Request): Promise<Response> {
       await transport.close().catch(() => {});
     }
     if (server) {
-      await server.close();
+      await server.close().catch(() => {});
     }
   }
 }
