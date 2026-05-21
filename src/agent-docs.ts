@@ -8,7 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-export type InstructionSize = 'compact' | 'full';
+export type InstructionSize = 'compact' | 'full' | 'rules';
 export type AgentDocsStatus = 'missing' | 'healthy' | 'start-only' | 'end-only' | 'out-of-order' | 'multiple-markers';
 
 export interface AgentDocsInspection {
@@ -73,7 +73,7 @@ export function getAgentDocsVersion(filePath: string): string | null {
 
 function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string, version?: string): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const filename = size === 'compact' ? 'agent-instructions-compact.md' : 'agent-instructions-full.md';
+  const filename = size === 'compact' ? 'agent-instructions-compact.md' : size === 'rules' ? 'agent-instructions-rules.md' : 'agent-instructions-full.md';
   const instructionsPath = path.join(projectRoot, 'templates', 'install', filename);
   let content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
   if (clientName) {
