@@ -192,7 +192,7 @@ export async function tryStdioBridge(): Promise<boolean> {
       // avoid re-executing notifications. A batch array where every element
       // lacks an `id` is also entirely fire-and-forget.
       const isNotification = Array.isArray(message)
-        ? message.every(m =>
+        ? message.length > 0 && message.every(m =>
             m === null || typeof m !== 'object' || !('id' in (m as Record<string, unknown>)))
         : message !== null
           && typeof message === 'object'
