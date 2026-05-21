@@ -641,6 +641,113 @@ describe('MCP Tool: knowledge-maintain', () => {
     }
   });
 
+  it('should default to unlimited embed limit when no limit specified', async () => {
+    ctx.engine.clearAll();
+    // Create 60 notes — more than the old default of 50
+    for (let i = 0; i < 60; i++) {
+      ctx.engine.store(`Content ${i}`, {
+        title: `Note ${i}`,
+        kind: 'reference',
+        summary: `Summary ${i}`,
+      });
+    }
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body || '{}')) as { input?: string[] | string; model?: string };
+      const inputs = Array.isArray(body.input) ? body.input : body.input ? [body.input] : [];
+      return new Response(JSON.stringify({
+        model: body.model || 'test-model',
+        data: inputs.map((_text, index) => ({ index, embedding: [index, 0, 0] })),
+      }), { status: 200 });
+    };
+
+    try {
+      const output = await handleMaintain(
+        { action: 'embed' },  // no limit — should process all 60
+        ctx.engine,
+        ctx.config,
+        { provider: 'api', baseUrl: 'https://example.invalid/v1', apiKey: 'test-key', model: 'test-model', dimensions: 3 },
+      );
+
+      expect(output).toContain('Embedded 60/60');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('should include remaining count in embed response when partial', async () => {
+    ctx.engine.clearAll();
+    for (let i = 0; i < 10; i++) {
+      ctx.engine.store(`Content ${i}`, {
+        title: `Note ${i}`,
+        kind: 'reference',
+        summary: `Summary ${i}`,
+      });
+    }
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body || '{}')) as { input?: string[] | string; model?: string };
+      const inputs = Array.isArray(body.input) ? body.input : body.input ? [body.input] : [];
+      return new Response(JSON.stringify({
+        model: body.model || 'test-model',
+        // Only embed the first 3 — simulate partial by failing the rest
+        data: inputs.map((_text, index) => ({ index, embedding: [index, 0, 0] })),
+      }), { status: 200 });
+    };
+
+    try {
+      // Embed only 5 of 10 via explicit limit
+      const output = await handleMaintain(
+        { action: 'embed', limit: 5 },
+        ctx.engine,
+        ctx.config,
+        { provider: 'api', baseUrl: 'https://example.invalid/v1', apiKey: 'test-key', model: 'test-model', dimensions: 3 },
+      );
+
+      expect(output).toContain('Embedded 5/5');
+      expect(output).toContain('5 still pending');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('should not show remaining count when all notes are embedded', async () => {
+    ctx.engine.clearAll();
+    for (let i = 0; i < 3; i++) {
+      ctx.engine.store(`Content ${i}`, {
+        title: `Note ${i}`,
+        kind: 'reference',
+        summary: `Summary ${i}`,
+      });
+    }
+
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (_input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+      const body = JSON.parse(String(init?.body || '{}')) as { input?: string[] | string; model?: string };
+      const inputs = Array.isArray(body.input) ? body.input : body.input ? [body.input] : [];
+      return new Response(JSON.stringify({
+        model: body.model || 'test-model',
+        data: inputs.map((_text, index) => ({ index, embedding: [index, 0, 0] })),
+      }), { status: 200 });
+    };
+
+    try {
+      const output = await handleMaintain(
+        { action: 'embed' },
+        ctx.engine,
+        ctx.config,
+        { provider: 'api', baseUrl: 'https://example.invalid/v1', apiKey: 'test-key', model: 'test-model', dimensions: 3 },
+      );
+
+      expect(output).toContain('Embedded 3/3');
+      expect(output).not.toContain('still pending');
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   it('should require noteId for promote/archive/delete', async () => {
     expect(await handleMaintain({ action: 'promote' }, ctx.engine, ctx.config)).toContain('noteId is required');
     expect(await handleMaintain({ action: 'archive' }, ctx.engine, ctx.config)).toContain('noteId is required');
@@ -2089,6 +2196,33 @@ describe('MCP Tool: knowledge-maintain unlinked', () => {
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Linker To Archived');
+  });
+
+  it('should group unlinked notes by project and kind', async () => {
+    ctx.engine.store('Alpha content', { title: 'Alpha', kind: 'reference', tags: ['project:proj-a'] });
+    ctx.engine.store('Beta content', { title: 'Beta', kind: 'decision', tags: ['project:proj-a'] });
+    ctx.engine.store('Gamma content', { title: 'Gamma', kind: 'observation', tags: ['project:proj-b'] });
+    ctx.engine.store('Delta content', { title: 'Delta', kind: 'reference' }); // no project
+
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
+    expect(output).toContain('Unlinked Notes (4)');
+    expect(output).toContain('3 in 2 projects');
+    expect(output).toContain('1 unscoped');
+    expect(output).toContain('### proj-a (2)');
+    expect(output).toContain('### proj-b (1)');
+    expect(output).toContain('### (no project) (1)');
+    expect(output).toContain('**reference**:');
+    expect(output).toContain('**decision**:');
+  });
+
+  it('should cap unlinked display at 20 with overflow message', async () => {
+    for (let i = 0; i < 25; i++) {
+      ctx.engine.store(`Content ${i}`, { title: `Note ${i}`, kind: 'reference' });
+    }
+
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
+    expect(output).toContain('Unlinked Notes (25)');
+    expect(output).toContain('showing 20 of 25');
   });
 });
 
