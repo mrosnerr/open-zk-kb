@@ -1531,6 +1531,45 @@ export class NoteRepository {
     return result;
   }
 
+  /**
+   * Get notes created within a time window, grouped by kind.
+   * Used by knowledge-stats for growth rate reporting.
+   */
+  getGrowthByKind(sinceMs: number): Record<string, number> {
+    const rows = this.db.prepare(`
+      SELECT kind, COUNT(*) as count
+      FROM notes
+      WHERE created_at >= ? AND status != 'archived'
+      GROUP BY kind
+    `).all(sinceMs) as Array<{ kind: string; count: number }>;
+    const result: Record<string, number> = {};
+    for (const row of rows) {
+      result[row.kind || 'observation'] = row.count;
+    }
+    return result;
+  }
+
+  /**
+   * Get staleness distribution across buckets: 0-7d, 7-30d, 30-90d, 90d+.
+   * Staleness = days since last access (or creation if never accessed).
+   */
+  getStalenessDistribution(): { fresh: number; recent: number; aging: number; stale: number } {
+    const now = Date.now();
+    const d7 = now - 7 * 86400000;
+    const d30 = now - 30 * 86400000;
+    const d90 = now - 90 * 86400000;
+    const row = this.db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN COALESCE(last_accessed_at, created_at) >= ? THEN 1 ELSE 0 END), 0) as fresh,
+        COALESCE(SUM(CASE WHEN COALESCE(last_accessed_at, created_at) < ? AND COALESCE(last_accessed_at, created_at) >= ? THEN 1 ELSE 0 END), 0) as recent,
+        COALESCE(SUM(CASE WHEN COALESCE(last_accessed_at, created_at) < ? AND COALESCE(last_accessed_at, created_at) >= ? THEN 1 ELSE 0 END), 0) as aging,
+        COALESCE(SUM(CASE WHEN COALESCE(last_accessed_at, created_at) < ? THEN 1 ELSE 0 END), 0) as stale
+      FROM notes
+      WHERE status != 'archived'
+    `).get(d7, d7, d30, d30, d90, d90) as { fresh: number; recent: number; aging: number; stale: number };
+    return row;
+  }
+
   recordToolInvocation(toolName: TelemetryToolName, argKind?: string, resultCount?: number): void {
     if (!this.telemetryEnabled) return;
     withBusyRetry(() => {

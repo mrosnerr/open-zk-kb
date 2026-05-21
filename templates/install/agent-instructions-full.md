@@ -55,7 +55,7 @@ When a useful URL comes up: `knowledge-ingest` to extract content, then `knowled
 - Before ending a session: review for uncaptured preferences, decisions, gotchas, or workflows.
 
 ### Project Overview
-Use `knowledge-overview(project: "...")` at the start of a project session to get the auto-generated index (catalog of all project notes) and recent log entries. Optional `logEntries` parameter controls how many log entries are shown (default 10).
+Use `knowledge-overview` at the start of a project session to orient yourself. Pass `project` to scope to a project, or omit for a global overview. Returns computed inventory (note counts by kind, recent notes, resources) and recent log entries. Optional `logEntries` parameter controls how many log entries are shown (default 10).
 
 ### Mining Session History
 Use `knowledge-mine` to bootstrap the KB from past sessions. The tool bulk-screens candidates for duplicates and optionally stores them.
@@ -71,4 +71,6 @@ Use `knowledge-mine` to bootstrap the KB from past sessions. The tool bulk-scree
 **Tips**: Process sessions in batches to stay within context limits. Include `source` on each candidate for provenance tracking. Pass `project` to scope all mined notes.
 
 ### Maintenance
-- `knowledge-maintain stats` — KB health | `knowledge-maintain review` — stale notes
+- **Metrics**: `knowledge-stats` — health counts, embedding coverage, staleness distribution, growth by kind. Params: `project?`, `period?` ("7d"/"30d"/"90d"), `telemetry?`.
+- **One-command maintenance**: `knowledge-maintain(action: "full")` — rebuild → migrate-layout → format → dedupe → embed → link-health in dependency order.
+- **Individual actions**: `review` (stale notes), `dedupe` (duplicates), `embed` (backfill embeddings), `migrate-layout` (flat → kind-based dirs).

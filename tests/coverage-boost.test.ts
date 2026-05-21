@@ -691,13 +691,13 @@ describe('Tool Handlers — Coverage Boost', () => {
       expect(output).toContain('Provider:');
     });
 
-    it('should show "Showing N of M" hint when >5 notes', async () => {
+    it('should include growth rate for recently created notes', async () => {
       for (let i = 0; i < 6; i++) {
         ctx.engine.store(`Note ${i}`, { title: `Note ${i}`, kind: 'reference' });
       }
 
       const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
-      expect(output).toContain('Showing 5 of 6');
+      expect(output).toContain('Notes created: 6');
     });
   });
 
@@ -898,7 +898,7 @@ describe('Tool Handlers — Coverage Boost', () => {
 
       const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
       // Stats should still work, may or may not show "Other" depending on getStats impl
-      expect(output).toContain('Knowledge Base Statistics');
+      expect(output).toContain('Knowledge Base Stats');
     });
   });
 });

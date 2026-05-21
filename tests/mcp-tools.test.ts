@@ -11,7 +11,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
-import { handleStore, handleSearch, handleMaintain, handleOverview, handleGet } from '../src/tool-handlers.js';
+import { handleStore, handleSearch, handleStats, handleMaintain, handleOverview, handleGet } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -562,11 +562,10 @@ describe('MCP Tool: knowledge-maintain', () => {
 
   it('should return stats with upgrade status', async () => {
     const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
-    expect(output).toContain('Knowledge Base Statistics');
+    // Passthrough adds deprecation hint and delegates to handleStats
+    expect(output).toContain('Use knowledge-stats directly');
+    expect(output).toContain('Knowledge Base Stats');
     expect(output).toContain('3 notes');
-    expect(output).toContain('personalization');
-    expect(output).toContain('Upgrade Status');
-    expect(output).toContain('Notes missing summary');
   });
 
   it('should promote a note', async () => {
@@ -3511,21 +3510,21 @@ describe('Index and log note kinds', () => {
     expect(logOutput).toContain('Error: log notes are auto-generated');
   });
 
-  it('should return project overview with domain, index, and log sections', async () => {
+  it('should return project overview with domain, inventory, and recent notes', async () => {
     await storeProjectNote('MyApp Domain', 'myapp', makeConfig(), 'domain');
     await storeProjectNote('Overview Note');
 
     const output = handleOverview({ project: 'myapp' }, ctx.engine, makeConfig());
     expect(output).toContain('## Project Overview: myapp');
     expect(output).toContain('### Domain');
-    expect(output).toContain('### Index');
-    expect(output).toContain('### Recent Activity');
+    expect(output).toContain('### Inventory');
+    expect(output).toContain('### Recent Notes');
     expect(output).toContain('Overview Note');
   });
 
-  it('should return a no-navigation message for unknown projects', () => {
+  it('should return a not-found message for unknown projects', () => {
     const output = handleOverview({ project: 'unknown-project' }, ctx.engine, makeConfig());
-    expect(output).toContain('No navigation notes found for project "unknown-project"');
+    expect(output).toContain('No notes found for project "unknown-project"');
   });
 
   it('should respect the logEntries parameter in overview output', async () => {
@@ -3541,13 +3540,13 @@ describe('Index and log note kinds', () => {
     expect(output).toContain('(showing 2 of 3 entries)');
   });
 
-  it('should work when only some navigation notes exist', async () => {
+  it('should work when only domain note exists', async () => {
     const config = makeConfig({ navigation: { enableProjectIndex: false, enableProjectLog: false } });
     await storeProjectNote('Partial Domain', 'partial', config, 'domain');
 
     const output = handleOverview({ project: 'partial' }, ctx.engine, config);
     expect(output).toContain('### Domain');
-    expect(output).toContain('(not yet generated — store a project-scoped note to trigger)');
+    expect(output).toContain('Partial Domain');
   });
 
   it('should skip index generation when enableProjectIndex is false', async () => {
@@ -3585,5 +3584,82 @@ describe('Index and log note kinds', () => {
     expect(output).toContain('Rebuilt index for 2 project(s).');
     expect(ctx.engine.getIndexNote('alpha')).not.toBeNull();
     expect(ctx.engine.getIndexNote('beta')).not.toBeNull();
+  });
+});
+
+describe('MCP Tool: knowledge-stats', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should return health indicators and staleness', async () => {
+    ctx.engine.store('Note A', { title: 'A', kind: 'reference' });
+    ctx.engine.store('Note B', { title: 'B', kind: 'decision', status: 'permanent' });
+
+    const output = await handleStats({}, ctx.engine, ctx.config);
+    expect(output).toContain('# Knowledge Base Stats');
+    expect(output).toContain('## Health (2 notes)');
+    expect(output).toContain('Fleeting: 1');
+    expect(output).toContain('Permanent: 1');
+    expect(output).toContain('## Staleness');
+    expect(output).toContain('0–7d:');
+  });
+
+  it('should include growth rate section with period', async () => {
+    ctx.engine.store('Recent note', { title: 'Recent', kind: 'observation' });
+
+    const output = await handleStats({ period: '7d' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Growth (last 7d)');
+    expect(output).toContain('Notes created: 1');
+    expect(output).toContain('observation: 1');
+  });
+
+  it('should default period to 30d', async () => {
+    const output = await handleStats({}, ctx.engine, ctx.config);
+    expect(output).toContain('## Growth (last 30d)');
+  });
+
+  it('should include link health section', async () => {
+    ctx.engine.store('Standalone', { title: 'Orphan', kind: 'reference' });
+
+    const output = await handleStats({}, ctx.engine, ctx.config);
+    expect(output).toContain('## Link Health');
+    expect(output).toContain('1 unlinked');
+  });
+});
+
+describe('MCP Tool: knowledge-overview global', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('should return global overview when no project specified', async () => {
+    await handleStore({
+      title: 'Proj Note', content: 'Stuff', kind: 'reference',
+      summary: 'Sum', guidance: 'Guide', tags: ['project:alpha'],
+    }, ctx.engine, null, ctx.config);
+    await handleStore({
+      title: 'Loose Note', content: 'Unscoped stuff', kind: 'observation',
+      summary: 'Sum', guidance: 'Guide',
+    }, ctx.engine, null, ctx.config);
+
+    const output = handleOverview({}, ctx.engine, ctx.config);
+    expect(output).toContain('## Knowledge Base Overview');
+    expect(output).toContain('### Projects');
+    expect(output).toContain('**alpha**');
+    expect(output).toContain('### Inventory');
+    expect(output).toContain('### Recent Notes');
+  });
+
+  it('should show unscoped note count', async () => {
+    await handleStore({
+      title: 'Unscoped', content: 'Content', kind: 'reference',
+      summary: 'Sum', guidance: 'Guide',
+    }, ctx.engine, null, ctx.config);
+
+    const output = handleOverview({}, ctx.engine, ctx.config);
+    expect(output).toContain('Unscoped notes:');
   });
 });

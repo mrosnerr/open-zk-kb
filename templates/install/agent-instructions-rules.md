@@ -5,7 +5,7 @@ BEFORE responding to any message, `knowledge-search` for relevant context. Follo
 | Question | Tool |
 |----------|------|
 | Find notes about X | `knowledge-search` with natural language query |
-| How many notes? KB health? | `knowledge-maintain` with `action: "stats"` |
+| How many notes? KB health? | `knowledge-stats` |
 | What's in project X? | `knowledge-overview` with `project` |
 | Get a specific note by ID | `knowledge-get` with `noteId` |
 | Save something I learned | `knowledge-store` with kind, summary, guidance |

@@ -241,8 +241,15 @@ export interface IngestArgs {
 }
 
 export interface OverviewArgs {
-  project: string;
+  project?: string;
   logEntries?: number;
+  model?: string;
+}
+
+export interface StatsArgs {
+  project?: string;
+  period?: string;
+  telemetry?: boolean;
   model?: string;
 }
 
@@ -280,8 +287,8 @@ function scheduleTelemetryWrite(label: string, fn: () => void): void {
   });
 }
 
-function formatTelemetryStats(repo: NoteRepository): string {
-  const telemetry = repo.getTelemetryAggregates(30);
+function formatTelemetryStats(repo: NoteRepository, days: number = 30): string {
+  const telemetry = repo.getTelemetryAggregates(days);
   const avgSearches = telemetry.sessions > 0 ? telemetry.searches / telemetry.sessions : 0;
   const avgStores = telemetry.sessions > 0 ? telemetry.stores / telemetry.sessions : 0;
   const storeSearchRatio = telemetry.searches > 0 ? telemetry.stores / telemetry.searches : 0;
@@ -295,7 +302,7 @@ function formatTelemetryStats(repo: NoteRepository): string {
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
 
   let output = '\n## Tool Telemetry\n\n';
-  output += `Last 30 days (${telemetry.sessions} sessions):\n`;
+  output += `Last ${days} days (${telemetry.sessions} sessions):\n`;
   output += `  Searches: ${telemetry.searches} (avg ${formatTelemetryNumber(avgSearches)} per session)\n`;
   output += `  Stores: ${telemetry.stores} (avg ${formatTelemetryNumber(avgStores)} per session)\n`;
   output += `  Store / search ratio: ${storeSearchRatio.toFixed(2)}\n`;
@@ -305,12 +312,12 @@ function formatTelemetryStats(repo: NoteRepository): string {
   return output;
 }
 
-function formatConformanceStats(repo: NoteRepository): string {
-  const agg = repo.getConformanceAggregates(30);
+function formatConformanceStats(repo: NoteRepository, days: number = 30): string {
+  const agg = repo.getConformanceAggregates(days);
   if (agg.totalChecked === 0) return '';
 
   let output = '\n## Template Conformance\n\n';
-  output += `Last 30 days:\n`;
+  output += `Last ${days} days:\n`;
   output += `  Stores checked: ${agg.totalChecked}\n`;
   output += `  Avg coverage: ${agg.avgCoverage.toFixed(2)}\n`;
   output += `  Hint trigger rate: ${(agg.hintTriggerRate * 100).toFixed(0)}% (${agg.hintCount}/${agg.totalChecked})\n`;
@@ -329,6 +336,173 @@ function formatConformanceStats(repo: NoteRepository): string {
     output += ` (L3 adoption: ${(adoption * 100).toFixed(0)}%)`;
   }
   output += '\n';
+
+  return output;
+}
+
+function parsePeriodToDays(period?: string): number {
+  if (!period) return 30;
+  const match = period.match(/^(\d+)d$/);
+  return match ? parseInt(match[1], 10) : 30;
+}
+
+export async function handleStats(args: StatsArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
+  const days = parsePeriodToDays(args.period);
+  const periodLabel = `${days}d`;
+  const stats = repo.getStats();
+  const embeddingStats = repo.getEmbeddingStats();
+  const staleness = repo.getStalenessDistribution();
+
+  let output = '# Knowledge Base Stats\n\n';
+
+  // --- Health indicators ---
+  output += `## Health (${stats.total} notes)\n`;
+  output += `- Fleeting: ${stats.fleeting}\n`;
+  output += `- Permanent: ${stats.permanent}\n`;
+  output += `- Archived: ${stats.archived}\n`;
+  if (stats.other > 0) {
+    output += `- Other (unknown status): ${stats.other}\n`;
+  }
+
+  if (embeddingStats.total > 0 || embeddingConfig) {
+    output += '\n## Embeddings\n';
+    if (embeddingConfig) {
+      output += `- Provider: ${embeddingConfig.provider} (${embeddingConfig.model})\n`;
+    }
+    output += `- Embedded: ${embeddingStats.withEmbedding}/${embeddingStats.total} notes`;
+    if (embeddingStats.withoutEmbedding > 0) {
+      output += ` (${embeddingStats.withoutEmbedding} missing)`;
+    }
+    output += '\n';
+  }
+
+  {
+    const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
+    const oneWayLinks = repo.getOneWayLinks();
+    const unlinkedNotes = repo.getUnlinkedNotes();
+    const linkIssueCount = brokenLinks.length + oneWayLinks.length + unlinkedNotes.length;
+    output += '\n## Link Health\n';
+    if (linkIssueCount > 0) {
+      const parts: string[] = [];
+      if (unlinkedNotes.length > 0) parts.push(`${unlinkedNotes.length} unlinked`);
+      if (brokenLinks.length > 0) parts.push(`${brokenLinks.length} broken`);
+      if (oneWayLinks.length > 0) parts.push(`${oneWayLinks.length} one-way`);
+      output += `- Issues: ${parts.join(', ')} (run \`knowledge-maintain link-health\` for details)\n`;
+    } else {
+      output += '- All clear ✓\n';
+    }
+  }
+
+  output += '\n## Staleness\n';
+  output += `- 0–7d: ${staleness.fresh}\n`;
+  output += `- 7–30d: ${staleness.recent}\n`;
+  output += `- 30–90d: ${staleness.aging}\n`;
+  output += `- 90d+: ${staleness.stale}\n`;
+
+  // --- Growth & activity ---
+  const sinceMs = Date.now() - days * 86400000;
+  const growth = repo.getGrowthByKind(sinceMs);
+  const totalCreated = Object.values(growth).reduce((s, n) => s + n, 0);
+  output += `\n## Growth (last ${periodLabel})\n`;
+  output += `- Notes created: ${totalCreated}\n`;
+  if (totalCreated > 0) {
+    for (const [kind, count] of Object.entries(growth).sort((a, b) => b[1] - a[1])) {
+      output += `  - ${kind}: ${count}\n`;
+    }
+    const avgPerDay = totalCreated / days;
+    output += `- Avg per day: ${formatTelemetryNumber(avgPerDay)}\n`;
+  }
+
+  // --- Infrastructure ---
+  if (stats.total > 0 && config.vault) {
+    const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
+    const flatCount = allNotes.filter(n => {
+      const rel = path.relative(config.vault, n.path);
+      return !rel.includes(path.sep) || rel.startsWith('..');
+    }).length;
+    const structuredCount = allNotes.length - flatCount;
+
+    output += '\n## Infrastructure\n';
+    if (flatCount > 0 && structuredCount === 0) {
+      output += `- Layout: flat (all ${allNotes.length} notes in vault root)\n`;
+    } else if (flatCount > 0 && structuredCount > 0) {
+      output += `- Layout: mixed (${structuredCount} structured, ${flatCount} flat)\n`;
+    } else {
+      output += `- Layout: structured (${structuredCount} notes in kind-based directories)\n`;
+    }
+  }
+
+  if (config.vault) {
+    const scaffoldStatus = getObsidianScaffoldStatus(config.vault, config.obsidian);
+    if (!output.includes('## Infrastructure')) output += '\n## Infrastructure\n';
+    output += `- Obsidian scaffold: ${scaffoldStatus.scaffolded ? 'present' : 'not installed'}`;
+    if (scaffoldStatus.scaffoldVersion != null) {
+      output += ` (v${scaffoldStatus.scaffoldVersion}, latest: ${scaffoldStatus.latestVersion})`;
+    }
+    output += '\n';
+    output += `- Plugins: ${scaffoldStatus.pluginsInstalled}/${scaffoldStatus.pluginsExpected} installed`;
+    if (scaffoldStatus.pluginsNeedingUpdate > 0) {
+      output += `, ${scaffoldStatus.pluginsNeedingUpdate} need update`;
+    }
+    output += '\n';
+  }
+
+  if (gitVersioning) {
+    const vStats = gitVersioning.getStats();
+    if (!output.includes('## Infrastructure')) output += '\n## Infrastructure\n';
+    if (vStats) {
+      output += `- Git: enabled (${vStats.commitCount} commits)\n`;
+      if (vStats.lastCommitAge) output += `- Last commit: ${vStats.lastCommitAge}\n`;
+    } else {
+      output += '- Git: disabled\n';
+    }
+  }
+
+  // --- Version ---
+  if (currentVersion) {
+    const latest = await getLatestVersion('open-zk-kb');
+    output += '\n## Version\n';
+    output += `- Server: ${currentVersion}`;
+    if (latest) {
+      if (isNewerVersion(currentVersion, latest)) {
+        output += ` → ${latest} available`;
+      } else {
+        output += ' (latest)';
+      }
+    }
+    output += '\n';
+
+    const installedInstructions = getInstalledInstructionVersions();
+    if (installedInstructions.length > 0) {
+      output += '- Instructions:\n';
+      for (const inst of installedInstructions) {
+        const versionDisplay = inst.instructionVersion || 'unknown';
+        let statusIcon: string;
+        if (!inst.instructionVersion) {
+          statusIcon = '?';
+        } else if (latest && isNewerVersion(inst.instructionVersion, latest)) {
+          statusIcon = '⚠️';
+        } else {
+          statusIcon = '✓';
+        }
+        output += `  - ${inst.name}: ${versionDisplay} ${statusIcon}\n`;
+      }
+    }
+
+    if (latest && isNewerVersion(currentVersion, latest)) {
+      output += `\n**Update**: \`bunx open-zk-kb@latest install --client <name> --force\`\n`;
+    }
+  }
+
+  // --- Telemetry (opt-in) ---
+  if (args.telemetry) {
+    output += formatTelemetryStats(repo, days);
+    output += formatConformanceStats(repo, days);
+  }
+
+  if (!args.model) {
+    output += MODEL_HINT;
+  }
 
   return output;
 }
@@ -1065,154 +1239,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
   scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action));
   switch (args.action) {
     case 'stats': {
-      const stats = repo.getStats();
-      const kindStats = repo.getStatsByKind();
-      const upgradeStatus = repo.getUpgradeStatus();
-      const embeddingStats = repo.getEmbeddingStats();
-      let output = '# Knowledge Base Statistics\n\n';
-      output += `## Vault (${stats.total} notes)\n`;
-      output += `- Fleeting: ${stats.fleeting}\n`;
-      output += `- Permanent: ${stats.permanent}\n`;
-      output += `- Archived: ${stats.archived}\n`;
-      if (stats.other > 0) {
-        output += `- Other (unknown status): ${stats.other}\n`;
-      }
-      output += '\n## By Kind\n';
-      for (const [kind, s] of Object.entries(kindStats)) {
-        output += `- **${kind}**: ${s.total} total\n`;
-      }
-      if (stats.total > 0 && config.vault) {
-        const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
-        const flatCount = allNotes.filter(n => {
-          const rel = path.relative(config.vault, n.path);
-          return !rel.includes(path.sep) || rel.startsWith('..');
-        }).length;
-        const structuredCount = allNotes.length - flatCount;
-
-        output += '\n## Vault Layout\n';
-        if (flatCount > 0 && structuredCount === 0) {
-          output += `- Layout: flat (all ${allNotes.length} notes in vault root)\n`;
-          output += '- MigrationAvailable: true (action: migrate-layout)\n';
-        } else if (flatCount > 0 && structuredCount > 0) {
-          output += `- Layout: mixed (${structuredCount} structured, ${flatCount} flat)\n`;
-          output += `- MigrationAvailable: true (action: migrate-layout, ${flatCount} flat notes remaining)\n`;
-        } else {
-          output += `- Layout: structured (${structuredCount} notes in kind-based directories)\n`;
-        }
-      }
-
-      if (config.vault) {
-        const scaffoldStatus = getObsidianScaffoldStatus(config.vault, config.obsidian);
-        output += '\n## Obsidian Vault\n';
-        output += `- Scaffold: ${scaffoldStatus.scaffolded ? 'present' : 'not installed'}\n`;
-        if (scaffoldStatus.scaffoldVersion != null) {
-          output += `- Scaffold version: ${scaffoldStatus.scaffoldVersion} (latest: ${scaffoldStatus.latestVersion})\n`;
-        }
-        if (scaffoldStatus.theme) {
-          output += `- Theme: ${scaffoldStatus.theme.name} ${scaffoldStatus.theme.version}\n`;
-        }
-        output += `- Plugins: ${scaffoldStatus.pluginsInstalled}/${scaffoldStatus.pluginsExpected} installed`;
-        if (scaffoldStatus.pluginsNeedingUpdate > 0) {
-          output += `, ${scaffoldStatus.pluginsNeedingUpdate} need update`;
-        }
-        output += '\n';
-        output += `- Auto-upgrade: ${scaffoldStatus.autoUpgrade ? 'enabled' : 'disabled'}\n`;
-        output += `- Read-only: ${scaffoldStatus.readOnly ? 'enabled' : 'disabled'}\n`;
-        if (!scaffoldStatus.readOnly) {
-          output += '- External edits risk index/frontmatter drift: true\n';
-        }
-      }
-
-      if (embeddingStats.total > 0 || embeddingConfig) {
-        output += '\n## Embeddings\n';
-        if (embeddingConfig) {
-          output += `- Provider: ${embeddingConfig.provider} (${embeddingConfig.model})\n`;
-        }
-        output += `- Embedded: ${embeddingStats.withEmbedding}/${embeddingStats.total} notes\n`;
-      }
-      if (upgradeStatus.needsSummary > 0 || upgradeStatus.needsGuidance > 0) {
-        output += '\n## Upgrade Status\n';
-        output += `- Notes missing summary: ${upgradeStatus.needsSummary}/${upgradeStatus.total}\n`;
-        output += `- Notes missing guidance: ${upgradeStatus.needsGuidance}/${upgradeStatus.total}\n`;
-      }
-      {
-        const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
-        const oneWayLinks = repo.getOneWayLinks();
-        const unlinkedNotes = repo.getUnlinkedNotes();
-        const linkIssueCount = brokenLinks.length + oneWayLinks.length + unlinkedNotes.length;
-        output += '\n## Link Health\n';
-        if (linkIssueCount > 0) {
-          const parts: string[] = [];
-          if (unlinkedNotes.length > 0) parts.push(`${unlinkedNotes.length} unlinked`);
-          if (brokenLinks.length > 0) parts.push(`${brokenLinks.length} broken`);
-          if (oneWayLinks.length > 0) parts.push(`${oneWayLinks.length} one-way`);
-          output += `- Issues: ${parts.join(', ')} (run \`knowledge-maintain link-health\` for details)\n`;
-        } else {
-          output += '- All clear ✓\n';
-        }
-      }
-      if (stats.total > 0) {
-        const recentNotes = repo.getRecentNotes(5);
-        output += '\n## Recent Notes\n';
-        for (const note of recentNotes) {
-          const status = note.status === 'permanent' ? '🔒' : note.status === 'archived' ? '📦' : '📝';
-          output += `- ${status} **${note.title}** (${note.kind})\n`;
-        }
-        if (stats.total > 5) {
-          output += `\nShowing 5 of ${stats.total}. Use \`knowledge-search\` to find specific notes.\n`;
-        }
-      }
-      if (gitVersioning) {
-        const vStats = gitVersioning.getStats();
-        output += '\n## Versioning\n';
-        if (vStats) {
-          output += `- Git: enabled (${vStats.commitCount} commits)\n`;
-          if (vStats.lastCommitAge) output += `- Last commit: ${vStats.lastCommitAge}\n`;
-        } else {
-          output += '- Git: disabled\n';
-        }
-      }
-
-      if (currentVersion) {
-        const latest = await getLatestVersion('open-zk-kb');
-        output += '\n## Version\n';
-        output += `- Server: ${currentVersion}`;
-        if (latest) {
-          if (isNewerVersion(currentVersion, latest)) {
-            output += ` → ${latest} available`;
-          } else {
-            output += ' (latest)';
-          }
-        }
-        output += '\n';
-
-        // Show instruction versions for installed clients
-        const installedInstructions = getInstalledInstructionVersions();
-        if (installedInstructions.length > 0) {
-          output += '- Instructions:\n';
-          for (const inst of installedInstructions) {
-            const versionDisplay = inst.instructionVersion || 'unknown';
-            let statusIcon: string;
-            if (!inst.instructionVersion) {
-              statusIcon = '?';  // Unknown version
-            } else if (latest && isNewerVersion(inst.instructionVersion, latest)) {
-              statusIcon = '⚠️';  // Outdated
-            } else {
-              statusIcon = '✓';  // Up to date
-            }
-            output += `  - ${inst.name}: ${versionDisplay} ${statusIcon}\n`;
-          }
-        }
-
-        if (latest && isNewerVersion(currentVersion, latest)) {
-          output += `\n**Update**: \`bunx open-zk-kb@latest install --client <name> --force\`\n`;
-        }
-      }
-      if (args.telemetry) {
-        output += formatTelemetryStats(repo);
-        output += formatConformanceStats(repo);
-      }
-      return output;
+      // Deprecated passthrough — delegates to handleStats
+      const statsResult = await handleStats({ telemetry: args.telemetry, model: args.model }, repo, config, embeddingConfig, currentVersion, gitVersioning);
+      return '(Use knowledge-stats directly for richer metrics and period filtering)\n\n' + statsResult;
     }
     case 'promote': {
       if (!args.noteId) return 'Error: noteId is required for promote action.';
@@ -2019,7 +2048,6 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         { action: 'dedupe', label: 'Dedupe', stepArgs: { action: 'dedupe' } },
         { action: 'embed', label: 'Embed', stepArgs: { action: 'embed', limit: 999999 } },
         { action: 'link-health', label: 'Link Health', stepArgs: { action: 'link-health' } },
-        { action: 'stats', label: 'Stats', stepArgs: { action: 'stats', telemetry: args.telemetry, model: args.model } },
       ];
 
       const sections: string[] = ['# Full Maintenance\n'];
@@ -2049,30 +2077,70 @@ export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?
   const project = args.project;
   const logLimit = Math.max(1, args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10);
 
-  const indexNote = repo.getIndexNote(project);
-  const logNote = repo.getLogNote(project);
-  const domainNote = repo.getDomainNote(project);
+  if (project) {
+    return formatProjectOverview(project, logLimit, repo, config, args.model);
+  }
+  return formatGlobalOverview(logLimit, repo, config, args.model);
+}
 
-  if (!indexNote && !logNote && !domainNote) {
-    return `No navigation notes found for project "${project}". Store a project-scoped note first (include project parameter).`;
+function formatProjectOverview(project: string, logLimit: number, repo: NoteRepository, config?: AppConfig, model?: string): string {
+  const domainNote = repo.getDomainNote(project);
+  const projectNotes = repo.getProjectNotes(project);
+  const logNote = repo.getLogNote(project);
+
+  if (projectNotes.length === 0 && !domainNote && !logNote) {
+    return `No notes found for project "${project}". Store a project-scoped note first (include project parameter).`;
   }
 
   let output = `## Project Overview: ${project}\n\n`;
 
+  // Domain note (operating manual)
   if (domainNote) {
     output += '### Domain\n';
     output += renderNoteForAgent(domainNote) + '\n\n';
     scheduleTelemetryWrite('overview access', () => repo.recordAccess(domainNote.id));
   }
 
-  if (indexNote) {
-    output += '### Index\n';
-    const content = indexNote.content || '(empty index)';
-    output += content + '\n\n';
-  } else {
-    output += '### Index\n(not yet generated — store a project-scoped note to trigger)\n\n';
+  // Inventory by kind
+  const kindCounts: Record<string, number> = {};
+  for (const note of projectNotes) {
+    kindCounts[note.kind] = (kindCounts[note.kind] || 0) + 1;
+  }
+  if (Object.keys(kindCounts).length > 0) {
+    output += '### Inventory\n';
+    const parts = Object.entries(kindCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([kind, count]) => `${count} ${kind}${count > 1 ? 's' : ''}`);
+    output += parts.join(', ') + '\n\n';
   }
 
+  // Recent notes
+  const recentNotes = [...projectNotes]
+    .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
+    .slice(0, logLimit);
+  if (recentNotes.length > 0) {
+    output += '### Recent Notes\n';
+    for (const note of recentNotes) {
+      const status = note.status === 'permanent' ? '🔒' : note.status === 'archived' ? '📦' : '📝';
+      output += `- ${status} **${note.title}** (${note.kind})\n`;
+    }
+    if (projectNotes.length > recentNotes.length) {
+      output += `\n(showing ${recentNotes.length} of ${projectNotes.length})\n`;
+    }
+    output += '\n';
+  }
+
+  // Resources
+  const resources = projectNotes.filter(n => n.kind === 'resource');
+  if (resources.length > 0) {
+    output += '### Resources\n';
+    for (const note of resources) {
+      output += `- **${note.title}** [${note.id}]\n`;
+    }
+    output += '\n';
+  }
+
+  // Recent activity from log note
   if (logNote) {
     output += '### Recent Activity\n';
     const content = logNote.content || '';
@@ -2087,11 +2155,79 @@ export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?
     } else {
       output += '(no log entries yet)\n';
     }
-  } else {
-    output += '### Recent Activity\n(not yet generated — store a project-scoped note to trigger)\n';
   }
 
-  if (!args.model) {
+  if (!model) {
+    output += MODEL_HINT;
+  }
+
+  return output;
+}
+
+function formatGlobalOverview(logLimit: number, repo: NoteRepository, config?: AppConfig, model?: string): string {
+  const projectStats = repo.getProjectStats();
+  const kindStats = repo.getStatsByKind();
+  const stats = repo.getStats();
+  const recentNotes = repo.getRecentNotes(logLimit);
+
+  let output = '## Knowledge Base Overview\n\n';
+
+  // Projects
+  if (projectStats.length > 0) {
+    output += '### Projects\n';
+    for (const ps of projectStats) {
+      output += `- **${ps.project}**: ${ps.noteCount} notes\n`;
+    }
+    output += '\n';
+  }
+
+  // Inventory by kind
+  const kindEntries = Object.entries(kindStats)
+    .filter(([kind]) => kind !== 'index' && kind !== 'log')
+    .sort((a, b) => b[1].total - a[1].total);
+  if (kindEntries.length > 0) {
+    output += '### Inventory\n';
+    const parts = kindEntries.map(([kind, s]) => `${s.total} ${kind}`);
+    output += parts.join(', ') + `  (${stats.total} total)\n\n`;
+  }
+
+  // Unscoped count
+  const scopedCount = projectStats.reduce((s, p) => s + p.noteCount, 0);
+  const unscopedCount = stats.total - stats.archived - scopedCount;
+  if (unscopedCount > 0) {
+    output += `Unscoped notes: ${unscopedCount}\n\n`;
+  }
+
+  // Recent notes
+  if (recentNotes.length > 0) {
+    output += '### Recent Notes\n';
+    for (const note of recentNotes) {
+      const status = note.status === 'permanent' ? '🔒' : note.status === 'archived' ? '📦' : '📝';
+      const project = extractProjectFromTags(note.tags);
+      const projectSuffix = project ? ` [${project}]` : '';
+      output += `- ${status} **${note.title}** (${note.kind})${projectSuffix}\n`;
+    }
+    if (stats.total > recentNotes.length) {
+      output += `\n(showing ${recentNotes.length} of ${stats.total})\n`;
+    }
+    output += '\n';
+  }
+
+  // Resources
+  const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
+  const resources = allNotes.filter(n => n.kind === 'resource' && n.status !== 'archived');
+  if (resources.length > 0) {
+    output += '### Resources\n';
+    for (const note of resources.slice(0, 20)) {
+      output += `- **${note.title}** [${note.id}]\n`;
+    }
+    if (resources.length > 20) {
+      output += `\n(showing 20 of ${resources.length})\n`;
+    }
+    output += '\n';
+  }
+
+  if (!model) {
     output += MODEL_HINT;
   }
 

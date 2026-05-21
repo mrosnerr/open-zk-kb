@@ -21,7 +21,7 @@ import { z } from 'zod';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { ensureObsidianScaffold } from './obsidian-scaffold.js';
-import { handleStore, handleSearch, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
+import { handleStore, handleSearch, handleStats, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import { createGitVersioning } from './git-versioning.js';
 import type { GitVersioning } from './git-versioning.js';
@@ -277,7 +277,7 @@ export function createMcpServer(): McpServer {
   // ---- knowledge-overview ----
 
   const overviewSchema = z.object({
-    project: z.string().describe('Project name to get overview for'),
+    project: z.string().optional().describe('Project name to get overview for. Omit for global overview.'),
     logEntries: z.number().int().min(1).optional().describe('Number of recent log entries to show (default: 10)'),
     model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
   });
@@ -285,7 +285,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     'knowledge-overview',
     {
-      description: 'Get a project overview: auto-generated index (catalog of all project notes) and recent operations log. The project entry point for navigation.',
+      description: 'Get an overview of the knowledge base. With project: domain note, inventory by kind, recent notes, resources, and activity log. Without project: all projects with note counts, global inventory, and recent notes.',
       inputSchema: overviewSchema as unknown as AnySchema,
     },
     async (args: z.infer<typeof overviewSchema>) => {
@@ -370,11 +370,47 @@ export function createMcpServer(): McpServer {
     },
   );
 
+  // ---- knowledge-stats ----
+
+  const statsSchema = z.object({
+    project: z.string().optional().describe('Scope all metrics to a project'),
+    period: z.string().optional().describe('Time window: "7d", "30d", "90d" (default "30d")'),
+    telemetry: z.boolean().optional().describe('Include tool usage and template conformance metrics (requires telemetry.enabled config)'),
+    model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
+  });
+
+  server.registerTool(
+    'knowledge-stats',
+    {
+      description: 'Operational metrics and health indicators: note counts, embedding coverage, link health, staleness distribution, growth rate over a configurable period, infrastructure status, and version info.',
+      inputSchema: statsSchema as unknown as AnySchema,
+    },
+    async (args: z.infer<typeof statsSchema>) => {
+      try {
+        const result = await handleStats({
+          project: args.project,
+          period: args.period,
+          telemetry: args.telemetry,
+          model: args.model,
+        }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION, gitVersioning);
+        return { content: [{ type: 'text' as const, text: result }] };
+      } catch (error) {
+        logToFile('ERROR', 'knowledge-stats failed', {
+          error: error instanceof Error ? error.message : String(error),
+        }, config);
+        return {
+          content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+          isError: true,
+        };
+      }
+    },
+  );
+
   // ---- knowledge-maintain ----
 
   const maintainSchema = z.object({
     action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'unlinked', 'broken-links', 'link-health', 'migrate-layout', 'upgrade-vault', 'full'])
-        .describe('Maintenance action: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, format (re-serialize all note files with canonical frontmatter and navigation), upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags), unlinked (notes with no wikilinks), broken-links (wikilinks to non-existent notes), link-health (combined report: unlinked notes + broken links + one-way links), migrate-layout (move flat vault to kind-based directory structure), upgrade-vault (refresh Obsidian scaffold assets), or full (composite: rebuild → migrate-layout → format → dedupe → embed → link-health → stats, in dependency order).'),
+        .describe('Maintenance action: stats (deprecated — use knowledge-stats), review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, format (re-serialize all note files with canonical frontmatter and navigation), upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags), unlinked (notes with no wikilinks), broken-links (wikilinks to non-existent notes), link-health (combined report: unlinked notes + broken links + one-way links), migrate-layout (move flat vault to kind-based directory structure), upgrade-vault (refresh Obsidian scaffold assets), or full (composite: rebuild → migrate-layout → format → dedupe → embed → link-health, in dependency order).'),
     noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
     filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
     days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
@@ -387,7 +423,7 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     'knowledge-maintain',
     {
-      description: 'Maintain the knowledge base: stats, review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, and managed agent docs repair.',
+      description: 'Maintain the knowledge base: review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, and managed agent docs repair. For stats, use knowledge-stats instead.',
       inputSchema: maintainSchema as unknown as AnySchema,
     },
     async (args: z.infer<typeof maintainSchema>) => {
