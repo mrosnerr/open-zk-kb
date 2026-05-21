@@ -1389,8 +1389,12 @@ export function uninstall(args: UninstallArgs): UninstallResult {
         const staleInspection = inspectAgentDocs(stalePath);
         if (staleInspection.exists && staleInspection.status !== 'missing') {
           const symlinkTarget = resolveSymlinkTarget(stalePath);
-          const desc = symlinkTarget ? `${stalePath} → ${symlinkTarget}` : stalePath;
-          details.push(`Would remove stale managed block from ${desc}`);
+          if (symlinkTarget && !args.removeSharedAgentDocs) {
+            // Stale block in shared file — would skip, same as real path
+          } else {
+            const desc = symlinkTarget ? `${stalePath} → ${symlinkTarget}` : stalePath;
+            details.push(`Would remove stale managed block from ${desc}`);
+          }
         }
       }
     }
@@ -1949,18 +1953,18 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     process.exit(0);
   }
 
-  const removeVaultPrompt = await p.confirm({
+  let removeVaultChoice = await p.confirm({
     message: 'Also remove the knowledge vault? (irreversible)',
     initialValue: false,
   });
 
-  if (p.isCancel(removeVaultPrompt)) {
+  if (p.isCancel(removeVaultChoice)) {
     p.cancel('Setup cancelled.');
     process.exit(0);
   }
 
   let confirm = false;
-  if (removeVaultPrompt) {
+  if (removeVaultChoice) {
     const vaultPath = getVaultPath();
     const stats = getVaultStats(vaultPath);
     let confirmMsg = 'This will permanently delete your vault';
@@ -1976,7 +1980,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
     if (p.isCancel(typed) || typed?.toLowerCase() !== 'delete') {
       p.cancel('Vault deletion cancelled. Proceeding without removing vault.');
-      // Continue with uninstall but skip vault deletion
+      removeVaultChoice = false; // Reset so uninstall() doesn't get removeVault: true
     } else {
       confirm = true;
     }
@@ -1986,7 +1990,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
   let vaultDeleted = false;
   for (const c of selected) {
     try {
-      const shouldRemoveVault = removeVaultPrompt && !vaultDeleted;
+      const shouldRemoveVault = removeVaultChoice && !vaultDeleted;
       const result = uninstall({
         client: c,
         removeVault: shouldRemoveVault,

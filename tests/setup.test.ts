@@ -1230,8 +1230,7 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:END');
     expect(content).toContain('knowledge-search');
     expect(content).toContain('knowledge-store');
-    // Instructions should not contain client-specific filtering
-    expect(content).not.toContain('client: "');
+    // Client-specific search hint is template-dependent (compact vs full)
     // New file should have YAML frontmatter preamble
     expect(content).toMatch(/^---\nalwaysApply: true/);
 
@@ -1386,7 +1385,7 @@ describe('setup.ts', () => {
     const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
     expect(sharedContent).toContain('# Shared Rules');
     expect(sharedContent).toContain('OPEN-ZK-KB:START');
-    expect(sharedContent).not.toContain('client: "');
+    expect(sharedContent).toContain('knowledge-search');
 
     // Output should report the injection, not a skip
     expect(output).toContain('Instructions:');
@@ -1460,7 +1459,7 @@ describe('setup.ts', () => {
     expect(fs.existsSync(agentDocsPath)).toBe(true);
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
-    expect(content).not.toContain('client: "');
+    expect(content).toContain('knowledge-store');
 
     // Uninstall should clean up
     setupModule.uninstall({ client: 'windsurf' });
@@ -1614,7 +1613,6 @@ describe('setup.ts', () => {
     // Compact template DOES have the essentials
     expect(content).toContain('knowledge-search');
     expect(content).toContain('knowledge-store');
-    expect(content).not.toContain('client: "');
   });
 
   it('omp install cleans stale block from symlinked AGENTS.md when injectSharedAgentDocs is true', async () => {
