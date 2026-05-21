@@ -349,11 +349,12 @@ function parsePeriodToDays(period?: string): number {
 export async function handleStats(args: StatsArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
   const days = parsePeriodToDays(args.period);
   const periodLabel = `${days}d`;
-  const stats = repo.getStats();
-  const embeddingStats = repo.getEmbeddingStats();
-  const staleness = repo.getStalenessDistribution();
+  const project = args.project;
+  const stats = repo.getStats(project);
+  const embeddingStats = repo.getEmbeddingStats(project);
+  const staleness = repo.getStalenessDistribution(project);
 
-  let output = '# Knowledge Base Stats\n\n';
+  let output = project ? `# Knowledge Base Stats — ${project}\n\n` : '# Knowledge Base Stats\n\n';
 
   // --- Health indicators ---
   output += `## Health (${stats.total} notes)\n`;
@@ -401,7 +402,7 @@ export async function handleStats(args: StatsArgs, repo: NoteRepository, config:
 
   // --- Growth & activity ---
   const sinceMs = Date.now() - days * 86400000;
-  const growth = repo.getGrowthByKind(sinceMs);
+  const growth = repo.getGrowthByKind(sinceMs, project);
   const totalCreated = Object.values(growth).reduce((s, n) => s + n, 0);
   output += `\n## Growth (last ${periodLabel})\n`;
   output += `- Notes created: ${totalCreated}\n`;
@@ -2191,8 +2192,8 @@ function formatGlobalOverview(logLimit: number, repo: NoteRepository, config?: A
     output += parts.join(', ') + `  (${stats.total} total)\n\n`;
   }
 
-  // Unscoped count
-  const scopedCount = projectStats.reduce((s, p) => s + p.noteCount, 0);
+  // Unscoped count — use direct DB count to avoid double-counting multi-project notes
+  const scopedCount = repo.getScopedNoteCount();
   const unscopedCount = stats.total - stats.archived - scopedCount;
   if (unscopedCount > 0) {
     output += `Unscoped notes: ${unscopedCount}\n\n`;

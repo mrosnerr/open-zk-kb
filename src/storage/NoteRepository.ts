@@ -1011,21 +1011,23 @@ export class NoteRepository {
   /**
    * Get embedding stats for maintenance reporting.
    */
-  getEmbeddingStats(): { total: number; withEmbedding: number; withoutEmbedding: number; models: Record<string, number> } {
+  getEmbeddingStats(project?: string): { total: number; withEmbedding: number; withoutEmbedding: number; models: Record<string, number> } {
+    const projectClause = project ? ` AND tags LIKE ?` : '';
+    const projectParam = project ? [`%"project:${project}"%`] : [];
     const counts = this.db.prepare(`
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN embedding IS NOT NULL THEN 1 ELSE 0 END) as withEmbedding,
         SUM(CASE WHEN embedding IS NULL THEN 1 ELSE 0 END) as withoutEmbedding
-      FROM notes WHERE status != 'archived'
-    `).get() as { total: number; withEmbedding: number; withoutEmbedding: number };
+      FROM notes WHERE status != 'archived'${projectClause}
+    `).get(...projectParam) as { total: number; withEmbedding: number; withoutEmbedding: number };
 
     const modelRows = this.db.prepare(`
       SELECT embedding_model, COUNT(*) as count
       FROM notes
-      WHERE embedding IS NOT NULL AND embedding_model IS NOT NULL
+      WHERE embedding IS NOT NULL AND embedding_model IS NOT NULL${projectClause}
       GROUP BY embedding_model
-    `).all() as Array<{ embedding_model: string; count: number }>;
+    `).all(...projectParam) as Array<{ embedding_model: string; count: number }>;
 
     const models: Record<string, number> = {};
     for (const row of modelRows) {
@@ -1171,6 +1173,15 @@ export class NoteRepository {
     return [...stats.entries()]
       .map(([project, s]) => ({ project, ...s }))
       .sort((a, b) => a.project.localeCompare(b.project));
+  }
+
+  /** Count unique notes that have at least one project tag (non-archived). */
+  getScopedNoteCount(): number {
+    const row = this.db.prepare(`
+      SELECT COUNT(*) as count FROM notes
+      WHERE tags LIKE '%"project:%' AND status != 'archived'
+    `).get() as { count: number };
+    return row.count;
   }
 
   getUnscopedNotes(): NoteMetadata[] {
@@ -1498,7 +1509,9 @@ export class NoteRepository {
     }
   }
 
-  getStats(): { total: number; fleeting: number; permanent: number; archived: number; other: number } {
+  getStats(project?: string): { total: number; fleeting: number; permanent: number; archived: number; other: number } {
+    const filter = project ? `WHERE tags LIKE ?` : '';
+    const params = project ? [`%"project:${project}"%`] : [];
     const stmt = this.db.prepare(`
       SELECT
         COUNT(*) as total,
@@ -1506,10 +1519,10 @@ export class NoteRepository {
         COALESCE(SUM(CASE WHEN status = 'permanent' THEN 1 ELSE 0 END), 0) as permanent,
         COALESCE(SUM(CASE WHEN status = 'archived' THEN 1 ELSE 0 END), 0) as archived,
         COALESCE(SUM(CASE WHEN status NOT IN ('fleeting', 'permanent', 'archived') THEN 1 ELSE 0 END), 0) as other
-      FROM notes
+      FROM notes ${filter}
     `);
 
-    return stmt.get() as { total: number; fleeting: number; permanent: number; archived: number; other: number };
+    return stmt.get(...params) as { total: number; fleeting: number; permanent: number; archived: number; other: number };
   }
 
   getStatsByKind(): Record<string, { total: number; fleeting: number; permanent: number; archived: number }> {
@@ -1535,13 +1548,16 @@ export class NoteRepository {
    * Get notes created within a time window, grouped by kind.
    * Used by knowledge-stats for growth rate reporting.
    */
-  getGrowthByKind(sinceMs: number): Record<string, number> {
+  getGrowthByKind(sinceMs: number, project?: string): Record<string, number> {
+    const projectClause = project ? ` AND tags LIKE ?` : '';
+    const params: (number | string)[] = [sinceMs];
+    if (project) params.push(`%"project:${project}"%`);
     const rows = this.db.prepare(`
       SELECT kind, COUNT(*) as count
       FROM notes
-      WHERE created_at >= ? AND status != 'archived'
+      WHERE created_at >= ? AND status != 'archived'${projectClause}
       GROUP BY kind
-    `).all(sinceMs) as Array<{ kind: string; count: number }>;
+    `).all(...params) as Array<{ kind: string; count: number }>;
     const result: Record<string, number> = {};
     for (const row of rows) {
       result[row.kind || 'observation'] = row.count;
@@ -1553,11 +1569,14 @@ export class NoteRepository {
    * Get staleness distribution across buckets: 0-7d, 7-30d, 30-90d, 90d+.
    * Staleness = days since last access (or creation if never accessed).
    */
-  getStalenessDistribution(): { fresh: number; recent: number; aging: number; stale: number } {
+  getStalenessDistribution(project?: string): { fresh: number; recent: number; aging: number; stale: number } {
     const now = Date.now();
     const d7 = now - 7 * 86400000;
     const d30 = now - 30 * 86400000;
     const d90 = now - 90 * 86400000;
+    const projectClause = project ? ` AND tags LIKE ?` : '';
+    const params: (number | string)[] = [d7, d7, d30, d30, d90, d90];
+    if (project) params.push(`%"project:${project}"%`);
     const row = this.db.prepare(`
       SELECT
         COALESCE(SUM(CASE WHEN COALESCE(last_accessed_at, created_at) >= ? THEN 1 ELSE 0 END), 0) as fresh,
@@ -1565,8 +1584,8 @@ export class NoteRepository {
         COALESCE(SUM(CASE WHEN COALESCE(last_accessed_at, created_at) < ? AND COALESCE(last_accessed_at, created_at) >= ? THEN 1 ELSE 0 END), 0) as aging,
         COALESCE(SUM(CASE WHEN COALESCE(last_accessed_at, created_at) < ? THEN 1 ELSE 0 END), 0) as stale
       FROM notes
-      WHERE status != 'archived'
-    `).get(d7, d7, d30, d30, d90, d90) as { fresh: number; recent: number; aging: number; stale: number };
+      WHERE status != 'archived'${projectClause}
+    `).get(...params) as { fresh: number; recent: number; aging: number; stale: number };
     return row;
   }
 

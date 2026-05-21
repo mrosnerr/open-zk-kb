@@ -90,13 +90,13 @@ async function run() {
 
   try {
     const statsResult = await client.callTool({
-      name: 'knowledge-maintain',
-      arguments: { action: 'stats' },
+      name: 'knowledge-stats',
+      arguments: {},
     });
     const statsText = JSON.stringify(statsResult);
-    check('knowledge-maintain stats returns total', statsText.includes('total'));
+    check('knowledge-stats returns health info', statsText.includes('Health'));
   } catch (err) {
-    check('knowledge-maintain stats returns total', false, String(err));
+    check('knowledge-stats returns health info', false, String(err));
   }
 
   try {
