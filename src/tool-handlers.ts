@@ -1574,7 +1574,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         return 'Embedding not configured. Add provider + embeddings section to config.yaml to enable vector search.';
       }
 
-      const limit = args.limit || 999999;
+      const limit = args.limit ?? 999999;
       const pending = repo.getNotesWithoutEmbeddings(limit);
       if (pending.length === 0) {
         return 'All notes already have embeddings. Nothing to backfill.';
