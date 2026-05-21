@@ -158,7 +158,7 @@ describe('setup.ts', () => {
     const setupModule = await loadFreshSetupModule();
 
     for (const testCase of CLIENT_CASES) {
-      const output = setupModule.install({
+      const { output: output } = setupModule.install({
         client: testCase.client,
         serverPath: env.fakeServerPath,
         force: true,
@@ -221,7 +221,7 @@ describe('setup.ts', () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
-    const output = setupModule.install({
+    const { output: output } = setupModule.install({
       client: 'pi',
       force: true,
     });
@@ -236,7 +236,7 @@ describe('setup.ts', () => {
     expect(fs.existsSync(agentDocsPath)).toBe(true);
     const agentDocs = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(agentDocs).toContain('OPEN-ZK-KB:START');
-    expect(agentDocs).toContain('client: "pi"');
+    expect(agentDocs).toContain('knowledge-search');
     expect(output).toContain('pi install');
     expect(output).toContain('Pi does not support MCP natively');
   });
@@ -245,7 +245,7 @@ describe('setup.ts', () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
-    const output = setupModule.install({
+    const { output: output } = setupModule.install({
       client: 'pi',
       dryRun: true,
     });
@@ -269,11 +269,11 @@ describe('setup.ts', () => {
       force: true,
     });
 
-    const uninstallOutput = setupModule.uninstall({ client: 'pi' });
+    const uninstallResult = setupModule.uninstall({ client: 'pi' });
     const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as { packages?: string[] };
     const agentDocsPath = path.join(env.homeDir, '.pi', 'agent', 'AGENTS.md');
 
-    expect(uninstallOutput).toContain('Uninstalled open-zk-kb from Pi');
+    expect(uninstallResult.output).toContain('Uninstalled open-zk-kb from Pi');
     expect(settings.packages).toEqual(['npm:other-package']);
     expect(fs.existsSync(agentDocsPath)).toBe(false);
   });
@@ -282,11 +282,11 @@ describe('setup.ts', () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
-    const first = setupModule.install({
+    const { output: first } = setupModule.install({
       client: 'opencode',
       serverPath: env.fakeServerPath,
     });
-    const second = setupModule.install({
+    const { output: second } = setupModule.install({
       client: 'opencode',
       serverPath: env.fakeServerPath,
     });
@@ -310,7 +310,7 @@ describe('setup.ts', () => {
       serverPath: env.fakeServerPath,
     });
 
-    const uninstallOutput = setupModule.uninstall({
+    const uninstallResult = setupModule.uninstall({
       client: 'opencode',
     });
 
@@ -319,7 +319,7 @@ describe('setup.ts', () => {
       mcp?: Record<string, unknown>;
     };
 
-    expect(uninstallOutput).toContain('Uninstalled open-zk-kb from OpenCode');
+    expect(uninstallResult.output).toContain('Uninstalled open-zk-kb from OpenCode');
     expect(config.mcp?.['open-zk-kb']).toBeUndefined();
   });
 
@@ -977,6 +977,34 @@ describe('setup.ts', () => {
     expect(skillContent).toContain('knowledge-store');
   });
 
+  it('install creates skill through dangling parent symlink', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Create ~/.claude but make skills/ a dangling symlink
+    const claudeDir = path.join(env.homeDir, '.claude');
+    fs.mkdirSync(claudeDir, { recursive: true });
+    const danglingTarget = path.join(env.homeDir, 'nonexistent', 'skills');
+    fs.symlinkSync(danglingTarget, path.join(claudeDir, 'skills'));
+
+    // Sanity: the symlink target doesn't exist
+    expect(fs.existsSync(danglingTarget)).toBe(false);
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Skill should be installed through the symlink
+    const skillPath = path.join(claudeDir, 'skills', 'open-zk-kb');
+    expect(fs.existsSync(skillPath)).toBe(true);
+    expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
+
+    // The dangling target should now exist
+    expect(fs.existsSync(danglingTarget)).toBe(true);
+  });
+
   it('install does not inject CLAUDE.md managed block for claude-code', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
@@ -1008,7 +1036,7 @@ describe('setup.ts', () => {
     );
 
     const setupModule = await loadFreshSetupModule();
-    const output = setupModule.install({
+    const { output: output } = setupModule.install({
       client: 'claude-code',
       serverPath: env.fakeServerPath,
       force: true,
@@ -1071,7 +1099,7 @@ describe('setup.ts', () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
-    const output = setupModule.install({
+    const { output: output } = setupModule.install({
       client: 'claude-code',
       serverPath: env.fakeServerPath,
       dryRun: true,
@@ -1184,7 +1212,7 @@ describe('setup.ts', () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
-    const output = setupModule.install({
+    const { output: output } = setupModule.install({
       client: 'omp',
       serverPath: env.fakeServerPath,
       force: true,
@@ -1202,8 +1230,7 @@ describe('setup.ts', () => {
     expect(content).toContain('OPEN-ZK-KB:END');
     expect(content).toContain('knowledge-search');
     expect(content).toContain('knowledge-store');
-    // Client name should be templated in
-    expect(content).toContain('client: "omp"');
+    // Client-specific search hint is template-dependent (compact vs full)
     // New file should have YAML frontmatter preamble
     expect(content).toMatch(/^---\nalwaysApply: true/);
 
@@ -1213,7 +1240,7 @@ describe('setup.ts', () => {
 
     // Output should mention both
     expect(output).toContain('Skill:');
-    expect(output).toContain('Agent docs:');
+    expect(output).toContain('Rule:');
   });
 
   it('omp install preserves existing rules/open-zk-kb.md content when injecting', async () => {
@@ -1318,7 +1345,7 @@ describe('setup.ts', () => {
     fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
     fs.symlinkSync(sharedFile, agentDocsPath);
 
-    const output = setupModule.install({
+    const { output: output } = setupModule.install({
       client: 'opencode',
       serverPath: env.fakeServerPath,
       force: true,
@@ -1347,7 +1374,7 @@ describe('setup.ts', () => {
     fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
     fs.symlinkSync(sharedFile, agentDocsPath);
 
-    const output = setupModule.install({
+    const { output: output } = setupModule.install({
       client: 'opencode',
       serverPath: env.fakeServerPath,
       force: true,
@@ -1358,10 +1385,10 @@ describe('setup.ts', () => {
     const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
     expect(sharedContent).toContain('# Shared Rules');
     expect(sharedContent).toContain('OPEN-ZK-KB:START');
-    expect(sharedContent).toContain('client: "opencode"');
+    expect(sharedContent).toContain('knowledge-search');
 
     // Output should report the injection, not a skip
-    expect(output).toContain('Agent docs:');
+    expect(output).toContain('Instructions:');
     expect(output).not.toContain('skipped');
   });
 
@@ -1432,7 +1459,7 @@ describe('setup.ts', () => {
     expect(fs.existsSync(agentDocsPath)).toBe(true);
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
-    expect(content).toContain('client: "windsurf"');
+    expect(content).toContain('knowledge-store');
 
     // Uninstall should clean up
     setupModule.uninstall({ client: 'windsurf' });
@@ -1462,7 +1489,7 @@ describe('setup.ts', () => {
       'utf-8',
     );
 
-    const output = setupModule.install({
+    const { output: output } = setupModule.install({
       client: 'omp',
       serverPath: env.fakeServerPath,
       force: true,
@@ -1586,6 +1613,312 @@ describe('setup.ts', () => {
     // Compact template DOES have the essentials
     expect(content).toContain('knowledge-search');
     expect(content).toContain('knowledge-store');
-    expect(content).toContain('client: "omp"');
+  });
+
+  it('omp install cleans stale block from symlinked AGENTS.md when injectSharedAgentDocs is true', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Create a shared file with a stale managed block
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile,
+      '# Shared\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+    // Symlink the OMP stale path to the shared file
+    const staleAgentsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(staleAgentsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, staleAgentsPath);
+
+    const { output: output } = setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+      injectSharedAgentDocs: true,
+    });
+
+    // Shared file should have the stale block removed
+    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
+    expect(sharedContent).toContain('# Shared');
+    expect(sharedContent).not.toContain('OPEN-ZK-KB:START');
+
+    // Output should report the cleanup
+    expect(output).toContain('Cleanup:');
+    expect(output).toContain('AGENTS.md');
+  });
+
+  it('omp install warns about stale block in symlinked AGENTS.md when not opted in', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Create a shared file with a stale managed block
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile,
+      '# Shared\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+    const staleAgentsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(staleAgentsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, staleAgentsPath);
+
+    const { output: output } = setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Shared file should NOT be touched
+    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
+    expect(sharedContent).toContain('OPEN-ZK-KB:START');
+
+    // Output should warn about the stale symlinked block
+    expect(output).toContain('stale managed block in symlinked');
+    expect(output).toContain('AGENTS.md');
+  });
+
+  it('doctor detects stale managed block in symlinked OMP AGENTS.md', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Create a shared file with a stale managed block, symlinked from the stale path
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile,
+      '# Shared\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nStale\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+    const staleAgentsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
+    // Remove existing non-symlink AGENTS.md if install created one
+    if (fs.existsSync(staleAgentsPath)) fs.unlinkSync(staleAgentsPath);
+    fs.symlinkSync(sharedFile, staleAgentsPath);
+
+    const output = setupModule.doctor({ client: 'omp' });
+    expect(output).toContain('WARN OMP: stale managed block in');
+    expect(output).toContain('AGENTS.md');
+    expect(output).toContain('→'); // symlink indicator
+  });
+
+  it('doctor --fix removes stale managed block from symlinked OMP AGENTS.md', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Create a shared file with a stale managed block, symlinked from the stale path
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile,
+      '# Shared\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nStale\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+    const staleAgentsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
+    if (fs.existsSync(staleAgentsPath)) fs.unlinkSync(staleAgentsPath);
+    fs.symlinkSync(sharedFile, staleAgentsPath);
+
+    const output = setupModule.doctor({ client: 'omp', fix: true });
+    expect(output).toContain('FIXED OMP: removed stale managed block');
+    expect(output).toContain('→'); // symlink indicator
+
+    // Shared file should be cleaned
+    const cleaned = fs.readFileSync(sharedFile, 'utf-8');
+    expect(cleaned).toContain('# Shared');
+    expect(cleaned).not.toContain('OPEN-ZK-KB:START');
+  });
+
+  it('omp dry-run reports stale symlink skip', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Create a shared file with a stale managed block, symlinked from the stale path
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile,
+      '# Shared\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+    const staleAgentsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(staleAgentsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, staleAgentsPath);
+
+    const { output: output } = setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+      dryRun: true,
+    });
+
+    expect(output).toContain('Would skip stale cleanup');
+    expect(output).toContain('AGENTS.md');
+  });
+
+  // --- Uninstall: stale cleanup and symlink handling ---
+
+  it('omp uninstall cleans up stale managed blocks from AGENTS.md and RULES.md', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Install first so there's something to uninstall
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    // Add stale blocks AFTER install (install would clean them during its own stale pass)
+    const staleAgentsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(staleAgentsPath), { recursive: true });
+    fs.writeFileSync(staleAgentsPath,
+      '# My Rules\n\n<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld instructions\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+    const staleRulesPath = path.join(env.homeDir, '.omp', 'agent', 'RULES.md');
+    fs.writeFileSync(staleRulesPath,
+      '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->\nOld RULES instructions\n<!-- OPEN-ZK-KB:END -->\n',
+      'utf-8',
+    );
+
+    const result = setupModule.uninstall({ client: 'omp' });
+    expect(result.status).toBe('uninstalled');
+
+    // AGENTS.md: user content preserved, managed block removed
+    const agentsContent = fs.readFileSync(staleAgentsPath, 'utf-8');
+    expect(agentsContent).toContain('# My Rules');
+    expect(agentsContent).not.toContain('OPEN-ZK-KB:START');
+
+    // RULES.md: was only the managed block, so should be deleted
+    if (fs.existsSync(staleRulesPath)) {
+      expect(fs.readFileSync(staleRulesPath, 'utf-8')).not.toContain('OPEN-ZK-KB:START');
+    }
+
+    // Output should mention the stale cleanup
+    expect(result.output).toContain('Stale block removed');
+  });
+
+  it('uninstall skips symlinked agent docs and reports in result', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Create a shared file with a managed block
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, '# Shared\n', 'utf-8');
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, agentDocsPath);
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+      injectSharedAgentDocs: true,
+    });
+    expect(fs.readFileSync(sharedFile, 'utf-8')).toContain('OPEN-ZK-KB:START');
+
+    // Uninstall without removeSharedAgentDocs — should skip the symlinked file
+    const result = setupModule.uninstall({ client: 'opencode' });
+    expect(result.status).toBe('uninstalled');
+    expect(result.agentDocsSkippedSymlink).toBe(fs.realpathSync(sharedFile));
+
+    // Shared file should still have the block
+    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
+    expect(sharedContent).toContain('OPEN-ZK-KB:START');
+  });
+
+  it('uninstall removes symlinked agent docs when removeSharedAgentDocs is true', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, '# Shared\n', 'utf-8');
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, agentDocsPath);
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+      injectSharedAgentDocs: true,
+    });
+
+    const result = setupModule.uninstall({ client: 'opencode', removeSharedAgentDocs: true });
+    expect(result.status).toBe('uninstalled');
+    expect(result.agentDocsSkippedSymlink).toBeNull();
+
+    // Shared file should have the block removed but user content preserved
+    const sharedContent = fs.readFileSync(sharedFile, 'utf-8');
+    expect(sharedContent).toContain('# Shared');
+    expect(sharedContent).not.toContain('OPEN-ZK-KB:START');
+  });
+
+  it('uninstall dry-run reports symlink skip and stale paths', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Set up symlinked agent docs
+    const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+    fs.writeFileSync(sharedFile, '# Shared\n', 'utf-8');
+
+    const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+    fs.symlinkSync(sharedFile, agentDocsPath);
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+      injectSharedAgentDocs: true,
+    });
+
+    const result = setupModule.uninstall({ client: 'opencode', dryRun: true });
+    expect(result.status).toBe('dry-run');
+    expect(result.agentDocsSkippedSymlink).toBe(fs.realpathSync(sharedFile));
+    expect(result.output).toContain('skipped');
+    expect(result.output).toContain('symlinked');
+  });
+
+  it('uninstall returns not-installed for unconfigured client', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    // Create config file but without open-zk-kb entry
+    const configPath = path.join(env.xdgConfigHome, 'opencode', 'opencode.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, '{}', 'utf-8');
+
+    const result = setupModule.uninstall({ client: 'opencode' });
+    expect(result.status).toBe('not-installed');
+  });
+
+  it('uninstall result includes per-client labels', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const result = setupModule.uninstall({ client: 'omp' });
+    expect(result.status).toBe('uninstalled');
+    // OMP uses "Rule:" label
+    expect(result.details.some(d => d.startsWith('Rule:'))).toBe(true);
   });
 });
