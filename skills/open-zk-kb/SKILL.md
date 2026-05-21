@@ -13,6 +13,7 @@ description: >
 allowed-tools:
   - mcp__open-zk-kb__knowledge-search
   - mcp__open-zk-kb__knowledge-store
+  - mcp__open-zk-kb__knowledge-get
   - mcp__open-zk-kb__knowledge-template
   - mcp__open-zk-kb__knowledge-maintain
   - mcp__open-zk-kb__knowledge-ingest

@@ -1550,7 +1550,7 @@ install:
   (no flags)           Interactive client selection
   --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed, pi, omp)
   --server-path <path> Path to dist/mcp-server.js (auto-detected; MCP clients only)
-  --instructions <size> Agent instruction size: compact (~140 tokens) or full (~420 tokens)
+  --instructions <size> Agent instruction size: compact (~140 tokens), full (~420 tokens), or rules
   --transport <type>   Transport type: stdio (default) or http
   --force              Overwrite existing config
   --dry-run            Preview changes without applying

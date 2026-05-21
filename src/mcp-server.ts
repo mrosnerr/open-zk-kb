@@ -229,7 +229,7 @@ export function createMcpServer(): McpServer {
     status: z.enum(['fleeting', 'permanent', 'archived']).optional().describe('Filter by status'),
     lifecycle: z.enum(LIFECYCLES).optional().describe('Filter by lifecycle: living, snapshot, append-only'),
     project: z.string().optional().describe('Filter by project tag'),
-    client: z.string().optional().describe('Optional client filter — only needed to hide notes tagged for a specific other client. Omit to see all notes.'),
+    client: z.string().optional().describe('Optional client filter — pass your client name to see only notes visible to your client (universal notes always included). Omit to see all notes.'),
     tags: z.array(z.string()).optional().describe('Filter by tags (all must match)'),
     limit: z.number().optional().describe('Max results (default 10)'),
     model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
