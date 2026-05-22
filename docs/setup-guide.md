@@ -149,6 +149,7 @@ server:
    - `knowledge-search` -- full-text search across notes
    - `knowledge-template` -- canonical note template for a kind
    - `knowledge-mine` -- bulk-screen candidates for duplicates and store
+   - `knowledge-stats` -- vault health metrics, staleness, growth rate
    - `knowledge-maintain` -- review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML
    - `knowledge-overview` -- project entry point with auto-generated index and recent log
