@@ -143,13 +143,13 @@ server:
 ## Verify Installation
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.
-3. Ask your agent: **"Run `knowledge-maintain stats`"**
+3. Ask your agent: **"Run `knowledge-stats`"**
 4. You should see vault statistics (0 notes on fresh install). This confirms the knowledge tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
    - `knowledge-template` -- canonical note template for a kind
    - `knowledge-mine` -- bulk-screen candidates for duplicates and store
-   - `knowledge-maintain` -- stats, review, promote, archive, rebuild
+   - `knowledge-maintain` -- review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML
    - `knowledge-overview` -- project entry point with auto-generated index and recent log
    - `knowledge-get` -- fetch a specific note by id
@@ -228,7 +228,7 @@ bunx open-zk-kb@latest install --client <name> --force
 
 ### Checking for Updates
 
-Run `knowledge-maintain stats` to see version information:
+Run `knowledge-stats` to see version information:
 
 ```
 ## Version
@@ -298,5 +298,5 @@ This section is specifically for agents setting up open-zk-kb:
 1. Run `bun --version` -- confirm >= 1.0.0 (if missing: `curl -fsSL https://bun.sh/install | bash`)
 2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor
-4. Verify by calling `knowledge-maintain stats`
+4. Verify by calling `knowledge-stats`
 5. Knowledge capture is driven by agent instructions (skill for Claude Code and OMP, managed block for OpenCode/Windsurf/Pi, package extension for Pi) provided during setup. Calling models use MCP tools directly, primarily querying the SQLite-backed server layer rather than browsing raw vault files.

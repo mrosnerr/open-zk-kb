@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { handleStore, handleTemplate, handleMaintain } from '../src/tool-handlers.js';
+import { handleStore, handleTemplate, handleStats } from '../src/tool-handlers.js';
 import { cleanupTestHarness, createTestHarness, sleep, type TestContext } from './harness.js';
 import {
   getTemplate, getTemplatesDir, getExpectedCategories, matchCategories,
@@ -264,7 +264,7 @@ describe('conformance telemetry', () => {
     expect(agg.hintTriggerRate).toBeCloseTo(0.5, 1);
   });
 
-  it('conformance stats appear in maintain stats with --telemetry', async () => {
+  it('conformance stats appear in knowledge-stats with --telemetry', async () => {
     await handleStore({
       title: 'Bare decision',
       content: 'No structure at all.',
@@ -274,7 +274,7 @@ describe('conformance telemetry', () => {
     }, ctx.engine, null, ctx.config);
     await sleep(0);
 
-    const stats = await handleMaintain({ action: 'stats', telemetry: true }, ctx.engine, ctx.config);
+    const stats = await handleStats({ telemetry: true }, ctx.engine, ctx.config);
     expect(stats).toContain('Template Conformance');
     expect(stats).toContain('Stores checked:');
   });

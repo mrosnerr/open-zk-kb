@@ -255,7 +255,7 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 
 ## knowledge-stats
 
-Vault health metrics, staleness distribution, growth rates, and infrastructure status. Replaces the deprecated `knowledge-maintain stats` action.
+Standalone tool for vault health metrics, staleness distribution, growth rates, and infrastructure status.
 
 ### Parameters
 

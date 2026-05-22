@@ -657,7 +657,8 @@ describe('NoteRepository — Coverage Boost', () => {
 
 // ---- src/tool-handlers.ts (uncovered maintain paths) ----
 
-import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers';
+import { handleStore, handleSearch, handleMaintain, handleStats } from '../src/tool-handlers';
+
 
 describe('Tool Handlers — Coverage Boost', () => {
   let ctx: TestContext;
@@ -680,10 +681,10 @@ describe('Tool Handlers — Coverage Boost', () => {
     });
   });
 
-  describe('handleMaintain — stats', () => {
+  describe('handleStats — coverage', () => {
     it('should show embedding provider when config passed', async () => {
-      const output = await handleMaintain(
-        { action: 'stats' },
+      const output = await handleStats(
+        {},
         ctx.engine,
         ctx.config,
         { provider: 'local', model: 'test-model', dimensions: 384 }
@@ -696,7 +697,7 @@ describe('Tool Handlers — Coverage Boost', () => {
         ctx.engine.store(`Note ${i}`, { title: `Note ${i}`, kind: 'reference' });
       }
 
-      const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
+      const output = await handleStats({}, ctx.engine, ctx.config);
       expect(output).toContain('Notes created: 6');
     });
   });
@@ -896,7 +897,7 @@ describe('Tool Handlers — Coverage Boost', () => {
         "UPDATE notes SET status = 'unknown' WHERE id = (SELECT id FROM notes LIMIT 1)"
       ).run();
 
-      const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
+      const output = await handleStats({}, ctx.engine, ctx.config);
       // Stats should still work, may or may not show "Other" depending on getStats impl
       expect(output).toContain('Knowledge Base Stats');
     });

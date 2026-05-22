@@ -401,7 +401,7 @@ Observation content with [[missing-note]]`, '2026042700000002-moveable-note.md')
     expect(output).toContain('## Next Steps');
     expect(output).toContain('- Backfill embeddings: knowledge-maintain embed');
     expect(output).toContain('- Check link health: knowledge-maintain link-health');
-    expect(output).toContain('- View vault stats: knowledge-maintain stats');
+    expect(output).toContain('- View vault stats: knowledge-stats');
     expect(fs.existsSync(emptyDir)).toBe(false);
 
     const note = context.engine.getById('2026042700000002');

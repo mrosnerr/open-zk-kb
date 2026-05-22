@@ -55,7 +55,7 @@ Embeddings work **out of the box** with zero configuration using a local model (
 
 ## Telemetry (Local-Only, Opt-In)
 
-Telemetry is **disabled by default** and must be explicitly opted into. When enabled, it is stored only in the local SQLite database under the vault — nothing is ever sent remotely. It records coarse tool invocation counters for `knowledge-maintain stats` when called with `telemetry: true`.
+Telemetry is **disabled by default** and must be explicitly opted into. When enabled, it is stored only in the local SQLite database under the vault — nothing is ever sent remotely. It records coarse tool invocation counters for `knowledge-stats` when called with `telemetry: true`.
 
 ```yaml
 telemetry:

@@ -409,13 +409,12 @@ export function createMcpServer(): McpServer {
   // ---- knowledge-maintain ----
 
   const maintainSchema = z.object({
-    action: z.enum(['stats', 'promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'unlinked', 'broken-links', 'link-health', 'migrate-layout', 'upgrade-vault', 'full'])
-        .describe('Maintenance action: stats (deprecated — use knowledge-stats), review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, format (re-serialize all note files with canonical frontmatter and navigation), upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags), unlinked (notes with no wikilinks), broken-links (wikilinks to non-existent notes), link-health (combined report: unlinked notes + broken links + one-way links), migrate-layout (move flat vault to kind-based directory structure), upgrade-vault (refresh Obsidian scaffold assets), or full (composite: rebuild → migrate-layout → format → dedupe → embed → link-health, in dependency order).'),
+    action: z.enum(['promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'unlinked', 'broken-links', 'link-health', 'migrate-layout', 'upgrade-vault', 'full'])
+        .describe('Maintenance action: review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, format (re-serialize all note files with canonical frontmatter and navigation), upgrade, embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), scope-audit (detect mis-scoped client tags), unlinked (notes with no wikilinks), broken-links (wikilinks to non-existent notes), link-health (combined report: unlinked notes + broken links + one-way links), migrate-layout (move flat vault to kind-based directory structure), upgrade-vault (refresh Obsidian scaffold assets), or full (composite: rebuild → migrate-layout → format → dedupe → embed → link-health, in dependency order).'),
     noteId: z.string().optional().describe('Note ID (required for promote/archive/delete; migration ID for upgrade-read)'),
     filter: z.enum(['fleeting', 'permanent']).optional().describe('Filter for review action: fleeting or permanent notes'),
     days: z.number().optional().describe('Days threshold for review (default: from lifecycle.reviewAfterDays config)'),
     limit: z.number().optional().describe('Max notes to show (default: 3 for review)'),
-    telemetry: z.boolean().optional().describe('Include 30-day local-only tool invocation aggregates in stats output'),
     dryRun: z.boolean().optional().describe('Preview changes without applying'),
     model: z.string().optional().describe('Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.'),
   });
@@ -423,7 +422,8 @@ export function createMcpServer(): McpServer {
   server.registerTool(
     'knowledge-maintain',
     {
-      description: 'Maintain the knowledge base: review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, and managed agent docs repair. For stats, use knowledge-stats instead.',
+      description: 'Maintain the knowledge base: review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, upgrade, and managed agent docs repair.',
+
       inputSchema: maintainSchema as unknown as AnySchema,
     },
     async (args: z.infer<typeof maintainSchema>) => {
@@ -434,7 +434,6 @@ export function createMcpServer(): McpServer {
           filter: args.filter as 'fleeting' | 'permanent' | undefined,
           days: args.days,
           limit: args.limit,
-          telemetry: args.telemetry,
           dryRun: args.dryRun,
           model: args.model,
         }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION, gitVersioning);

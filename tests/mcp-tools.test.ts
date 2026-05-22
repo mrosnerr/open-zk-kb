@@ -560,13 +560,7 @@ describe('MCP Tool: knowledge-maintain', () => {
 
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should return stats with upgrade status', async () => {
-    const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
-    // Passthrough adds deprecation hint and delegates to handleStats
-    expect(output).toContain('Deprecated passthrough');
-    expect(output).toContain('Knowledge Base Stats');
-    expect(output).toContain('3 notes');
-  });
+
 
   it('should promote a note', async () => {
     const fleeting = ctx.engine.getByKind('reference');
@@ -1617,7 +1611,7 @@ describe('isNewerVersion', () => {
 
 // ---- Version check in stats output ----
 
-describe('MCP Tool: knowledge-maintain stats version check', () => {
+describe('MCP Tool: knowledge-stats version check', () => {
   let ctx: TestContext;
   const originalFetch = globalThis.fetch;
 
@@ -1634,8 +1628,8 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleMaintain(
-      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    const output = await handleStats(
+      {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).toContain('## Version');
     expect(output).toContain('Server: 0.1.0');
@@ -1649,8 +1643,8 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleMaintain(
-      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    const output = await handleStats(
+      {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).not.toContain('Update Available');
   });
@@ -1658,8 +1652,8 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
   it('should not show update notice when registry check fails', async () => {
     globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
 
-    const output = await handleMaintain(
-      { action: 'stats' }, ctx.engine, ctx.config, null, '0.1.0',
+    const output = await handleStats(
+      {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).not.toContain('Update Available');
   });
@@ -1670,8 +1664,8 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleMaintain(
-      { action: 'stats' }, ctx.engine, ctx.config, null, '0.2.0',
+    const output = await handleStats(
+      {}, ctx.engine, ctx.config, null, '0.2.0',
     );
     expect(output).not.toContain('Update Available');
   });
@@ -1682,8 +1676,8 @@ describe('MCP Tool: knowledge-maintain stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleMaintain(
-      { action: 'stats' }, ctx.engine, ctx.config,
+    const output = await handleStats(
+      {}, ctx.engine, ctx.config,
     );
     expect(output).not.toContain('Update Available');
   });
@@ -2356,41 +2350,6 @@ describe('MCP Tool: knowledge-maintain link-health', () => {
   });
 });
 
-describe('MCP Tool: knowledge-maintain stats link health', () => {
-  let ctx: TestContext;
-
-  beforeEach(() => { ctx = createTestHarness(); });
-  afterEach(() => { cleanupTestHarness(ctx); });
-
-  it('should surface one-way link count in health summary', async () => {
-    const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
-    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Source', kind: 'observation' });
-
-    const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
-    expect(output).toContain('## Link Health');
-    expect(output).toContain('1 one-way');
-    expect(output).toContain('knowledge-maintain link-health');
-  });
-
-  it('should surface unlinked note count in health summary', async () => {
-    ctx.engine.store('Standalone note', { title: 'Standalone', kind: 'reference' });
-
-    const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
-    expect(output).toContain('## Link Health');
-    expect(output).toContain('1 unlinked');
-    expect(output).toContain('knowledge-maintain link-health');
-  });
-
-  it('should show all clear when no link issues', async () => {
-    const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
-    const noteB = ctx.engine.store(`References [[${noteA.id}]]`, { title: 'Note B', kind: 'reference' });
-    ctx.engine.store(`Links back to [[${noteB.id}]]`, { title: 'Note A', kind: 'reference', existingId: noteA.id });
-
-    const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
-    expect(output).toContain('## Link Health');
-    expect(output).toContain('All clear');
-  });
-});
 
 describe('MCP Tool: knowledge-maintain full with link-health', () => {
   let ctx: TestContext;
@@ -3645,6 +3604,20 @@ describe('MCP Tool: knowledge-stats', () => {
     const output = await handleStats({ period: '0d' }, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 30d)');
     expect(output).not.toContain('Infinity');
+  });
+  it('should scope link health to project when project specified', async () => {
+    ctx.engine.store('Alpha note', { title: 'Alpha', kind: 'reference', tags: ['project:alpha'] });
+    ctx.engine.store('Beta standalone', { title: 'Beta', kind: 'reference', tags: ['project:beta'] });
+    ctx.engine.store('Global standalone', { title: 'Global', kind: 'reference' });
+
+    // Alpha has one note with no links — should show 1 unlinked when scoped to alpha
+    const alphaOutput = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+    expect(alphaOutput).toContain('## Link Health');
+    expect(alphaOutput).toContain('1 unlinked');
+
+    // Global stats should show 3 unlinked (alpha + beta + global)
+    const globalOutput = await handleStats({}, ctx.engine, ctx.config);
+    expect(globalOutput).toContain('3 unlinked');
   });
 });
 

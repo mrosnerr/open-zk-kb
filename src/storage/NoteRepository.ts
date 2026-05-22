@@ -2022,11 +2022,13 @@ export class NoteRepository {
     }));
   }
 
-  getUnlinkedNotes(): NoteMetadata[] {
+  getUnlinkedNotes(project?: string): NoteMetadata[] {
     // Only count links where the neighbor is also non-archived (live links)
+    const projectClause = project ? ` AND tags LIKE ?` : '';
+    const projectParam = project ? [`%"project:${project}"%`] : [];
     const stmt = this.db.prepare(`
       SELECT * FROM notes
-      WHERE status != 'archived'
+      WHERE status != 'archived'${projectClause}
         AND id NOT IN (
           SELECT l.source_id FROM note_links l
           JOIN notes n ON l.target_id = n.id WHERE n.status != 'archived'
@@ -2037,7 +2039,7 @@ export class NoteRepository {
         )
       ORDER BY created_at DESC
     `);
-    const results = stmt.all() as NoteMetadata[];
+    const results = stmt.all(...projectParam) as NoteMetadata[];
     const parsed = results.map(r => ({
       ...r,
       kind: (r.kind || 'observation') as NoteKind,
@@ -2049,7 +2051,10 @@ export class NoteRepository {
     return parsed.filter(note => parseAllWikiLinks(note.content || '').length === 0);
   }
 
-  getOneWayLinks(): Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }> {
+
+  getOneWayLinks(project?: string): Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }> {
+    const projectClause = project ? ` AND s.tags LIKE ? AND t.tags LIKE ?` : '';
+    const projectParam = project ? [`%"project:${project}"%`, `%"project:${project}"%`] : [];
     const stmt = this.db.prepare(`
       SELECT l.source_id AS sourceId, s.title AS sourceTitle,
              l.target_id AS targetId, t.title AS targetTitle
@@ -2059,18 +2064,23 @@ export class NoteRepository {
       WHERE s.status != 'archived'
         AND t.status != 'archived'
         AND s.kind NOT IN ('index', 'log')
-        AND t.kind NOT IN ('index', 'log')
+        AND t.kind NOT IN ('index', 'log')${projectClause}
         AND NOT EXISTS (
           SELECT 1 FROM note_links r
           WHERE r.source_id = l.target_id AND r.target_id = l.source_id
         )
       ORDER BY s.title, t.title
     `);
-    return stmt.all() as Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }>;
+    return stmt.all(...projectParam) as Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }>;
   }
 
-  getBrokenLinks(): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> {
-    const allNotes = this.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
+
+  getBrokenLinks(project?: string): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> {
+    let allNotes = this.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
+    if (project) {
+      const tag = `project:${project}`;
+      allNotes = allNotes.filter(n => Array.isArray(n.tags) && n.tags.includes(tag));
+    }
     const broken: Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> = [];
     const linkPattern = /\[\[([^\]]+)\]\]/g;
 

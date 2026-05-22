@@ -229,7 +229,6 @@ export interface MaintainArgs {
   filter?: 'fleeting' | 'permanent';
   days?: number;
   limit?: number;
-  telemetry?: boolean;
   dryRun?: boolean;
   model?: string;
 }
@@ -380,9 +379,9 @@ export async function handleStats(args: StatsArgs, repo: NoteRepository, config:
   }
 
   {
-    const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
-    const oneWayLinks = repo.getOneWayLinks();
-    const unlinkedNotes = repo.getUnlinkedNotes();
+    const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(project), config?.vault);
+    const oneWayLinks = repo.getOneWayLinks(project);
+    const unlinkedNotes = repo.getUnlinkedNotes(project);
     const linkIssueCount = brokenLinks.length + oneWayLinks.length + unlinkedNotes.length;
     output += '\n## Link Health\n';
     if (linkIssueCount > 0) {
@@ -1241,11 +1240,6 @@ async function backfillEmbeddings(
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
   scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action));
   switch (args.action) {
-    case 'stats': {
-      // Deprecated passthrough — delegates to handleStats
-      const statsResult = await handleStats({ telemetry: args.telemetry, model: args.model }, repo, config, embeddingConfig, currentVersion, gitVersioning);
-      return '(Deprecated passthrough — equivalent metrics available via knowledge-stats, with period filtering)\n\n' + statsResult;
-    }
     case 'promote': {
       if (!args.noteId) return 'Error: noteId is required for promote action.';
       const note = repo.getById(args.noteId);
@@ -2033,7 +2027,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += '- Backfill embeddings: knowledge-maintain embed\n';
         }
         output += '- Check link health: knowledge-maintain link-health\n';
-        output += '- View vault stats: knowledge-maintain stats\n';
+        output += '- View vault stats: knowledge-stats\n';
       }
 
       return output;
