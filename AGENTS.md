@@ -83,6 +83,7 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 | `handleOverview` | function | `tool-handlers.ts` | knowledge-overview implementation |
 | `handleMine` | function | `tool-handlers.ts` | knowledge-mine implementation |
 | `handleOpen` | function | `tool-handlers.ts` | knowledge-open implementation |
+| `handleStats` | function | `tool-handlers.ts` | knowledge-stats implementation |
 | `detectObsidian` | function | `obsidian.ts` | Platform-specific Obsidian installation detection |
 | `launchObsidian` | function | `obsidian.ts` | URI scheme or binary spawn to open vault |
 | `NoteMetadata` | interface | `storage/NoteRepository.ts` | Domain model for notes |
@@ -194,6 +195,6 @@ For any new feature, ask in order:
 - **Knowledge capture**: Claude Code and OMP use skills; OpenCode, Windsurf, and Pi use injected managed blocks (`AGENTS.md` or `rules/`). Calling models use `knowledge-store` directly.
 - **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
-- **9 MCP tools**: knowledge-store, knowledge-search, knowledge-get, knowledge-template, knowledge-mine, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open
+- **10 MCP tools**: knowledge-store, knowledge-search, knowledge-get, knowledge-template, knowledge-mine, knowledge-stats, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open
 - **Auto-generated notes**: `index` (per-project catalog, wikilinks grouped by kind) and `log` (per-project append-only event log) are auto-generated on project-scoped events. Agents cannot create them manually.
 - **Human vs agent surfaces**: Obsidian is the primary human browsing layer; agents primarily use MCP tools backed by SQLite/indexed metadata rather than navigating raw vault files.

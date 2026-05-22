@@ -14,7 +14,7 @@ bunx open-zk-kb@latest
 
 The interactive installer adds the MCP server to your client config and installs knowledge base instructions.
 
-## MCP Tools (9 tools)
+## MCP Tools (10 tools)
 
 ### knowledge-search
 Search the knowledge base for relevant context. Uses full-text search (SQLite FTS5) and local semantic embeddings (MiniLM-L6-v2). No API key required.
@@ -51,11 +51,19 @@ Parameters:
 - dry_run (boolean, optional): Preview only without storing (default: true)
 - project (string, optional): Scope all mined notes to a project
 
+### knowledge-stats
+Operational metrics and health dashboard for the knowledge base.
+
+Parameters:
+- project (string, optional): Scope stats to a project
+- period (string, optional): "7d", "30d" (default), or "90d"
+- telemetry (boolean, optional): Include local-only tool invocation aggregates
+
 ### knowledge-maintain
 Maintenance actions for the knowledge base.
 
 Parameters:
-- action (string, required): stats, review, promote, archive, delete, rebuild, embed, dedupe, unlinked, broken-links, link-health
+- action (string, required): review, promote, archive, delete, rebuild, embed, dedupe, unlinked, broken-links, link-health, full, migrate-layout, format
 
 ### knowledge-ingest
 Extract article content from URLs or raw HTML into clean markdown. Returns title, content, word count, and metadata.
@@ -65,10 +73,10 @@ Parameters:
 - html (string, optional): Raw HTML to extract (preferred — pass HTML from your web tools)
 
 ### knowledge-overview
-Get a project overview combining the auto-generated index and recent log entries.
+Get a knowledge base overview with computed inventory (note counts by kind, recent notes, resources) and recent log entries.
 
 Parameters:
-- project (string, required): Project name to get an overview for
+- project (string, optional): Project name to scope the overview
 - logEntries (number, optional): Number of recent log entries to include (default 10)
 
 ### knowledge-open

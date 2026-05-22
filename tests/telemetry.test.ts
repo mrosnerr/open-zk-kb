@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { handleMaintain, handleSearch, handleStore } from '../src/tool-handlers.js';
+import { handleMaintain, handleSearch, handleStats, handleStore } from '../src/tool-handlers.js';
 import { cleanupTestHarness, createTestHarness, sleep, type TestContext } from './harness.js';
 
 describe('local tool telemetry', () => {
@@ -22,7 +22,7 @@ describe('local tool telemetry', () => {
       guidance: 'Use as telemetry fixture',
     }, ctx.engine, null, ctx.config);
     handleSearch({ query: 'alpha' }, ctx.engine, null, ctx.config);
-    await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
+    await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
     await sleep(0);
 
     const rows = ctx.engine.getTelemetryRows();
@@ -31,7 +31,7 @@ describe('local tool telemetry', () => {
     expect(rows[0].result_count).toBe(1);
     expect(rows[1].arg_kind).toBeNull();
     expect(rows[1].result_count).toBe(1);
-    expect(rows[2].arg_kind).toBe('stats');
+    expect(rows[2].arg_kind).toBe('review');
     expect(rows[2].result_count).toBeNull();
     expect(new Set(rows.map(row => row.session_id)).size).toBe(1);
   });
@@ -72,8 +72,8 @@ describe('local tool telemetry', () => {
     ctx.engine.recordToolInvocation('store', 'observation', 1);
     ctx.engine.recordToolInvocation('store', 'observation', 1);
     ctx.engine.recordToolInvocation('store', 'decision', 1);
-    ctx.engine.recordToolInvocation('maintain', 'stats');
-    ctx.engine.recordToolInvocation('maintain', 'stats');
+    ctx.engine.recordToolInvocation('maintain', 'review');
+    ctx.engine.recordToolInvocation('maintain', 'review');
     ctx.engine.recordToolInvocation('maintain', 'review');
 
     const aggregates = ctx.engine.getTelemetryAggregates(30);
@@ -83,7 +83,7 @@ describe('local tool telemetry', () => {
     expect(aggregates.stores).toBe(3);
     expect(aggregates.maintains).toBe(3);
     expect(aggregates.storesByKind).toEqual({ observation: 2, decision: 1 });
-    expect(aggregates.maintainByAction).toEqual({ stats: 2, review: 1 });
+    expect(aggregates.maintainByAction).toEqual({ review: 3 });
     expect(aggregates.sessionDurations.length).toBe(1);
     expect(aggregates.sessionDurations[0]).toBeGreaterThanOrEqual(0);
   });
@@ -105,16 +105,16 @@ describe('local tool telemetry', () => {
     ctx.engine.recordToolInvocation('search', undefined, 2);
     await sleep(2);
     ctx.engine.recordToolInvocation('store', 'observation', 1);
-    ctx.engine.recordToolInvocation('maintain', 'stats');
+    ctx.engine.recordToolInvocation('maintain', 'review');
 
-    const output = await handleMaintain({ action: 'stats', telemetry: true }, ctx.engine, ctx.config);
+    const output = await handleStats({ telemetry: true }, ctx.engine, ctx.config);
 
     expect(output).toContain('Last 30 days (1 sessions):');
     expect(output).toContain('  Searches: 1 (avg 1 per session)');
     expect(output).toContain('  Stores: 1 (avg 1 per session)');
     expect(output).toContain('  Store / search ratio: 1.00');
     expect(output).toContain('  Most-stored kind: observation (1)');
-    expect(output).toContain('  Most-used action: stats (1)');
+    expect(output).toContain('  Most-used action: review (1)');
     expect(output).toContain('  Avg session duration:');
     expect(output).not.toContain('interpretation');
   });

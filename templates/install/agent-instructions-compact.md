@@ -12,6 +12,7 @@ Use open-zk-kb for concise cross-session agent memory. Put full project analysis
 - **Triggers**: user corrections/preferences, repeated lookups, non-obvious errors, architecture choices, multi-step workflows, useful URLs
 - **Client scoping**: Client-specific paths (`.cursor/`, `.claude/`) auto-tagged on store. No action needed.
 - **Ingest URLs**: `knowledge-ingest` to extract articles, then `knowledge-store` to save. Prefer passing HTML from your web tools.
-- **Project overview**: `knowledge-overview(project: "...")` — returns auto-generated index and recent log entries. Use at session start to orient in a project.
+- **Project overview**: `knowledge-overview(project: "...")` — computed inventory and recent log entries. Omit `project` for global overview.
 - **Mine sessions**: `knowledge-mine(candidates: [...], dry_run: true)` — bulk-screen candidates from session history. Extract decisions, observations, procedures from past sessions via `session_list`/`session_read`, pass as candidates. STORE/SKIP/REVIEW classification. Call with `dry_run: false` to store.
-- **Maintain**: `knowledge-maintain stats` for health, `knowledge-maintain review` for stale notes
+- **Metrics**: `knowledge-stats` — health counts, embedding coverage, staleness, growth by kind. Params: `project?`, `period?`, `telemetry?`.
+- **Maintain**: `knowledge-maintain(action: "full")` for one-command maintenance. Individual: `review` (stale notes), `dedupe`, `embed`, `migrate-layout`.

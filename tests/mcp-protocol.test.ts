@@ -65,16 +65,16 @@ describe('MCP Protocol E2E', () => {
     expect(toolNames).toContain('knowledge-maintain');
   });
 
-  it('knowledge-maintain stats returns valid response', async () => {
+  it('knowledge-stats returns valid response', async () => {
     const result = await client!.callTool({
-      name: 'knowledge-maintain',
-      arguments: { action: 'stats' },
+      name: 'knowledge-stats',
+      arguments: {},
     });
 
     const content = result.content as Array<{ type: string; text: string }>;
     expect(content).toHaveLength(1);
     expect(content[0].type).toBe('text');
-    expect(content[0].text).toContain('Knowledge Base Statistics');
+    expect(content[0].text).toContain('Knowledge Base Stats');
   });
 
   it('knowledge-store creates a note', async () => {

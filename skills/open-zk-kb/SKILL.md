@@ -6,10 +6,10 @@ description: >
   to the knowledge base", "remember this", "search my notes", "what do I know
   about X", "review stale notes", "how many notes", "KB stats", "mine sessions",
   "ingest a URL", "open Obsidian", "what template for a decision", or mentions
-  knowledge base operations. Provides detailed reference for the 9 open-zk-kb
+  knowledge base operations. Provides detailed reference for the 10 open-zk-kb
   MCP tools: knowledge-search, knowledge-store, knowledge-get, knowledge-maintain,
-  knowledge-overview, knowledge-template, knowledge-mine, knowledge-ingest,
-  knowledge-open.
+  knowledge-overview, knowledge-template, knowledge-mine, knowledge-stats,
+  knowledge-ingest, knowledge-open.
 allowed-tools:
   - mcp__open-zk-kb__knowledge-search
   - mcp__open-zk-kb__knowledge-store
@@ -20,6 +20,7 @@ allowed-tools:
   - mcp__open-zk-kb__knowledge-overview
   - mcp__open-zk-kb__knowledge-mine
   - mcp__open-zk-kb__knowledge-open
+  - mcp__open-zk-kb__knowledge-stats
 ---
 
 ## Storing Knowledge
@@ -125,25 +126,24 @@ When a useful URL comes up: `knowledge-ingest` to extract, then `knowledge-store
 - **Without a web tool**: `knowledge-ingest(url: "...")` directly — basic fetch, may fail on protected sites.
 
 ### Project Overview
-Use `knowledge-overview` at the start of a project session to orient yourself:
-- `knowledge-overview(project: "my-project")` — returns the auto-generated index (catalog of all project notes) and recent log entries
+Use `knowledge-overview` at the start of a session to orient yourself:
+- `knowledge-overview(project: "my-project")` — returns computed inventory (note counts by kind, recent notes, resources) and recent log entries for a project
+- `knowledge-overview()` — omit `project` for a global overview across all projects
 - Optional: `logEntries` (number, default 10) to control how many log entries are shown
 
-### Review & Curate
-`knowledge-maintain review` returns numbered candidates with signals and suggested actions:
+### Maintenance
 
-```text
-### [1] "Note Title" (noteId)
-kind: observation | status: fleeting | staleness: 45 days
-Accesses: 0 | Backlinks: 0 (unlinked) | Words: 89
-⮕ Suggested: ARCHIVE — Zero accesses, 45 days old, no backlinks — likely stale
-```
+**Metrics**: `knowledge-stats` — operational metrics including health counts, embedding coverage, link health, staleness distribution, growth by kind, and infrastructure status. Parameters: `project?`, `period?` ("7d"/"30d"/"90d", default "30d"), `telemetry?`.
 
-**Workflow**: review → decide per note → act:
-1. Run `knowledge-maintain review` (optional: `limit`, `filter`, `days`)
-2. For each candidate, decide: **promote** (valuable), **archive** (stale), **delete** (wrong), or **skip**
-3. Act: `knowledge-maintain promote/archive/delete` with `noteId=<id>`
+**One-command maintenance**: `knowledge-maintain(action: "full")` — runs rebuild → migrate-layout → format → dedupe → embed → link-health in dependency order.
 
+**Individual actions** (when you need targeted maintenance):
+- `knowledge-maintain review` — surface stale/unreviewed notes with suggested actions
+- `knowledge-maintain dedupe` — find and resolve duplicate notes
+- `knowledge-maintain embed` — backfill missing semantic embeddings
+- `knowledge-maintain migrate-layout` — move flat vault to kind-based directory structure
+
+**Review workflow**: run `review` → decide per note (promote/archive/delete/skip) → act with the corresponding action and `noteId`.
 **Suggested actions are hints, not commands** — always apply your own judgment.
 
 ### Mining Session History

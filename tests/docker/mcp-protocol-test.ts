@@ -31,11 +31,12 @@ async function run() {
   try {
     const tools = await client.listTools();
     const toolNames = tools.tools.map(t => t.name);
-    check('lists all 9 tools', toolNames.length === 9);
+    check('lists all 10 tools', toolNames.length === 10);
     check('has knowledge-store', toolNames.includes('knowledge-store'));
     check('has knowledge-search', toolNames.includes('knowledge-search'));
     check('has knowledge-get', toolNames.includes('knowledge-get'));
     check('has knowledge-mine', toolNames.includes('knowledge-mine'));
+    check('has knowledge-stats', toolNames.includes('knowledge-stats'));
     check('has knowledge-maintain', toolNames.includes('knowledge-maintain'));
     check('has knowledge-ingest', toolNames.includes('knowledge-ingest'));
     check('has knowledge-overview', toolNames.includes('knowledge-overview'));
@@ -89,13 +90,13 @@ async function run() {
 
   try {
     const statsResult = await client.callTool({
-      name: 'knowledge-maintain',
-      arguments: { action: 'stats' },
+      name: 'knowledge-stats',
+      arguments: {},
     });
     const statsText = JSON.stringify(statsResult);
-    check('knowledge-maintain stats returns total', statsText.includes('total'));
+    check('knowledge-stats returns health info', statsText.includes('Health'));
   } catch (err) {
-    check('knowledge-maintain stats returns total', false, String(err));
+    check('knowledge-stats returns health info', false, String(err));
   }
 
   try {
