@@ -1025,7 +1025,7 @@ export class NoteRepository {
     const modelRows = this.db.prepare(`
       SELECT embedding_model, COUNT(*) as count
       FROM notes
-      WHERE embedding IS NOT NULL AND embedding_model IS NOT NULL${projectClause}
+      WHERE embedding IS NOT NULL AND embedding_model IS NOT NULL AND status != 'archived'${projectClause}
       GROUP BY embedding_model
     `).all(...projectParam) as Array<{ embedding_model: string; count: number }>;
 

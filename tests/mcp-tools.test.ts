@@ -563,7 +563,7 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('should return stats with upgrade status', async () => {
     const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
     // Passthrough adds deprecation hint and delegates to handleStats
-    expect(output).toContain('Use knowledge-stats directly');
+    expect(output).toContain('Deprecated passthrough');
     expect(output).toContain('Knowledge Base Stats');
     expect(output).toContain('3 notes');
   });
@@ -3626,6 +3626,25 @@ describe('MCP Tool: knowledge-stats', () => {
     const output = await handleStats({}, ctx.engine, ctx.config);
     expect(output).toContain('## Link Health');
     expect(output).toContain('1 unlinked');
+  });
+
+  it('should scope stats to project when project specified', async () => {
+    ctx.engine.store('Alpha note', { title: 'Alpha', kind: 'reference', tags: ['project:alpha'] });
+    ctx.engine.store('Beta note', { title: 'Beta', kind: 'reference', tags: ['project:beta'] });
+
+    const output = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+    expect(output).toContain('Knowledge Base Stats — alpha');
+    expect(output).toContain('## Health (1 notes)');
+    expect(output).toContain('## Growth');
+    expect(output).toContain('Notes created: 1');
+  });
+
+  it('should clamp 0d period to 30d default', async () => {
+    ctx.engine.store('A note', { title: 'A', kind: 'reference' });
+
+    const output = await handleStats({ period: '0d' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Growth (last 30d)');
+    expect(output).not.toContain('Infinity');
   });
 });
 

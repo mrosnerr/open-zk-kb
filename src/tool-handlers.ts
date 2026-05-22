@@ -343,7 +343,9 @@ function formatConformanceStats(repo: NoteRepository, days: number = 30): string
 function parsePeriodToDays(period?: string): number {
   if (!period) return 30;
   const match = period.match(/^(\d+)d$/);
-  return match ? parseInt(match[1], 10) : 30;
+  if (!match) return 30;
+  const days = parseInt(match[1], 10);
+  return days > 0 ? days : 30;
 }
 
 export async function handleStats(args: StatsArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
@@ -1242,7 +1244,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     case 'stats': {
       // Deprecated passthrough — delegates to handleStats
       const statsResult = await handleStats({ telemetry: args.telemetry, model: args.model }, repo, config, embeddingConfig, currentVersion, gitVersioning);
-      return '(Use knowledge-stats directly for richer metrics and period filtering)\n\n' + statsResult;
+      return '(Deprecated passthrough — equivalent metrics available via knowledge-stats, with period filtering)\n\n' + statsResult;
     }
     case 'promote': {
       if (!args.noteId) return 'Error: noteId is required for promote action.';
