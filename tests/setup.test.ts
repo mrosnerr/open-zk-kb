@@ -2008,6 +2008,52 @@ describe('setup.ts', () => {
     expect(fs.existsSync(ttsrPath)).toBe(false);
   });
 
+  it('doctor warns on stale TTSR rule content and repairs it with --fix', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const ttsrPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb-enforce.md');
+    // Corrupt the installed rule so it no longer matches the template.
+    fs.writeFileSync(ttsrPath, 'stale garbage without enforcement fields\n', 'utf-8');
+
+    const warnOutput = setupModule.doctor({ client: 'omp' });
+    expect(warnOutput).toContain('WARN OMP: TTSR enforcement rule needs repair');
+    expect(warnOutput).not.toContain('OK OMP: TTSR enforcement rule is healthy');
+
+    const fixOutput = setupModule.doctor({ client: 'omp', fix: true });
+    expect(fixOutput).toContain('FIXED OMP: repaired TTSR enforcement rule');
+
+    const repaired = fs.readFileSync(ttsrPath, 'utf-8');
+    expect(repaired).toContain('condition:');
+    expect(repaired).toContain('interruptMode:');
+  });
+
+  it('omp uninstall dry-run detects a dangling TTSR symlink', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const ttsrPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb-enforce.md');
+    fs.unlinkSync(ttsrPath);
+    // Dangling symlink: fs.existsSync follows the link and reports false.
+    fs.symlinkSync(path.join(env.homeDir, 'missing-shared-target.md'), ttsrPath);
+    expect(fs.existsSync(ttsrPath)).toBe(false);
+
+    const result = setupModule.uninstall({ client: 'omp', dryRun: true });
+    expect(result.output).toContain(`Would remove TTSR rule from ${ttsrPath}`);
+  });
+
   it('omp install cleans stale block from symlinked AGENTS.md when injectSharedAgentDocs is true', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
