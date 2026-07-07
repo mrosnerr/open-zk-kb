@@ -46,7 +46,8 @@ opencode.json
 .opencode/agents/*
 !.opencode/agents/reviewer.md
 .claude/
-# Agent runtime state (ephemeral). Plans and other tracked assets stay visible.
+# Agent runtime state (ephemeral). Planning files are local-only, not shipped in PRs.
+.agents/plans/
 .agents/tmp/
 .agents/cache/
 .agents/local/
