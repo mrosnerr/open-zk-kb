@@ -2347,7 +2347,9 @@ function formatMineWordCount(candidate: MineCandidate, wordCount: number): strin
 }
 
 function extractStoredId(result: string): string | undefined {
-  return /→\s*(\S+)/.exec(result)?.[1] ?? /ID:\s*(\S+)/.exec(result)?.[1];
+  // handleStore emits `... "${title}" → ${id}` where id is a 12/16-digit note id.
+  // Anchor to the id shape so a title containing "→" can't be mistaken for the id.
+  return /→\s*(\d{12,16})\b/.exec(result)?.[1] ?? /ID:\s*(\S+)/.exec(result)?.[1];
 }
 
 export async function handleMine(args: MineArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): Promise<string> {

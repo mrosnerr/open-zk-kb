@@ -166,7 +166,7 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
 | Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
 | Pi | Managed block | `~/.pi/agent/AGENTS.md` |
-| OMP | Skill + Preflight rule + TTSR rule | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/rules/open-zk-kb.md` + `open-zk-kb-enforce.md` |
+| OMP | Skill + Preflight rule + TTSR rule | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/rules/open-zk-kb.md` + `~/.omp/agent/rules/open-zk-kb-enforce.md` |
 
 Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets three layers: a skill (detailed tool reference, loaded on-demand), an always-apply preflight rule (tiny, tells the agent to search KB in parallel with first exploration), and a TTSR enforcement rule (see below).
 

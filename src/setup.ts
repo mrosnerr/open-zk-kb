@@ -682,6 +682,20 @@ function resolveSymlinkTarget(filePath: string): string | null {
 }
 
 /**
+ * Path-existence check that also detects dangling symlinks. Unlike
+ * `fs.existsSync` (which follows the link and returns false when the target
+ * is missing), this uses `lstat` so a symlink entry counts as "present".
+ */
+function pathExistsOrSymlink(filePath: string): boolean {
+  try {
+    fs.lstatSync(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Returns real (resolved) paths for all clients' agentDocsPath entries.
  * Used to avoid removing a managed block that belongs to a sibling client
  * when stale paths resolve to the same underlying file through symlinks.
@@ -710,7 +724,7 @@ export function hasAuxiliaryInstallArtifacts(clientConfig: ClientConfig): boolea
     return true;
   }
 
-  if (clientConfig.ttsrRulePath && fs.existsSync(clientConfig.ttsrRulePath)) {
+  if (clientConfig.ttsrRulePath && pathExistsOrSymlink(clientConfig.ttsrRulePath)) {
     return true;
   }
 
@@ -806,7 +820,7 @@ function installTtsrRule(targetPath: string, dryRun?: boolean): { action: 'creat
  * Remove an installed TTSR enforcement rule.
  */
 function removeTtsrRule(targetPath: string, dryRun?: boolean): { action: 'removed' | 'not-found'; path: string } {
-  if (!fs.existsSync(targetPath)) {
+  if (!pathExistsOrSymlink(targetPath)) {
     return { action: 'not-found', path: targetPath };
   }
 
@@ -815,6 +829,23 @@ function removeTtsrRule(targetPath: string, dryRun?: boolean): { action: 'remove
   }
 
   return { action: 'removed', path: targetPath };
+}
+
+/**
+ * Report whether an installed TTSR rule matches the current template. Used by
+ * `doctor` so a stale, truncated, or malformed rule isn't reported as healthy.
+ * Symlinks are handled separately by the caller and must not reach this check.
+ */
+function isTtsrRuleCurrent(targetPath: string): boolean {
+  try {
+    if (!fs.lstatSync(targetPath).isFile()) {
+      return false;
+    }
+    return fs.readFileSync(targetPath, 'utf-8').trimEnd() ===
+      fs.readFileSync(getTtsrRuleTemplatePath(), 'utf-8').trimEnd();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1250,6 +1281,13 @@ export function doctor(args: DoctorArgs = {}): string {
         } else {
           pushCheck('WARN', `${clientConfig.name}: TTSR enforcement rule missing at ${clientConfig.ttsrRulePath}`);
         }
+      } else if (!isTtsrRuleCurrent(clientConfig.ttsrRulePath)) {
+        if (args.fix) {
+          installTtsrRule(clientConfig.ttsrRulePath, false);
+          pushCheck('FIXED', `${clientConfig.name}: repaired TTSR enforcement rule at ${clientConfig.ttsrRulePath}`);
+        } else {
+          pushCheck('WARN', `${clientConfig.name}: TTSR enforcement rule needs repair at ${clientConfig.ttsrRulePath}`);
+        }
       } else {
         pushCheck('OK', `${clientConfig.name}: TTSR enforcement rule is healthy at ${clientConfig.ttsrRulePath}`);
       }
@@ -1395,7 +1433,7 @@ export function install(args: InstallArgs): InstallResult {
       const ttsrSymlink = resolveSymlinkTarget(clientConfig.ttsrRulePath);
       if (ttsrSymlink) {
         output += `\nTTSR rule: skipped — symlinked to shared file (${clientConfig.ttsrRulePath} → ${ttsrSymlink})`;
-      } else if (fs.existsSync(clientConfig.ttsrRulePath)) {
+      } else if (pathExistsOrSymlink(clientConfig.ttsrRulePath)) {
         output += `\nWould update TTSR enforcement rule at ${clientConfig.ttsrRulePath}`;
       } else {
         output += `\nWould install TTSR enforcement rule to ${clientConfig.ttsrRulePath}`;
@@ -1678,7 +1716,7 @@ export function uninstall(args: UninstallArgs): UninstallResult {
         }
       }
     }
-    if (clientConfig.ttsrRulePath && fs.existsSync(clientConfig.ttsrRulePath)) {
+    if (clientConfig.ttsrRulePath && pathExistsOrSymlink(clientConfig.ttsrRulePath)) {
       details.push(`Would remove TTSR rule from ${clientConfig.ttsrRulePath}`);
     }
     if (invalidDisabledServers) {
