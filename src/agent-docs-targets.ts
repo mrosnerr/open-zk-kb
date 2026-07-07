@@ -40,7 +40,7 @@ export function getAgentDocsTargets(): AgentDocsTarget[] {
       client: 'omp',
       name: 'OMP',
       filePath: path.join(expandPath('~/.omp/agent'), 'rules', 'open-zk-kb.md'),
-      instructionSize: 'compact',
+      instructionSize: 'preflight',
       preamble: '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n',
       legacyFilePath: path.join(expandPath('~/.omp/agent'), 'RULES.md'),
     },

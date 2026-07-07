@@ -12,6 +12,7 @@ import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../sr
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
 import { handleStore, handleSearch, handleStats, handleMaintain, handleOverview, handleGet } from '../src/tool-handlers.js';
+import { injectAgentDocs } from '../src/agent-docs.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -30,9 +31,10 @@ describe('MCP Tool: knowledge-store', () => {
       guidance: 'Apply dark mode when configuring editors',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored (created)');
-    expect(output).toContain('Kind: personalization');
-    expect(output).toContain('Status: permanent');
+    expect(output).toContain('Stored ');
+    expect(output).toContain('personalization:');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.status).toBe('permanent');
   });
 
   it('should store with explicit status override', async () => {
@@ -45,7 +47,8 @@ describe('MCP Tool: knowledge-store', () => {
       guidance: 'Consider light mode as alternative',
     }, ctx.engine);
 
-    expect(output).toContain('Status: fleeting');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.status).toBe('fleeting');
   });
 
   it('should auto-add project tag', async () => {
@@ -80,7 +83,7 @@ describe('MCP Tool: knowledge-store', () => {
       guidance: 'Reference alongside base note',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('Stored ');
     // The stored note content should include the related section
     const notes = ctx.engine.search('builds on the base');
     expect(notes.length).toBeGreaterThan(0);
@@ -95,7 +98,7 @@ describe('MCP Tool: knowledge-store', () => {
       guidance: 'Use Tailwind when suggesting CSS frameworks or reviewing CSS code',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('Stored ');
 
     // Verify summary/guidance persisted in DB
     const notes = ctx.engine.search('Tailwind');
@@ -114,7 +117,7 @@ describe('MCP Tool: knowledge-store', () => {
       guidance: 'Test guidance',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('Stored ');
     expect(output).toContain('⚠');
     expect(output).toContain('100 words');
     expect(output).toContain('target for personalization');
@@ -145,7 +148,7 @@ describe('MCP Tool: knowledge-store', () => {
       guidance: 'Test guidance',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('Stored ');
     expect(output).not.toContain('⚠');
   });
 
@@ -413,7 +416,8 @@ describe('MCP Tool: knowledge-store — related notes', () => {
     }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('Related notes:');
-    expect(output).not.toContain('"Database Patterns"');
+    const relatedSection = output.slice(output.indexOf('Related notes:'));
+    expect(relatedSection).not.toContain('"Database Patterns"');
   });
 
   it('should apply minSimilarity threshold and render similarity scores via vector path', () => {
@@ -828,6 +832,35 @@ describe('MCP Tool: knowledge-maintain', () => {
       expect(repaired.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
       expect(repaired.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
     } finally {
+      if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
+      else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
+      fs.rmSync(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it('should refresh OMP agent docs with the preflight variant', async () => {
+    const originalHome = process.env.HOME;
+    const originalXdgConfigHome = process.env.XDG_CONFIG_HOME;
+    const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-agent-docs-omp-'));
+
+    try {
+      process.env.HOME = tempRoot;
+      process.env.XDG_CONFIG_HOME = path.join(tempRoot, '.config');
+      const agentDocsPath = path.join(tempRoot, '.omp', 'agent', 'rules', 'open-zk-kb.md');
+      const preamble = '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n';
+      injectAgentDocs(agentDocsPath, 'compact', false, 'omp', undefined, preamble);
+
+      const output = await handleMaintain({ action: 'agent-docs', dryRun: false }, ctx.engine, ctx.config);
+      const content = fs.readFileSync(agentDocsPath, 'utf-8');
+
+      expect(output).toContain('OMP');
+      expect(output).toContain('Result: updated');
+      expect(content).toContain('Run `knowledge-search` for relevant context on your FIRST tool call');
+      expect(content).toContain('For full KB tool reference, read `skill://open-zk-kb`.');
+      expect(content).not.toContain('ALWAYS use the open-zk-kb MCP tools for persistent memory across sessions.');
+    } finally {
+      if (originalHome === undefined) delete process.env.HOME;
+      else process.env.HOME = originalHome;
       if (originalXdgConfigHome === undefined) delete process.env.XDG_CONFIG_HOME;
       else process.env.XDG_CONFIG_HOME = originalXdgConfigHome;
       fs.rmSync(tempRoot, { recursive: true, force: true });
@@ -2117,8 +2150,8 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
       model: 'gpt-4o-mini',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored (created)');
-    expect(output).toContain('Kind: reference');
+    expect(output).toContain('Stored ');
+    expect(output).toContain('reference:');
 
     const notes = ctx.engine.search('Important knowledge');
     expect(notes.length).toBe(1);
@@ -2661,7 +2694,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Follow X',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Lifecycle: snapshot');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('snapshot');
   });
 
   it('should default to living for personalization', async () => {
@@ -2673,7 +2707,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Use dark mode',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Lifecycle: living');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('living');
   });
 
   it('should accept explicit lifecycle override', async () => {
@@ -2686,7 +2721,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'May change',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Lifecycle: living');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('living');
   });
 
   it('should auto-detect snapshot from date in title', async () => {
@@ -2698,7 +2734,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Historical reference',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Lifecycle: snapshot');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('snapshot');
   });
 
   it('should not auto-detect snapshot when explicit lifecycle given', async () => {
@@ -2711,7 +2748,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Append only',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Lifecycle: append-only');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('append-only');
   });
 
   it('should reject updates to snapshot notes', () => {
@@ -2778,7 +2816,7 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Immutable',
     }, ctx.engine, null, ctx.config);
 
-    const idMatch = output.match(/ID: (\d+)/);
+    const idMatch = output.match(/→ (\d+)/);
     const note = ctx.engine.getById(idMatch![1]);
     expect(note).not.toBeNull();
     expect(note!.lifecycle).toBe('snapshot');
@@ -2815,7 +2853,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Follow steps',
     }, ctx.engine, null, noDetectConfig);
 
-    expect(output).toContain('Lifecycle: living');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('living');
   });
 
   it('should slug-detect snapshot for kind that defaults to living', async () => {
@@ -2827,7 +2866,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Follow steps',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Lifecycle: snapshot');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('snapshot');
   });
 
   it('should fall back to kind default for invalid lifecycle value', async () => {
@@ -2840,7 +2880,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Test fallback',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Lifecycle: snapshot');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('snapshot');
   });
 
   it('should filter search results by lifecycle', async () => {
@@ -3019,7 +3060,8 @@ describe('Domain note kind', () => {
       guidance: 'Read before project-scoped work',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Status: permanent');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.status).toBe('permanent');
   });
 
   it('should store domain note with living lifecycle by default', async () => {
@@ -3032,7 +3074,8 @@ describe('Domain note kind', () => {
       guidance: 'Read before project-scoped work',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('Lifecycle: living');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.lifecycle).toBe('living');
   });
 
   it('should reject domain note without project', async () => {
@@ -3057,7 +3100,7 @@ describe('Domain note kind', () => {
       guidance: 'Use this note',
     }, ctx.engine, null, ctx.config);
 
-    const firstId = first.match(/ID: (\d+)/)?.[1];
+    const firstId = first.match(/→ (\d+)/)?.[1];
     expect(firstId).toBeDefined();
 
     const second = await handleStore({
@@ -3092,8 +3135,8 @@ describe('Domain note kind', () => {
       guidance: 'Use for OtherApp work',
     }, ctx.engine, null, ctx.config);
 
-    expect(outputA).toContain('Knowledge stored (created)');
-    expect(outputB).toContain('Knowledge stored (created)');
+    expect(outputA).toContain('Stored ');
+    expect(outputB).toContain('Stored ');
     expect(ctx.engine.getByKind('domain')).toHaveLength(2);
   });
 
@@ -3217,7 +3260,7 @@ describe('Domain note kind', () => {
       guidance: 'Read first',
     }, ctx.engine, null, ctx.config);
 
-    const noteId = storeOutput.match(/ID: (\d+)/)?.[1];
+    const noteId = storeOutput.match(/→ (\d+)/)?.[1];
     expect(noteId).toBeDefined();
     ctx.engine.archive(noteId!);
 
@@ -3295,7 +3338,7 @@ describe('Index and log note kinds', () => {
   }, ctx.engine, null, config);
 
   const extractId = (output: string): string => {
-    const noteId = output.match(/ID: (\d+)/)?.[1];
+    const noteId = output.match(/→ (\d+)/)?.[1];
     expect(noteId).toBeDefined();
     return noteId!;
   };
@@ -3349,7 +3392,7 @@ describe('Index and log note kinds', () => {
     const archiveOutput = await storeProjectNote('Archive This');
     const archiveId = extractId(archiveOutput);
 
-    expect(keepOutput).toContain('Knowledge stored');
+    expect(keepOutput).toContain('Stored ');
     await handleMaintain({ action: 'archive', noteId: archiveId }, ctx.engine, makeConfig());
 
     const indexNote = ctx.engine.getIndexNote('myapp');

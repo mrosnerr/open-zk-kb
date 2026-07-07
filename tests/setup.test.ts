@@ -278,6 +278,23 @@ describe('setup.ts', () => {
     expect(fs.existsSync(agentDocsPath)).toBe(false);
   });
 
+  it('Pi uninstall removes open-zk-kb package sources even when they differ from the current install source', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const settingsPath = path.join(env.homeDir, '.pi', 'agent', 'settings.json');
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(settingsPath, JSON.stringify({
+      packages: ['npm:open-zk-kb@latest', 'npm:other-package'],
+    }, null, 2), 'utf-8');
+
+    const uninstallResult = setupModule.uninstall({ client: 'pi' });
+    const settings = JSON.parse(fs.readFileSync(settingsPath, 'utf-8')) as { packages?: string[] };
+
+    expect(uninstallResult.status).toBe('uninstalled');
+    expect(settings.packages).toEqual(['npm:other-package']);
+  });
+
   it('is idempotent when install runs twice without force', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
@@ -437,6 +454,48 @@ describe('setup.ts', () => {
 
     // File with only managed block should be deleted entirely
     expect(fs.existsSync(agentDocsPath)).toBe(false);
+  });
+
+  it('OMP uninstall deletes the rule file when only the injected preamble remains', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const rulePath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
+    expect(fs.existsSync(rulePath)).toBe(true);
+    expect(fs.readFileSync(rulePath, 'utf-8')).toContain('alwaysApply: true');
+
+    setupModule.uninstall({ client: 'omp' });
+
+    expect(fs.existsSync(rulePath)).toBe(false);
+  });
+
+  it('OMP uninstall preserves rule files with user content outside the managed block', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const rulePath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
+    fs.appendFileSync(rulePath, '\nUser-authored rule content.\n', 'utf-8');
+
+    setupModule.uninstall({ client: 'omp' });
+
+    expect(fs.existsSync(rulePath)).toBe(true);
+    const content = fs.readFileSync(rulePath, 'utf-8');
+    expect(content).toContain('alwaysApply: true');
+    expect(content).toContain('User-authored rule content.');
+    expect(content).not.toContain('OPEN-ZK-KB:START');
+    expect(content).not.toContain('OPEN-ZK-KB:END');
   });
 
   it('uninstall preserves non-managed content in agent docs file', async () => {
@@ -1125,6 +1184,56 @@ describe('setup.ts', () => {
     expect(fs.existsSync(skillPath)).toBe(false);
   });
 
+
+  it('uninstall removes config-less claude-code skill and rule artifacts', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const configPath = path.join(env.homeDir, '.claude', 'settings.json');
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    const rulesPath = path.join(env.homeDir, '.claude', 'rules', 'open-zk-kb.md');
+    expect(fs.existsSync(configPath)).toBe(true);
+    expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
+    expect(fs.existsSync(rulesPath)).toBe(true);
+
+    fs.rmSync(configPath);
+
+    const result = setupModule.uninstall({ client: 'claude-code' });
+
+    expect(result.status).toBe('uninstalled');
+    expect(fs.existsSync(configPath)).toBe(false);
+    expect(fs.existsSync(skillPath)).toBe(false);
+    expect(fs.existsSync(rulesPath)).toBe(false);
+    expect(result.output).toContain('Uninstalled open-zk-kb from Claude Code');
+  });
+
+  it('hasAuxiliaryInstallArtifacts detects config-less claude-code skill artifact', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const configPath = path.join(env.homeDir, '.claude', 'settings.json');
+    const skillPath = path.join(env.homeDir, '.claude', 'skills', 'open-zk-kb');
+    const rulesPath = path.join(env.homeDir, '.claude', 'rules', 'open-zk-kb.md');
+
+    fs.rmSync(configPath);
+    fs.rmSync(rulesPath);
+
+    expect(fs.existsSync(configPath)).toBe(false);
+    expect(fs.existsSync(path.join(skillPath, 'SKILL.md'))).toBe(true);
+    expect(setupModule.hasAuxiliaryInstallArtifacts(setupModule.CLIENT_CONFIGS['claude-code'])).toBe(true);
+  });
   it('dry-run install does not create skill files for claude-code', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
@@ -1238,6 +1347,54 @@ describe('setup.ts', () => {
     expect(config.mcpServers['open-zk-kb'].args).toContain('run');
   });
 
+  it('omp install removes the uninstall discovery disable', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      disabledServers: ['other-server', 'open-zk-kb'],
+    }, null, 2), 'utf-8');
+
+    const result = setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers['open-zk-kb']).toBeDefined();
+    expect(config.disabledServers).toEqual(['other-server']);
+    expect(result.details).toContain(`Discovery: re-enabled open-zk-kb in ${configPath}`);
+  });
+
+  it('omp dry-run install reports discovery re-enable without writing it', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcpServers: {
+        'open-zk-kb': { command: 'bun', args: ['run', env.fakeServerPath] },
+      },
+      disabledServers: ['open-zk-kb'],
+    }, null, 2), 'utf-8');
+
+    const result = setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      dryRun: true,
+    });
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(config.disabledServers).toEqual(['open-zk-kb']);
+    expect(result.output).toContain(`Would re-enable MCP discovery for open-zk-kb in ${configPath}`);
+    expect(result.output).not.toContain('Discovery: re-enabled open-zk-kb');
+  });
+
+
   it('omp install injects agent docs into rules/open-zk-kb.md AND installs skill (both)', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
@@ -1315,11 +1472,166 @@ describe('setup.ts', () => {
     expect(fs.existsSync(skillPath)).toBe(false);
     const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
     expect(config.mcpServers['open-zk-kb']).toBeUndefined();
+    expect(config.disabledServers).toContain('open-zk-kb');
+
     // Agent docs block should be removed (file deleted since it was only the managed block)
     if (fs.existsSync(rulesPath)) {
       const content = fs.readFileSync(rulesPath, 'utf-8');
       expect(content).not.toContain('OPEN-ZK-KB:START');
     }
+  });
+
+  it('uninstall removes leftover OMP managed docs when the MCP entry is already absent', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+    const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.mkdirSync(path.dirname(rulesPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }, null, 2), 'utf-8');
+    fs.writeFileSync(rulesPath, [
+      '---',
+      'alwaysApply: true',
+      '---',
+      '<!-- OPEN-ZK-KB:START -- managed by open-zk-kb, do not edit -->',
+      'Old instructions',
+      '<!-- OPEN-ZK-KB:END -->',
+      '',
+    ].join('\n'), 'utf-8');
+
+    const result = setupModule.uninstall({ client: 'omp' });
+
+    expect(result.status).toBe('uninstalled');
+    expect(result.details).toContain(`Config checked: ${configPath} (no active entry)`);
+    if (fs.existsSync(rulesPath)) {
+      expect(fs.readFileSync(rulesPath, 'utf-8')).not.toContain('OPEN-ZK-KB:START');
+    }
+  });
+
+  it('omp uninstall disables discovery even when no native config exists', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+
+    const result = setupModule.uninstall({ client: 'omp' });
+
+    expect(result.status).toBe('uninstalled');
+    expect(result.details).toContain(`Discovery disabled: open-zk-kb in ${configPath}`);
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers).toBeUndefined();
+    expect(config.disabledServers).toEqual(['open-zk-kb']);
+  });
+
+  it('omp uninstall rejects non-array disabledServers instead of clobbering it', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      mcpServers: {
+        'open-zk-kb': { command: 'bun', args: ['run', env.fakeServerPath] },
+      },
+      disabledServers: 'open-zk-kb',
+    }, null, 2), 'utf-8');
+
+    expect(() => setupModule.uninstall({ client: 'omp' })).toThrow('disabledServers must be an array');
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    expect(config.mcpServers['open-zk-kb']).toBeDefined();
+    expect(config.disabledServers).toBe('open-zk-kb');
+  });
+
+
+  it('rejects a config file whose JSON root is not an object', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, '[]', 'utf-8');
+
+    expect(() => setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    })).toThrow('JSON root must be an object');
+    expect(() => setupModule.uninstall({ client: 'omp' })).toThrow('JSON root must be an object');
+    expect(fs.readFileSync(configPath, 'utf-8')).toBe('[]');
+  });
+
+  it('all-client uninstall disables OMP rediscovery when removing another MCP client', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'claude-code',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    };
+
+    try {
+      await setupModule.runSetupCli(['uninstall', '--yes']);
+    } finally {
+      console.log = originalLog;
+    }
+
+    const claudeConfigPath = path.join(env.homeDir, '.claude', 'settings.json');
+    const claudeConfig = JSON.parse(fs.readFileSync(claudeConfigPath, 'utf-8'));
+    expect(claudeConfig.mcpServers['open-zk-kb']).toBeUndefined();
+
+    const ompConfigPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+    const ompConfig = JSON.parse(fs.readFileSync(ompConfigPath, 'utf-8'));
+    expect(ompConfig.disabledServers).toContain('open-zk-kb');
+    expect(logs.join('\n')).toContain('Uninstalled open-zk-kb from OMP');
+  });
+
+  it('all-client uninstall removes leftover OMP artifacts when MCP entry is absent', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const configPath = path.join(env.homeDir, '.omp', 'agent', 'mcp.json');
+    fs.writeFileSync(configPath, JSON.stringify({ mcpServers: {} }, null, 2), 'utf-8');
+
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    };
+
+    try {
+      await setupModule.runSetupCli(['uninstall', '--yes']);
+    } finally {
+      console.log = originalLog;
+    }
+
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    const skillPath = path.join(env.homeDir, '.omp', 'agent', 'skills', 'open-zk-kb');
+    const rulePath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
+    const ttsrPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb-enforce.md');
+
+    expect(config.disabledServers).toContain('open-zk-kb');
+    expect(fs.existsSync(skillPath)).toBe(false);
+    if (fs.existsSync(rulePath)) {
+      expect(fs.readFileSync(rulePath, 'utf-8')).not.toContain('OPEN-ZK-KB:START');
+    }
+    expect(fs.existsSync(ttsrPath)).toBe(false);
+    expect(logs.join('\n')).toContain('Uninstalled open-zk-kb from OMP');
   });
 
   it('omp install preserves existing mcpServers entries', async () => {
@@ -1345,7 +1657,7 @@ describe('setup.ts', () => {
     expect(config.mcpServers['open-zk-kb']).toBeDefined();
   });
 
-  it('doctor reports healthy skill and agent docs for omp', async () => {
+  it('doctor reports healthy skill, agent docs, and TTSR rule for omp', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -1358,6 +1670,7 @@ describe('setup.ts', () => {
     const output = setupModule.doctor({ client: 'omp' });
     expect(output).toContain('OK OMP: skill is healthy');
     expect(output).toContain('OK OMP: managed instructions are healthy');
+    expect(output).toContain('OK OMP: TTSR enforcement rule is healthy');
     expect(output).toContain('- ERROR: 0');
   });
 
@@ -1623,7 +1936,7 @@ describe('setup.ts', () => {
     expect(cleaned).not.toContain('OPEN-ZK-KB:START');
   });
 
-  it('omp install uses compact instructions for rules/open-zk-kb.md (not full)', async () => {
+  it('omp install uses preflight instructions for rules/open-zk-kb.md (not full or compact)', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -1636,14 +1949,63 @@ describe('setup.ts', () => {
     const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
     const content = fs.readFileSync(rulesPath, 'utf-8');
 
-    // Compact template does NOT have these sections (they're full-only)
+    // Preflight template does NOT have these sections (they're full-only)
     expect(content).not.toContain('### Pre-Flight');
     expect(content).not.toContain('### Storing Knowledge');
     expect(content).not.toContain('### Capture Checkpoints');
 
-    // Compact template DOES have the essentials
+    // Preflight template does NOT have compact-style reference material
+    expect(content).not.toContain('Kinds (key sections)');
+    expect(content).not.toContain('Maintain');
+    expect(content).not.toContain('Mine sessions');
+
+    // Preflight template DOES have the essentials
     expect(content).toContain('knowledge-search');
     expect(content).toContain('knowledge-store');
+
+    // Preflight template encourages parallel execution
+    expect(content).toContain('parallel');
+
+    // Preflight template points to skill for reference
+    expect(content).toContain('skill://open-zk-kb');
+  });
+
+  it('omp install creates TTSR enforcement rule alongside main rule', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const ttsrPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb-enforce.md');
+    expect(fs.existsSync(ttsrPath)).toBe(true);
+
+    const content = fs.readFileSync(ttsrPath, 'utf-8');
+    // Has TTSR frontmatter
+    expect(content).toContain('condition:');
+    expect(content).toContain('interruptMode:');
+    // Catches false storage claims
+    expect(content).toContain('knowledge-store');
+  });
+
+  it('omp uninstall removes TTSR enforcement rule', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const ttsrPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb-enforce.md');
+    expect(fs.existsSync(ttsrPath)).toBe(true);
+
+    setupModule.uninstall({ client: 'omp' });
+    expect(fs.existsSync(ttsrPath)).toBe(false);
   });
 
   it('omp install cleans stale block from symlinked AGENTS.md when injectSharedAgentDocs is true', async () => {
@@ -1835,6 +2197,41 @@ describe('setup.ts', () => {
 
     // Output should mention the stale cleanup
     expect(result.output).toContain('Stale block removed');
+  });
+
+  it('omp uninstall skips stale path shared with another active client', async () => {
+    const env = createIsolatedInstallEnv();
+    const setupModule = await loadFreshSetupModule();
+
+    const staleAgentsPath = path.join(env.homeDir, '.omp', 'agent', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(staleAgentsPath), { recursive: true });
+    fs.writeFileSync(staleAgentsPath, '# Shared OMP-era rules\n', 'utf-8');
+
+    const opencodeAgentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+    fs.mkdirSync(path.dirname(opencodeAgentDocsPath), { recursive: true });
+    fs.symlinkSync(staleAgentsPath, opencodeAgentDocsPath);
+
+    setupModule.install({
+      client: 'opencode',
+      serverPath: env.fakeServerPath,
+      force: true,
+      injectSharedAgentDocs: true,
+    });
+    setupModule.install({
+      client: 'omp',
+      serverPath: env.fakeServerPath,
+      force: true,
+    });
+
+    const before = fs.readFileSync(staleAgentsPath, 'utf-8');
+    expect(before).toContain('OPEN-ZK-KB:START');
+
+    const result = setupModule.uninstall({ client: 'omp' });
+
+    const after = fs.readFileSync(staleAgentsPath, 'utf-8');
+    expect(after).toContain('# Shared OMP-era rules');
+    expect(after).toContain('OPEN-ZK-KB:START');
+    expect(result.output).toContain('shared with another active client');
   });
 
   it('uninstall skips symlinked agent docs and reports in result', async () => {

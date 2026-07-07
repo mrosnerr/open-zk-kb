@@ -84,7 +84,7 @@ describe('Knowledge Capture Integration Tests', () => {
         related: [target.id],
       }, context.engine, null, context.config);
 
-      const sourceId = output.match(/ID: (\S+)/)?.[1];
+      const sourceId = output.match(/→ (\S+)/)?.[1];
       expect(sourceId).toBeTruthy();
       const source = context.engine.getById(sourceId!);
       expect(source).not.toBeNull();

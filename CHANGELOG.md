@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Add `--remove-shared-agent-docs` uninstall flag** — removes managed instructions from symlinked shared files when the user explicitly opts in
+- **Split OMP instructions by responsibility** — OMP now installs a compact preflight rule, an on-demand skill, and a TTSR enforcement rule instead of one monolithic rule
+
+### Changed
+
+- **Compact `knowledge-store` output** — store responses now use `Stored <kind>: "title" → id` instead of the previous multi-line Kind/Status/Lifecycle/Path format
+
+### Fixed
+
+- **Block OMP rediscovery after uninstall** — uninstall now disables rediscovery for OMP-managed servers so removed MCP entries do not come back automatically
+- **Preserve the OMP preflight rule during maintenance** — `knowledge-maintain agent-docs` no longer overwrites the OMP preflight rule with the wrong instruction payload
+- **Clean leftover uninstall artifacts without client config** — uninstall no longer skips remaining skills, rules, or managed docs just because a client's config file is absent
+
 ## 1.1.0
 
 ### New MCP Tools

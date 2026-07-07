@@ -64,7 +64,7 @@ describe('FTS5 Edge Cases', () => {
       guidance: 'Should be stored safely',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('Stored ');
     const notes = ctx.engine.search('Robert');
     expect(notes.length).toBeGreaterThan(0);
   });
@@ -143,7 +143,7 @@ describe('Input Validation', () => {
       guidance: 'Test empty content handling',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Stored ');
   });
 
   it('should reject a title exceeding the hard limit', async () => {
@@ -169,7 +169,7 @@ describe('Input Validation', () => {
       guidance: 'Test soft title warning',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Stored ');
     expect(output).toContain('Title is 7 words');
   });
 
@@ -182,7 +182,7 @@ describe('Input Validation', () => {
       guidance: 'Test valid title',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Stored ');
     expect(output).not.toContain('Title is');
     expect(output).not.toContain('Title rejected');
   });
@@ -196,7 +196,7 @@ describe('Input Validation', () => {
       guidance: 'Test special char handling',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Stored ');
   });
 
   it('should handle search with kind filter that has no matches', async () => {
@@ -225,9 +225,10 @@ describe('Input Validation', () => {
       related: [],
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
-    expect(output).toContain('Kind: decision');
-    expect(output).toContain('Status: permanent');
+    expect(output).toContain('Stored ');
+    expect(output).toContain('decision:');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.status).toBe('permanent');
   });
 
   it('should handle maintain with unknown action', async () => {
@@ -261,7 +262,7 @@ describe('Input Validation', () => {
       guidance: 'Test empty tags handling',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Stored ');
   });
 
   it('should handle search with limit of 0', async () => {
@@ -551,8 +552,8 @@ describe('handleStore embedding handling', () => {
     }, ctx.engine);
 
     expect(typeof result).toBe('string');
-    expect(result).toContain('Knowledge stored');
-    expect(result).toContain('Kind: observation');
+    expect(result).toContain('Stored ');
+    expect(result).toContain('observation:');
   });
 
   it('should store note successfully even with embedding config', async () => {
@@ -565,7 +566,7 @@ describe('handleStore embedding handling', () => {
       guidance: 'Test',
     }, ctx.engine, { provider: 'local', model: 'nonexistent-model', dimensions: 384 });
 
-    expect(result).toContain('Knowledge stored');
+    expect(result).toContain('Stored ');
 
     // Verify note exists in DB regardless of embedding outcome
     const stats = ctx.engine.getStats();

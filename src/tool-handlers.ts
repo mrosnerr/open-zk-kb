@@ -1065,12 +1065,8 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     }
   }
 
-  let output = `Knowledge stored (${result.action})\n`;
-  output += `ID: ${result.id}\n`;
-  output += `Kind: ${args.kind}\n`;
-  output += `Status: ${effectiveStatus}\n`;
-  output += `Lifecycle: ${effectiveLifecycle}\n`;
-  output += `Path: ${result.path}`;
+  const verb = result.action === 'created' ? 'Stored' : result.action.charAt(0).toUpperCase() + result.action.slice(1);
+  let output = `${verb} ${args.kind}: "${args.title}" → ${result.id}`;
 
   if (titleCheck && 'warning' in titleCheck) {
     output += titleCheck.warning;
@@ -2351,7 +2347,7 @@ function formatMineWordCount(candidate: MineCandidate, wordCount: number): strin
 }
 
 function extractStoredId(result: string): string | undefined {
-  return /ID:\s*(\S+)/.exec(result)?.[1];
+  return /→\s*(\S+)/.exec(result)?.[1] ?? /ID:\s*(\S+)/.exec(result)?.[1];
 }
 
 export async function handleMine(args: MineArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): Promise<string> {

@@ -166,9 +166,15 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
 | Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
 | Pi | Managed block | `~/.pi/agent/AGENTS.md` |
-| OMP | Skill + Managed rule | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/rules/open-zk-kb.md` |
+| OMP | Skill + Preflight rule + TTSR rule | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/rules/open-zk-kb.md` + `open-zk-kb-enforce.md` |
 
-Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets a skill plus a managed rule file at `~/.omp/agent/rules/open-zk-kb.md`.
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets three layers: a skill (detailed tool reference, loaded on-demand), an always-apply preflight rule (tiny, tells the agent to search KB in parallel with first exploration), and a TTSR enforcement rule (see below).
+
+### OMP: TTSR Enforcement Rule
+
+OMP supports **TTSR (Time-Traveling Stream Rules)** — a mechanism that monitors the model's output token stream during generation and interrupts mid-stream when a regex pattern matches. The TTSR enforcement rule catches the model claiming "I'll remember that" without actually calling `knowledge-store`, interrupts generation, injects a correction, and forces a retry.
+
+This is OMP-specific — the TTSR mechanism exists in the shared Pi/OMP engine, but Pi's native rule discovery only scans `.omp` paths, so TTSR rules cannot be installed for Pi through the setup CLI. No other supported client (Claude Code, Cursor, Windsurf, Zed, OpenCode) has an equivalent mid-generation interruption mechanism. The rule is installed at `~/.omp/agent/rules/open-zk-kb-enforce.md`.
 
 ### Claude Code (Skill)
 
@@ -277,6 +283,14 @@ bun run setup uninstall --client opencode
 ```
 
 This removes the MCP server entry from the client config. Your notes in the vault are NOT deleted.
+
+If uninstall reports that managed agent instructions were skipped because they live in a symlinked shared file, rerun with `--remove-shared-agent-docs` to remove open-zk-kb's managed instructions from that shared target:
+
+```bash
+bunx open-zk-kb@latest uninstall --client opencode --remove-shared-agent-docs
+```
+
+This only removes open-zk-kb managed instruction blocks or files. Content outside managed markers is preserved, and your notes in the vault are still not deleted.
 
 To also remove the vault (irreversible):
 ```bash
