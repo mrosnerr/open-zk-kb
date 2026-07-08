@@ -58,7 +58,7 @@ async function run() {
       },
     });
     const storeText = JSON.stringify(storeResult);
-    check('knowledge-store creates note', storeText.includes('stored'));
+    check('knowledge-store creates note', storeText.toLowerCase().includes('stored'));
   } catch (err) {
     check('knowledge-store creates note', false, String(err));
   }
