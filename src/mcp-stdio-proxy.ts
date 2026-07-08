@@ -98,12 +98,54 @@ async function forwardToHttp(
   }
 }
 
+const READ_ONLY_TOOLS: Record<string, true> = {
+  'knowledge-search': true,
+  'knowledge-get': true,
+  'knowledge-stats': true,
+  'knowledge-overview': true,
+  'knowledge-template': true,
+};
+
+function isRetriableSingleRequest(req: unknown): boolean {
+  if (req === null || typeof req !== 'object') return true;
+
+  const jsonRpcReq = req as Record<string, unknown>;
+  const method = jsonRpcReq.method;
+  if (typeof method !== 'string') return true;
+
+  if (method !== 'tools/call') return true;
+
+  const params = jsonRpcReq.params;
+  if (params === null || typeof params !== 'object') return false;
+
+  const toolName = (params as Record<string, unknown>).name;
+  return typeof toolName === 'string' && READ_ONLY_TOOLS[toolName] === true;
+}
+
+function isRetriableRequest(req: unknown): boolean {
+  if (!Array.isArray(req)) return isRetriableSingleRequest(req);
+  return req.every(isRetriableSingleRequest);
+}
+
+function isJsonRpcNotification(message: unknown): boolean {
+  return message !== null
+    && typeof message === 'object'
+    && !('id' in (message as Record<string, unknown>));
+}
+
+function isNotificationOnlyMessage(message: unknown): boolean {
+  return Array.isArray(message)
+    ? message.length > 0 && message.every(isJsonRpcNotification)
+    : isJsonRpcNotification(message);
+}
+
+
 /**
  * Write a JSON-RPC response to stdout (newline-delimited).
  */
-function writeToStdout(message: unknown): void {
+async function writeToStdout(message: unknown): Promise<void> {
   const data = JSON.stringify(message) + '\n';
-  Bun.write(Bun.stdout, data);
+  await Bun.write(Bun.stdout, data);
 }
 
 // Cache the dynamic import so we only load the heavy modules once.
@@ -191,21 +233,17 @@ export async function tryStdioBridge(): Promise<boolean> {
       // success) and "transport failure", so we skip the recovery chain to
       // avoid re-executing notifications. A batch array where every element
       // lacks an `id` is also entirely fire-and-forget.
-      const isNotification = Array.isArray(message)
-        ? message.length > 0 && message.every(m =>
-            m === null || typeof m !== 'object' || !('id' in (m as Record<string, unknown>)))
-        : message !== null
-          && typeof message === 'object'
-          && !('id' in (message as Record<string, unknown>));
+      const isNotification = isNotificationOnlyMessage(message);
+      const canRetry = isRetriableRequest(message);
 
       // On failure, exhaust every recovery option before returning an error.
       // The user should never see -32603 if the server can be recovered.
-      if (!isNotification && response === null) {
+      if (!isNotification && canRetry && response === null) {
         // 1. Immediate retry — handles transient network glitches.
         response = await forwardToHttp(state, message);
       }
 
-      if (!isNotification && response === null) {
+      if (!isNotification && canRetry && response === null) {
         // 2. Re-read state file — maybe the server restarted on a new port/PID.
         const newState = readServerState();
         if (newState) {
@@ -221,7 +259,7 @@ export async function tryStdioBridge(): Promise<boolean> {
         }
       }
 
-      if (!isNotification && response === null) {
+      if (!isNotification && canRetry && response === null) {
         // 3. No server anywhere — process locally. Every bridge can
         //    independently serve via the shared SQLite database (WAL mode).
         //    Multiple bridges handling requests in parallel is fine.
@@ -243,7 +281,7 @@ export async function tryStdioBridge(): Promise<boolean> {
       }
 
       if (response !== null) {
-        writeToStdout(response);
+        await writeToStdout(response);
       } else if (Array.isArray(message)) {
         // Batch JSON-RPC: emit error responses for each request in the batch.
         // Notifications (no `id`) are omitted per spec.
@@ -259,7 +297,7 @@ export async function tryStdioBridge(): Promise<boolean> {
             },
           }));
         if (errors.length > 0) {
-          writeToStdout(errors);
+          await writeToStdout(errors);
         }
       } else if (
         message !== null &&
@@ -268,12 +306,14 @@ export async function tryStdioBridge(): Promise<boolean> {
       ) {
         // Single JSON-RPC request: emit error response.
         const id = (message as Record<string, unknown>).id;
-        writeToStdout({
+        await writeToStdout({
           jsonrpc: '2.0',
           id,
           error: {
             code: -32603,
-            message: 'HTTP bridge failed to forward request to server',
+            message: canRetry
+              ? 'HTTP bridge failed to forward request to server'
+              : 'HTTP bridge failed before completing non-retriable request',
           },
         });
       }
