@@ -796,7 +796,7 @@ function getTtsrRuleTemplatePath(): string {
  * Install a TTSR (Time-Traveling Stream Rules) enforcement rule by copying the
  * template to the target path. OMP-specific — no other client uses this.
  */
-function installTtsrRule(targetPath: string, dryRun?: boolean): { action: 'created' | 'updated' | 'skipped-symlink'; path: string } {
+export function installTtsrRule(targetPath: string, dryRun?: boolean): { action: 'created' | 'updated' | 'skipped-symlink'; path: string } {
   const templatePath = getTtsrRuleTemplatePath();
   if (!fs.existsSync(templatePath)) {
     throw new Error(`TTSR rule template not found at: ${templatePath}`);
@@ -820,7 +820,7 @@ function installTtsrRule(targetPath: string, dryRun?: boolean): { action: 'creat
 /**
  * Remove an installed TTSR enforcement rule.
  */
-function removeTtsrRule(targetPath: string, dryRun?: boolean): { action: 'removed' | 'not-found'; path: string } {
+export function removeTtsrRule(targetPath: string, dryRun?: boolean): { action: 'removed' | 'not-found'; path: string } {
   if (!pathExistsOrSymlink(targetPath)) {
     return { action: 'not-found', path: targetPath };
   }
@@ -2059,8 +2059,9 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       if (opts.yes) return true; // Non-interactive: default to optimal setup
 
       const parts: string[] = [];
-      if (agentDocsSymlinkTarget) {
-        parts.push(`  ${color.dim(clientConfig.agentDocsPath!)}\n  ${color.dim(`→ ${agentDocsSymlinkTarget}`)}`);
+      if (agentDocsSymlinkTarget && clientConfig.agentDocsPath) {
+        const agentDocsPath = clientConfig.agentDocsPath;
+        parts.push(`  ${color.dim(agentDocsPath)}\n  ${color.dim(`→ ${agentDocsSymlinkTarget}`)}`);
       }
       for (const { stalePath, target } of staleSymlinks) {
         parts.push(`  ${color.dim(stalePath)}\n  ${color.dim(`→ ${target}`)}\n\n  ⚠️  has stale KB block`);
@@ -2207,14 +2208,14 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
     // Offer to launch a CLI client to try out the knowledge base
     if (!dryRun) {
-      const cliClients = selected
-        .filter(c => CLIENT_CONFIGS[c].cliBinary)
-        .filter(c => {
-          try {
-            execFileSync('which', [CLIENT_CONFIGS[c].cliBinary!], { stdio: 'ignore' });
-            return true;
-          } catch { return false; }
-        });
+      const cliClients = selected.flatMap((c) => {
+        const cliBinary = CLIENT_CONFIGS[c].cliBinary;
+        if (!cliBinary) return [];
+        try {
+          execFileSync('which', [cliBinary], { stdio: 'ignore' });
+          return [c];
+        } catch { return []; }
+      });
 
       if (cliClients.length > 0) {
         const tryIt = await p.select<McpClient | 'skip'>({
@@ -2231,11 +2232,14 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         });
 
         if (!p.isCancel(tryIt) && tryIt !== 'skip') {
-          const bin = CLIENT_CONFIGS[tryIt].cliBinary!;
-          p.outro(`Launching ${CLIENT_CONFIGS[tryIt].name}...`);
-          execFileSync(bin, ['Search the knowledge base for any existing notes'], {
-            stdio: 'inherit',
-          });
+          const tryItConfig = CLIENT_CONFIGS[tryIt];
+          const bin = tryItConfig.cliBinary;
+          if (bin) {
+            p.outro(`Launching ${tryItConfig.name}...`);
+            execFileSync(bin, ['Search the knowledge base for any existing notes'], {
+              stdio: 'inherit',
+            });
+          }
           return;
         }
       }

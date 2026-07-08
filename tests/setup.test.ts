@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { installTtsrRule, removeTtsrRule } from '../src/setup.js';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
 
@@ -82,6 +83,8 @@ function getExpectedPiPackageSource(): string {
   const testFilePath = fileURLToPath(import.meta.url);
   return path.resolve(path.dirname(testFilePath), '..');
 }
+
+
 describe('setup.ts', () => {
   let ctx: TestContext;
   let envSnapshot: EnvSnapshot;
@@ -152,6 +155,130 @@ describe('setup.ts', () => {
   async function loadFreshAgentDocsModule() {
     return import(`../src/agent-docs.js?test=${Date.now()}-${Math.random()}`);
   }
+
+  describe('TTSR rule helpers', () => {
+    function createTempRulesDir(): string {
+      const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-ttsr-rule-test-'));
+      tempDirs.push(rootDir);
+      return path.join(rootDir, 'rules');
+    }
+
+    function expectTtsrRuleStructure(targetPath: string): void {
+      const content = fs.readFileSync(targetPath, 'utf-8');
+      const frontmatterMatch = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
+      expect(frontmatterMatch).not.toBeNull();
+      const frontmatter = frontmatterMatch?.[1] ?? '';
+      const body = frontmatterMatch?.[2] ?? '';
+
+      expect(frontmatter).toContain('condition:');
+      expect(frontmatter).toContain('interruptMode: prose-only');
+      expect(frontmatter).toContain('"I\'ll (remember|keep that in mind|make a note|note that for)"');
+      expect(body).toContain('knowledge-store');
+    }
+
+    it('creates a missing nested rule file with TTSR frontmatter and enforcement body', () => {
+      const rulePath = path.join(createTempRulesDir(), 'nested', 'omp-ttsr-enforce.md');
+
+      const result = installTtsrRule(rulePath);
+
+      expect(result).toEqual({ action: 'created', path: rulePath });
+      expect(fs.existsSync(rulePath)).toBe(true);
+      expectTtsrRuleStructure(rulePath);
+    });
+
+    it('overwrites an existing rule file with TTSR frontmatter and enforcement body', () => {
+      const rulePath = path.join(createTempRulesDir(), 'omp-ttsr-enforce.md');
+      fs.mkdirSync(path.dirname(rulePath), { recursive: true });
+      fs.writeFileSync(rulePath, 'user edit that must be replaced\n', 'utf-8');
+
+      const result = installTtsrRule(rulePath);
+
+      expect(result).toEqual({ action: 'updated', path: rulePath });
+      expectTtsrRuleStructure(rulePath);
+      expect(fs.readFileSync(rulePath, 'utf-8')).not.toContain('user edit that must be replaced');
+    });
+
+    it('is idempotent when installing over an already managed TTSR rule', () => {
+      const rulePath = path.join(createTempRulesDir(), 'omp-ttsr-enforce.md');
+      installTtsrRule(rulePath);
+      const firstInstall = fs.readFileSync(rulePath, 'utf-8');
+
+      const result = installTtsrRule(rulePath);
+
+      expect(result).toEqual({ action: 'updated', path: rulePath });
+      expect(fs.readFileSync(rulePath, 'utf-8')).toBe(firstInstall);
+      expectTtsrRuleStructure(rulePath);
+    });
+
+    it('skips symlink targets without touching the link or shared target', () => {
+      const rulesDir = createTempRulesDir();
+      const sharedTarget = path.join(rulesDir, 'shared-policy.md');
+      const rulePath = path.join(rulesDir, 'omp-ttsr-enforce.md');
+      fs.mkdirSync(rulesDir, { recursive: true });
+      fs.writeFileSync(sharedTarget, 'shared policy stays user-owned\n', 'utf-8');
+      fs.symlinkSync(sharedTarget, rulePath);
+
+      const result = installTtsrRule(rulePath);
+
+      expect(result).toEqual({ action: 'skipped-symlink', path: rulePath });
+      expect(fs.lstatSync(rulePath).isSymbolicLink()).toBe(true);
+      expect(fs.readlinkSync(rulePath)).toBe(sharedTarget);
+      expect(fs.readFileSync(sharedTarget, 'utf-8')).toBe('shared policy stays user-owned\n');
+    });
+
+    it('reports dry-run install actions without creating or overwriting rule files', () => {
+      const missingRulePath = path.join(createTempRulesDir(), 'dry-run', 'omp-ttsr-enforce.md');
+      const existingRulePath = path.join(createTempRulesDir(), 'existing', 'omp-ttsr-enforce.md');
+      fs.mkdirSync(path.dirname(existingRulePath), { recursive: true });
+      fs.writeFileSync(existingRulePath, 'existing user content\n', 'utf-8');
+
+      const created = installTtsrRule(missingRulePath, true);
+      const updated = installTtsrRule(existingRulePath, true);
+
+      expect(created).toEqual({ action: 'created', path: missingRulePath });
+      expect(fs.existsSync(missingRulePath)).toBe(false);
+      expect(fs.existsSync(path.dirname(missingRulePath))).toBe(false);
+      expect(updated).toEqual({ action: 'updated', path: existingRulePath });
+      expect(fs.readFileSync(existingRulePath, 'utf-8')).toBe('existing user content\n');
+    });
+
+    it('removes an existing rule file and reports not-found on a second removal', () => {
+      const rulePath = path.join(createTempRulesDir(), 'omp-ttsr-enforce.md');
+      installTtsrRule(rulePath);
+
+      const removed = removeTtsrRule(rulePath);
+      const removedAgain = removeTtsrRule(rulePath);
+
+      expect(removed).toEqual({ action: 'removed', path: rulePath });
+      expect(fs.existsSync(rulePath)).toBe(false);
+      expect(removedAgain).toEqual({ action: 'not-found', path: rulePath });
+    });
+
+    it('reports a dry-run removal while leaving the rule file present', () => {
+      const rulePath = path.join(createTempRulesDir(), 'omp-ttsr-enforce.md');
+      installTtsrRule(rulePath);
+
+      const result = removeTtsrRule(rulePath, true);
+
+      expect(result).toEqual({ action: 'removed', path: rulePath });
+      expect(fs.existsSync(rulePath)).toBe(true);
+      expectTtsrRuleStructure(rulePath);
+    });
+
+    it('removes only the targeted rule file and preserves another user file in the rules dir', () => {
+      const rulesDir = createTempRulesDir();
+      const rulePath = path.join(rulesDir, 'omp-ttsr-enforce.md');
+      const userRulePath = path.join(rulesDir, 'user-authored.md');
+      installTtsrRule(rulePath);
+      fs.writeFileSync(userRulePath, '# User-authored rule\n\nDo not remove this.\n', 'utf-8');
+
+      const result = removeTtsrRule(rulePath);
+
+      expect(result).toEqual({ action: 'removed', path: rulePath });
+      expect(fs.existsSync(rulePath)).toBe(false);
+      expect(fs.readFileSync(userRulePath, 'utf-8')).toBe('# User-authored rule\n\nDo not remove this.\n');
+    });
+  });
 
   it('produces correct dry-run output format for all 6 MCP clients', async () => {
     const env = createIsolatedInstallEnv();
@@ -799,6 +926,50 @@ describe('setup.ts', () => {
     expect(content).not.toContain('Block B');
     expect(content.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
     expect(content.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
+  });
+
+  describe('agent docs maintain preserves user frontmatter', () => {
+    it('rewrites only the managed block in a rules file with existing YAML frontmatter', async () => {
+      const env = createIsolatedInstallEnv();
+      const agentDocsModule = await loadFreshAgentDocsModule();
+
+      const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
+      fs.mkdirSync(path.dirname(rulesPath), { recursive: true });
+
+      const userFrontmatter = [
+        '---',
+        'alwaysApply: false',
+        'description: User-owned OMP rule metadata',
+        'globs:',
+        '  - "**/*.md"',
+        '---',
+        '',
+      ].join('\n');
+      const originalManagedBlock = [
+        '<!-- OPEN-ZK-KB:START v0.9.0 -- managed by open-zk-kb, do not edit -->',
+        'stale managed instructions',
+        '<!-- OPEN-ZK-KB:END -->',
+        '',
+      ].join('\n');
+      const userTail = '# User rule notes\nKeep this outside the managed block.\n';
+      fs.writeFileSync(rulesPath, userFrontmatter + originalManagedBlock + userTail, 'utf-8');
+
+      const result = agentDocsModule.injectAgentDocs(rulesPath, 'preflight', false, 'omp', '1.2.0');
+
+      const updated = fs.readFileSync(rulesPath, 'utf-8');
+      const frontmatterEnd = updated.indexOf('<!-- OPEN-ZK-KB:START');
+      const updatedFrontmatter = updated.slice(0, frontmatterEnd);
+      const managedBlock = updated.match(/<!-- OPEN-ZK-KB:START(?: v[^\s]+)? -- managed by open-zk-kb, do not edit -->[\s\S]*?<!-- OPEN-ZK-KB:END -->/)?.[0];
+
+      expect(result.action).toBe('updated');
+      expect(updatedFrontmatter).toBe(userFrontmatter);
+      expect(managedBlock).toBeDefined();
+      expect(managedBlock).not.toContain('stale managed instructions');
+      expect(managedBlock).toContain('v1.2.0');
+      expect(updated).toContain(userTail);
+      expect(updated.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+      expect(updated.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
+    });
   });
 
   it('extractManagedBlockVersion handles pre-release suffixes', async () => {
@@ -2278,6 +2449,80 @@ describe('setup.ts', () => {
     expect(after).toContain('# Shared OMP-era rules');
     expect(after).toContain('OPEN-ZK-KB:START');
     expect(result.output).toContain('shared with another active client');
+  });
+
+  describe('--remove-shared-agent-docs CLI flag', () => {
+    it('preserves shared symlink targets during CLI uninstall when the flag is absent', async () => {
+      const env = createIsolatedInstallEnv();
+      const setupModule = await loadFreshSetupModule();
+
+      const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+      fs.writeFileSync(sharedFile, '# Shared instructions\n', 'utf-8');
+
+      const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      fs.symlinkSync(sharedFile, agentDocsPath);
+
+      setupModule.install({
+        client: 'opencode',
+        serverPath: env.fakeServerPath,
+        force: true,
+        injectSharedAgentDocs: true,
+      });
+
+      const beforeUninstall = fs.readFileSync(sharedFile, 'utf-8');
+      expect(beforeUninstall.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+
+      const logs: string[] = [];
+      const originalLog = console.log;
+      console.log = (message?: unknown) => { logs.push(String(message ?? '')); };
+      try {
+        await setupModule.runSetupCli(['uninstall', '--client', 'opencode']);
+      } finally {
+        console.log = originalLog;
+      }
+
+      const afterUninstall = fs.readFileSync(sharedFile, 'utf-8');
+      expect(afterUninstall).toBe(beforeUninstall);
+      expect(fs.lstatSync(agentDocsPath).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(agentDocsPath)).toBe(fs.realpathSync(sharedFile));
+      expect(logs.some(line => line.includes('Uninstalled open-zk-kb from OpenCode'))).toBe(true);
+    });
+
+    it('removes the managed block from the shared symlink target during CLI uninstall when the flag is present', async () => {
+      const env = createIsolatedInstallEnv();
+      const setupModule = await loadFreshSetupModule();
+
+      const sharedFile = path.join(env.homeDir, '.agents', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(sharedFile), { recursive: true });
+      fs.writeFileSync(sharedFile, '# Shared instructions\n', 'utf-8');
+
+      const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      fs.symlinkSync(sharedFile, agentDocsPath);
+
+      setupModule.install({
+        client: 'opencode',
+        serverPath: env.fakeServerPath,
+        force: true,
+        injectSharedAgentDocs: true,
+      });
+      expect(fs.readFileSync(sharedFile, 'utf-8')).toContain('OPEN-ZK-KB:START');
+
+      const originalLog = console.log;
+      console.log = () => {};
+      try {
+        await setupModule.runSetupCli(['uninstall', '--client', 'opencode', '--remove-shared-agent-docs']);
+      } finally {
+        console.log = originalLog;
+      }
+
+      const afterUninstall = fs.readFileSync(sharedFile, 'utf-8');
+      expect(afterUninstall).toBe('# Shared instructions\n');
+      expect(fs.lstatSync(agentDocsPath).isSymbolicLink()).toBe(true);
+      expect(fs.realpathSync(agentDocsPath)).toBe(fs.realpathSync(sharedFile));
+    });
   });
 
   it('uninstall skips symlinked agent docs and reports in result', async () => {
