@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'bun:test';
-import { isValidUrl, isPrivateOrReservedHost, extractArticle, extractFromUrl, fetchHtml } from '../src/url-extractor.js';
+import { isValidUrl, isPrivateOrReservedHost, isPrivateOrReservedIp, extractArticle, extractFromUrl, fetchHtml } from '../src/url-extractor.js';
 import { handleIngest } from '../src/tool-handlers.js';
 
 // ---- Unit: isValidUrl ----
@@ -986,5 +986,61 @@ describe('SSRF error message clarity', () => {
   it('says matches not resolves', async () => {
     await expect(fetchHtml('http://127.0.0.1/secret'))
       .rejects.toThrow(/matches a private\/reserved range/);
+  });
+});
+
+// ---- Unit: 100.64.0.0/10 carrier-grade NAT ----
+
+describe('isPrivateOrReservedHost 100.64.0.0/10 CGN range', () => {
+  it('blocks lower bound 100.64.0.0', () => {
+    expect(isPrivateOrReservedHost('100.64.0.0')).toBe(true);
+  });
+
+  it('blocks middle of range 100.100.0.1', () => {
+    expect(isPrivateOrReservedHost('100.100.0.1')).toBe(true);
+  });
+
+  it('blocks upper bound 100.127.255.255', () => {
+    expect(isPrivateOrReservedHost('100.127.255.255')).toBe(true);
+  });
+
+  it('allows 100.63.x.x (below range)', () => {
+    expect(isPrivateOrReservedHost('100.63.255.255')).toBe(false);
+  });
+
+  it('allows 100.128.x.x (above range)', () => {
+    expect(isPrivateOrReservedHost('100.128.0.1')).toBe(false);
+  });
+});
+
+// ---- Unit: isPrivateOrReservedIp direct API ----
+
+describe('isPrivateOrReservedIp direct API', () => {
+  it('classifies IPv4 with explicit family=4', () => {
+    expect(isPrivateOrReservedIp('127.0.0.1', 4)).toBe(true);
+    expect(isPrivateOrReservedIp('8.8.8.8', 4)).toBe(false);
+  });
+
+  it('classifies IPv6 with explicit family=6', () => {
+    expect(isPrivateOrReservedIp('::1', 6)).toBe(true);
+    expect(isPrivateOrReservedIp('2001:db8::1', 6)).toBe(false);
+  });
+
+  it('returns false when family is 0 (invalid address per node:net)', () => {
+    expect(isPrivateOrReservedIp('not-an-ip', 0)).toBe(false);
+  });
+
+  it('rejects out-of-range IPv4 octets when family=4 is asserted', () => {
+    expect(isPrivateOrReservedIp('999.0.0.0', 4)).toBe(false);
+    expect(isPrivateOrReservedIp('256.256.256.256', 4)).toBe(false);
+  });
+
+  it('handles bracketed IPv6 literals (strips brackets)', () => {
+    expect(isPrivateOrReservedIp('[::1]', 6)).toBe(true);
+    expect(isPrivateOrReservedIp('[fc00::1]', 6)).toBe(true);
+  });
+
+  it('handles trailing dot on IPv4 (strips it)', () => {
+    expect(isPrivateOrReservedIp('127.0.0.1.', 4)).toBe(true);
   });
 });
