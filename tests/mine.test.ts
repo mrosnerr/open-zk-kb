@@ -202,6 +202,22 @@ describe('knowledge-mine: store mode', () => {
     expect(results.some(note => note.title === 'Stored Mining Candidate')).toBe(true);
   });
 
+  it('extracts the real stored id when a mined title contains an arrow', async () => {
+    const output = await handleMine({
+      dry_run: false,
+      candidates: [makeCandidate({ title: 'Cause → Effect Mapping', summary: 'Unique arrow-title mining candidate summary' })],
+    }, ctx.engine, null, ctx.config);
+
+    const results = ctx.engine.search('Cause Effect Mapping', { limit: 10 });
+    const stored = results.find(note => note.title === 'Cause → Effect Mapping');
+    expect(stored).toBeDefined();
+
+    // Reported id must be the real 16-digit note id, not the "Effect" token after the title's arrow.
+    expect(stored!.id).toMatch(/^\d{16}$/);
+    expect(output).toContain(`✅ Stored as ${stored!.id}`);
+    expect(output).not.toContain('✅ Stored as Effect');
+  });
+
   it('dry_run=false skips SKIP candidates', async () => {
     await handleStore({
       title: 'Existing Duplicate Seed',

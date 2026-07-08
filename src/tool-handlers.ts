@@ -1065,12 +1065,8 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     }
   }
 
-  let output = `Knowledge stored (${result.action})\n`;
-  output += `ID: ${result.id}\n`;
-  output += `Kind: ${args.kind}\n`;
-  output += `Status: ${effectiveStatus}\n`;
-  output += `Lifecycle: ${effectiveLifecycle}\n`;
-  output += `Path: ${result.path}`;
+  const verb = result.action === 'created' ? 'Stored' : result.action.charAt(0).toUpperCase() + result.action.slice(1);
+  let output = `${verb} ${args.kind}: "${args.title}" → ${result.id}`;
 
   if (titleCheck && 'warning' in titleCheck) {
     output += titleCheck.warning;
@@ -2351,7 +2347,9 @@ function formatMineWordCount(candidate: MineCandidate, wordCount: number): strin
 }
 
 function extractStoredId(result: string): string | undefined {
-  return /ID:\s*(\S+)/.exec(result)?.[1];
+  // handleStore emits `... "${title}" → ${id}` where id is a 12/16-digit note id.
+  // Anchor to the LAST arrow so a title containing "→ <digits>" can't be mistaken for the id.
+  return /.*→\s*(\d{12,16})\b/.exec(result)?.[1] ?? /ID:\s*(\S+)/.exec(result)?.[1];
 }
 
 export async function handleMine(args: MineArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): Promise<string> {

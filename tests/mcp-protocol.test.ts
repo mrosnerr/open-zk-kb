@@ -90,9 +90,8 @@ describe('MCP Protocol E2E', () => {
     });
 
     const content = result.content as Array<{ type: string; text: string }>;
-    expect(content[0].text).toContain('Knowledge stored');
-    expect(content[0].text).toContain('observation');
-    expect(content[0].text).toContain('e2e-test-note.md');
+    expect(content[0].text).toContain('Stored ');
+    expect(content[0].text).toContain('observation:');
   });
 
   it('knowledge-search finds the stored note', async () => {
@@ -133,7 +132,7 @@ describe('MCP Protocol E2E', () => {
     });
 
     const content = result.content as Array<{ type: string; text: string }>;
-    expect(content[0].text).toContain('Knowledge stored');
+    expect(content[0].text).toContain('Stored ');
   });
 
   it('knowledge-search with client param filters correctly', async () => {

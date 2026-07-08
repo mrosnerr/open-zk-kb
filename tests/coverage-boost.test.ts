@@ -677,7 +677,7 @@ describe('Tool Handlers — Coverage Boost', () => {
         guidance: 'Test',
       }, ctx.engine);
 
-      expect(output).toContain('Knowledge stored');
+      expect(output).toContain('Stored ');
     });
   });
 
@@ -766,7 +766,7 @@ describe('Tool Handlers — Coverage Boost', () => {
 
     it('should report nothing to backfill when all embedded', async () => {
       const r = await handleStore({ title: 'Note', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
-      const id = r.match(/ID: (\S+)/)?.[1];
+      const id = r.match(/→ (\S+)/)?.[1];
       if (id) ctx.engine.storeEmbedding(id, [0.1, 0.2], 'test');
 
       const output = await handleMaintain(

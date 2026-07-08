@@ -48,7 +48,7 @@ describe('My Feature', () => {
 
   it('should do something', () => {
     const result = handleStore({ title: 'Test', content: '...', kind: 'reference' }, ctx.engine);
-    expect(result).toContain('Knowledge stored');
+    expect(result).toContain('Stored ');
   });
 });
 ```

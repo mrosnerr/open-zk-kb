@@ -106,6 +106,8 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 | `removeAgentDocs` | function | `agent-docs.ts` | Removes injected KB instructions on uninstall |
 | `installSkill` | function | `setup.ts` | Copies skill files to `~/.claude/skills/open-zk-kb/` |
 | `CLIENT_CONFIGS` | const | `setup.ts` | Maps client → config paths, MCP format, skill/agentDocs paths |
+| `installTtsrRule` | function | `setup.ts` | Installs OMP TTSR (Time-Traveling Stream Rules) enforcement rule |
+| `removeTtsrRule` | function | `setup.ts` | Removes installed TTSR enforcement rule |
 
 ## Ownership Model
 
@@ -139,6 +141,25 @@ For any new feature, ask in order:
 - `index` and `log` are generated navigation surfaces for humans using Obsidian.
 - Core knowledge notes (`decision`, `procedure`, `reference`, `resource`, `observation`, `personalization`, `domain`) stay markdown-native.
 - Dataview, Meta Bind, QuickAdd-oriented affordances, and similar Obsidian-only UX should live in generated navigation files, not canonical knowledge notes.
+
+
+### Documentation Structure
+
+All project documentation lives in `docs/`. Only `index.md` and `log.md` belong in the docs root — everything else goes in a numbered subdirectory.
+
+| Directory | Contents | Convention |
+|---|---|---|
+| `01-principles/` | Core principles, policies | Living docs |
+| `02-patterns/` | Architecture, guides, practices | Living docs |
+| `03-sources/` | Raw materials, imports, links | Reference |
+| `04-references/` | Glossary, summaries | Mixed |
+| `05-research/` | Research findings | Dated snapshots, immutable |
+| `06-decisions/` | ADRs | Dated snapshots, immutable |
+| `07-specs/` | PRDs, design specs | Mixed |
+
+See `docs/index.md` for the full "Where Things Go" table.
+
+---
 
 ## Boundaries
 

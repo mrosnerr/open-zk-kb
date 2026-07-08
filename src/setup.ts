@@ -93,6 +93,23 @@ export interface ClientConfig {
   staleAgentDocsPaths?: string[];
   /** Content prepended before the managed block when creating the file (e.g. YAML frontmatter for OMP rules) */
   preamble?: string;
+  /**
+   * Path to install a TTSR (Time-Traveling Stream Rules) enforcement rule.
+   * TTSR is an OMP-specific mechanism that monitors the model's output stream
+
+   * during generation and interrupts mid-stream when a regex pattern matches,
+   * injecting corrective context. No other supported client has this capability.
+   * Example: ~/.omp/agent/rules/open-zk-kb-enforce.md
+   */
+  ttsrRulePath?: string;
+  /**
+   * Server names to add to `disabledServers` during uninstall.
+   * OMP uses this because it discovers MCP servers from other clients' configs too.
+   */
+  disabledServersOnUninstall?: string[];
+
+
+
   /** CLI binary name for "try it out" launch (e.g. "claude", "pi", "omp"). */
   cliBinary?: string;
 }
@@ -165,8 +182,11 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     skillPath: path.join(expandPath('~/.omp'), 'agent', 'skills', 'open-zk-kb'),
     agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'rules', 'open-zk-kb.md'),
     agentDocsLabel: 'Rule',
-    instructionSize: 'compact',
+    instructionSize: 'preflight',
     preamble: '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n',
+    ttsrRulePath: path.join(expandPath('~/.omp'), 'agent', 'rules', 'open-zk-kb-enforce.md'),
+    disabledServersOnUninstall: ['open-zk-kb'],
+
     staleAgentDocsPaths: [
       path.join(expandPath('~/.omp'), 'agent', 'AGENTS.md'),
       path.join(expandPath('~/.omp'), 'agent', 'RULES.md'),
@@ -374,6 +394,18 @@ function normalizePiPackages(config: JsonObject, desiredSource: string): void {
   config.packages = [...preserved, desiredSource];
 }
 
+function hasOpenZkKbPiPackage(config: JsonObject): boolean {
+  const existing = getPackageArray(config);
+  if (!existing) {
+    return false;
+  }
+
+  return existing.some((entry) => {
+    const source = packageSourceValue(entry);
+    return source !== undefined && isOpenZkKbPiPackageSource(source);
+  });
+}
+
 function removePiPackage(config: JsonObject): void {
   const existing = getPackageArray(config);
   if (!existing) {
@@ -439,7 +471,7 @@ function isClientInstalled(client: McpClient): boolean {
     const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
     const config = parseJsonObject(content);
     if (isPiPackageClient(clientConfig)) {
-      return validatePiPackageConfig(config, buildPiPackageSource()).length === 0;
+      return hasOpenZkKbPiPackage(config);
     }
     if (!clientConfig.mcpPath) {
       return false;
@@ -458,6 +490,50 @@ function getInstalledClients(): McpClient[] {
   return ALL_CLIENTS.filter(isClientInstalled);
 }
 
+function needsDisabledServersOnUninstall(client: McpClient): boolean {
+  const clientConfig = CLIENT_CONFIGS[client];
+  const serverNames = clientConfig.disabledServersOnUninstall ?? [];
+  if (serverNames.length === 0) {
+    return false;
+  }
+
+  if (!fs.existsSync(clientConfig.configPath)) {
+    return true;
+  }
+
+  try {
+    const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
+    const config = parseJsonObject(content);
+    return getMissingDisabledServers(config, serverNames).length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function getUninstallCandidateClients(): McpClient[] {
+  const candidates = new Set<McpClient>();
+
+  for (const client of ALL_CLIENTS) {
+    const clientConfig = CLIENT_CONFIGS[client];
+    if (isClientInstalled(client) || hasAuxiliaryInstallArtifacts(clientConfig)) {
+      candidates.add(client);
+    }
+  }
+
+  if (candidates.size === 0) {
+    return [];
+  }
+
+  for (const client of ALL_CLIENTS) {
+    if (!candidates.has(client) && needsDisabledServersOnUninstall(client)) {
+      candidates.add(client);
+    }
+  }
+
+  return ALL_CLIENTS.filter((client) => candidates.has(client));
+}
+
+
 type JsonObject = Record<string, unknown>;
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -466,8 +542,13 @@ function isJsonObject(value: unknown): value is JsonObject {
 
 function parseJsonObject(content: string): JsonObject {
   const parsed: unknown = JSON.parse(content);
-  return isJsonObject(parsed) ? parsed : {};
+  if (!isJsonObject(parsed)) {
+    throw new Error('JSON root must be an object');
+  }
+
+  return parsed;
 }
+
 
 function getNestedValue(obj: JsonObject, path: string[]): unknown {
   let current: unknown = obj;
@@ -512,6 +593,68 @@ function deleteNestedValue(obj: JsonObject, path: string[]): boolean {
   return false;
 }
 
+function hasNonArrayDisabledServers(config: JsonObject): boolean {
+  return config.disabledServers !== undefined && !Array.isArray(config.disabledServers);
+}
+
+function getMissingDisabledServers(config: JsonObject, serverNames: string[]): string[] {
+  const disabled = config.disabledServers;
+  const existing = new Set(
+    Array.isArray(disabled)
+      ? disabled.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+  );
+
+  return serverNames.filter((name) => !existing.has(name));
+}
+
+function addDisabledServers(config: JsonObject, serverNames: string[]): string[] {
+  if (hasNonArrayDisabledServers(config)) {
+    return [];
+  }
+
+  const missing = getMissingDisabledServers(config, serverNames);
+  if (missing.length === 0) {
+    return [];
+  }
+
+  const disabled = Array.isArray(config.disabledServers)
+    ? [...config.disabledServers]
+    : [];
+  config.disabledServers = [...disabled, ...missing];
+  return missing;
+}
+
+function removeDisabledServers(config: JsonObject, serverNames: string[]): string[] {
+  if (!Array.isArray(config.disabledServers)) {
+    return [];
+  }
+
+  const targets = new Set(serverNames);
+  const removed = new Set<string>();
+  const remaining = config.disabledServers.filter((entry) => {
+    if (typeof entry === 'string' && targets.has(entry)) {
+      removed.add(entry);
+      return false;
+    }
+
+    return true;
+  });
+
+  if (removed.size === 0) {
+    return [];
+  }
+
+  if (remaining.length === 0) {
+    delete config.disabledServers;
+  } else {
+    config.disabledServers = remaining;
+  }
+
+  return [...removed];
+}
+
+
 function getVaultPath(): string {
   return path.join(xdgDataHome, 'open-zk-kb');
 }
@@ -526,10 +669,30 @@ function getConfigYamlPath(): string {
 function resolveSymlinkTarget(filePath: string): string | null {
   try {
     if (fs.lstatSync(filePath).isSymbolicLink()) {
-      return fs.realpathSync(filePath);
+      try {
+        return fs.realpathSync(filePath);
+      } catch {
+        // Dangling symlink — target doesn't exist but it's still a symlink.
+        // Return the raw link target so callers correctly detect shared files.
+        return fs.readlinkSync(filePath);
+      }
     }
   } catch { /* path doesn't exist */ }
   return null;
+}
+
+/**
+ * Path-existence check that also detects dangling symlinks. Unlike
+ * `fs.existsSync` (which follows the link and returns false when the target
+ * is missing), this uses `lstat` so a symlink entry counts as "present".
+ */
+function pathExistsOrSymlink(filePath: string): boolean {
+  try {
+    fs.lstatSync(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -545,6 +708,27 @@ function getActiveAgentDocsRealPaths(): Set<string> {
     }
   }
   return paths;
+}
+
+function hasManagedAgentDocsBlock(filePath: string): boolean {
+  const inspection = inspectAgentDocs(filePath);
+  return inspection.exists && inspection.status !== 'missing';
+}
+
+export function hasAuxiliaryInstallArtifacts(clientConfig: ClientConfig): boolean {
+  if (clientConfig.skillPath && fs.existsSync(clientConfig.skillPath)) {
+    return true;
+  }
+
+  if (clientConfig.agentDocsPath && hasManagedAgentDocsBlock(clientConfig.agentDocsPath)) {
+    return true;
+  }
+
+  if (clientConfig.ttsrRulePath && pathExistsOrSymlink(clientConfig.ttsrRulePath)) {
+    return true;
+  }
+
+  return (clientConfig.staleAgentDocsPaths ?? []).some((stalePath) => hasManagedAgentDocsBlock(stalePath));
 }
 
 /**
@@ -596,6 +780,72 @@ function getSkillTemplateDir(): string {
 /** Returns the path to ~/.claude/CLAUDE.md for migration checks. */
 function getLegacyClaudeMdPath(): string {
   return path.join(expandPath('~/.claude'), 'CLAUDE.md');
+}
+/**
+ * Get the path to the TTSR (Time-Traveling Stream Rules) enforcement rule template.
+ * TTSR is OMP-specific — see templates/install/omp-ttsr-enforce.md for details.
+
+ */
+function getTtsrRuleTemplatePath(): string {
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'templates', 'install', 'omp-ttsr-enforce.md');
+}
+
+
+/**
+ * Install a TTSR (Time-Traveling Stream Rules) enforcement rule by copying the
+ * template to the target path. OMP-specific — no other client uses this.
+ */
+function installTtsrRule(targetPath: string, dryRun?: boolean): { action: 'created' | 'updated' | 'skipped-symlink'; path: string } {
+  const templatePath = getTtsrRuleTemplatePath();
+  if (!fs.existsSync(templatePath)) {
+    throw new Error(`TTSR rule template not found at: ${templatePath}`);
+  }
+
+  // Skip if target is a symlink — avoid mutating shared policy files
+  if (resolveSymlinkTarget(targetPath)) {
+    return { action: 'skipped-symlink', path: targetPath };
+  }
+
+  const existed = fs.existsSync(targetPath);
+
+  if (!dryRun) {
+    ensureDirThroughSymlinks(path.dirname(targetPath));
+    fs.copyFileSync(templatePath, targetPath);
+  }
+
+  return { action: existed ? 'updated' : 'created', path: targetPath };
+}
+
+/**
+ * Remove an installed TTSR enforcement rule.
+ */
+function removeTtsrRule(targetPath: string, dryRun?: boolean): { action: 'removed' | 'not-found'; path: string } {
+  if (!pathExistsOrSymlink(targetPath)) {
+    return { action: 'not-found', path: targetPath };
+  }
+
+  if (!dryRun) {
+    fs.unlinkSync(targetPath);
+  }
+
+  return { action: 'removed', path: targetPath };
+}
+
+/**
+ * Report whether an installed TTSR rule matches the current template. Used by
+ * `doctor` so a stale, truncated, or malformed rule isn't reported as healthy.
+ * Symlinks are handled separately by the caller and must not reach this check.
+ */
+function isTtsrRuleCurrent(targetPath: string): boolean {
+  try {
+    if (!fs.lstatSync(targetPath).isFile()) {
+      return false;
+    }
+    return fs.readFileSync(targetPath, 'utf-8').trimEnd() ===
+      fs.readFileSync(getTtsrRuleTemplatePath(), 'utf-8').trimEnd();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -1020,6 +1270,28 @@ export function doctor(args: DoctorArgs = {}): string {
         }
       }
     }
+    if (clientConfig.ttsrRulePath && configured) {
+      const ttsrSymlink = resolveSymlinkTarget(clientConfig.ttsrRulePath);
+      if (ttsrSymlink) {
+        pushCheck('INFO', `${clientConfig.name}: TTSR rule is a symlink (→ ${ttsrSymlink}) — skipping to avoid modifying a shared file`);
+      } else if (!fs.existsSync(clientConfig.ttsrRulePath)) {
+        if (args.fix) {
+          installTtsrRule(clientConfig.ttsrRulePath, false);
+          pushCheck('FIXED', `${clientConfig.name}: restored TTSR enforcement rule at ${clientConfig.ttsrRulePath}`);
+        } else {
+          pushCheck('WARN', `${clientConfig.name}: TTSR enforcement rule missing at ${clientConfig.ttsrRulePath}`);
+        }
+      } else if (!isTtsrRuleCurrent(clientConfig.ttsrRulePath)) {
+        if (args.fix) {
+          installTtsrRule(clientConfig.ttsrRulePath, false);
+          pushCheck('FIXED', `${clientConfig.name}: repaired TTSR enforcement rule at ${clientConfig.ttsrRulePath}`);
+        } else {
+          pushCheck('WARN', `${clientConfig.name}: TTSR enforcement rule needs repair at ${clientConfig.ttsrRulePath}`);
+        }
+      } else {
+        pushCheck('OK', `${clientConfig.name}: TTSR enforcement rule is healthy at ${clientConfig.ttsrRulePath}`);
+      }
+    }
     if (!clientConfig.skillPath && !clientConfig.agentDocsPath) {
       pushCheck('INFO', `${clientConfig.name}: managed instructions are not currently supported`);
     }
@@ -1088,18 +1360,34 @@ export function install(args: InstallArgs): InstallResult {
   const removedStaleOpenCodePlugins = !usesPiPackage && clientConfig.mcpFormat === 'opencode'
     ? removeStaleOpenCodePluginEntries(config)
     : false;
+  const removedDisabledServers = clientConfig.disabledServersOnUninstall
+    ? removeDisabledServers(config, clientConfig.disabledServersOnUninstall)
+    : [];
 
   const existing = usesPiPackage
     ? validatePiPackageConfig(config, piPackageSource ?? '').length === 0
     : clientConfig.mcpPath ? getNestedValue(config, clientConfig.mcpPath) !== undefined : false;
 
   if (existing && !args.force) {
-    if (removedStaleOpenCodePlugins && !args.dryRun) {
+    if ((removedStaleOpenCodePlugins || removedDisabledServers.length > 0) && !args.dryRun) {
       fs.mkdirSync(path.dirname(clientConfig.configPath), { recursive: true });
       fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
     }
-    return { status: 'already-installed', clientName: clientConfig.name, output: `Already installed for ${clientConfig.name}. Use --force to overwrite.`, details: [], staleSkippedSymlinks: [], agentDocsSkippedSymlink: null };
+
+    const details = removedDisabledServers.map((serverName) =>
+      args.dryRun
+        ? `Would re-enable MCP discovery for ${serverName} in ${clientConfig.configPath}`
+        : `Discovery: re-enabled ${serverName} in ${clientConfig.configPath}`,
+    );
+
+    let output = `Already installed for ${clientConfig.name}. Use --force to overwrite.`;
+    if (details.length > 0) {
+      output += `\n${details.join('\n')}`;
+    }
+
+    return { status: 'already-installed', clientName: clientConfig.name, output, details, staleSkippedSymlinks: [], agentDocsSkippedSymlink: null };
   }
+
   
   const mcpEntry = usesPiPackage ? null : buildMcpEntry(clientConfig, serverPath, args.transport);
   
@@ -1114,6 +1402,10 @@ export function install(args: InstallArgs): InstallResult {
     let output = usesPiPackage
       ? `Dry run: Would add Pi package source to ${clientConfig.configPath}:\n${piPackageSource}\nNote: Also run \`pi install ${piPackageSource}\` — Pi does not support MCP natively`
       : `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
+    if (removedDisabledServers.length > 0) {
+      output += `\nWould re-enable MCP discovery for ${removedDisabledServers.join(', ')} in ${clientConfig.configPath}`;
+    }
+
     if (clientConfig.skillPath) {
       output += `\nWould install skill to ${clientConfig.skillPath}`;
     }
@@ -1135,6 +1427,16 @@ export function install(args: InstallArgs): InstallResult {
         } else {
           output += `\nAgent docs already up to date: ${clientConfig.agentDocsPath}`;
         }
+      }
+    }
+    if (clientConfig.ttsrRulePath) {
+      const ttsrSymlink = resolveSymlinkTarget(clientConfig.ttsrRulePath);
+      if (ttsrSymlink) {
+        output += `\nTTSR rule: skipped — symlinked to shared file (${clientConfig.ttsrRulePath} → ${ttsrSymlink})`;
+      } else if (pathExistsOrSymlink(clientConfig.ttsrRulePath)) {
+        output += `\nWould update TTSR enforcement rule at ${clientConfig.ttsrRulePath}`;
+      } else {
+        output += `\nWould install TTSR enforcement rule to ${clientConfig.ttsrRulePath}`;
       }
     }
     if (templateFileCount > 0) {
@@ -1225,6 +1527,10 @@ export function install(args: InstallArgs): InstallResult {
       agentDocsResult = injectAgentDocs(clientConfig.agentDocsPath, size, args.dryRun, args.client, PKG_VERSION, clientConfig.preamble);
     }
   }
+  let ttsrResult: { action: string; path: string } | null = null;
+  if (clientConfig.ttsrRulePath) {
+    ttsrResult = installTtsrRule(clientConfig.ttsrRulePath, args.dryRun);
+  }
   const staleCleaned: string[] = [];
   const staleSkippedSymlinks: Array<{ stalePath: string; symlinkTarget: string }> = [];
   if (clientConfig.staleAgentDocsPaths && !args.dryRun) {
@@ -1260,12 +1566,20 @@ export function install(args: InstallArgs): InstallResult {
   } else {
     output += `MCP server: ${formatServerCommand(serverPath)}\n`;
   }
+  if (removedDisabledServers.length > 0) {
+    output += `Discovery: re-enabled ${removedDisabledServers.join(', ')} in ${clientConfig.configPath}\n`;
+  }
+
   if (skillResult) {
     output += `Skill: ${skillResult.skillPath} (${skillResult.action})\n`;
   }
   if (agentDocsResult) {
     output += `${docsLabel}: ${agentDocsResult.filePath} (${agentDocsResult.action})\n`;
   }
+  if (ttsrResult) {
+    output += `TTSR rule: ${ttsrResult.path} (${ttsrResult.action})\n`;
+  }
+
   if (agentDocsSkippedSymlink) {
     output += `${docsLabel}: skipped — symlinked to shared file\n`;
     output += `  ${clientConfig.agentDocsPath}\n`;
@@ -1303,6 +1617,10 @@ export function install(args: InstallArgs): InstallResult {
   const details: string[] = [];
   details.push(`MCP config: ${clientConfig.configPath}`);
   details.push(`Vault: ${vaultPath}`);
+  if (removedDisabledServers.length > 0) {
+    details.push(`Discovery: re-enabled ${removedDisabledServers.join(', ')} in ${clientConfig.configPath}`);
+  }
+
   if (skillResult) {
     details.push(`Skill: ${skillResult.skillPath} (${skillResult.action})`);
   }
@@ -1311,6 +1629,9 @@ export function install(args: InstallArgs): InstallResult {
   }
   if (templatesCopied > 0) {
     details.push(`Templates: ${templatesCopied} files → ${vaultTemplatesDir}`);
+  }
+  if (ttsrResult) {
+    details.push(`TTSR rule: ${ttsrResult.path} (${ttsrResult.action})`);
   }
   
   return { status: 'installed', clientName: clientConfig.name, output, details, staleSkippedSymlinks, agentDocsSkippedSymlink };
@@ -1322,7 +1643,10 @@ export function uninstall(args: UninstallArgs): UninstallResult {
   const vaultPath = getVaultPath();
   const docsLabel = clientConfig.agentDocsLabel || 'Agent docs';
 
-  if (!fs.existsSync(clientConfig.configPath)) {
+  const disabledServersOnUninstall = clientConfig.disabledServersOnUninstall ?? [];
+  const configExists = fs.existsSync(clientConfig.configPath);
+  const hasAuxiliaryArtifacts = hasAuxiliaryInstallArtifacts(clientConfig);
+  if (!configExists && disabledServersOnUninstall.length === 0 && !hasAuxiliaryArtifacts) {
     return {
       status: 'not-installed',
       clientName: clientConfig.name,
@@ -1332,18 +1656,27 @@ export function uninstall(args: UninstallArgs): UninstallResult {
     };
   }
 
-  let config: JsonObject;
-  try {
-    const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
-    config = parseJsonObject(content);
-  } catch (e) {
-    throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`, { cause: e });
+  let config: JsonObject = {};
+  if (configExists) {
+    try {
+      const content = fs.readFileSync(clientConfig.configPath, 'utf-8');
+      config = parseJsonObject(content);
+    } catch (e) {
+      throw new Error(`Failed to parse ${clientConfig.configPath}: ${e}`, { cause: e });
+    }
   }
 
+
   const existing = usesPiPackage
-    ? validatePiPackageConfig(config, buildPiPackageSource()).length === 0
+    ? hasOpenZkKbPiPackage(config)
     : clientConfig.mcpPath ? getNestedValue(config, clientConfig.mcpPath) !== undefined : false;
-  if (!existing) {
+  const missingDisabledServers = getMissingDisabledServers(config, disabledServersOnUninstall);
+  const invalidDisabledServers = disabledServersOnUninstall.length > 0 && hasNonArrayDisabledServers(config);
+
+  if (invalidDisabledServers && missingDisabledServers.length > 0 && !args.dryRun) {
+    throw new Error(`Cannot update ${clientConfig.configPath}: disabledServers must be an array to disable OMP rediscovery.`);
+  }
+  if (!existing && !hasAuxiliaryArtifacts && missingDisabledServers.length === 0 && !invalidDisabledServers) {
     return {
       status: 'not-installed',
       clientName: clientConfig.name,
@@ -1353,9 +1686,12 @@ export function uninstall(args: UninstallArgs): UninstallResult {
     };
   }
 
+
   // --- Dry-run path ---
   if (args.dryRun) {
-    let output = `Dry run: Would remove from ${clientConfig.configPath}\n`;
+    let output = existing
+      ? `Dry run: Would remove from ${clientConfig.configPath}\n`
+      : `Dry run: Would remove leftover open-zk-kb artifacts for ${clientConfig.name}\n`;
     const details: string[] = [];
     if (clientConfig.skillPath && fs.existsSync(clientConfig.skillPath)) {
       details.push(`Would remove skill from ${clientConfig.skillPath}`);
@@ -1380,20 +1716,41 @@ export function uninstall(args: UninstallArgs): UninstallResult {
         }
       }
     }
+    if (clientConfig.ttsrRulePath && pathExistsOrSymlink(clientConfig.ttsrRulePath)) {
+      details.push(`Would remove TTSR rule from ${clientConfig.ttsrRulePath}`);
+    }
+    if (invalidDisabledServers) {
+      details.push(`MCP discovery disable skipped: disabledServers is not an array in ${clientConfig.configPath}`);
+    } else if (missingDisabledServers.length > 0) {
+      details.push(`Would disable MCP discovery for ${missingDisabledServers.join(', ')} in ${clientConfig.configPath}`);
+    }
+
+
     // Stale paths
     if (clientConfig.staleAgentDocsPaths) {
       const activeRealPaths = getActiveAgentDocsRealPaths();
       for (const stalePath of clientConfig.staleAgentDocsPaths) {
         if (stalePath === clientConfig.agentDocsPath) continue;
+        let sharedWithActiveClient = false;
         try {
           const realStale = fs.realpathSync(stalePath);
-          if (activeRealPaths.has(realStale)) continue;
+          sharedWithActiveClient = activeRealPaths.has(realStale);
         } catch { /* doesn't exist */ }
+        if (sharedWithActiveClient && !args.removeSharedAgentDocs) {
+          const staleInspection = inspectAgentDocs(stalePath);
+          if (staleInspection.exists && staleInspection.status !== 'missing') {
+            details.push(`Stale managed block: skipped — shared with another active client (${stalePath})`);
+          }
+          continue;
+        }
+
         const staleInspection = inspectAgentDocs(stalePath);
         if (staleInspection.exists && staleInspection.status !== 'missing') {
           const symlinkTarget = resolveSymlinkTarget(stalePath);
           if (symlinkTarget && !args.removeSharedAgentDocs) {
-            // Stale block in shared file — would skip, same as real path
+            const reason = sharedWithActiveClient ? 'shared with another active client' : 'symlinked to shared file';
+            details.push(`Stale managed block: skipped — ${reason} (${stalePath} → ${symlinkTarget})`);
+            agentDocsSkippedSymlink ??= symlinkTarget;
           } else {
             const desc = symlinkTarget ? `${stalePath} → ${symlinkTarget}` : stalePath;
             details.push(`Would remove stale managed block from ${desc}`);
@@ -1437,21 +1794,35 @@ export function uninstall(args: UninstallArgs): UninstallResult {
     }
   }
 
-  // --- Remove MCP config entry ---
-  if (usesPiPackage) {
-    removePiPackage(config);
-  } else if (clientConfig.mcpPath) {
-    deleteNestedValue(config, clientConfig.mcpPath);
-  }
-  if (clientConfig.mcpFormat === 'opencode') {
-    removeStaleOpenCodePluginEntries(config);
+  // --- Remove MCP config entry and block rediscovery where supported ---
+  if (existing) {
+    if (usesPiPackage) {
+      removePiPackage(config);
+    } else if (clientConfig.mcpPath) {
+      deleteNestedValue(config, clientConfig.mcpPath);
+    }
+    if (clientConfig.mcpFormat === 'opencode') {
+      removeStaleOpenCodePluginEntries(config);
+    }
   }
 
-  fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
+  const disabledServersAdded = invalidDisabledServers ? [] : addDisabledServers(config, disabledServersOnUninstall);
+
+  if (existing || disabledServersAdded.length > 0) {
+    fs.mkdirSync(path.dirname(clientConfig.configPath), { recursive: true });
+    fs.writeFileSync(clientConfig.configPath, JSON.stringify(config, null, 2));
+  }
+
 
   // --- Remove skill, agent docs, and stale paths ---
   const details: string[] = [];
-  details.push(`MCP config: ${clientConfig.configPath}`);
+  details.push(existing ? `MCP config: ${clientConfig.configPath}` : `Config checked: ${clientConfig.configPath} (no active entry)`);
+  if (disabledServersAdded.length > 0) {
+    details.push(`Discovery disabled: ${disabledServersAdded.join(', ')} in ${clientConfig.configPath}`);
+  }
+  if (invalidDisabledServers) {
+    details.push(`Discovery disable skipped: disabledServers is not an array in ${clientConfig.configPath}`);
+  }
 
   if (clientConfig.skillPath) {
     const skillResult = removeSkill(clientConfig.skillPath);
@@ -1470,10 +1841,16 @@ export function uninstall(args: UninstallArgs): UninstallResult {
         agentDocsSkippedSymlink = symlinkTarget;
       }
     } else {
-      const agentDocsResult = removeAgentDocs(clientConfig.agentDocsPath);
+      const agentDocsResult = removeAgentDocs(clientConfig.agentDocsPath, false, clientConfig.preamble);
       if (agentDocsResult.action !== 'not-found') {
         details.push(`${docsLabel}: ${agentDocsResult.filePath} (${agentDocsResult.action})`);
       }
+    }
+  }
+  if (clientConfig.ttsrRulePath) {
+    const ttsrResult = removeTtsrRule(clientConfig.ttsrRulePath);
+    if (ttsrResult.action !== 'not-found') {
+      details.push(`TTSR rule: ${ttsrResult.path} (${ttsrResult.action})`);
     }
   }
 
@@ -1482,15 +1859,25 @@ export function uninstall(args: UninstallArgs): UninstallResult {
     const activeRealPaths = getActiveAgentDocsRealPaths();
     for (const stalePath of clientConfig.staleAgentDocsPaths) {
       if (stalePath === clientConfig.agentDocsPath) continue;
+      let sharedWithActiveClient = false;
       try {
         const realStale = fs.realpathSync(stalePath);
-        if (activeRealPaths.has(realStale)) continue;
+        sharedWithActiveClient = activeRealPaths.has(realStale);
       } catch { /* doesn't exist */ }
+      if (sharedWithActiveClient && !args.removeSharedAgentDocs) {
+        const staleInspection = inspectAgentDocs(stalePath);
+        if (staleInspection.exists && staleInspection.status !== 'missing') {
+          details.push(`Stale block skipped: ${stalePath} (shared with another active client)`);
+        }
+        continue;
+      }
       const symlinkTarget = resolveSymlinkTarget(stalePath);
       if (symlinkTarget && !args.removeSharedAgentDocs) {
         const staleInspection = inspectAgentDocs(stalePath);
         if (staleInspection.exists && staleInspection.status !== 'missing') {
-          // Stale block in shared file — skip but don't report (will be cleaned on next install)
+          agentDocsSkippedSymlink ??= symlinkTarget;
+          const reason = sharedWithActiveClient ? 'shared with another active client' : 'symlinked shared file';
+          details.push(`Stale block skipped: ${stalePath} → ${symlinkTarget} (${reason})`);
         }
       } else {
         const staleResult = removeAgentDocs(stalePath);
@@ -1550,7 +1937,7 @@ install:
   (no flags)           Interactive client selection
   --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed, pi, omp)
   --server-path <path> Path to dist/mcp-server.js (auto-detected; MCP clients only)
-  --instructions <size> Agent instruction size: compact (~140 tokens), full (~420 tokens), or rules
+  --instructions <size> Agent instruction size: compact (~140 tokens), full (~420 tokens), rules, or preflight
   --transport <type>   Transport type: stdio (default) or http
   --force              Overwrite existing config
   --dry-run            Preview changes without applying
@@ -1561,6 +1948,8 @@ uninstall:
   --client <name>      Uninstall from specific client (opencode, claude-code, cursor, windsurf, zed, pi, omp)
   --remove-vault       Also delete the knowledge base data
   --confirm            Required with --remove-vault
+  --remove-shared-agent-docs
+                       Remove managed instructions from symlinked shared files
   --dry-run            Preview changes without applying
   --yes                Non-interactive, accept defaults`);
 }
@@ -1611,9 +2000,9 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       throw new Error(`Invalid --transport value: ${transportArg}. Use 'stdio' or 'http'.`);
     }
     const instructionSize: InstructionSize | undefined =
-      instructionsArg === 'compact' || instructionsArg === 'full' || instructionsArg === 'rules' ? instructionsArg : undefined;
+      instructionsArg === 'compact' || instructionsArg === 'full' || instructionsArg === 'rules' || instructionsArg === 'preflight' ? instructionsArg : undefined;
     if (instructionsArg && !instructionSize) {
-      throw new Error(`Invalid --instructions value: ${instructionsArg}. Use 'compact', 'full', or 'rules'.`);
+      throw new Error(`Invalid --instructions value: ${instructionsArg}. Use 'compact', 'full', 'rules', or 'preflight'.`);
     }
     let client: McpClient | undefined;
 
@@ -1854,6 +2243,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     p.outro('Done! Restart your editor to load the MCP server.');
   } else if (command === 'uninstall') {
   const removeVault = args.includes('--remove-vault');
+  const removeSharedAgentDocs = args.includes('--remove-shared-agent-docs');
   const dryRun = args.includes('--dry-run');
   const yes = args.includes('--yes');
   const clientArg = parseFlagValue(args, '--client');
@@ -1900,14 +2290,15 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
   // --- Single-client mode ---
   if (client) {
     const confirm = args.includes('--confirm') || (yes && removeVault);
-    const result = uninstall({ client, removeVault, confirm, dryRun });
+    const result = uninstall({ client, removeVault, confirm, dryRun, removeSharedAgentDocs });
     console.log(result.output);
     return;
   }
 
   // --- All-clients non-interactive mode ---
   if (yes) {
-    const installed = getInstalledClients();
+    const installed = getUninstallCandidateClients();
+
     if (installed.length === 0) {
       console.log('No clients are currently installed.');
       return;
@@ -1917,7 +2308,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     let vaultDeleted = false;
     for (const c of installed) {
       const shouldRemoveVault = removeVault && !vaultDeleted;
-      const result = uninstall({ client: c, removeVault: shouldRemoveVault, confirm: shouldRemoveVault ? confirm : false, dryRun });
+      const result = uninstall({ client: c, removeVault: shouldRemoveVault, confirm: shouldRemoveVault ? confirm : false, dryRun, removeSharedAgentDocs });
       console.log(result.output);
       if (shouldRemoveVault && result.status === 'uninstalled') vaultDeleted = true;
     }
@@ -1927,7 +2318,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
   // --- Interactive mode ---
   p.intro(color.yellow('open-zk-kb — Uninstall'));
 
-  const alreadyInstalled = getInstalledClients();
+  const alreadyInstalled = getUninstallCandidateClients();
 
   if (alreadyInstalled.length === 0) {
     p.log.warn('No clients are currently installed.');
@@ -1999,6 +2390,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         removeVault: shouldRemoveVault,
         confirm: shouldRemoveVault ? confirm : false,
         dryRun,
+        removeSharedAgentDocs,
       });
       logUninstallResult(result);
       if (shouldRemoveVault && result.status === 'uninstalled') vaultDeleted = true;

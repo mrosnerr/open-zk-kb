@@ -8,7 +8,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-export type InstructionSize = 'compact' | 'full' | 'rules';
+export type InstructionSize = 'compact' | 'full' | 'rules' | 'preflight';
+
 export type AgentDocsStatus = 'missing' | 'healthy' | 'start-only' | 'end-only' | 'out-of-order' | 'multiple-markers';
 
 export interface AgentDocsInspection {
@@ -73,7 +74,7 @@ export function getAgentDocsVersion(filePath: string): string | null {
 
 function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string, version?: string): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const filename = size === 'compact' ? 'agent-instructions-compact.md' : size === 'rules' ? 'agent-instructions-rules.md' : 'agent-instructions-full.md';
+  const filename = size === 'compact' ? 'agent-instructions-compact.md' : size === 'rules' ? 'agent-instructions-rules.md' : size === 'preflight' ? 'agent-instructions-preflight.md' : 'agent-instructions-full.md';
   const instructionsPath = path.join(projectRoot, 'templates', 'install', filename);
   let content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
   if (clientName) {
@@ -254,9 +255,10 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
 /**
  * Remove the managed agent docs block from a file.
  * Content outside the managed block is preserved.
- * If the file becomes empty (or whitespace-only) after removal, it is deleted.
+ * If the file becomes empty, whitespace-only, or equal to the installer-owned preamble
+ * after removal, it is deleted.
  */
-export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: 'removed' | 'not-found' | 'file-deleted'; filePath: string } {
+export function removeAgentDocs(filePath: string, dryRun?: boolean, preamble?: string): { action: 'removed' | 'not-found' | 'file-deleted'; filePath: string } {
   if (!fs.existsSync(filePath)) {
     return { action: 'not-found', filePath };
   }
@@ -274,14 +276,15 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
   if (inspection.status !== 'healthy') {
     const newContent = stripManagedMarkers(content).replace(/\n{3,}/g, '\n\n').trimEnd();
 
-    if (!dryRun) {
-      if (newContent.trim().length === 0) {
+    if (shouldDeleteAfterRemoval(newContent, preamble)) {
+      if (!dryRun) {
         fs.unlinkSync(filePath);
-        return { action: 'file-deleted', filePath };
       }
-      fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
-    } else if (newContent.trim().length === 0) {
       return { action: 'file-deleted', filePath };
+    }
+
+    if (!dryRun) {
+      fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
     }
 
     return { action: 'removed', filePath };
@@ -305,15 +308,21 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
 
   const newContent = joinRemainingContent(before, after);
 
-  if (!dryRun) {
-    if (newContent.trim().length === 0) {
+  if (shouldDeleteAfterRemoval(newContent, preamble)) {
+    if (!dryRun) {
       fs.unlinkSync(filePath);
-      return { action: 'file-deleted', filePath };
     }
-    fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
-  } else if (newContent.trim().length === 0) {
     return { action: 'file-deleted', filePath };
   }
 
+  if (!dryRun) {
+    fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
+  }
+
   return { action: 'removed', filePath };
+}
+
+function shouldDeleteAfterRemoval(content: string, preamble?: string): boolean {
+  const trimmed = content.trim();
+  return trimmed.length === 0 || (preamble !== undefined && trimmed === preamble.trim());
 }
