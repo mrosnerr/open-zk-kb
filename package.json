@@ -75,7 +75,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.12",
-    "onnxruntime-web": "1.26.0",
+    "onnxruntime-web": "1.27.0",
     "picocolors": "^1.1.1",
     "turndown": "^7.2.4",
     "yaml": "^2.3.4"
