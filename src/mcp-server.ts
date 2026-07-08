@@ -47,8 +47,17 @@ export async function getOrCreateRepo(): Promise<NoteRepositoryType> {
     logToFile('INFO', 'MCP server: repository opened', { vault: config.vault }, config);
 
     if (config.versioning.enabled) {
-      gitVersioning = createGitVersioning(config.vault, config.versioning);
-      await gitVersioning.init();
+      const versioning = createGitVersioning(config.vault, config.versioning);
+      try {
+        await versioning.init();
+        gitVersioning = versioning;
+      } catch (error) {
+        gitVersioning = null;
+        logToFile('WARN', 'MCP server: git versioning disabled after init failure', {
+          error: error instanceof Error ? error.message : String(error),
+          vault: config.vault,
+        }, config);
+      }
     }
 
     const obsidianDir = path.join(config.vault, '.obsidian');
