@@ -3,11 +3,184 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { Server } from 'bun';
+import {
+  READ_ONLY_TOOLS,
+  isRetriableSingleRequest,
+  isRetriableRequest,
+  isJsonRpcNotification,
+  isNotificationOnlyMessage,
+} from '../src/mcp-stdio-proxy.js';
 
 const CLI_PATH = path.resolve('dist/cli.js');
 if (!fs.existsSync(CLI_PATH)) {
   throw new Error('dist/cli.js not found — run `bun run build` before `bun test`');
 }
+
+// ---- Unit: retry classifier ----
+
+describe('READ_ONLY_TOOLS', () => {
+  it('includes only side-effect-free tools', () => {
+    expect(READ_ONLY_TOOLS['knowledge-search']).toBe(true);
+    expect(READ_ONLY_TOOLS['knowledge-get']).toBe(true);
+    expect(READ_ONLY_TOOLS['knowledge-stats']).toBe(true);
+    expect(READ_ONLY_TOOLS['knowledge-overview']).toBe(true);
+    expect(READ_ONLY_TOOLS['knowledge-template']).toBe(true);
+  });
+
+  it('does not include mutating tools', () => {
+    expect(READ_ONLY_TOOLS['knowledge-store']).toBeUndefined();
+    expect(READ_ONLY_TOOLS['knowledge-maintain']).toBeUndefined();
+    expect(READ_ONLY_TOOLS['knowledge-ingest']).toBeUndefined();
+    expect(READ_ONLY_TOOLS['knowledge-mine']).toBeUndefined();
+    expect(READ_ONLY_TOOLS['knowledge-open']).toBeUndefined();
+  });
+});
+
+describe('isRetriableSingleRequest', () => {
+  const call = (name: string) => ({
+    jsonrpc: '2.0',
+    id: 1,
+    method: 'tools/call',
+    params: { name, arguments: {} },
+  });
+
+  it('treats non-object requests as retriable (falls through)', () => {
+    expect(isRetriableSingleRequest(null)).toBe(true);
+    expect(isRetriableSingleRequest(undefined)).toBe(true);
+    expect(isRetriableSingleRequest('not-json')).toBe(true);
+    expect(isRetriableSingleRequest(42)).toBe(true);
+  });
+
+  it('treats requests without a string method as retriable', () => {
+    expect(isRetriableSingleRequest({ id: 1 })).toBe(true);
+    expect(isRetriableSingleRequest({ id: 1, method: null })).toBe(true);
+    expect(isRetriableSingleRequest({ id: 1, method: 42 })).toBe(true);
+  });
+
+  it('treats non-tools/call methods as retriable', () => {
+    expect(isRetriableSingleRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list' })).toBe(true);
+    expect(isRetriableSingleRequest({ jsonrpc: '2.0', id: 1, method: 'initialize' })).toBe(true);
+    expect(isRetriableSingleRequest({ jsonrpc: '2.0', id: 1, method: 'ping' })).toBe(true);
+    expect(isRetriableSingleRequest({ jsonrpc: '2.0', id: 1, method: 'resources/list' })).toBe(true);
+  });
+
+  it('treats read-only tools/call as retriable', () => {
+    expect(isRetriableSingleRequest(call('knowledge-search'))).toBe(true);
+    expect(isRetriableSingleRequest(call('knowledge-get'))).toBe(true);
+    expect(isRetriableSingleRequest(call('knowledge-stats'))).toBe(true);
+    expect(isRetriableSingleRequest(call('knowledge-overview'))).toBe(true);
+    expect(isRetriableSingleRequest(call('knowledge-template'))).toBe(true);
+  });
+
+  it('treats write tools/call as NOT retriable', () => {
+    expect(isRetriableSingleRequest(call('knowledge-store'))).toBe(false);
+    expect(isRetriableSingleRequest(call('knowledge-maintain'))).toBe(false);
+    expect(isRetriableSingleRequest(call('knowledge-ingest'))).toBe(false);
+    expect(isRetriableSingleRequest(call('knowledge-mine'))).toBe(false);
+    expect(isRetriableSingleRequest(call('knowledge-open'))).toBe(false);
+  });
+
+  it('treats unknown tools/call as NOT retriable (safe default)', () => {
+    expect(isRetriableSingleRequest(call('unknown-future-tool'))).toBe(false);
+    expect(isRetriableSingleRequest(call(''))).toBe(false);
+  });
+
+  it('treats tools/call with missing params as NOT retriable', () => {
+    expect(isRetriableSingleRequest({
+      jsonrpc: '2.0', id: 1, method: 'tools/call',
+    })).toBe(false);
+    expect(isRetriableSingleRequest({
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: null,
+    })).toBe(false);
+    expect(isRetriableSingleRequest({
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: 'string-not-object',
+    })).toBe(false);
+  });
+
+  it('treats tools/call with non-string tool name as NOT retriable', () => {
+    expect(isRetriableSingleRequest({
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 42 },
+    })).toBe(false);
+    expect(isRetriableSingleRequest({
+      jsonrpc: '2.0', id: 1, method: 'tools/call', params: {},
+    })).toBe(false);
+  });
+});
+
+describe('isRetriableRequest', () => {
+  const readCall = { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'knowledge-search' } };
+  const writeCall = { jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'knowledge-store' } };
+  const list = { jsonrpc: '2.0', id: 3, method: 'tools/list' };
+
+  it('delegates single requests to isRetriableSingleRequest', () => {
+    expect(isRetriableRequest(readCall)).toBe(true);
+    expect(isRetriableRequest(writeCall)).toBe(false);
+  });
+
+  it('returns true for a batch where every item is retriable', () => {
+    expect(isRetriableRequest([readCall, list])).toBe(true);
+    expect(isRetriableRequest([readCall, readCall, list])).toBe(true);
+  });
+
+  it('returns false if any batch item is not retriable', () => {
+    expect(isRetriableRequest([readCall, writeCall])).toBe(false);
+    expect(isRetriableRequest([writeCall, list])).toBe(false);
+  });
+
+  it('returns true for empty batch (vacuously retriable)', () => {
+    expect(isRetriableRequest([])).toBe(true);
+  });
+});
+
+describe('isJsonRpcNotification', () => {
+  it('treats messages without id as notifications', () => {
+    expect(isJsonRpcNotification({ jsonrpc: '2.0', method: 'ping' })).toBe(true);
+    expect(isJsonRpcNotification({ jsonrpc: '2.0', method: 'notifications/initialized' })).toBe(true);
+  });
+
+  it('treats messages with id as NOT notifications', () => {
+    expect(isJsonRpcNotification({ jsonrpc: '2.0', id: 1, method: 'ping' })).toBe(false);
+    expect(isJsonRpcNotification({ jsonrpc: '2.0', id: null, method: 'ping' })).toBe(false);
+    expect(isJsonRpcNotification({ jsonrpc: '2.0', id: 'abc', method: 'ping' })).toBe(false);
+  });
+
+  it('treats non-objects as NOT notifications', () => {
+    expect(isJsonRpcNotification(null)).toBe(false);
+    expect(isJsonRpcNotification(undefined)).toBe(false);
+    expect(isJsonRpcNotification('string')).toBe(false);
+    expect(isJsonRpcNotification(42)).toBe(false);
+  });
+});
+
+describe('isNotificationOnlyMessage', () => {
+  const notif = { jsonrpc: '2.0', method: 'notifications/initialized' };
+  const req = { jsonrpc: '2.0', id: 1, method: 'ping' };
+
+  it('returns true for a single notification', () => {
+    expect(isNotificationOnlyMessage(notif)).toBe(true);
+  });
+
+  it('returns false for a single request', () => {
+    expect(isNotificationOnlyMessage(req)).toBe(false);
+  });
+
+  it('returns true for a batch of only notifications', () => {
+    expect(isNotificationOnlyMessage([notif, notif])).toBe(true);
+  });
+
+  it('returns false for a batch mixing notifications and requests', () => {
+    expect(isNotificationOnlyMessage([notif, req])).toBe(false);
+    expect(isNotificationOnlyMessage([req, notif])).toBe(false);
+  });
+
+  it('returns false for a batch of only requests', () => {
+    expect(isNotificationOnlyMessage([req, req])).toBe(false);
+  });
+
+  it('returns false for an empty batch (no notifications to fire-and-forget)', () => {
+    expect(isNotificationOnlyMessage([])).toBe(false);
+  });
+});
 
 /**
  * Integration tests for the stdio→HTTP bridge self-healing behavior.

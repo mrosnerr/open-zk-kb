@@ -98,7 +98,7 @@ async function forwardToHttp(
   }
 }
 
-const READ_ONLY_TOOLS: Record<string, true> = {
+export const READ_ONLY_TOOLS: Record<string, true> = {
   'knowledge-search': true,
   'knowledge-get': true,
   'knowledge-stats': true,
@@ -106,7 +106,7 @@ const READ_ONLY_TOOLS: Record<string, true> = {
   'knowledge-template': true,
 };
 
-function isRetriableSingleRequest(req: unknown): boolean {
+export function isRetriableSingleRequest(req: unknown): boolean {
   if (req === null || typeof req !== 'object') return true;
 
   const jsonRpcReq = req as Record<string, unknown>;
@@ -122,18 +122,18 @@ function isRetriableSingleRequest(req: unknown): boolean {
   return typeof toolName === 'string' && READ_ONLY_TOOLS[toolName] === true;
 }
 
-function isRetriableRequest(req: unknown): boolean {
+export function isRetriableRequest(req: unknown): boolean {
   if (!Array.isArray(req)) return isRetriableSingleRequest(req);
   return req.every(isRetriableSingleRequest);
 }
 
-function isJsonRpcNotification(message: unknown): boolean {
+export function isJsonRpcNotification(message: unknown): boolean {
   return message !== null
     && typeof message === 'object'
     && !('id' in (message as Record<string, unknown>));
 }
 
-function isNotificationOnlyMessage(message: unknown): boolean {
+export function isNotificationOnlyMessage(message: unknown): boolean {
   return Array.isArray(message)
     ? message.length > 0 && message.every(isJsonRpcNotification)
     : isJsonRpcNotification(message);
