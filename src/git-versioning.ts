@@ -63,9 +63,11 @@ async function gitExec(args: string[], cwd: string): Promise<GitResult> {
     env: { ...process.env, ...GIT_ENV },
   });
 
-  const stdout = await new Response(proc.stdout).text();
-  const stderr = await new Response(proc.stderr).text();
-  const exitCode = await proc.exited;
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
 
   return { exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
 }
