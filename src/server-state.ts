@@ -75,10 +75,11 @@ export function readServerState(): ServerState | null {
     if (process.platform !== 'win32') {
       try {
         const stat = fs.statSync(SERVER_STATE_FILE);
-        if (stat.uid !== process.getuid!()) {
+        const currentUid = process.getuid?.();
+        if (currentUid === undefined || stat.uid !== currentUid) {
           logToFile('WARN', 'Server state file owned by different user, ignoring', {
             fileUid: stat.uid,
-            processUid: process.getuid!(),
+            processUid: currentUid,
             stateFile: SERVER_STATE_FILE,
           }, config);
           removeServerState();

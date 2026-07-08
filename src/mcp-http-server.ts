@@ -53,9 +53,10 @@ export async function handleMcpRequest(req: Request): Promise<Response> {
       enableJsonResponse: true,
     });
 
-    activeTransports.add(transport);
-    transport.onclose = () => {
-      activeTransports.delete(transport!);
+    const activeTransport = transport;
+    activeTransports.add(activeTransport);
+    activeTransport.onclose = () => {
+      activeTransports.delete(activeTransport);
     };
 
     await server.connect(transport);

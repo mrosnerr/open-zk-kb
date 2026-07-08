@@ -3,6 +3,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+async function loadFreshServerStateModule() {
+  return import(`../src/server-state.js?test=${Date.now()}-${Math.random()}`);
+}
+
+async function loadFreshHttpServerModule() {
+  return import(`../src/mcp-http-server.js?test=${Date.now()}-${Math.random()}`);
+}
+
 describe('HTTP Server', () => {
   let tmpDir: string;
   let originalRuntimeDir: string | undefined;
@@ -25,8 +33,8 @@ describe('HTTP Server', () => {
   describe('readServerState', () => {
     it('should return null when no state file exists', async () => {
       // readServerState uses module-level constants computed at import time,
-      // so we need a fresh import to pick up the new XDG_RUNTIME_DIR
-      const mod = await import('../src/mcp-http-server.js');
+      // so use a fresh import to pick up the new XDG_RUNTIME_DIR.
+      const mod = await loadFreshServerStateModule();
       const result = mod.readServerState();
       expect(result).toBeNull();
     });
@@ -44,12 +52,12 @@ describe('HTTP Server', () => {
           startedAt: new Date().toISOString(),
         }),
       );
-      const mod = await import('../src/mcp-http-server.js');
+      const mod = await loadFreshServerStateModule();
       expect(mod.readServerState()).toBeNull();
     });
 
     it('should export ServerState interface shape', async () => {
-      const mod = await import('../src/mcp-http-server.js');
+      const mod = await loadFreshHttpServerModule();
       // Verify exports exist
       expect(typeof mod.readServerState).toBe('function');
       expect(typeof mod.startHttpServer).toBe('function');
