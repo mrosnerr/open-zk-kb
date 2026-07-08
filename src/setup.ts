@@ -13,6 +13,7 @@ import { injectAgentDocs, inspectAgentDocs, removeAgentDocs, getAgentDocsVersion
 import type { InstructionSize } from './agent-docs.js';
 import { PKG_VERSION } from './version.js';
 import { getConfig } from './config.js';
+import { OMP_AGENT_DOCS_PREAMBLE } from './agent-docs-targets.js';
 
 function detectNpmTag(): 'dev' | 'latest' {
   return PKG_VERSION.includes('-dev.') ? 'dev' : 'latest';
@@ -183,7 +184,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'rules', 'open-zk-kb.md'),
     agentDocsLabel: 'Rule',
     instructionSize: 'preflight',
-    preamble: '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n',
+    preamble: OMP_AGENT_DOCS_PREAMBLE,
     ttsrRulePath: path.join(expandPath('~/.omp'), 'agent', 'rules', 'open-zk-kb-enforce.md'),
     disabledServersOnUninstall: ['open-zk-kb'],
 
@@ -1309,7 +1310,7 @@ export function doctor(args: DoctorArgs = {}): string {
         if (staleInspection.exists && staleInspection.status !== 'missing') {
           const locationDesc = symlinkTarget ? `${stalePath} → ${symlinkTarget}` : stalePath;
           if (args.fix) {
-            removeAgentDocs(stalePath);
+            removeAgentDocs(stalePath, false, clientConfig.preamble);
             pushCheck('FIXED', `${clientConfig.name}: removed stale managed block from ${locationDesc}`);
           } else {
             pushCheck('WARN', `${clientConfig.name}: stale managed block in ${locationDesc} — run with --fix to remove`);
@@ -1550,7 +1551,7 @@ export function install(args: InstallArgs): InstallResult {
         }
         continue;
       }
-      const staleResult = removeAgentDocs(stalePath);
+      const staleResult = removeAgentDocs(stalePath, args.dryRun, clientConfig.preamble);
       if (staleResult.action === 'removed' || staleResult.action === 'file-deleted') {
         staleCleaned.push(stalePath);
       }
@@ -1880,7 +1881,7 @@ export function uninstall(args: UninstallArgs): UninstallResult {
           details.push(`Stale block skipped: ${stalePath} → ${symlinkTarget} (${reason})`);
         }
       } else {
-        const staleResult = removeAgentDocs(stalePath);
+        const staleResult = removeAgentDocs(stalePath, args.dryRun, clientConfig.preamble);
         if (staleResult.action === 'removed' || staleResult.action === 'file-deleted') {
           details.push(`Stale block removed: ${stalePath}`);
         }

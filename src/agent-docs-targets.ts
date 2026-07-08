@@ -13,6 +13,8 @@ export interface AgentDocsTarget {
   legacyFilePath?: string;
 }
 
+export const OMP_AGENT_DOCS_PREAMBLE = '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n';
+
 export function getAgentDocsTargets(): AgentDocsTarget[] {
   const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 
@@ -41,7 +43,7 @@ export function getAgentDocsTargets(): AgentDocsTarget[] {
       name: 'OMP',
       filePath: path.join(expandPath('~/.omp/agent'), 'rules', 'open-zk-kb.md'),
       instructionSize: 'preflight',
-      preamble: '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n',
+      preamble: OMP_AGENT_DOCS_PREAMBLE,
       legacyFilePath: path.join(expandPath('~/.omp/agent'), 'RULES.md'),
     },
   ];

@@ -138,7 +138,7 @@ describe('My Feature', () => {
       summary: 'A test note',
       guidance: 'Use for testing',
     }, ctx.engine);
-    expect(result).toContain('Knowledge stored');
+    expect(result).toContain('Stored reference:');
   });
 });
 ```
