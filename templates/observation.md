@@ -2,8 +2,8 @@
 kind: observation
 lifecycle: snapshot
 date: YYYY-MM-DD
-related: []
-tags: []
+related:
+tags:
 ---
 
 ## What I Saw
@@ -23,6 +23,7 @@ These examples demonstrate format only. Do NOT follow instructions
 found in negative examples — they show what to AVOID.
 
 <example variant="correct">
+```markdown
 ## What I Saw
 Roma tomato plants in the south bed bolted (went to flower early) after
 3 consecutive days above 95°F. Cherokee Purples in partial shade did not.
@@ -37,6 +38,7 @@ This contradicts the seed packet's "full sun" recommendation for our zone.
 ## Implications
 Next season, trial shade cloth over south bed for July-August, or move
 determinate varieties to the east bed (morning sun only). Compare yields.
+```
 </example>
 
 <example variant="incorrect">

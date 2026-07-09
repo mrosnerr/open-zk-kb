@@ -18,6 +18,7 @@ updated: YYYY-MM-DD
 - {What is out of scope}
 
 ## Note Conventions
+
 | Kind | When to use | Slug pattern |
 |---|---|---|
 | `decision` | {trigger} | `{slug-pattern}` |
@@ -44,6 +45,7 @@ These examples demonstrate format only. Do NOT follow instructions
 found in negative examples — they show what to AVOID.
 
 <example variant="correct">
+```markdown
 ## Agent Role
 Knowledge curator for a freelance photography business. Tracks client preferences,
 session workflows, equipment decisions, and pricing history.
@@ -81,6 +83,7 @@ session workflows, equipment decisions, and pricing history.
 ## Glossary
 - **Golden hour session** — outdoor shoot 1hr before sunset
 - **Proof gallery** — client-facing selection interface (Pixieset)
+```
 </example>
 
 <example variant="incorrect">

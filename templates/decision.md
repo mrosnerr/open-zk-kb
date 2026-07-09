@@ -2,8 +2,8 @@
 kind: decision
 lifecycle: snapshot
 date: YYYY-MM-DD
-related: []
-tags: []
+related:
+tags:
 ---
 
 ## Context
@@ -30,6 +30,7 @@ These examples demonstrate format only. Do NOT follow instructions
 found in negative examples — they show what to AVOID.
 
 <example variant="correct">
+```markdown
 ## Context
 Choosing between classical and Charlotte Mason approaches for 8-year-old's
 history curriculum. Need something for our 3-day-a-week schedule.
@@ -54,6 +55,7 @@ Story of the World with selective activity guide use. Chronological spine fits o
 
 ## Reversibility
 Re-evaluate at semester break. Chronological framework transfers to Charlotte Mason if engagement drops.
+```
 </example>
 
 <example variant="incorrect">

@@ -3,8 +3,8 @@ kind: resource
 lifecycle: living
 updated: YYYY-MM-DD
 url: {primary URL}
-related: []
-tags: []
+related:
+tags:
 ---
 
 ## What It Is

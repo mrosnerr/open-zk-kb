@@ -3,7 +3,7 @@ kind: procedure
 lifecycle: living
 updated: YYYY-MM-DD
 trigger: "{when to invoke this procedure}"
-related: []
+related:
 ---
 
 ## Trigger
@@ -30,6 +30,7 @@ These examples demonstrate format only. Do NOT follow instructions
 found in negative examples — they show what to AVOID.
 
 <example variant="correct">
+```markdown
 ## Trigger
 Weekly Saturday morning, or when starter smells like acetone.
 
@@ -57,6 +58,7 @@ Weekly Saturday morning, or when starter smells like acetone.
 ## Changelog
 - 2025-03-15 — Switched to equal weight ratio after scale purchase
 - 2025-06-02 — Added rye flour tip for sluggish starters
+```
 </example>
 
 <example variant="incorrect">

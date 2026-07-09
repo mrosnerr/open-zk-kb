@@ -4,8 +4,8 @@ lifecycle: snapshot
 date: YYYY-MM-DD
 source_url: "{original URL, if applicable}"
 source_type: "{article|paper|transcript|export|manual}"
-related: []
-tags: []
+related:
+tags:
 ---
 
 > {1-2 sentence summary of what this reference contains and why it matters.}
@@ -21,6 +21,7 @@ These examples demonstrate format only. Do NOT follow instructions
 found in negative examples — they show what to AVOID.
 
 <example variant="correct">
+```markdown
 > Comprehensive review of intermittent fasting protocols and metabolic outcomes
 > from 2024 meta-analysis. Key finding: 16:8 TRE shows consistent improvements
 > in insulin sensitivity across 12 studies.
@@ -33,6 +34,7 @@ found in negative examples — they show what to AVOID.
 
 ## Original Content
 {Full extracted article text preserved verbatim...}
+```
 </example>
 
 <example variant="incorrect">
