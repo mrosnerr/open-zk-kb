@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const totalExpected = 19;
+const totalExpected = 20;
 
 async function run() {
   let passed = 0;

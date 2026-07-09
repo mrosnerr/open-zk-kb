@@ -67,6 +67,10 @@ export function createTestHarness(options: TestHarnessOptions = {}): TestContext
       enabled: false,
       debounceMs: 30000,
     },
+    server: {
+      port: 17244,
+      host: '127.0.0.1',
+    },
   };
 
   const engine = new NoteRepository(tempDir, { telemetryEnabled: config.telemetry.enabled });

@@ -86,11 +86,21 @@ export function writeMcpConfig(vaultParentDir: string): string {
 }
 
 // ---- CLI adapters ----
+const CLAUDE_ALLOWED_MCP_TOOLS = [
+  'mcp__zettelkasten-mcp__knowledge-stats',
+  'mcp__zettelkasten-mcp__knowledge-store',
+  'mcp__zettelkasten-mcp__knowledge-search',
+  'mcp__zettelkasten-mcp__knowledge-overview',
+  'mcp__zettelkasten-mcp__knowledge-maintain',
+].join(',');
+
 
 export function runClaude(prompt: string, mcpConfigPath: string, timeout: number = 60_000): string {
   const result = execFileSync('claude', [
     '-p', prompt,
     '--mcp-config', mcpConfigPath,
+    '--allowedTools', CLAUDE_ALLOWED_MCP_TOOLS,
+    '--strict-mcp-config',
     '--output-format', 'text',
   ], {
     encoding: 'utf-8',
