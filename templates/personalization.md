@@ -3,18 +3,10 @@ kind: personalization
 lifecycle: living
 updated: YYYY-MM-DD
 scope: "{global | project:{slug}}"
-tags: []
+tags:
 ---
 
-## Preference
 {One-line statement of what the user prefers.}
 
-## Context
-{When this applies, any nuances.}
-
-## Examples
-- ✅ {what to do}
-- 🚫 {what to avoid}
-
-## Source
-{When/where the user expressed this — quote or paraphrase.}
+- **Context:** {When this applies; any nuances.}
+- **Source:** {When/where the user expressed this — quote or paraphrase.}
