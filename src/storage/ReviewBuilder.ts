@@ -2,21 +2,27 @@
 // Pure markdown rendering. No LLM, no judgment.
 
 import type { NoteMetadata } from './NoteRepository.js';
-import { extractProjectFromTags } from './path-resolver.js';
+import { extractProjectFromTags, KIND_DIR_MAP } from './path-resolver.js';
 
 function formatDateTime(date: Date = new Date()): string {
   return date.toISOString().replace('T', ' ').substring(0, 16);
 }
 
+function getReviewDataviewSource(note: NoteMetadata, project: string | null): string {
+  if (note.kind === 'personalization') {
+    return KIND_DIR_MAP.personalization;
+  }
+
+  const kindDir = KIND_DIR_MAP[note.kind] || `${note.kind}s`;
+  return project ? `projects/${project}/${kindDir}` : `general/${kindDir}`;
+}
+
 function buildReviewDataviewTable(notes: NoteMetadata[]): string[] {
-   const paths = notes.map(n => {
-     const dir = n.tags
-       ?.find((t: string) => t.startsWith('project:'))
-       ?.replace('project:', '');
-     if (!dir) return null;
-     const kindDir = `${n.kind}s`;
-     return `projects/${dir}/${kindDir}`;
-   }).filter(Boolean);
+  const paths = notes.map(n => {
+    const dir = extractProjectFromTags(n.tags);
+    if (!dir) return null;
+    return getReviewDataviewSource(n, dir);
+  }).filter(Boolean);
  
    const uniqueDirs = [...new Set(paths)];
    if (uniqueDirs.length === 0) return [];
@@ -68,7 +74,7 @@ function buildReviewDataviewTable(notes: NoteMetadata[]): string[] {
  }
 
 function buildUnscopedDataviewTable(notes: NoteMetadata[]): string[] {
-   const paths = notes.map(n => `general/${n.kind}s`);
+   const paths = notes.map(n => getReviewDataviewSource(n, null));
    const uniqueDirs = [...new Set(paths)];
    if (uniqueDirs.length === 0) return [];
  

@@ -11,6 +11,7 @@ import type { TestContext } from './harness.js';
 import { resolveNotePath, walkMarkdownFiles, extractProjectFromTags } from '../src/storage/path-resolver.js';
 import { handleMaintain, handleStore } from '../src/tool-handlers.js';
 import { buildIndexContent } from '../src/storage/IndexBuilder.js';
+import { buildReviewContent } from '../src/storage/ReviewBuilder.js';
 import type { NoteMetadata } from '../src/storage/NoteRepository.js';
 
 describe('Path Resolver', () => {
@@ -532,6 +533,46 @@ describe('Global Navigation', () => {
     const content = fs.readFileSync(reviewPath, 'utf-8');
     expect(content).toContain('Needs Review');
     expect(content).toContain('observation');
+  });
+
+  it('points project-scoped personalization review dataview at root preferences', () => {
+    const content = buildReviewContent([
+      {
+        id: '2026042700000000',
+        path: 'preferences/2026042700000000-prefers-bun.md',
+        title: 'Prefers Bun',
+        kind: 'personalization',
+        status: 'fleeting',
+        lifecycle: 'living',
+        type: 'atomic',
+        tags: ['project:proj'],
+        content: 'User prefers Bun.',
+        summary: 'Prefers Bun',
+        guidance: 'Use Bun.',
+        updated_at: 1777248000000,
+        created_at: 1777248000000,
+        word_count: 3,
+      },
+      {
+        id: '2026042700000001',
+        path: 'projects/proj/observations/2026042700000001-temp.md',
+        title: 'Temp Obs',
+        kind: 'observation',
+        status: 'fleeting',
+        lifecycle: 'snapshot',
+        type: 'atomic',
+        tags: ['project:proj'],
+        content: 'Temporary observation.',
+        summary: 'Temp',
+        guidance: 'Review it.',
+        updated_at: 1777248000001,
+        created_at: 1777248000001,
+        word_count: 2,
+      },
+    ] satisfies NoteMetadata[]);
+
+    expect(content).toContain(`const pages = dv.pages('"preferences" or "projects/proj/observations"')`);
+    expect(content).not.toContain('"projects/proj/preferences"');
   });
 
   it('generates general/general.md for unscoped notes', async () => {

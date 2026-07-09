@@ -616,10 +616,7 @@ function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['st
 const STRUCTURAL_KINDS = new Set(['index', 'log']);
 
 function extractProjectFromTags(tags: string[]): string | null {
-  for (const tag of tags) {
-    if (tag.startsWith('project:')) return tag.replace('project:', '');
-  }
-  return null;
+  return extractProjectTag(tags);
 }
 
 function rebuildProjectIndex(project: string, repo: NoteRepository, config?: AppConfig): void {
@@ -1799,7 +1796,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       for (const project of sortedProjects) {
         if (displayed >= displayCap) break;
-        const notes = byProject.get(project)!;
+        const notes = byProject.get(project) ?? [];
         output += `### ${project} (${notes.length})\n`;
 
         // Group by kind within project
