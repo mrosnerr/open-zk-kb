@@ -334,25 +334,27 @@ class OpenZkKbMcpBridge {
   }
 
   private async connect(): Promise<Client> {
-    const client = new Client({ name: this.options.clientName, version: '1.0.0' });
-
     if (this.options.httpUrl && !this.httpDisabled) {
+      const client = new Client({ name: this.options.clientName, version: '1.0.0' });
+      const transport = new StreamableHTTPClientTransport(
+        new URL(this.options.httpUrl),
+      );
+      this.transport = transport;
       try {
-        const transport = new StreamableHTTPClientTransport(
-          new URL(this.options.httpUrl),
-        );
-        this.transport = transport;
         await client.connect(transport);
         this.client = client;
         this.connecting = undefined;
         return client;
       } catch {
-        // HTTP connection failed — fall back to stdio for this and future calls
+        // HTTP connection failed — fall back to stdio for this and future calls.
+        // MCP SDK clients are single-transport, so the fallback uses a fresh client.
         this.httpDisabled = true;
         this.transport = undefined;
+        await transport.close().catch(() => undefined);
       }
     }
 
+    const client = new Client({ name: this.options.clientName, version: '1.0.0' });
     const transport = new StdioClientTransport(this.options.server);
     this.transport = transport;
     this.captureStderr(transport);
@@ -400,6 +402,13 @@ function detectHttpServer(): string | undefined {
     if (!runtimeDir) return undefined;
 
     const stateFile = path.join(runtimeDir, 'open-zk-kb', 'server.json');
+    if (process.platform !== 'win32') {
+      const processUid = process.getuid?.();
+      if (processUid === undefined) return undefined;
+      const stat = fs.statSync(stateFile);
+      if (stat.uid !== processUid) return undefined;
+    }
+
     const content = fs.readFileSync(stateFile, 'utf-8');
     const state = JSON.parse(content) as { pid: number; host: string; port: number };
 
