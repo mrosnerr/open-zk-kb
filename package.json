@@ -11,10 +11,6 @@
       "types": "./dist/mcp-server.d.ts",
       "import": "./dist/mcp-server.js"
     },
-    "./server": {
-      "types": "./dist/opencode-plugin/index.d.ts",
-      "import": "./dist/opencode-plugin/index.js"
-    },
     "./mcp-server": {
       "types": "./dist/mcp-server.d.ts",
       "import": "./dist/mcp-server.js"
@@ -56,8 +52,8 @@
   ],
   "scripts": {
     "build": "tsc",
-    "postbuild": "bun run scripts/dev-scaffold.ts --no-build",
-    "prepublishOnly": "bun run build && bun test",
+    "dev:scaffold": "bun run scripts/dev-scaffold.ts",
+    "prepublishOnly": "bun run build && bun run typecheck && bun test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc --noEmit",

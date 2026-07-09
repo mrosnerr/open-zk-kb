@@ -15,7 +15,7 @@ if (process.env.CI) {
 if (!skipBuild) {
   console.log('⚙️  Building...');
   try {
-    execSync('bun run build', { cwd: import.meta.dirname + '/..', stdio: 'inherit' });
+    execSync('bun run build', { cwd: import.meta.dir + '/..', stdio: 'inherit' });
   } catch {
     console.error('❌ Build failed');
     process.exit(1);

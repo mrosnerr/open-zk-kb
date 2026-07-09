@@ -112,6 +112,7 @@ async function main() {
   console.log(`Building open-zk-kb v${version} for Claude Code plugin...\n`);
   let shouldRestoreTransformers = false;
 
+  let completedSuccessfully = false;
   try {
     shouldRestoreTransformers = applyTransformersPatch();
 
@@ -153,10 +154,18 @@ async function main() {
     console.log('\n✓ Plugin build complete!');
     console.log(`  Binaries: ${PLUGIN_BIN}`);
     console.log(`  Skills: ${PLUGIN_SKILLS}`);
+    completedSuccessfully = true;
   } finally {
     if (shouldRestoreTransformers) {
-      console.log('\n  Restoring Transformers source...');
-      runPatch(true);
+      try {
+        console.log('\n  Restoring Transformers source...');
+        runPatch(true);
+      } catch (restoreError) {
+        console.error('Failed to restore Transformers source:', restoreError);
+        if (completedSuccessfully) {
+          process.exitCode = 1;
+        }
+      }
     }
   }
 }
