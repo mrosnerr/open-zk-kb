@@ -91,7 +91,7 @@ See [Release Channels](setup-guide.md#release-channels) for more details.
 ```
 src/
 ├── mcp-server.ts       # MCP server entry point (stdio transport)
-├── tool-handlers.ts    # Shared logic for all 9 tools
+├── tool-handlers.ts    # Shared logic for all 10 tools
 ├── storage/
 │   ├── NoteRepository.ts  # Core CRUD, FTS5, link tracking
 │   ├── IndexBuilder.ts    # Auto-generates per-project index notes
@@ -130,15 +130,15 @@ describe('My Feature', () => {
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should store a note', () => {
-    const result = handleStore({
+  it('should store a note', async () => {
+    const result = await handleStore({
       title: 'Test Note',
       content: 'Some content',
       kind: 'reference',
       summary: 'A test note',
       guidance: 'Use for testing',
     }, ctx.engine);
-    expect(result).toContain('Stored reference:');
+    expect(result).toMatch(/^Stored reference: "Test Note" → \d{16}/);
   });
 });
 ```

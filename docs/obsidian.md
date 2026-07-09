@@ -2,7 +2,7 @@
 
 Your knowledge base isn't just for agents — you can browse it too. It's a fully functional [Obsidian](https://obsidian.md) vault. The [`knowledge-open`](tools-reference.md) MCP tool launches it with a managed scaffold that configures a theme, plugins, navigation, and styling — no manual setup required.
 
-For installation, see the [Setup Guide](setup-guide.md). For configuration options, see the [Obsidian Vault Scaffold](configuration.md#obsidian-vault-scaffold) section. Notes are organized into [9 kinds with lifecycle management](note-lifecycle.md).
+For installation, see the [Setup Guide](setup-guide.md). For configuration options, see the [Obsidian Vault Scaffold](configuration.md#obsidian-vault-scaffold) section. Notes are organized into 7 user-authored kinds, plus 2 generated navigation kinds (`index` and `log`) with lifecycle management; see [Note Lifecycle](note-lifecycle.md).
 
 ## Getting Started
 
@@ -77,7 +77,7 @@ The `review.md` page lists all fleeting notes grouped by project, with promote, 
 
 ## Managed Plugins
 
-The scaffold installs and configures 14 plugins:
+The scaffold installs and configures 14 community plugins, plus the Border theme:
 
 | Plugin | Purpose |
 |--------|---------|
@@ -86,15 +86,17 @@ The scaffold installs and configures 14 plugins:
 | [Homepage](https://github.com/mirnovov/obsidian-homepage) | Opens Home on launch |
 | [QuickAdd](https://github.com/chhoumann/quickadd) | Templated note creation and editing |
 | [Templater](https://github.com/SilentVoid13/Templater) | Template engine for QuickAdd |
-| [Iconic](https://github.com/gfxholo/iconic) | Per-kind file/folder icons and colors |
-| [Inline Callouts](https://github.com/gapmiss/inline-callouts) | Icon + text callouts in headings and descriptions |
-| [Meta Bind](https://github.com/mProjectsCode/obsidian-meta-bind-plugin) | Interactive buttons on navigation pages |
 | [Commander](https://github.com/phibr0/obsidian-commander) | Ribbon and page-header button management |
 | [Style Settings](https://github.com/mgmeyers/obsidian-style-settings) | Theme configuration (card layout) |
+| [Iconic](https://github.com/gfxholo/iconic) | Per-kind file/folder icons and colors |
+| [OZ Calendar](https://github.com/ozntel/oz-calendar) | Calendar navigation support |
+| [Read Only View](https://github.com/mrKazzila/Read-Only-View) | Read-only presentation mode for managed surfaces |
 | [File Name Styler](https://github.com/Trikzon/obsidian-file-name-styler) | Hides 16-digit Zettelkasten ID prefixes in the sidebar |
-| [Border Theme](https://github.com/Akifyss/obsidian-border) | Clean visual theme |
+| [Inline Callouts](https://github.com/gapmiss/inline-callouts) | Icon + text callouts in headings and descriptions |
+| [Meta Bind](https://github.com/mProjectsCode/obsidian-meta-bind-plugin) | Interactive buttons on navigation pages |
+| [Folder Notes](https://github.com/LostPaul/obsidian-folder-notes) | Folder-note navigation for kind and project directories |
 
-All plugin versions are pinned and managed by the scaffold. Manual changes to managed plugins are overwritten on upgrade.
+All plugin versions and the Border theme are pinned and managed by the scaffold. Manual changes to managed plugins are overwritten on upgrade.
 
 > **Note**: The scaffold fully replaces configuration for QuickAdd, Commander, Templater, Breadcrumbs, and Iconic on each upgrade to keep navigation and actions consistent. Custom QuickAdd macros, Commander buttons, or Iconic rules added manually will be overwritten. Add custom automation in non-managed plugins or separate QuickAdd profiles.
 

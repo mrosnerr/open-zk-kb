@@ -138,8 +138,8 @@ For these cases, fetch the page with a browser-capable tool and pass the `html` 
 
 ### Security notes
 
-- **SSRF protection** blocks literal private/reserved IP addresses and hostname patterns (localhost, 10.x, 172.16-31.x, 192.168.x, 169.254.x, IPv6 loopback/link-local/unique-local, IPv4-mapped IPv6). Redirect hops are validated individually.
-- **Known limitation**: hostnames that DNS-resolve to private IPs are **not** blocked — the check operates on hostname text, not resolved addresses. This is acceptable for a locally-run MCP tool but means a domain like `evil.com → 127.0.0.1` would bypass the guard.
+- **SSRF protection** blocks literal private/reserved IP addresses and hostname patterns (localhost, 10.x, 100.64-127.x, 172.16-31.x, 192.168.x, 169.254.x, IPv6 loopback/link-local/unique-local, IPv4-mapped IPv6). Each initial request and redirect hop is validated before fetching, including DNS resolution of hostnames with every returned address checked against private/reserved ranges.
+- **Known limitation**: DNS is resolved before each fetch, but there remains a time-of-check/time-of-use window between validation and the HTTP connection. A hostname could theoretically rebind after validation but before `fetch()` connects.
 - **Extracted links** are filtered to exclude private/reserved IP targets before being shown in output.
 - **URL credentials** (userinfo) are stripped from extracted links.
 

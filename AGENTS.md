@@ -96,7 +96,7 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 | `KIND_DEFAULT_STATUS` | const | `types.ts` | Maps kind → default status |
 | `KIND_DEFAULT_LIFECYCLE` | const | `types.ts` | Maps kind → default lifecycle |
 | `AppConfig` | interface | `types.ts` | Config shape: vault, logLevel, lifecycle, lifecycleDefaults, navigation |
-| `SchemaManager` | class | `schema.ts` | DB schema versioning (v6), migrations |
+| `SchemaManager` | class | `schema.ts` | DB schema versioning (v8), migrations |
 | `LifecycleViolationError` | class | `storage/NoteRepository.ts` | Thrown on snapshot update or append-only rewrite |
 | `getConfig` | function | `config.ts` | 2-layer merge: defaults → YAML config |
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |

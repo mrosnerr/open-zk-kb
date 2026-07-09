@@ -80,7 +80,7 @@ Search combines SQLite FTS5 full-text indexing with local vector embeddings (Min
 ## Documentation
 
 - [Setup Guide](docs/setup-guide.md) — installation, client-specific setup, troubleshooting
-- [Tools Reference](docs/tools-reference.md) — all 9 MCP tools with parameters and examples
+- [Tools Reference](docs/tools-reference.md) — all 10 MCP tools with parameters and examples
 - [Note Lifecycle](docs/note-lifecycle.md) — note kinds, statuses, review system
 - [Configuration](docs/configuration.md) — embeddings, vault, Obsidian scaffold
 - [Obsidian Guide](docs/obsidian.md) — managed scaffold, plugins, navigation

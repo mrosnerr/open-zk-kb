@@ -239,7 +239,7 @@ Run `knowledge-stats` to see version information:
 
 ```
 ## Version
-- Server: 1.0.0 (latest)
+- Server: 1.2.0 (latest)
 - Instructions:
   - Claude Code: 1.0.0 ✓
   - OpenCode: 0.9.0 ⚠️
