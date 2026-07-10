@@ -16,6 +16,8 @@ if (!fs.existsSync(CLI_PATH)) {
   throw new Error('dist/cli.js not found — run `bun run build` before `bun test`');
 }
 
+const INTEGRATION = process.env.INTEGRATION_TESTS === '1';
+
 // ---- Unit: retry classifier ----
 
 describe('READ_ONLY_TOOLS', () => {
@@ -269,7 +271,7 @@ async function sendJsonRpc(
   throw new Error('Timed out waiting for response');
 }
 
-describe('Stdio Bridge Self-Healing', () => {
+describe.skipIf(!INTEGRATION)('Stdio Bridge Self-Healing', () => {
   let tmpDir: string;
   let stateDir: string;
   let originalRuntimeDir: string | undefined;
@@ -354,7 +356,7 @@ describe('Stdio Bridge Self-Healing', () => {
   }, 15000);
 });
 
-describe('Stdio Bridge Local Fallback', () => {
+describe.skipIf(!INTEGRATION)('Stdio Bridge Local Fallback', () => {
   let tmpDir: string;
   let stateDir: string;
   let originalRuntimeDir: string | undefined;
