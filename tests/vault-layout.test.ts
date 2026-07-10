@@ -169,6 +169,35 @@ describe('Structured Vault Storage', () => {
     expect(fs.existsSync(result.path)).toBe(true);
   });
 
+  it('queries root preferences with project tag filter in generated project index', async () => {
+    await handleStore({
+      title: 'Prefers Bun',
+      content: 'User prefers Bun for scripts.',
+      kind: 'personalization',
+      summary: 'Prefers Bun',
+      guidance: 'Use Bun for project scripts.',
+      project: 'some-project',
+    }, context.engine, null, context.config);
+
+    const projectIndexPath = path.join(context.tempDir, 'projects', 'some-project', 'some-project.md');
+    expect(fs.existsSync(projectIndexPath)).toBe(true);
+    const projectIndex = fs.readFileSync(projectIndexPath, 'utf-8');
+
+    expect(projectIndex).toContain('## `[!!user-cog]` Personalizations');
+    const sourceLine = `dv.pages('"preferences"')`;
+    const tagFilterLine = '  .where(p => p.file.tags && (p.file.tags.includes("project:some-project") || p.file.tags.includes("#project:some-project")))';
+    const sortLine = '  .sort(p => p.created, "desc");';
+    const sourceIndex = projectIndex.indexOf(sourceLine);
+    const tagFilterIndex = projectIndex.indexOf(tagFilterLine, sourceIndex);
+    const sortIndex = projectIndex.indexOf(sortLine, sourceIndex);
+    expect(sourceIndex).toBeGreaterThan(-1);
+    expect(tagFilterIndex).toBeGreaterThan(sourceIndex);
+    expect(sortIndex).toBeGreaterThan(tagFilterIndex);
+    expect(projectIndex).toContain('p.file.tags.includes("project:some-project")');
+    expect(projectIndex).toContain('p.file.tags.includes("#project:some-project")');
+    expect(projectIndex).not.toContain('"projects/some-project/preferences"');
+  });
+
   it('stores unscoped observation in general/observations/', () => {
     const result = context.engine.store('macOS keychain is weird', {
       title: 'macOS Quirk',
