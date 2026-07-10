@@ -1512,7 +1512,7 @@ export class NoteRepository {
   }
 
   getStats(project?: string): { total: number; fleeting: number; permanent: number; archived: number; other: number } {
-    const filter = project ? `WHERE kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
+    const filter = project ? `WHERE kind NOT IN ('index', 'log') AND tags LIKE ?` : `WHERE kind NOT IN ('index', 'log')`;
     const params = project ? [`%"project:${project}"%`] : [];
     const stmt = this.db.prepare(`
       SELECT
@@ -2177,6 +2177,7 @@ export class NoteRepository {
     const stmt = this.db.prepare(`
       SELECT * FROM notes 
       WHERE status != 'archived'
+        AND kind NOT IN ('index', 'log')
       ORDER BY updated_at DESC 
       LIMIT ?
     `);

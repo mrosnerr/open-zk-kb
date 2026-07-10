@@ -115,6 +115,33 @@ describe('Knowledge Capture Integration Tests', () => {
       expect(output).not.toContain('  - index:');
       expect(output).not.toContain('  - log:');
     });
+
+    it('should exclude generated project index and log notes from global knowledge stats and recent notes', async () => {
+      await handleStore({
+        title: 'Global Recent Source A',
+        content: 'First real project note for global surfaces.',
+        kind: 'observation',
+        project: 'global-surfaces-project',
+      }, context.engine, null, context.config);
+      await handleStore({
+        title: 'Global Recent Source B',
+        content: 'Second real project note for global surfaces.',
+        kind: 'observation',
+        project: 'global-surfaces-project',
+      }, context.engine, null, context.config);
+
+      const projectNotes = context.engine.getAll().filter(note =>
+        Array.isArray(note.tags) && note.tags.includes('project:global-surfaces-project')
+      );
+      expect(projectNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation', 'observation']);
+
+      expect(context.engine.getStats().total).toBe(2);
+
+      const recentNotes = context.engine.getRecentNotes(2);
+      expect(recentNotes).toHaveLength(2);
+      expect(recentNotes.map(note => note.title).sort()).toEqual(['Global Recent Source A', 'Global Recent Source B']);
+      expect(recentNotes.map(note => note.kind)).toEqual(['observation', 'observation']);
+    });
   });
 
   describe('Note body managed sections', () => {
