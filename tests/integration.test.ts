@@ -67,6 +67,23 @@ describe('Knowledge Capture Integration Tests', () => {
     });
   });
 
+  describe('Project stats', () => {
+    it('should exclude generated project index and log notes from note counts', async () => {
+      await handleStore({
+        title: 'Project Stat Source',
+        content: 'One real project note.',
+        kind: 'observation',
+        project: 'stats-project',
+      }, context.engine, null, context.config);
+
+      const stats = context.engine.getProjectStats();
+      expect(stats).toHaveLength(1);
+      expect(stats[0].project).toBe('stats-project');
+      expect(stats[0].noteCount).toBe(1);
+      expect(context.engine.getAllProjects()).toEqual(['stats-project']);
+    });
+  });
+
   describe('Note body managed sections', () => {
     it('should write explicit related notes once and index their wikilinks', async () => {
       const target = context.engine.store('Target content for explicit relation', {

@@ -1134,6 +1134,7 @@ export class NoteRepository {
     const stmt = this.db.prepare(`
       SELECT DISTINCT tags FROM notes
       WHERE tags LIKE '%"project:%' AND status != 'archived'
+        AND kind NOT IN ('index', 'log')
     `);
     const rows = stmt.all() as Array<{ tags: string }>;
     const projects = new Set<string>();
@@ -1152,6 +1153,7 @@ export class NoteRepository {
     const stmt = this.db.prepare(`
       SELECT tags, updated_at FROM notes
       WHERE tags LIKE '%"project:%' AND status != 'archived'
+        AND kind NOT IN ('index', 'log')
     `);
     const rows = stmt.all() as Array<{ tags: string; updated_at: number }>;
     const stats = new Map<string, { noteCount: number; lastActive: number }>();
