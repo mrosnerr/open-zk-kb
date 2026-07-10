@@ -1155,7 +1155,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     const projectPrefix = `project:${args.project}`;
     results = results.filter(note => {
       const tags = Array.isArray(note.tags) ? note.tags : [];
-      return tags.some(t => t === projectPrefix || t.startsWith(projectPrefix));
+      return tags.some(t => t === projectPrefix || t.startsWith(`${projectPrefix}:`));
     });
   }
 

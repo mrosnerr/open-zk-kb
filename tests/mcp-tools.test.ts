@@ -516,6 +516,30 @@ describe('MCP Tool: knowledge-search', () => {
     expect(output).not.toContain('TS Pref');
   });
 
+  it('should keep exact project and sub-project tags but exclude prefix siblings', () => {
+    ctx.engine.store('Scoped exact content', {
+      title: 'App Exact',
+      kind: 'reference',
+      tags: ['project:app'],
+    });
+    ctx.engine.store('Scoped feature content', {
+      title: 'App Feature',
+      kind: 'reference',
+      tags: ['project:app:feature'],
+    });
+    ctx.engine.store('Scoped sibling content', {
+      title: 'Apple Sibling',
+      kind: 'reference',
+      tags: ['project:apple'],
+    });
+
+    const output = handleSearch({ query: 'Scoped', project: 'app' }, ctx.engine);
+
+    expect(output).toContain('App Exact');
+    expect(output).toContain('App Feature');
+    expect(output).not.toContain('Apple Sibling');
+  });
+
   it('should return no results message with hint', () => {
     const output = handleSearch({ query: 'xyznonexistent' }, ctx.engine);
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
