@@ -235,6 +235,9 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
     action = 'updated';
   } else if (fileExists) {
     newContent = spliceManagedBlock(existing, template);
+    if (preamble && !existing.trimStart().startsWith(preamble.trim())) {
+      newContent = preamble + newContent.replace(/^\n+/, '\n');
+    }
     action = 'updated';
   } else {
     newContent = (preamble ?? '') + template + '\n';

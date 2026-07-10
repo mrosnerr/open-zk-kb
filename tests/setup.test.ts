@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 import { installTtsrRule, removeTtsrRule } from '../src/setup.js';
+import { OMP_AGENT_DOCS_PREAMBLE } from '../src/agent-docs-targets.js';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
 
@@ -600,6 +601,44 @@ describe('setup.ts', () => {
     setupModule.uninstall({ client: 'omp' });
 
     expect(fs.existsSync(rulePath)).toBe(false);
+  });
+
+  it('OMP install prepends preamble to existing marker-less rule files once', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+
+    const rulePath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
+    fs.mkdirSync(path.dirname(rulePath), { recursive: true });
+    fs.writeFileSync(rulePath, 'User-owned rule content.\n', 'utf-8');
+
+    const firstResult = agentDocsModule.injectAgentDocs(
+      rulePath,
+      'preflight',
+      false,
+      'omp',
+      '1.2.0',
+      OMP_AGENT_DOCS_PREAMBLE
+    );
+
+    const firstContent = fs.readFileSync(rulePath, 'utf-8');
+    expect(firstResult.action).toBe('updated');
+    expect(firstContent.startsWith(OMP_AGENT_DOCS_PREAMBLE)).toBe(true);
+    expect(firstContent).toContain('User-owned rule content.');
+    expect(firstContent.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
+    expect(firstContent.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
+    expect(firstContent.split(OMP_AGENT_DOCS_PREAMBLE).length - 1).toBe(1);
+
+    const secondResult = agentDocsModule.injectAgentDocs(
+      rulePath,
+      'preflight',
+      false,
+      'omp',
+      '1.2.0',
+      OMP_AGENT_DOCS_PREAMBLE
+    );
+
+    expect(secondResult.action).toBe('unchanged');
+    expect(fs.readFileSync(rulePath, 'utf-8')).toBe(firstContent);
   });
 
   it('OMP uninstall preserves rule files with user content outside the managed block', async () => {
