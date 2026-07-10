@@ -58,6 +58,7 @@ jobs:
       - name: Smoke tests (install, MCP protocol, KB round-trip)
         run: bash tests/docker/smoke-test.sh
 
+      # Non-blocking: these tests spawn dist/cli.js subprocesses and are timing-sensitive on shared hosted runners; failures are surfaced in the job log but do not fail the build.
       - name: Stdio bridge integration tests
         run: INTEGRATION_TESTS=1 bun test tests/stdio-bridge.test.ts --timeout 120000
         continue-on-error: true
