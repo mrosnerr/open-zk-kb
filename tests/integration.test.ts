@@ -11,7 +11,7 @@ import {
 } from './harness.js';
 import type { TestContext } from './harness.js';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
-import { handleStore } from '../src/tool-handlers.js';
+import { handleStore, handleStats } from '../src/tool-handlers.js';
 
 describe('Knowledge Capture Integration Tests', () => {
   let context: TestContext;
@@ -81,6 +81,39 @@ describe('Knowledge Capture Integration Tests', () => {
       expect(stats[0].project).toBe('stats-project');
       expect(stats[0].noteCount).toBe(1);
       expect(context.engine.getAllProjects()).toEqual(['stats-project']);
+    });
+
+    it('should exclude generated project index and log notes from project-scoped knowledge stats', async () => {
+      await handleStore({
+        title: 'Project Knowledge Stats Source',
+        content: 'One real project note for project-scoped stats.',
+        kind: 'observation',
+        project: 'knowledge-stats-project',
+      }, context.engine, null, context.config);
+
+      const projectNotes = context.engine.getAll().filter(note =>
+        Array.isArray(note.tags) && note.tags.includes('project:knowledge-stats-project')
+      );
+      expect(projectNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation']);
+
+      expect(context.engine.getStats('knowledge-stats-project').total).toBe(1);
+      expect(context.engine.getStalenessDistribution('knowledge-stats-project')).toEqual({
+        fresh: 1,
+        recent: 0,
+        aging: 0,
+        stale: 0,
+      });
+      expect(context.engine.getGrowthByKind(Date.now() - 7 * 86400000, 'knowledge-stats-project')).toEqual({
+        observation: 1,
+      });
+
+      const output = await handleStats({ project: 'knowledge-stats-project', period: '7d' }, context.engine, context.config);
+      expect(output).toContain('## Health (1 notes)');
+      expect(output).toContain('- 0–7d: 1');
+      expect(output).toContain('- Notes created: 1');
+      expect(output).toContain('  - observation: 1');
+      expect(output).not.toContain('  - index:');
+      expect(output).not.toContain('  - log:');
     });
   });
 

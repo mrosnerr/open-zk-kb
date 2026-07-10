@@ -1512,7 +1512,7 @@ export class NoteRepository {
   }
 
   getStats(project?: string): { total: number; fleeting: number; permanent: number; archived: number; other: number } {
-    const filter = project ? `WHERE tags LIKE ?` : '';
+    const filter = project ? `WHERE kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
     const params = project ? [`%"project:${project}"%`] : [];
     const stmt = this.db.prepare(`
       SELECT
@@ -1551,7 +1551,7 @@ export class NoteRepository {
    * Used by knowledge-stats for growth rate reporting.
    */
   getGrowthByKind(sinceMs: number, project?: string): Record<string, number> {
-    const projectClause = project ? ` AND tags LIKE ?` : '';
+    const projectClause = project ? ` AND kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
     const params: (number | string)[] = [sinceMs];
     if (project) params.push(`%"project:${project}"%`);
     const rows = this.db.prepare(`
@@ -1576,7 +1576,7 @@ export class NoteRepository {
     const d7 = now - 7 * 86400000;
     const d30 = now - 30 * 86400000;
     const d90 = now - 90 * 86400000;
-    const projectClause = project ? ` AND tags LIKE ?` : '';
+    const projectClause = project ? ` AND kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
     const params: (number | string)[] = [d7, d7, d30, d30, d90, d90];
     if (project) params.push(`%"project:${project}"%`);
     const row = this.db.prepare(`
