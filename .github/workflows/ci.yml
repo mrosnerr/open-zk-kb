@@ -58,6 +58,10 @@ jobs:
       - name: Smoke tests (install, MCP protocol, KB round-trip)
         run: bash tests/docker/smoke-test.sh
 
+      - name: Stdio bridge integration tests
+        run: INTEGRATION_TESTS=1 bun test tests/stdio-bridge.test.ts --timeout 120000
+        continue-on-error: true
+
   model-smoke:
     runs-on: ubuntu-latest
     needs: build
