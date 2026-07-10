@@ -165,10 +165,10 @@ function buildSectionHeader(kind: string, header: string, project: string, linke
 }
 
 
-function buildDataviewTable(source: string, kind: string, header: string): string[] {
+function buildDataviewTable(source: string, kind: string, header: string, whereClause?: string): string[] {
   const singular = getSingularLabel(kind, header);
   const folderNoteBasename = source.split('/').at(-1) || getKindFolderNoteBasename(kind);
-  return [
+  const lines = [
     '```dataviewjs',
     `const pages = dv.pages('"${source}"')`,
     `  .where(p => p.file.name !== "${folderNoteBasename}")`,
@@ -193,10 +193,16 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
      '  });',
      '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
      '  return [dv.fileLink(p.file.path, false, label), p.tagline || "", p.created || "", actions];',
-     '}));',
-     '```',
-   ];
- }
+    '}));',
+    '```',
+  ];
+
+  if (whereClause) {
+    lines.splice(4, 0, `  .where(${whereClause})`);
+  }
+
+  return lines;
+}
 
  function buildDomainDataviewTable(source: string): string[] {
   return [
@@ -226,6 +232,11 @@ function buildDataviewTable(source: string, kind: string, header: string): strin
      '```',
    ];
  }
+function buildProjectTagWhereClause(project: string): string {
+  const bareTag = JSON.stringify(`project:${project}`);
+  const hashTag = JSON.stringify(`#project:${project}`);
+  return `p => p.file.tags && (p.file.tags.includes(${bareTag}) || p.file.tags.includes(${hashTag}))`;
+}
 
 export function buildIndexContent(
   project: string,
@@ -271,7 +282,13 @@ export function buildIndexContent(
       : undefined;
     lines.push(buildSectionHeader(kind, header, project, linkedPath));
     lines.push('');
-    lines.push(...buildDataviewTable(`projects/${project}/${dirName}`, kind, header));
+    const source = kind === 'personalization'
+      ? 'preferences'
+      : `projects/${project}/${dirName}`;
+    const whereClause = kind === 'personalization'
+      ? buildProjectTagWhereClause(project)
+      : undefined;
+    lines.push(...buildDataviewTable(source, kind, header, whereClause));
     lines.push('');
   }
 
@@ -323,7 +340,13 @@ function buildKindSubMocContent(project: string, kind: string, header: string): 
   lines.push(`# ${iconPrefix}${projectName} — ${header}${addLink}`);
   lines.push('');
   lines.push('');
-  lines.push(...buildDataviewTable(`projects/${project}/${KIND_DIR_MAP[kind] || `${kind}s`}`, kind, header));
+  const source = kind === 'personalization'
+    ? 'preferences'
+    : `projects/${project}/${KIND_DIR_MAP[kind] || `${kind}s`}`;
+  const whereClause = kind === 'personalization'
+    ? buildProjectTagWhereClause(project)
+    : undefined;
+  lines.push(...buildDataviewTable(source, kind, header, whereClause));
   lines.push('');
   lines.push('---');
   lines.push(`Last rebuilt: ${formatDateTime()}`);
