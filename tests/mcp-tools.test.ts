@@ -3,6 +3,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { Client } from '@modelcontextprotocol/sdk/client/index.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import {
   createTestHarness,
   cleanupTestHarness,
@@ -3654,6 +3656,84 @@ describe('Index and log note kinds', () => {
     expect(launchedUri).toContain(`file=${encodeURIComponent('projects/myapp/myapp')}`);
   });
 
+});
+
+describe('MCP Tool: knowledge-mine protocol surface', () => {
+  it('should honor candidate-level project for domain candidates', async () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-mcp-mine-project-'));
+    const configDir = path.join(tempDir, 'open-zk-kb');
+    const vaultDir = path.join(tempDir, 'vault');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'config.yaml'), [
+      `vault: ${JSON.stringify(vaultDir)}`,
+      'logLevel: ERROR',
+      'embeddings:',
+      '  enabled: false',
+      'versioning:',
+      '  enabled: false',
+      'obsidian:',
+      '  autoUpgrade: false',
+      '',
+    ].join('\n'));
+
+    const serverPath = path.resolve(import.meta.dir, '../src/mcp-server.ts');
+    const transport = new StdioClientTransport({
+      command: 'bun',
+      args: ['run', serverPath],
+      env: {
+        ...process.env,
+        XDG_DATA_HOME: tempDir,
+        XDG_CONFIG_HOME: tempDir,
+      },
+    });
+    const client = new Client({ name: 'mcp-mine-project-test', version: '1.0' });
+
+    try {
+      await client.connect(transport);
+
+      const tools = await client.listTools();
+      const mineTool = tools.tools.find(tool => tool.name === 'knowledge-mine');
+      const schema = mineTool?.inputSchema as {
+        properties?: {
+          candidates?: {
+            items?: {
+              properties?: Record<string, unknown>;
+            };
+          };
+        };
+      } | undefined;
+      expect(schema?.properties?.candidates?.items?.properties?.project).toBeDefined();
+
+      const mineResult = await client.callTool({
+        name: 'knowledge-mine',
+        arguments: {
+          dry_run: false,
+          candidates: [{
+            title: 'Candidate Scoped Domain',
+            content: 'Candidate-only project context for MCP mining validation.',
+            kind: 'domain',
+            summary: 'Candidate-level domain project is accepted',
+            guidance: 'Use candidate project when mining domain notes',
+            project: 'candidate-only',
+          }],
+        },
+      });
+      const mineContent = mineResult.content as Array<{ type: string; text: string }>;
+      expect(mineContent[0].text).toContain('✅ Stored as');
+      expect(mineContent[0].text).not.toContain('domain notes require a project parameter');
+
+      const overviewResult = await client.callTool({
+        name: 'knowledge-overview',
+        arguments: { project: 'candidate-only' },
+      });
+      const overviewContent = overviewResult.content as Array<{ type: string; text: string }>;
+      expect(overviewContent[0].text).toContain('Candidate Scoped Domain');
+      expect(overviewContent[0].text).toContain('tags="project:candidate-only"');
+    } finally {
+      await client.close();
+      if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe('MCP Tool: knowledge-stats', () => {
