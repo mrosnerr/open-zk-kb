@@ -11,7 +11,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
-import { handleStore, handleSearch, handleStats, handleMaintain, handleOverview, handleGet } from '../src/tool-handlers.js';
+import { handleStore, handleSearch, handleStats, handleMaintain, handleOverview, handleGet, handleOpen } from '../src/tool-handlers.js';
 import { injectAgentDocs } from '../src/agent-docs.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
@@ -538,6 +538,31 @@ describe('MCP Tool: knowledge-search', () => {
     expect(output).toContain('App Exact');
     expect(output).toContain('App Feature');
     expect(output).not.toContain('Apple Sibling');
+  });
+
+  it('should overfetch before applying project filter', () => {
+    for (let i = 0; i < 12; i++) {
+      ctx.engine.store('Shared scoped overfetch keyword', {
+        title: `Non Project Overfetch ${i}`,
+        kind: 'reference',
+      });
+    }
+    ctx.engine.store('Shared scoped overfetch keyword', {
+      title: 'Project Overfetch One',
+      kind: 'reference',
+      tags: ['project:myapp'],
+    });
+    ctx.engine.store('Shared scoped overfetch keyword', {
+      title: 'Project Overfetch Two',
+      kind: 'reference',
+      tags: ['project:myapp'],
+    });
+
+    const output = handleSearch({ query: 'Shared scoped overfetch keyword', project: 'myapp', limit: 2 }, ctx.engine);
+
+    expect(output).toContain('Project Overfetch One');
+    expect(output).toContain('Project Overfetch Two');
+    expect(output).not.toContain('Non Project Overfetch');
   });
 
   it('should return no results message with hint', () => {
@@ -3611,6 +3636,24 @@ describe('Index and log note kinds', () => {
     expect(ctx.engine.getIndexNote('alpha')).not.toBeNull();
     expect(ctx.engine.getIndexNote('beta')).not.toBeNull();
   });
+  it('should open a project index by vault-relative path', async () => {
+    await storeProjectNote('Open Project Index', 'myapp');
+    let launchedUri: string | undefined;
+
+    const output = await handleOpen({
+      project: 'myapp',
+      _detectObsidian: () => ({ installed: true as const, binaryPath: '/fake/obsidian' }),
+      _launchObsidian: (_detection, vaultPath, filePath) => {
+        launchedUri = `obsidian://open?vault=${encodeURIComponent(path.basename(vaultPath))}&file=${encodeURIComponent(filePath ?? '')}`;
+        return null;
+      },
+      _ensureScaffold: async () => null,
+    }, makeConfig(), ctx.engine);
+
+    expect(output).toContain('Focused on project: myapp');
+    expect(launchedUri).toContain(`file=${encodeURIComponent('projects/myapp/myapp')}`);
+  });
+
 });
 
 describe('MCP Tool: knowledge-stats', () => {

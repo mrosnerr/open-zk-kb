@@ -200,6 +200,7 @@ export interface MineCandidate {
   kind: NoteKind;
   summary: string;
   guidance: string;
+  project?: string;
   tags?: string[];
   source?: string;
 }
@@ -1135,11 +1136,13 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 }
 
 export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedding?: number[] | null, config?: AppConfig): string {
+  const requestedLimit = args.limit || 10;
+  const searchLimit = args.project ? Math.min(requestedLimit * 10, 100) : requestedLimit;
   let results = repo.searchHybrid(args.query, queryEmbedding || null, {
     kind: args.kind,
     status: args.status ? toNoteStatus(args.status, 'fleeting') : undefined,
     tags: args.tags,
-    limit: args.limit || 10,
+    limit: searchLimit,
   });
 
   if (config?.search?.excludeLogFromSearch !== false && !STRUCTURAL_KINDS.has(args.kind as string)) {
@@ -1179,6 +1182,10 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
       const domainId = domainNote.id;
       results = results.filter(r => r.id !== domainId);
     }
+  }
+
+  if (results.length > requestedLimit) {
+    results = results.slice(0, requestedLimit);
   }
 
   const accessedIds = [...(domainNote ? [domainNote.id] : []), ...results.map(note => note.id)];
@@ -2253,8 +2260,8 @@ export async function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteR
   if (args.project && repo) {
     const indexNote = repo.getIndexNote(args.project);
     if (indexNote?.path) {
-      const noteFilename = path.basename(indexNote.path);
-      filePath = noteFilename.replace(/\.md$/, '');
+      const relativePath = path.relative(vaultPath, indexNote.path).replace(/\\/g, '/');
+      filePath = relativePath.replace(/\.md$/, '');
       resolvedProject = args.project;
     }
   }
@@ -2331,7 +2338,7 @@ function validateMineCandidate(candidate: MineCandidate, index: number, project?
   if (STRUCTURAL_KINDS.has(candidate.kind)) {
     return `Candidate ${index}: ${candidate.kind} notes are structural and auto-generated; they cannot be mined.`;
   }
-  if (candidate.kind === 'domain' && !project) {
+  if (candidate.kind === 'domain' && !(candidate.project ?? project)) {
     return `Candidate ${index}: domain notes require a project parameter.`;
   }
   return null;
@@ -2451,6 +2458,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
       if (result.classification === 'SKIP') continue;
       const tags = [...(result.candidate.tags || [])];
       if (result.candidate.source) tags.push(`mined:${result.candidate.source}`);
+      const project = result.candidate.project ?? args.project;
       try {
         const storeResult = await handleStore({
           title: result.candidate.title,
@@ -2459,7 +2467,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
           tags,
           summary: result.candidate.summary,
           guidance: result.candidate.guidance,
-          project: args.project,
+          project,
           model: args.model,
         }, repo, embeddingConfig, config);
         const storedId = extractStoredId(storeResult);

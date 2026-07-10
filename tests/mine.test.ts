@@ -77,6 +77,15 @@ describe('knowledge-mine: validation', () => {
     expect(output).toContain('Error: Candidate 1');
     expect(output).toContain('domain notes require a project parameter');
   });
+
+  it('domain kind accepts per-candidate project', async () => {
+    const output = await handleMine({
+      candidates: [makeCandidate({ kind: 'domain', project: 'alpha' })],
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).not.toContain('Error:');
+    expect(output).toContain('⮕ STORE');
+  });
 });
 
 describe('knowledge-mine: dry-run classification', () => {
@@ -276,6 +285,46 @@ describe('knowledge-mine: store mode', () => {
 
     expect(first?.tags).toContain('project:myapp');
     expect(second?.tags).toContain('project:myapp');
+  });
+
+  it('per-candidate project overrides support mixed-project batches', async () => {
+    await handleMine({
+      dry_run: false,
+      project: 'fallback',
+      candidates: [
+        makeCandidate({
+          title: 'Alpha Mixed Candidate',
+          summary: 'Unique alpha mixed candidate summary',
+          project: 'alpha',
+        }),
+        makeCandidate({
+          title: 'Beta Mixed Candidate',
+          summary: 'Unique beta mixed candidate summary',
+          project: 'beta',
+        }),
+        makeCandidate({
+          title: 'Gamma Mixed Domain',
+          kind: 'domain',
+          content: 'Gamma project operating context',
+          summary: 'Unique gamma mixed domain summary',
+          guidance: 'Use for gamma project context',
+          project: 'gamma',
+        }),
+      ],
+    }, ctx.engine, null, ctx.config);
+
+    const alpha = ctx.engine.search('Alpha Mixed Candidate', { limit: 10 })
+      .find(result => result.title === 'Alpha Mixed Candidate');
+    const beta = ctx.engine.search('Beta Mixed Candidate', { limit: 10 })
+      .find(result => result.title === 'Beta Mixed Candidate');
+    const gamma = ctx.engine.getDomainNote('gamma');
+
+    expect(alpha?.tags).toContain('project:alpha');
+    expect(alpha?.tags).not.toContain('project:fallback');
+    expect(beta?.tags).toContain('project:beta');
+    expect(beta?.tags).not.toContain('project:fallback');
+    expect(gamma?.tags).toContain('project:gamma');
+    expect(gamma?.tags).not.toContain('project:fallback');
   });
 });
 
