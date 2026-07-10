@@ -1,7 +1,16 @@
-import { describe, it, expect, afterEach } from 'bun:test';
+import { describe, it, expect, afterEach, beforeEach, spyOn } from 'bun:test';
+import * as dnsPromises from 'node:dns/promises';
+import type { LookupAddress } from 'node:dns';
 import { isValidUrl, isPrivateOrReservedHost, isPrivateOrReservedIp, extractArticle, extractFromUrl, fetchHtml } from '../src/url-extractor.js';
 import { handleIngest } from '../src/tool-handlers.js';
 
+const PUBLIC_LOOKUP_ADDRESSES: LookupAddress[] = [{ address: '93.184.216.34', family: 4 }];
+
+function mockDnsLookup(addresses: LookupAddress[] = PUBLIC_LOOKUP_ADDRESSES) {
+  const lookupSpy = spyOn(dnsPromises, 'lookup');
+  lookupSpy.mockImplementation((async () => addresses) as typeof dnsPromises.lookup);
+  return lookupSpy;
+}
 // ---- Unit: isValidUrl ----
 
 describe('isValidUrl', () => {
@@ -330,7 +339,13 @@ describe('isPrivateOrReservedHost', () => {
 
 describe('fetchHtml', () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  let lookupSpy: ReturnType<typeof mockDnsLookup>;
+
+  beforeEach(() => { lookupSpy = mockDnsLookup(); });
+  afterEach(() => {
+    lookupSpy.mockRestore();
+    globalThis.fetch = originalFetch;
+  });
 
   it('rejects on non-HTML content type', async () => {
     globalThis.fetch = (async () => new Response('{}', {
@@ -396,6 +411,28 @@ describe('fetchHtml', () => {
     await expect(fetchHtml('https://example.com', { timeoutMs: 50 })).rejects.toThrow();
   });
 
+  it('blocks public hostname resolving to a private IP', async () => {
+    lookupSpy.mockImplementation((async () => [{ address: '127.0.0.1', family: 4 }]) as typeof dnsPromises.lookup);
+    await expect(fetchHtml('https://rebinding.example/secret')).rejects.toThrow('resolves to private/reserved address 127.0.0.1');
+  });
+
+  it('allows public hostname resolving only to public IPs', async () => {
+    lookupSpy.mockImplementation((async () => [{ address: '93.184.216.34', family: 4 }]) as typeof dnsPromises.lookup);
+    globalThis.fetch = (async () => new Response('<html><body>ok</body></html>', {
+      status: 200,
+      headers: { 'content-type': 'text/html' },
+    })) as typeof fetch;
+
+    const result = await fetchHtml('https://public.example/');
+
+    expect(result.html).toContain('<body>ok</body>');
+    expect(lookupSpy).toHaveBeenCalledWith('public.example', { all: true, verbatim: true });
+  });
+
+  it('blocks direct private IP literals before DNS lookup', async () => {
+    await expect(fetchHtml('http://127.0.0.1/secret')).rejects.toThrow('private/reserved');
+    expect(lookupSpy).not.toHaveBeenCalled();
+  });
   it('blocks URLs targeting localhost', async () => {
     await expect(fetchHtml('http://localhost/secret')).rejects.toThrow('private/reserved');
   });
@@ -890,7 +927,13 @@ describe('IPv6 link-local full fe80::/10 range', () => {
 
 describe('fetchHtml finalUrl tracking', () => {
   const originalFetch = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = originalFetch; });
+  let lookupSpy: ReturnType<typeof mockDnsLookup>;
+
+  beforeEach(() => { lookupSpy = mockDnsLookup(); });
+  afterEach(() => {
+    lookupSpy.mockRestore();
+    globalThis.fetch = originalFetch;
+  });
 
   it('returns original URL when no redirect', async () => {
     globalThis.fetch = (async () => new Response('<html></html>', {

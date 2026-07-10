@@ -3,7 +3,7 @@
 // Fetches a URL, extracts article content using Readability, converts to markdown.
 // No LLM dependency — pure server-side extraction.
 
-import { lookup } from 'node:dns/promises';
+import * as dnsPromises from 'node:dns/promises';
 import { isIP } from 'node:net';
 import type { LookupAddress } from 'node:dns';
 import { parseHTML } from 'linkedom';
@@ -138,7 +138,9 @@ async function validateResolvedFetchTarget(url: string): Promise<void> {
 
   let addresses: LookupAddress[];
   try {
-    addresses = await lookup(parsed.hostname, { all: true });
+    // Residual TOCTOU: resolve-then-fetch is not full IP pinning, but this
+    // intentionally blocks DNS-rebinding SSRF without replacing fetch's dialer.
+    addresses = await dnsPromises.lookup(parsed.hostname, { all: true, verbatim: true });
   } catch (error) {
     throw new Error(`Blocked URL: failed to resolve hostname ${parsed.hostname}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
