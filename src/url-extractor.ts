@@ -83,7 +83,7 @@ export function isPrivateOrReservedIp(address: string, family: number = isIP(add
 
   if (family !== 6) return false;
 
-  if (host === '::1') return true;                                  // loopback
+  if (host === '::' || host === '::1') return true;                       // unspecified / loopback
   if (host.startsWith('fc') || host.startsWith('fd')) return true;  // fc00::/7 unique local
   const fe = parseInt(host.slice(0, 4), 16);
   if ((fe & 0xffc0) === 0xfe80) return true;                       // fe80::/10 link-local (fe80-febf)

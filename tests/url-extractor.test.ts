@@ -306,6 +306,11 @@ describe('isPrivateOrReservedHost', () => {
     expect(isPrivateOrReservedHost('0.0.0.0')).toBe(true);
   });
 
+  it('blocks IPv6 unspecified address', () => {
+    expect(isPrivateOrReservedHost('[::]')).toBe(true);
+    expect(isPrivateOrReservedIp('::', 6)).toBe(true);
+  });
+
   it('blocks IPv6 loopback', () => {
     expect(isPrivateOrReservedHost('[::1]')).toBe(true);
   });
@@ -577,6 +582,14 @@ describe('SSRF bypass vectors', () => {
 
   it('blocks private IP with port number', async () => {
     await expect(fetchHtml('http://127.0.0.1:8080/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks IPv4 wildcard with port number', async () => {
+    await expect(fetchHtml('http://0.0.0.0:8080/')).rejects.toThrow('private/reserved');
+  });
+
+  it('blocks IPv6 wildcard with port number', async () => {
+    await expect(fetchHtml('http://[::]:8080/')).rejects.toThrow('private/reserved');
   });
 
   it('allows IPv4-mapped IPv6 public IP (::ffff:8.8.8.8)', () => {
