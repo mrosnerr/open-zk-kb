@@ -85,6 +85,45 @@ function getExpectedPiPackageSource(): string {
   return path.resolve(path.dirname(testFilePath), '..');
 }
 
+function runBunCommand(
+  env: {
+    xdgConfigHome: string;
+    xdgDataHome: string;
+    homeDir: string;
+  },
+  args: string[],
+): string {
+  const result = Bun.spawnSync(
+    [process.execPath, ...args],
+    {
+      cwd: getExpectedPiPackageSource(),
+      env: {
+        ...process.env,
+        HOME: env.homeDir,
+        XDG_CONFIG_HOME: env.xdgConfigHome,
+        XDG_DATA_HOME: env.xdgDataHome,
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
+  );
+
+  expect(result.exitCode).toBe(0);
+  return result.stdout.toString();
+}
+
+function runSetupCli(
+  env: {
+    xdgConfigHome: string;
+    xdgDataHome: string;
+    homeDir: string;
+  },
+  args: string[],
+): string {
+  return runBunCommand(env, ['run', 'src/setup.ts', ...args]);
+}
+
+
 const MANAGED_BLOCK_LINE_COUNT = 13;
 
 function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
@@ -395,6 +434,59 @@ describe('setup.ts', () => {
     expect(agentDocs).toContain('OPEN-ZK-KB:START');
     expectSlimAgentDocsBlock(agentDocs);
     expect(output).toContain('Pi does not support MCP natively');
+  });
+
+  it('adds HTTP bearer auth headers to generated MCP configs without printing the token', () => {
+    const env = createIsolatedInstallEnv();
+    const authToken = 'setup-test-auth-token';
+    const serverConfigPath = path.join(env.xdgConfigHome, 'open-zk-kb', 'config.yaml');
+    fs.mkdirSync(path.dirname(serverConfigPath), { recursive: true });
+    fs.writeFileSync(
+      serverConfigPath,
+      `server:\n  host: 127.0.0.1\n  port: 19444\n  authToken: ${authToken}\n`,
+      'utf-8',
+    );
+
+    for (const testCase of CLIENT_CASES) {
+      const output = runSetupCli(env, [
+        'install',
+        '--client',
+        testCase.client,
+        '--transport',
+        'http',
+        '--force',
+      ]);
+
+      expect(output).not.toContain(authToken);
+
+      const config = JSON.parse(fs.readFileSync(testCase.getConfigPath(env), 'utf-8')) as Record<string, unknown>;
+      expect(getNestedValue(config, testCase.mcpPath)).toEqual({
+        type: 'http',
+        url: 'http://127.0.0.1:19444/mcp',
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+        },
+      });
+    }
+
+    const dryRunOutput = runSetupCli(env, [
+      'install',
+      '--client',
+      'opencode',
+      '--transport',
+      'http',
+      '--force',
+      '--dry-run',
+    ]);
+    expect(dryRunOutput).toContain('Bearer [REDACTED]');
+    expect(dryRunOutput).not.toContain(authToken);
+
+    const warningOutput = runBunCommand(env, [
+      '--eval',
+      "import { CLIENT_CONFIGS, install } from './src/setup.js'; CLIENT_CONFIGS.opencode.httpAuthHeaderField = undefined; process.stdout.write(install({ client: 'opencode', transport: 'http', force: true }).output);",
+    ]);
+    expect(warningOutput).toContain('Warning: OpenCode does not support HTTP MCP authorization headers.');
+    expect(warningOutput).not.toContain(authToken);
   });
 
   it('Pi dry-run previews package setup without requiring an MCP server path', async () => {

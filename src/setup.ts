@@ -84,6 +84,8 @@ export interface ClientConfig {
   integration?: 'mcp' | 'pi-package';
   mcpPath?: string[];
   mcpFormat?: 'opencode' | 'standard';
+  /** Field used by this client's HTTP MCP config for request headers. */
+  httpAuthHeaderField?: 'headers';
   agentDocsPath?: string;
   /** Display label for the agent docs file (e.g. "Rule", "Instructions"). */
   agentDocsLabel?: string;
@@ -123,6 +125,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcp', 'open-zk-kb'],
     mcpFormat: 'opencode',
+    httpAuthHeaderField: 'headers',
     agentDocsPath: path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
     agentDocsLabel: 'Instructions',
     instructionSize: 'full',
@@ -134,6 +137,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
+    httpAuthHeaderField: 'headers',
     skillPath: path.join(expandPath('~/.claude'), 'skills', 'open-zk-kb'),
     agentDocsPath: path.join(expandPath('~/.claude'), 'rules', 'open-zk-kb.md'),
     agentDocsLabel: 'Rule',
@@ -146,6 +150,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
+    httpAuthHeaderField: 'headers',
   },
   'windsurf': {
     name: 'Windsurf',
@@ -153,6 +158,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
+    httpAuthHeaderField: 'headers',
     agentDocsPath: path.join(expandPath('~/.codeium'), 'windsurf', 'memories', 'global_rules.md'),
     instructionSize: 'compact',
     agentDocsLabel: 'Global rules',
@@ -163,6 +169,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['context_servers', 'open-zk-kb'],
     mcpFormat: 'standard',
+    httpAuthHeaderField: 'headers',
   },
   'pi': {
     name: 'Pi',
@@ -180,6 +187,7 @@ export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
     configFormat: 'json',
     mcpPath: ['mcpServers', 'open-zk-kb'],
     mcpFormat: 'standard',
+    httpAuthHeaderField: 'headers',
     skillPath: path.join(expandPath('~/.omp'), 'agent', 'skills', 'open-zk-kb'),
     agentDocsPath: path.join(expandPath('~/.omp'), 'agent', 'rules', 'open-zk-kb.md'),
     agentDocsLabel: 'Rule',
@@ -227,6 +235,9 @@ type McpEntry =
   | {
       type: 'http';
       url: string;
+      headers?: {
+        Authorization: string;
+      };
     };
 
 function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string, transport?: McpTransport): McpEntry {
@@ -239,9 +250,13 @@ function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string, transpor
     const clientHost = config.server.host === '0.0.0.0' || config.server.host === '::'
       ? '127.0.0.1'
       : config.server.host;
+    const headers = config.server.authToken && clientConfig.httpAuthHeaderField === 'headers'
+      ? { Authorization: `Bearer ${config.server.authToken}` }
+      : undefined;
     return {
       type: 'http',
       url: `http://${clientHost.includes(':') ? `[${clientHost}]` : clientHost}:${config.server.port}/mcp`,
+      ...(headers ? { headers } : {}),
     };
   }
 
@@ -273,6 +288,24 @@ function buildMcpEntry(clientConfig: ClientConfig, serverPath?: string, transpor
     command: 'bun',
     args: ['run', serverPath],
   };
+}
+
+function getHttpAuthHeaderWarning(clientConfig: ClientConfig, transport?: McpTransport): string | undefined {
+  if (
+    transport !== 'http' ||
+    !getConfig().server.authToken ||
+    clientConfig.httpAuthHeaderField
+  ) {
+    return undefined;
+  }
+
+  return `Warning: ${clientConfig.name} does not support HTTP MCP authorization headers. Configure the Authorization header manually.`;
+}
+
+function formatMcpEntryForDisplay(entry: McpEntry | null): string {
+  return JSON.stringify(entry, (key, value) =>
+    key === 'Authorization' ? 'Bearer [REDACTED]' : value,
+  2);
 }
 
 function detectProjectRoot(): string | undefined {
@@ -1391,6 +1424,9 @@ export function install(args: InstallArgs): InstallResult {
 
   
   const mcpEntry = usesPiPackage ? null : buildMcpEntry(clientConfig, serverPath, args.transport);
+  const httpAuthHeaderWarning = usesPiPackage
+    ? undefined
+    : getHttpAuthHeaderWarning(clientConfig, args.transport);
   
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const templatesDir = path.join(projectRoot, 'templates');
@@ -1402,9 +1438,12 @@ export function install(args: InstallArgs): InstallResult {
   if (args.dryRun) {
     let output = usesPiPackage
       ? `Dry run: Would add Pi package source to ${clientConfig.configPath}:\n${piPackageSource}\nNote: Also run \`pi install ${piPackageSource}\` — Pi does not support MCP natively`
-      : `Dry run: Would add to ${clientConfig.configPath}:\n${JSON.stringify(mcpEntry, null, 2)}`;
+      : `Dry run: Would add to ${clientConfig.configPath}:\n${formatMcpEntryForDisplay(mcpEntry)}`;
     if (removedDisabledServers.length > 0) {
       output += `\nWould re-enable MCP discovery for ${removedDisabledServers.join(', ')} in ${clientConfig.configPath}`;
+    }
+    if (httpAuthHeaderWarning) {
+      output += `\n${httpAuthHeaderWarning}`;
     }
 
     if (clientConfig.skillPath) {
@@ -1567,6 +1606,9 @@ export function install(args: InstallArgs): InstallResult {
   } else {
     output += `MCP server: ${formatServerCommand(serverPath)}\n`;
   }
+  if (httpAuthHeaderWarning) {
+    output += `${httpAuthHeaderWarning}\n`;
+  }
   if (removedDisabledServers.length > 0) {
     output += `Discovery: re-enabled ${removedDisabledServers.join(', ')} in ${clientConfig.configPath}\n`;
   }
@@ -1633,6 +1675,9 @@ export function install(args: InstallArgs): InstallResult {
   }
   if (ttsrResult) {
     details.push(`TTSR rule: ${ttsrResult.path} (${ttsrResult.action})`);
+  }
+  if (httpAuthHeaderWarning) {
+    details.push(httpAuthHeaderWarning);
   }
   
   return { status: 'installed', clientName: clientConfig.name, output, details, staleSkippedSymlinks, agentDocsSkippedSymlink };
