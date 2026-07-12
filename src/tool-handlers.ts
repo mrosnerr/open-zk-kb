@@ -2419,7 +2419,7 @@ function extractStoredId(result: string): string | undefined {
   return /.*→\s*(\d{12,16})\b/.exec(result)?.[1] ?? /ID:\s*(\S+)/.exec(result)?.[1];
 }
 
-export async function handleMine(args: MineArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig): Promise<string> {
+export async function handleMine(args: MineArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null): Promise<string> {
   if (args.candidates.length === 0) {
     return 'No mining candidates provided. Extract candidate notes first, then call knowledge-mine with at least one candidate.';
   }
@@ -2532,7 +2532,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
           guidance: result.candidate.guidance,
           project,
           model: args.model,
-        }, repo, embeddingConfig, config);
+        }, repo, embeddingConfig, config, gitVersioning);
         const storedId = extractStoredId(storeResult);
         if (storedId) {
           result.storedId = storedId;

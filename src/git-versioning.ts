@@ -315,28 +315,54 @@ export class GitVersioning {
     }
   }
 
+  private async getStageablePaths(paths: readonly string[]): Promise<string[]> {
+    const [tracked, untracked] = await Promise.all([
+      gitExec(['ls-files', '-z', '--', ...paths], this.vaultPath),
+      gitExec(['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths], this.vaultPath),
+    ]);
+
+    return [...new Set([
+      ...(tracked.exitCode === 0 ? parseNulSeparatedPaths(tracked.stdout) : []),
+      ...(untracked.exitCode === 0 ? parseNulSeparatedPaths(untracked.stdout) : []),
+    ])];
+  }
+
+  private getStageablePathsSync(paths: readonly string[]): string[] {
+    const tracked = gitExecSync(['ls-files', '-z', '--', ...paths], this.vaultPath);
+    const untracked = gitExecSync(['ls-files', '--others', '--exclude-standard', '-z', '--', ...paths], this.vaultPath);
+
+    return [...new Set([
+      ...(tracked.exitCode === 0 ? parseNulSeparatedPaths(tracked.stdout) : []),
+      ...(untracked.exitCode === 0 ? parseNulSeparatedPaths(untracked.stdout) : []),
+    ])];
+  }
+
   private async stageChangedPaths(paths: readonly string[]): Promise<string[]> {
     const eligiblePaths = paths.filter(filePath => !this.initialDirtyPaths.has(filePath));
     if (eligiblePaths.length === 0) return [];
+    const stageablePaths = await this.getStageablePaths(eligiblePaths);
+    if (stageablePaths.length === 0) return [];
 
-    const addResult = await gitExec(['add', '--', ...eligiblePaths], this.vaultPath);
+    const addResult = await gitExec(['add', '--', ...stageablePaths], this.vaultPath);
     if (addResult.exitCode !== 0) {
       logToFile('WARN', 'git add failed', { stderr: addResult.stderr });
       return [];
     }
 
-    const diffResult = await gitExec(['diff', '--cached', '--name-only', '-z', '--', ...eligiblePaths], this.vaultPath);
+    const diffResult = await gitExec(['diff', '--cached', '--name-only', '-z', '--', ...stageablePaths], this.vaultPath);
     return diffResult.exitCode === 0 ? parseNulSeparatedPaths(diffResult.stdout) : [];
   }
 
   private stageChangedPathsSync(paths: readonly string[]): string[] {
     const eligiblePaths = paths.filter(filePath => !this.initialDirtyPaths.has(filePath));
     if (eligiblePaths.length === 0) return [];
+    const stageablePaths = this.getStageablePathsSync(eligiblePaths);
+    if (stageablePaths.length === 0) return [];
 
-    const addResult = gitExecSync(['add', '--', ...eligiblePaths], this.vaultPath);
+    const addResult = gitExecSync(['add', '--', ...stageablePaths], this.vaultPath);
     if (addResult.exitCode !== 0) return [];
 
-    const diffResult = gitExecSync(['diff', '--cached', '--name-only', '-z', '--', ...eligiblePaths], this.vaultPath);
+    const diffResult = gitExecSync(['diff', '--cached', '--name-only', '-z', '--', ...stageablePaths], this.vaultPath);
     return diffResult.exitCode === 0 ? parseNulSeparatedPaths(diffResult.stdout) : [];
   }
 

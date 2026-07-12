@@ -3,6 +3,7 @@ import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
 import { handleMine, handleStore } from '../src/tool-handlers.js';
 import type { MineCandidate } from '../src/tool-handlers.js';
+import { GitVersioning } from '../src/git-versioning.js';
 
 function makeCandidate(overrides: Partial<MineCandidate> = {}): MineCandidate {
   return {
@@ -325,6 +326,43 @@ describe('knowledge-mine: store mode', () => {
     expect(beta?.tags).not.toContain('project:fallback');
     expect(gamma?.tags).toContain('project:gamma');
     expect(gamma?.tags).not.toContain('project:fallback');
+  });
+
+  it('commits mined stores through the path-scoped versioning flow', async () => {
+    const vaultPath = ctx.tempDir;
+    const versioning = new GitVersioning(vaultPath, { enabled: true, debounceMs: 10 });
+    await versioning.init();
+
+    try {
+      const output = await handleMine({
+        dry_run: false,
+        candidates: [makeCandidate({
+          title: 'Versioned Mining Candidate',
+          summary: 'Unique candidate stored through versioned mining',
+        })],
+      }, ctx.engine, null, ctx.config, versioning);
+
+      const stored = ctx.engine.search('Versioned Mining Candidate', { limit: 10 })
+        .find(note => note.title === 'Versioned Mining Candidate');
+      expect(output).toContain(`✅ Stored as ${stored?.id}`);
+      expect(stored).toBeDefined();
+
+      let commitMessage = '';
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const result = Bun.spawnSync(['git', 'log', '-1', '--format=%B'], { cwd: vaultPath });
+        expect(result.exitCode).toBe(0);
+        commitMessage = result.stdout.toString();
+        if (commitMessage.includes('Store observation: "Versioned Mining Candidate"')) break;
+        await Bun.sleep(25);
+      }
+
+      expect(commitMessage).toContain('Store observation: "Versioned Mining Candidate"');
+      const status = Bun.spawnSync(['git', 'status', '--porcelain'], { cwd: vaultPath });
+      expect(status.exitCode).toBe(0);
+      expect(status.stdout.toString()).toBe('');
+    } finally {
+      versioning.shutdownSync();
+    }
   });
 });
 
