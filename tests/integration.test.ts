@@ -1,5 +1,8 @@
 // tests/integration.test.ts - Integration tests for knowledge base
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import {
   createTestHarness,
   cleanupTestHarness,
@@ -7,12 +10,14 @@ import {
   noteFileExists,
 } from './harness.js';
 import type { TestContext } from './harness.js';
+import { NoteRepository } from '../src/storage/NoteRepository.js';
+import { handleStore, handleStats, handleOverview } from '../src/tool-handlers.js';
 
 describe('Knowledge Capture Integration Tests', () => {
   let context: TestContext;
 
   beforeEach(() => {
-    context = createTestHarness();
+    context = createTestHarness({ telemetryEnabled: true });
   });
 
   afterEach(() => {
@@ -59,6 +64,219 @@ describe('Knowledge Capture Integration Tests', () => {
       const content = readNoteFile(context, filename);
       expect(content).toContain('kind: decision');
       expect(content).toContain('status: permanent');
+    });
+  });
+
+  describe('Project stats', () => {
+    it('should exclude generated project index and log notes from note counts', async () => {
+      await handleStore({
+        title: 'Project Stat Source',
+        content: 'One real project note.',
+        kind: 'observation',
+        project: 'stats-project',
+      }, context.engine, null, context.config);
+
+      const stats = context.engine.getProjectStats();
+      expect(stats).toHaveLength(1);
+      expect(stats[0].project).toBe('stats-project');
+      expect(stats[0].noteCount).toBe(1);
+      expect(context.engine.getAllProjects()).toEqual(['stats-project']);
+    });
+
+    it('should exclude generated project index and log notes from project-scoped knowledge stats', async () => {
+      await handleStore({
+        title: 'Project Knowledge Stats Source',
+        content: 'One real project note for project-scoped stats.',
+        kind: 'observation',
+        project: 'knowledge-stats-project',
+      }, context.engine, null, context.config);
+
+      const projectNotes = context.engine.getAll().filter(note =>
+        Array.isArray(note.tags) && note.tags.includes('project:knowledge-stats-project')
+      );
+      expect(projectNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation']);
+
+      expect(context.engine.getStats('knowledge-stats-project').total).toBe(1);
+      expect(context.engine.getStalenessDistribution('knowledge-stats-project')).toEqual({
+        fresh: 1,
+        recent: 0,
+        aging: 0,
+        stale: 0,
+      });
+      expect(context.engine.getGrowthByKind(Date.now() - 7 * 86400000, 'knowledge-stats-project')).toEqual({
+        observation: 1,
+      });
+
+      const output = await handleStats({ project: 'knowledge-stats-project', period: '7d' }, context.engine, context.config);
+      expect(output).toContain('## Health (1 notes)');
+      expect(output).toContain('- 0–7d: 1');
+      expect(output).toContain('- Notes created: 1');
+      expect(output).toContain('  - observation: 1');
+      expect(output).not.toContain('  - index:');
+      expect(output).not.toContain('  - log:');
+    });
+
+    it('should count only real scoped notes for global overview unscoped math', async () => {
+      await handleStore({
+        title: 'Scoped Count Source',
+        content: 'One real project note for scoped count.',
+        kind: 'observation',
+        project: 'scoped-count-project',
+      }, context.engine, null, context.config);
+      context.engine.store('One real unscoped note.', {
+        title: 'Unscoped Count Source',
+        kind: 'reference',
+        status: 'permanent',
+      });
+
+      const projectNotes = context.engine.getAll().filter(note =>
+        Array.isArray(note.tags) && note.tags.includes('project:scoped-count-project')
+      );
+      expect(projectNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation']);
+      expect(context.engine.getScopedNoteCount()).toBe(1);
+
+      const stats = context.engine.getStats();
+      expect(stats.total - stats.archived - context.engine.getScopedNoteCount()).toBe(1);
+
+      const output = handleOverview({}, context.engine, context.config);
+      expect(output).toContain('Unscoped notes: 1');
+      expect(output).not.toContain('Unscoped notes: -');
+    });
+
+    it('should exclude generated project index and log notes from global knowledge stats and recent notes', async () => {
+      await handleStore({
+        title: 'Global Recent Source A',
+        content: 'First real project note for global surfaces.',
+        kind: 'observation',
+        project: 'global-surfaces-project',
+      }, context.engine, null, context.config);
+      await handleStore({
+        title: 'Global Recent Source B',
+        content: 'Second real project note for global surfaces.',
+        kind: 'observation',
+        project: 'global-surfaces-project',
+      }, context.engine, null, context.config);
+
+      const projectNotes = context.engine.getAll().filter(note =>
+        Array.isArray(note.tags) && note.tags.includes('project:global-surfaces-project')
+      );
+      expect(projectNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation', 'observation']);
+
+      expect(context.engine.getStats().total).toBe(2);
+
+      const recentNotes = context.engine.getRecentNotes(2);
+      expect(recentNotes).toHaveLength(2);
+      expect(recentNotes.map(note => note.title).sort()).toEqual(['Global Recent Source A', 'Global Recent Source B']);
+      expect(recentNotes.map(note => note.kind)).toEqual(['observation', 'observation']);
+    });
+  });
+
+  describe('Note body managed sections', () => {
+    it('should write explicit related notes once and index their wikilinks', async () => {
+      const target = context.engine.store('Target content for explicit relation', {
+        title: 'Related Target',
+        kind: 'reference',
+        status: 'permanent',
+      });
+
+      const output = await handleStore({
+        title: 'Related Source',
+        content: 'Source content with an explicit related note',
+        kind: 'observation',
+        summary: 'Explicit relation source',
+        guidance: 'Use the related target when relevant',
+        related: [target.id],
+      }, context.engine, null, context.config);
+
+      const sourceId = output.match(/→ (\S+)/)?.[1];
+      expect(sourceId).toBeTruthy();
+      const source = context.engine.getById(sourceId!);
+      expect(source).not.toBeNull();
+      const fileContent = fs.readFileSync(source!.path, 'utf-8');
+      expect((fileContent.match(/^## Related$/gm) || []).length).toBe(1);
+      expect(context.engine.getOutgoingLinks(sourceId!)).toHaveLength(1);
+      expect(context.engine.getOutgoingLinks(sourceId!)[0].note.id).toBe(target.id);
+    });
+
+    it('should preserve related sections during status rewrites', () => {
+      const target = context.engine.store('Target content for rewrite relation', {
+        title: 'Rewrite Target',
+        kind: 'reference',
+        status: 'permanent',
+      });
+      const source = context.engine.store(`Body content\n\n## Related\n\n- [[${target.id}|Rewrite Target]]`, {
+        title: 'Rewrite Source',
+        kind: 'observation',
+        status: 'fleeting',
+      });
+
+      expect(context.engine.promoteToPermanent(source.id)).toBe(true);
+
+      const fileContent = fs.readFileSync(source.path, 'utf-8');
+      expect(fileContent).toContain('## Related\n\n- [[');
+      expect(fileContent).toContain('Rewrite Target');
+      expect((fileContent.match(/^## Related$/gm) || []).length).toBe(1);
+    });
+
+    it('should not duplicate managed sections when user content is empty', () => {
+      const result = context.engine.store('', {
+        title: 'Managed Sections Only',
+        kind: 'observation',
+        status: 'fleeting',
+        guidance: 'Follow this guidance',
+        context: 'Keep this context',
+      });
+
+      expect(context.engine.promoteToPermanent(result.id)).toBe(true);
+      expect(context.engine.archive(result.id)).toBe(true);
+
+      const fileContent = fs.readFileSync(result.path, 'utf-8');
+      expect((fileContent.match(/^## Guidance$/gm) || []).length).toBe(1);
+      expect((fileContent.match(/^## Context$/gm) || []).length).toBe(1);
+    });
+
+    it('should preserve leading callout blockquotes during rewrites', () => {
+      const result = context.engine.store('> [!note]\n> Keep this callout\n\nBody after callout', {
+        title: 'Callout Note',
+        kind: 'observation',
+        status: 'fleeting',
+      });
+
+      expect(context.engine.promoteToPermanent(result.id)).toBe(true);
+
+      const fileContent = fs.readFileSync(result.path, 'utf-8');
+      expect(fileContent).toContain('> [!note]\n> Keep this callout');
+      expect(fileContent).toContain('Body after callout');
+    });
+
+    it('should self-heal from non-numeric markdown note filenames', () => {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'kb-self-heal-'));
+      let repo: NoteRepository | null = null;
+      try {
+        fs.writeFileSync(path.join(tempDir, 'domain.md'), `---
+id: domain
+title: Domain
+kind: domain
+status: permanent
+lifecycle: living
+type: atomic
+tags:
+  - project:selfheal
+created: 2026-01-01
+updated: 2026-01-01
+---
+
+# Domain
+
+Project operating manual.
+`, 'utf-8');
+
+        repo = new NoteRepository(tempDir);
+        expect(repo.getById('domain')).not.toBeNull();
+      } finally {
+        repo?.close();
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -190,7 +408,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -209,7 +426,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -217,7 +433,7 @@ describe('Knowledge Capture Integration Tests', () => {
       expect(queue.fleeting.notes).toHaveLength(0);
     });
 
-    it('excludes fleeting notes with access_count >= promotionThreshold', () => {
+    it('includes well-used fleeting notes for promotion review', () => {
       const result = context.engine.store('Well-used fleeting note', {
         title: 'Well-used Fleeting',
         kind: 'observation',
@@ -235,12 +451,11 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
-      expect(queue.fleeting.total).toBe(0);
-      expect(queue.fleeting.notes.some(n => n.id === note.id)).toBe(false);
+      expect(queue.fleeting.total).toBe(1);
+      expect(queue.fleeting.notes.some(n => n.id === note.id)).toBe(true);
     });
 
     it('excludes exemptKinds from both fleeting and permanent review', () => {
@@ -262,7 +477,6 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
@@ -284,12 +498,34 @@ describe('Knowledge Capture Integration Tests', () => {
         undefined,
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
 
       expect(queue.permanent.total).toBe(1);
       expect(queue.permanent.notes.some(n => n.id === note.id)).toBe(true);
+    });
+    it('excludes generated index and log notes from permanent review', async () => {
+      await handleStore({
+        title: 'Review Queue Source',
+        content: 'One project-scoped note creates generated navigation notes.',
+        kind: 'observation',
+        project: 'review-queue-project',
+      }, context.engine, null, context.config);
+
+      const generatedNotes = context.engine.getAll().filter(note =>
+        Array.isArray(note.tags) && note.tags.includes('project:review-queue-project')
+      );
+      expect(generatedNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation']);
+
+      const queue = context.engine.getReviewQueue(
+        'permanent',
+        0,
+        10,
+        context.config.lifecycle.exemptKinds,
+      );
+
+      expect(queue.permanent.total).toBe(0);
+      expect(queue.permanent.notes).toHaveLength(0);
     });
 
     it('respects filter=fleeting and filter=permanent', () => {
@@ -311,7 +547,6 @@ describe('Knowledge Capture Integration Tests', () => {
         'fleeting',
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
       expect(fleetingOnly.fleeting.total).toBe(1);
@@ -321,7 +556,6 @@ describe('Knowledge Capture Integration Tests', () => {
         'permanent',
         14,
         10,
-        context.config.lifecycle.promotionThreshold,
         context.config.lifecycle.exemptKinds,
       );
       expect(permanentOnly.fleeting.total).toBe(0);
@@ -409,6 +643,26 @@ describe('Knowledge Capture Integration Tests', () => {
       // Verify notes are still accessible
       const statsAfter = context.engine.getStats();
       expect(statsAfter.total).toBe(2);
+    });
+
+    it('should leave changed note embeddings pending after rebuild', () => {
+      const result = context.engine.store('Original note content', {
+        title: 'Embedding Source',
+        kind: 'reference',
+        summary: 'Original summary',
+      });
+      expect(context.engine.storeEmbedding(result.id, [1, 0, 0], 'test-model')).toBe(true);
+
+      const originalFile = fs.readFileSync(result.path, 'utf-8');
+      fs.writeFileSync(result.path, originalFile.replace('Original note content', 'Changed note content'), 'utf-8');
+
+      const rebuild = context.engine.rebuildFromFiles();
+      expect(rebuild.errors).toBe(0);
+
+      const note = context.engine.getById(result.id);
+      expect(note!.content).toContain('Changed note content');
+      const pendingEmbeddings = context.engine.getNotesWithoutEmbeddings();
+      expect(pendingEmbeddings.some(n => n.id === result.id)).toBe(true);
     });
   });
 
@@ -560,6 +814,47 @@ describe('Knowledge Capture Integration Tests', () => {
 
       const note = context.engine.getById(result.id);
       expect(note!.access_count).toBe(2);
+    });
+  });
+
+  describe('Self-heal guard', () => {
+    it('should auto-rebuild when DB is empty but vault has note files', () => {
+      context.engine.store('Alpha content', { title: 'Alpha', kind: 'observation' });
+      context.engine.store('Beta content', { title: 'Beta', kind: 'reference' });
+      context.engine.store('Gamma content', { title: 'Gamma', kind: 'personalization' });
+
+      expect(context.engine.getStats().total).toBe(3);
+      context.engine.close();
+
+      const dbPath = path.join(context.tempDir, '.index', 'knowledge.db');
+      fs.unlinkSync(dbPath);
+      const walPath = dbPath + '-wal';
+      const shmPath = dbPath + '-shm';
+      if (fs.existsSync(walPath)) fs.unlinkSync(walPath);
+      if (fs.existsSync(shmPath)) fs.unlinkSync(shmPath);
+
+      const healed = new NoteRepository(context.tempDir);
+      expect(healed.getStats().total).toBe(3);
+      healed.close();
+    });
+
+    it('should not rebuild on genuinely empty vault', () => {
+      expect(context.engine.getStats().total).toBe(0);
+      context.engine.close();
+
+      const fresh = new NoteRepository(context.tempDir);
+      expect(fresh.getStats().total).toBe(0);
+      fresh.close();
+    });
+
+    it('should not trigger when DB already has notes', () => {
+      context.engine.store('Existing content', { title: 'Existing', kind: 'observation' });
+      expect(context.engine.getStats().total).toBe(1);
+      context.engine.close();
+
+      const reopened = new NoteRepository(context.tempDir);
+      expect(reopened.getStats().total).toBe(1);
+      reopened.close();
     });
   });
 });

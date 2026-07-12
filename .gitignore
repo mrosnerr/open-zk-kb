@@ -12,6 +12,7 @@ test-binary
 # Database & vault artifacts
 .index/
 .kb/
+.obsidian/
 *.db
 *.db-journal
 *.db-wal
@@ -39,10 +40,30 @@ Thumbs.db
 *~
 
 # Agent / AI tool artifacts
-.opencode/
+opencode.json
+.opencode/*
+!.opencode/agents/
+.opencode/agents/*
+!.opencode/agents/reviewer.md
 .claude/
-.sisyphus/
+.omo/
+# Agent runtime state (ephemeral). Planning files are local-only, not shipped in PRs.
+.agents/state/
+.agents/tmp/
+.agents/cache/
+.agents/local/
+.agents/private/
+.agents/**/.env*
+.agents/**/*secret*
+.agents/**/*secrets*
+.agents/**/*token*
+.agents/**/*credential*
+.agents/**/*.local.md
+.agents/**/*.private.md
 CONTEXT_*.md
+
+# Local test workspace (isolated OpenCode sessions for plugin dev)
+.test-workspace/
 
 # Runtime artifacts
 NoteRepository

@@ -1,5 +1,5 @@
 title: open-zk-kb
-description: Persistent knowledge base for AI coding assistants
+description: Persistent memory for agents. Corrections stick, context compounds.
 url: https://mrosnerr.github.io
 baseurl: /open-zk-kb
 theme: minima

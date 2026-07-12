@@ -473,7 +473,7 @@ describe('Embeddings API', () => {
 describe('NoteRepository — Coverage Boost', () => {
   let ctx: TestContext;
 
-  beforeEach(() => { ctx = createTestHarness(); });
+  beforeEach(() => { ctx = createTestHarness({ telemetryEnabled: true }); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
   describe('extractTitle', () => {
@@ -657,7 +657,8 @@ describe('NoteRepository — Coverage Boost', () => {
 
 // ---- src/tool-handlers.ts (uncovered maintain paths) ----
 
-import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers';
+import { handleStore, handleSearch, handleMaintain, handleStats } from '../src/tool-handlers';
+
 
 describe('Tool Handlers — Coverage Boost', () => {
   let ctx: TestContext;
@@ -676,14 +677,14 @@ describe('Tool Handlers — Coverage Boost', () => {
         guidance: 'Test',
       }, ctx.engine);
 
-      expect(output).toContain('Knowledge stored');
+      expect(output).toContain('Stored ');
     });
   });
 
-  describe('handleMaintain — stats', () => {
+  describe('handleStats — coverage', () => {
     it('should show embedding provider when config passed', async () => {
-      const output = await handleMaintain(
-        { action: 'stats' },
+      const output = await handleStats(
+        {},
         ctx.engine,
         ctx.config,
         { provider: 'local', model: 'test-model', dimensions: 384 }
@@ -691,13 +692,13 @@ describe('Tool Handlers — Coverage Boost', () => {
       expect(output).toContain('Provider:');
     });
 
-    it('should show "Showing N of M" hint when >5 notes', async () => {
+    it('should include growth rate for recently created notes', async () => {
       for (let i = 0; i < 6; i++) {
         ctx.engine.store(`Note ${i}`, { title: `Note ${i}`, kind: 'reference' });
       }
 
-      const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
-      expect(output).toContain('Showing 5 of 6');
+      const output = await handleStats({}, ctx.engine, ctx.config);
+      expect(output).toContain('Notes created: 6');
     });
   });
 
@@ -765,7 +766,7 @@ describe('Tool Handlers — Coverage Boost', () => {
 
     it('should report nothing to backfill when all embedded', async () => {
       const r = await handleStore({ title: 'Note', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
-      const id = r.match(/ID: (\S+)/)?.[1];
+      const id = r.match(/→ (\S+)/)?.[1];
       if (id) ctx.engine.storeEmbedding(id, [0.1, 0.2], 'test');
 
       const output = await handleMaintain(
@@ -882,7 +883,8 @@ describe('Tool Handlers — Coverage Boost', () => {
       ).run(oldTime, r.id);
 
       const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
-      expect(output).toContain('Permanent Notes for Review');
+      expect(output).toContain('## Review Candidates');
+      expect(output).toContain('status: permanent');
       expect(output).toContain('OldPerm');
     });
   });
@@ -895,9 +897,9 @@ describe('Tool Handlers — Coverage Boost', () => {
         "UPDATE notes SET status = 'unknown' WHERE id = (SELECT id FROM notes LIMIT 1)"
       ).run();
 
-      const output = await handleMaintain({ action: 'stats' }, ctx.engine, ctx.config);
+      const output = await handleStats({}, ctx.engine, ctx.config);
       // Stats should still work, may or may not show "Other" depending on getStats impl
-      expect(output).toContain('Knowledge Base Statistics');
+      expect(output).toContain('Knowledge Base Stats');
     });
   });
 });

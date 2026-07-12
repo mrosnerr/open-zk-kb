@@ -64,7 +64,7 @@ describe('FTS5 Edge Cases', () => {
       guidance: 'Should be stored safely',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored (created)');
+    expect(output).toContain('Stored ');
     const notes = ctx.engine.search('Robert');
     expect(notes.length).toBeGreaterThan(0);
   });
@@ -143,10 +143,10 @@ describe('Input Validation', () => {
       guidance: 'Test empty content handling',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Stored ');
   });
 
-  it('should store a note with very long title', async () => {
+  it('should reject a title exceeding the hard limit', async () => {
     const longTitle = 'A'.repeat(500);
     const output = await handleStore({
       title: longTitle,
@@ -156,7 +156,35 @@ describe('Input Validation', () => {
       guidance: 'Test long title handling',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Title rejected');
+    expect(output).toContain('max 10 words');
+  });
+
+  it('should warn on titles over 6 words', async () => {
+    const output = await handleStore({
+      title: 'This title has seven whole words here',
+      content: 'Some content',
+      kind: 'reference',
+      summary: 'Soft warning test',
+      guidance: 'Test soft title warning',
+    }, ctx.engine);
+
+    expect(output).toContain('Stored ');
+    expect(output).toContain('Title is 7 words');
+  });
+
+  it('should accept titles within the 3-6 word target', async () => {
+    const output = await handleStore({
+      title: 'Short valid title',
+      content: 'Some content',
+      kind: 'reference',
+      summary: 'Good title test',
+      guidance: 'Test valid title',
+    }, ctx.engine);
+
+    expect(output).toContain('Stored ');
+    expect(output).not.toContain('Title is');
+    expect(output).not.toContain('Title rejected');
   });
 
   it('should store a note with special characters in title', async () => {
@@ -168,7 +196,7 @@ describe('Input Validation', () => {
       guidance: 'Test special char handling',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Stored ');
   });
 
   it('should handle search with kind filter that has no matches', async () => {
@@ -197,9 +225,10 @@ describe('Input Validation', () => {
       related: [],
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
-    expect(output).toContain('Kind: decision');
-    expect(output).toContain('Status: permanent');
+    expect(output).toContain('Stored ');
+    expect(output).toContain('decision:');
+    const id = output.match(/→ (\d+)/)?.[1];
+    expect(ctx.engine.getById(id!)!.status).toBe('permanent');
   });
 
   it('should handle maintain with unknown action', async () => {
@@ -233,7 +262,7 @@ describe('Input Validation', () => {
       guidance: 'Test empty tags handling',
     }, ctx.engine);
 
-    expect(output).toContain('Knowledge stored');
+    expect(output).toContain('Stored ');
   });
 
   it('should handle search with limit of 0', async () => {
@@ -502,7 +531,7 @@ Legacy content`;
   });
 });
 
-describe('handleStore non-blocking embedding', () => {
+describe('handleStore embedding handling', () => {
   let ctx: TestContext;
 
   beforeEach(() => {
@@ -513,8 +542,8 @@ describe('handleStore non-blocking embedding', () => {
     cleanupTestHarness(ctx);
   });
 
-  it('should return synchronously without embedding config', () => {
-    const result = handleStore({
+  it('should return successfully without embedding config', async () => {
+    const result = await handleStore({
       title: 'Quick Note',
       content: 'This should return immediately',
       kind: 'observation',
@@ -522,15 +551,14 @@ describe('handleStore non-blocking embedding', () => {
       guidance: 'Test guidance',
     }, ctx.engine);
 
-    // handleStore returns string directly (not a Promise)
     expect(typeof result).toBe('string');
-    expect(result).toContain('Knowledge stored');
-    expect(result).toContain('Kind: observation');
+    expect(result).toContain('Stored ');
+    expect(result).toContain('observation:');
   });
 
-  it('should store note successfully even with embedding config', () => {
+  it('should store note successfully even with embedding config', async () => {
     // Pass a dummy embedding config — embedding will fail but store should succeed
-    const result = handleStore({
+    const result = await handleStore({
       title: 'Note with embedding',
       content: 'Content that triggers embedding path',
       kind: 'reference',
@@ -538,7 +566,7 @@ describe('handleStore non-blocking embedding', () => {
       guidance: 'Test',
     }, ctx.engine, { provider: 'local', model: 'nonexistent-model', dimensions: 384 });
 
-    expect(result).toContain('Knowledge stored');
+    expect(result).toContain('Stored ');
 
     // Verify note exists in DB regardless of embedding outcome
     const stats = ctx.engine.getStats();

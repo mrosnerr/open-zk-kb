@@ -8,22 +8,25 @@ TypeScript source for the MCP server (`mcp-server.ts`), with core logic in `tool
 
 ```
 src/
-├── mcp-server.ts          # MCP stdio server — 3 tools via @modelcontextprotocol/sdk
-├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleMaintain (~477 LOC)
+├── mcp-server.ts          # MCP stdio server — 10 tools via @modelcontextprotocol/sdk
+├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleGet, handleTemplate, handleMine, handleStats, handleMaintain, handleIngest, handleOverview, handleOpen
 ├── storage/
-│   └── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
+│   ├── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
+│   ├── IndexBuilder.ts    # Auto-generates per-project index notes
+│   └── LogAppender.ts     # Auto-appends to per-project log notes
 ├── utils/
 │   ├── path.ts             # ~ expansion, XDG path resolution
 │   ├── wikilink.ts         # [[slug|display]] parsing, Obsidian-compatible
 │   └── simhash.ts          # SimHash for near-duplicate detection
+├── obsidian.ts            # Obsidian detection, vault registry, launch
 ├── config.ts              # getConfig(): YAML config with defaults
 ├── embeddings.ts          # Local + API embedding generation, similarity
 ├── data-migrations.ts     # Agent-driven content upgrades (summary/guidance)
 ├── logger.ts              # logToFile() — file-based, never stdout
 ├── prompts.ts             # renderNoteForAgent() — XML <note> format
-├── schema.ts              # SchemaManager — PRAGMA user_version (v5)
-├── setup.ts               # CLI install/uninstall for 5 clients (bun run setup)
-└── types.ts               # NoteKind, NoteStatus, AppConfig
+├── schema.ts              # SchemaManager — PRAGMA user_version (v6)
+├── setup.ts               # CLI install/uninstall for 7 clients (bun run setup)
+└── types.ts               # NoteKind, NoteStatus, Lifecycle, AppConfig
 ```
 
 ## Data Flow
@@ -31,7 +34,7 @@ src/
 ```
 Client request → mcp-server.ts
                         ↓
-               tool-handlers.ts (handleStore/Search/Maintain)
+               tool-handlers.ts (handleStore/Search/Get/Template/Mine/Stats/Maintain/Ingest/Overview/Open)
                         ↓
                NoteRepository.store/search/getStats/...
                     ↓              ↓
@@ -58,6 +61,8 @@ Client request → mcp-server.ts
 - **Query sanitization**: Strips FTS5 operators, limits to 10 terms, wraps in quotes, joins with OR.
 - **Frontmatter sync**: DB is authoritative; frontmatter updates are best-effort (non-fatal on failure).
 - **Schema migrations**: DDL via `PRAGMA user_version`; data migrations via agent-driven `upgrade` action.
+- **Human vs agent surfaces**: SQLite + handlers serve agents; generated `index`/`log` notes plus the Obsidian scaffold serve humans.
+- **Obsidian UX boundary**: Keep core knowledge notes markdown-native; richer Obsidian-specific UX belongs in generated navigation files.
 
 ## Anti-Patterns
 

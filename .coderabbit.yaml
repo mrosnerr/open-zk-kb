@@ -1,8 +1,120 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: "en-US"
+tone_instructions: >
+  Be concise. Prefer bullet points. Only flag issues that would fail CI,
+  violate explicit project rules, or introduce bugs. Skip style preferences.
+
 reviews:
+  profile: "chill"
   request_changes_workflow: true
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+
+  poem: false
+  sequence_diagrams: false
+  estimate_code_review_effort: false
+  assess_linked_issues: false
+  related_issues: false
+  related_prs: false
+  suggested_labels: false
+  suggested_reviewers: false
+  review_details: false
+
+  instructions: |
+    You are reviewing open-zk-kb — a persistent AI memory MCP server (Zettelkasten method).
+    Stack: Bun 1.x (NOT Node.js), TypeScript (strict, ES2022, NodeNext), SQLite FTS5,
+    @modelcontextprotocol/sdk. Runtime is Bun — do not suggest Node.js alternatives.
+
+    Key architecture decisions (do not flag as issues):
+    - Dual storage (SQLite + filesystem) is by design. Filesystem is source of truth.
+    - NoteRepository (~1400 LOC) is intentionally a single class — do not suggest splitting.
+    - FTS5 index is manually managed — do not suggest adding FTS triggers.
+    - Note IDs are YYYYMMDDHHmmss00 (timestamp + counter). Do not suggest UUIDs.
+    - Schema uses PRAGMA user_version migrations. Do not suggest ORM migrations.
+    - Ownership model: server surfaces data with annotations, agent decides actions.
+      Tool responses must NOT contain directives ("you should X"). Return data only.
+
+    Console logging rules:
+    - console.log/warn/error is FORBIDDEN in src/ (MCP stdio requires clean stdout).
+    - Exception: src/setup.ts and scripts/ are CLI commands — console.log is fine there.
+    - Use logToFile() from src/logger.ts for all server-side logging.
+
+  path_filters:
+    - "!dist/**"
+    - "!node_modules/**"
+    - "!coverage/**"
+    - "!**/*.d.ts"
+
+  path_instructions:
+    - path: "src/storage/NoteRepository.ts"
+      instructions: |
+        FTS5 triggers are manually managed — do not suggest adding SQLite triggers.
+        Parameterized SQL is required — flag any string interpolation in queries.
+        LifecycleViolationError is thrown on snapshot updates — this is correct behavior.
+        Dual storage writes (DB + filesystem) must stay in sync.
+    - path: "src/tool-handlers.ts"
+      instructions: |
+        Shared pure functions called by the MCP server. Must use logToFile() not console.log.
+        STRUCTURAL_KINDS (index, log) must skip navigation hooks to prevent infinite loops.
+    - path: "src/mcp-server.ts"
+      instructions: |
+        MCP stdio entry point. stdout must be clean JSON-RPC only.
+        Any console output here breaks the MCP protocol.
+    - path: "src/obsidian-scaffold.ts"
+      instructions: |
+        Obsidian vault scaffold manager. Plugin versions are pinned with SHA digests.
+        FORCE_REPLACE_PLUGINS is intentional — QuickAdd, Commander, Templater, Breadcrumbs,
+        and Iconic configs are fully managed by the scaffold.
+    - path: "src/schema.ts"
+      instructions: |
+        PRAGMA user_version based migrations. Forward-only, no down migrations.
+    - path: "tests/**"
+      instructions: |
+        Uses bun:test with createTestHarness()/cleanupTestHarness().
+        Never suggest .skip without justification. Mock OS interactions, no real side effects.
+    - path: "docs/**"
+      instructions: |
+        Check for accuracy and consistency with code. Do not comment on writing style.
+    - path: ".github/workflows/**"
+      instructions: |
+        Actions must be pinned to SHA (not tags). Secrets must not be exposed to forks.
+        The shadow review checkout pattern (initial checkout without ref, then same-repo
+        validation, then fetch PR head) is intentional security hardening — do not flag.
+
   auto_review:
     enabled: true
     drafts: false
     base_branches:
       - main
       - dev
+    ignore_title_keywords:
+      - "WIP"
+      - "[skip review]"
+
+  finishing_touches:
+    docstrings:
+      enabled: false
+    simplify:
+      enabled: false
+
+  tools:
+    eslint:
+      enabled: true
+    biome:
+      enabled: false
+    languagetool:
+      enabled: false
+    markdownlint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    yamllint:
+      enabled: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+  learnings:
+    scope: "local"

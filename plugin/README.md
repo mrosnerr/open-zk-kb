@@ -1,10 +1,10 @@
 # open-zk-kb
 
-Persistent AI memory across sessions. Search context before work, store preferences, decisions, and observations automatically.
+Persistent memory for your agent. Corrections stick, context compounds.
 
 ## What It Does
 
-open-zk-kb gives Claude Code a persistent knowledge base that survives across sessions. Instead of re-explaining your preferences, project decisions, or learned patterns every time, Claude remembers.
+open-zk-kb gives your agent a memory that persists across sessions. Correct it once, it remembers your preferences, decisions, and the patterns you've taught it.
 
 **Example uses:**
 - "Remember I prefer Bun over Node.js" → stored, applied in future sessions
@@ -61,7 +61,7 @@ claude --plugin-dir /path/to/open-zk-kb/plugin
 
 ## Data Storage
 
-Notes are stored locally as Markdown files with YAML frontmatter. SQLite with FTS5 provides fast full-text search. Optional local embeddings (MiniLM-L6-v2) enable semantic search.
+Notes are stored locally as Markdown files with YAML frontmatter. SQLite with FTS5 provides fast full-text search for the agent-facing query layer. Optional local embeddings (MiniLM-L6-v2) enable semantic search. When the same vault is opened in Obsidian, generated `index` and `log` notes act as human-facing navigation and activity surfaces on top of the same underlying data.
 
 **Default storage locations** (override via `vault` in config):
 - **Linux / macOS:** `~/.local/share/open-zk-kb/`

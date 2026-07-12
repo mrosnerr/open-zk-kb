@@ -1,5 +1,62 @@
 # Changelog
 
+## 1.2.0 - 2026-07-09
+
+### Added
+
+- **Add `--remove-shared-agent-docs` uninstall flag** — removes managed instructions from symlinked shared files when the user explicitly opts in
+- **Split OMP instructions by responsibility** — OMP now installs a compact preflight rule, an on-demand skill, and a TTSR enforcement rule instead of one monolithic rule
+
+### Changed
+
+- **Slim injected agent instruction block** — moved detailed guidance to the skill and `knowledge-template` output, reducing managed client instructions to the core pre-flight and storage rules
+- **Compact `knowledge-store` output** — store responses now use `Stored <kind>: "title" → id` instead of the previous multi-line Kind/Status/Lifecycle/Path format
+
+### Fixed
+
+- **Block OMP rediscovery after uninstall** — uninstall now disables rediscovery for OMP-managed servers so removed MCP entries do not come back automatically
+- **Preserve the OMP preflight rule during maintenance** — `knowledge-maintain agent-docs` no longer overwrites the OMP preflight rule with the wrong instruction payload
+- **Clean leftover uninstall artifacts without client config** — uninstall no longer skips remaining skills, rules, or managed docs just because a client's config file is absent
+
+## 1.1.0
+
+### New MCP Tools
+
+- **Add `knowledge-template` tool** — canonical note templates per kind with positive/negative examples, so agents produce well-structured notes
+- **Add `knowledge-mine` tool** — bulk-screen candidate notes from session history for duplicates; dry-run preview then store confirmed candidates
+- **Add `knowledge-ingest` tool** — extract article content from URLs or raw HTML into clean markdown with SSRF protection, redirect provenance, and size guards
+- **Add `knowledge-overview` tool** — per-project overview combining auto-generated index (catalog of all notes grouped by kind) and recent operations log
+- **Add `knowledge-open` tool** — detect Obsidian, auto-register vault, and launch with URI scheme or binary spawn
+
+### New Note Kinds
+
+- **Add `domain` kind** — project operating manuals defining agent role, scope, conventions, and boundaries; one per project, always surfaced in project-scoped searches
+- **Add `index` and `log` kinds** — auto-generated per-project navigation notes; `index` catalogs all notes with wikilinks grouped by kind, `log` appends chronological events
+
+### Obsidian Integration
+
+- **Add kind-based vault directories** — notes organized into subdirectories by kind with global MOC (Map of Content) navigation and sub-MOC indexes
+- **Add managed Obsidian scaffold** — pinned theme, plugins (Dataview, Templater, QuickAdd, Homepage), CSS snippets, templates, and upgrade metadata; auto-upgrades on launch
+- **Add vault auto-registration** — vault registered in Obsidian before URI launch with dedup guard
+- **Add Obsidian config surface** — `obsidian.autoUpgrade` and `obsidian.readOnly` settings in `config.yaml`
+
+### Note Lifecycle & Intelligence
+
+- **Add `lifecycle` field** — `living` (mutable, default), `snapshot` (immutable), `append-only`; server enforces immutability for decisions and observations
+- **Add `staleness_days` metric** — surfaced in search, store, and review responses; days since last access for freshness assessment
+- **Add related notes on store** — `knowledge-store` returns similar notes by embedding similarity to help agents link knowledge
+- **Enhance review curation UX** — structured age bucketing, auto-archive suggestions for stale fleeting notes, deduplication in review queue
+
+### Maintenance & Quality
+
+- **Add unlinked note and broken wikilink detection** — `knowledge-maintain unlinked` and `knowledge-maintain broken-links` with line numbers and content-relative positions
+- **Add model-aware capability detection** — agents self-report model identity for tiered feature gating
+
+### Infrastructure
+
+- **Add schema v7** — telemetry table for local-only, opt-in tool invocation counters (no content or query strings stored)
+- **Improve SKILL.md** — lifecycle guidance, examples, and boundaries for Claude Code skill users
+
 ## 1.0.11
 
 - **Add Claude Code plugin packaging** — compiled binaries for macOS, Linux, and Windows
@@ -109,7 +166,6 @@ First stable release. Highlights from the beta period:
 
 ## 0.1.0-beta.5
 
-- **Remove OpenCode plugin** — knowledge capture now fully agent-driven via MCP tools + injected AGENTS.md/CLAUDE.md instructions
 - **Local embeddings default** — `@huggingface/transformers` MiniLM-L6-v2 (~23MB, no API key required); optional API override
 - **Instruction injection** — installer auto-injects KB instructions into client global instruction files; upgrade-safe marker-based system
 - **Restore Zed client** — 5 supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed

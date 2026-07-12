@@ -1,8 +1,8 @@
 {
   "name": "open-zk-kb",
-  "version": "1.0.11",
+  "version": "1.2.0",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
-  "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method.",
+  "description": "Persistent memory for agents. Corrections stick, context compounds, every session starts smarter.",
   "type": "module",
   "main": "dist/mcp-server.js",
   "types": "dist/mcp-server.d.ts",
@@ -10,7 +10,20 @@
     ".": {
       "types": "./dist/mcp-server.d.ts",
       "import": "./dist/mcp-server.js"
+    },
+    "./mcp-server": {
+      "types": "./dist/mcp-server.d.ts",
+      "import": "./dist/mcp-server.js"
+    },
+    "./pi-extension": {
+      "types": "./dist/pi/extension.d.ts",
+      "import": "./dist/pi/extension.js"
     }
+  },
+  "pi": {
+    "extensions": [
+      "./dist/pi/extension.js"
+    ]
   },
   "sideEffects": false,
   "bin": {
@@ -30,9 +43,7 @@
   "files": [
     "dist/",
     "skills/",
-    "config.example.yaml",
-    "agent-instructions-full.md",
-    "agent-instructions-compact.md",
+    "templates/",
     "README.md",
     "LICENSE",
     "CHANGELOG.md",
@@ -41,9 +52,11 @@
   ],
   "scripts": {
     "build": "tsc",
-    "prepublishOnly": "bun run build && bun test",
+    "dev:scaffold": "bun run scripts/dev-scaffold.ts",
+    "prepublishOnly": "bun run build && bun run typecheck && bun test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "typecheck": "tsc --noEmit",
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
@@ -56,11 +69,16 @@
     "@clack/prompts": "^1.1.0",
     "@huggingface/transformers": "^4.0.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
+    "@mozilla/readability": "^0.6.0",
+    "linkedom": "^0.18.12",
+    "onnxruntime-web": "1.27.0",
     "picocolors": "^1.1.1",
+    "turndown": "^7.2.4",
     "yaml": "^2.3.4"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/turndown": "^5.0.6",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
     "@typescript-eslint/parser": "^8.58.1",
     "bun-types": "^1.2.2",
@@ -86,6 +104,8 @@
     "llm",
     "claude-code",
     "opencode",
+    "pi-package",
+    "pi-coding-agent",
     "cursor",
     "windsurf",
     "ai-coding-assistant",

@@ -1,10 +1,11 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
+const totalExpected = 20;
+
 async function run() {
   let passed = 0;
   let failed = 0;
-  const totalExpected = 13;
 
   const check = (name: string, ok: boolean, detail?: string) => {
     if (ok) { console.log(`  ✅ ${name}`); passed++; }
@@ -30,10 +31,17 @@ async function run() {
   try {
     const tools = await client.listTools();
     const toolNames = tools.tools.map(t => t.name);
-    check('lists all 3 tools', toolNames.length === 3);
+    check('lists all 10 tools', toolNames.length === 10);
     check('has knowledge-store', toolNames.includes('knowledge-store'));
     check('has knowledge-search', toolNames.includes('knowledge-search'));
+    check('has knowledge-get', toolNames.includes('knowledge-get'));
+    check('has knowledge-mine', toolNames.includes('knowledge-mine'));
+    check('has knowledge-stats', toolNames.includes('knowledge-stats'));
     check('has knowledge-maintain', toolNames.includes('knowledge-maintain'));
+    check('has knowledge-ingest', toolNames.includes('knowledge-ingest'));
+    check('has knowledge-overview', toolNames.includes('knowledge-overview'));
+    check('has knowledge-open', toolNames.includes('knowledge-open'));
+    check('has knowledge-template', toolNames.includes('knowledge-template'));
   } catch (err) {
     check('list tools', false, String(err));
   }
@@ -50,7 +58,7 @@ async function run() {
       },
     });
     const storeText = JSON.stringify(storeResult);
-    check('knowledge-store creates note', storeText.includes('stored'));
+    check('knowledge-store creates note', storeText.toLowerCase().includes('stored'));
   } catch (err) {
     check('knowledge-store creates note', false, String(err));
   }
@@ -82,13 +90,13 @@ async function run() {
 
   try {
     const statsResult = await client.callTool({
-      name: 'knowledge-maintain',
-      arguments: { action: 'stats' },
+      name: 'knowledge-stats',
+      arguments: {},
     });
     const statsText = JSON.stringify(statsResult);
-    check('knowledge-maintain stats returns total', statsText.includes('total'));
+    check('knowledge-stats returns health info', statsText.includes('Health'));
   } catch (err) {
-    check('knowledge-maintain stats returns total', false, String(err));
+    check('knowledge-stats returns health info', false, String(err));
   }
 
   try {

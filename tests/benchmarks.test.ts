@@ -365,7 +365,7 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
       }
 
       const elapsed = timeSync(() => {
-        const queue = ctx.engine.getReviewQueue(undefined, 14, 10, 2, []);
+        const queue = ctx.engine.getReviewQueue(undefined, 14, 10, []);
         expect(queue.fleeting.total).toBeGreaterThan(0);
       });
       console.log(`  getReviewQueue (200 notes): ${elapsed.toFixed(2)}ms`);

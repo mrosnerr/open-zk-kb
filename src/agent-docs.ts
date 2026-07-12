@@ -8,7 +8,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
 
-export type InstructionSize = 'compact' | 'full';
+export type InstructionSize = 'compact' | 'full' | 'rules' | 'preflight';
+
 export type AgentDocsStatus = 'missing' | 'healthy' | 'start-only' | 'end-only' | 'out-of-order' | 'multiple-markers';
 
 export interface AgentDocsInspection {
@@ -24,8 +25,7 @@ const START_MARKER_PREFIX = '<!-- OPEN-ZK-KB:START';
 const START_MARKER_SUFFIX = ' -- managed by open-zk-kb, do not edit -->';
 const END_MARKER = '<!-- OPEN-ZK-KB:END -->';
 
-// Regex to match start marker with optional version: <!-- OPEN-ZK-KB:START v1.0.0 -- managed... -->
-const START_MARKER_REGEX = /<!-- OPEN-ZK-KB:START(?: v[\d.]+)? -- managed by open-zk-kb, do not edit -->/g;
+const START_MARKER_REGEX = /<!-- OPEN-ZK-KB:START(?: v[^\s]+)? -- managed by open-zk-kb, do not edit -->/g;
 
 function buildStartMarker(version?: string): string {
   if (version) {
@@ -58,7 +58,7 @@ function countStartMarkers(content: string): number {
  * Returns null if no version is found or marker doesn't exist.
  */
 export function extractManagedBlockVersion(content: string): string | null {
-  const match = content.match(/<!-- OPEN-ZK-KB:START v([\d.]+)/);
+  const match = content.match(/<!-- OPEN-ZK-KB:START v([^\s]+)/);
   return match ? match[1] : null;
 }
 
@@ -74,8 +74,8 @@ export function getAgentDocsVersion(filePath: string): string | null {
 
 function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string, version?: string): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const filename = size === 'compact' ? 'agent-instructions-compact.md' : 'agent-instructions-full.md';
-  const instructionsPath = path.join(projectRoot, filename);
+  const filename = size === 'compact' ? 'agent-instructions-compact.md' : size === 'rules' ? 'agent-instructions-rules.md' : size === 'preflight' ? 'agent-instructions-preflight.md' : 'agent-instructions-full.md';
+  const instructionsPath = path.join(projectRoot, 'templates', 'install', filename);
   let content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
   if (clientName) {
     content = content.replace(/\{\{CLIENT_NAME\}\}/g, clientName);
@@ -114,8 +114,26 @@ function inspectAgentDocsContent(content: string): Omit<AgentDocsInspection, 'fi
 }
 
 function stripManagedMarkers(content: string): string {
-  return content
-    .replace(START_MARKER_REGEX, '')
+  let stripped = '';
+  let cursor = 0;
+  const startMatches = [...content.matchAll(START_MARKER_REGEX)];
+
+  for (const [index, match] of startMatches.entries()) {
+    const startIdx = match.index ?? 0;
+    const endIdx = content.indexOf(END_MARKER, startIdx + match[0].length);
+    const nextStartIdx = startMatches[index + 1]?.index;
+
+    if (endIdx === -1 || (nextStartIdx !== undefined && nextStartIdx < endIdx)) {
+      stripped += content.slice(cursor, startIdx);
+      cursor = startIdx + match[0].length;
+      continue;
+    }
+
+    stripped += content.slice(cursor, startIdx);
+    cursor = endIdx + END_MARKER.length;
+  }
+
+  return (stripped + content.slice(cursor))
     .split(END_MARKER).join('')
     .replace(/\n{3,}/g, '\n\n');
 }
@@ -183,8 +201,9 @@ function appendManagedBlock(content: string, replacement: string): string {
  * If the file doesn't exist, it is created.
  * Content outside the managed block is preserved.
  * @param version - Version string to embed in the start marker (e.g., "1.0.0")
+ * @param preamble - Content prepended before the managed block when creating the file (e.g. YAML frontmatter)
  */
-export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean, clientName?: string, version?: string): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
+export function injectAgentDocs(filePath: string, size: InstructionSize = 'full', dryRun?: boolean, clientName?: string, version?: string, preamble?: string): { action: 'created' | 'updated' | 'unchanged'; filePath: string } {
   let existing = '';
   const fileExists = fs.existsSync(filePath);
 
@@ -216,9 +235,12 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
     action = 'updated';
   } else if (fileExists) {
     newContent = spliceManagedBlock(existing, template);
+    if (preamble && !existing.trimStart().startsWith(preamble.trim())) {
+      newContent = preamble + newContent.replace(/^\n+/, '\n');
+    }
     action = 'updated';
   } else {
-    newContent = template + '\n';
+    newContent = (preamble ?? '') + template + '\n';
     action = 'created';
   }
 
@@ -236,9 +258,10 @@ export function injectAgentDocs(filePath: string, size: InstructionSize = 'full'
 /**
  * Remove the managed agent docs block from a file.
  * Content outside the managed block is preserved.
- * If the file becomes empty (or whitespace-only) after removal, it is deleted.
+ * If the file becomes empty, whitespace-only, or equal to the installer-owned preamble
+ * after removal, it is deleted.
  */
-export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: 'removed' | 'not-found' | 'file-deleted'; filePath: string } {
+export function removeAgentDocs(filePath: string, dryRun?: boolean, preamble?: string): { action: 'removed' | 'not-found' | 'file-deleted'; filePath: string } {
   if (!fs.existsSync(filePath)) {
     return { action: 'not-found', filePath };
   }
@@ -256,14 +279,15 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
   if (inspection.status !== 'healthy') {
     const newContent = stripManagedMarkers(content).replace(/\n{3,}/g, '\n\n').trimEnd();
 
-    if (!dryRun) {
-      if (newContent.trim().length === 0) {
+    if (shouldDeleteAfterRemoval(newContent, preamble)) {
+      if (!dryRun) {
         fs.unlinkSync(filePath);
-        return { action: 'file-deleted', filePath };
       }
-      fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
-    } else if (newContent.trim().length === 0) {
       return { action: 'file-deleted', filePath };
+    }
+
+    if (!dryRun) {
+      fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
     }
 
     return { action: 'removed', filePath };
@@ -287,15 +311,21 @@ export function removeAgentDocs(filePath: string, dryRun?: boolean): { action: '
 
   const newContent = joinRemainingContent(before, after);
 
-  if (!dryRun) {
-    if (newContent.trim().length === 0) {
+  if (shouldDeleteAfterRemoval(newContent, preamble)) {
+    if (!dryRun) {
       fs.unlinkSync(filePath);
-      return { action: 'file-deleted', filePath };
     }
-    fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
-  } else if (newContent.trim().length === 0) {
     return { action: 'file-deleted', filePath };
   }
 
+  if (!dryRun) {
+    fs.writeFileSync(filePath, newContent + '\n', 'utf-8');
+  }
+
   return { action: 'removed', filePath };
+}
+
+function shouldDeleteAfterRemoval(content: string, preamble?: string): boolean {
+  const trimmed = content.trim();
+  return trimmed.length === 0 || (preamble !== undefined && trimmed === preamble.trim());
 }

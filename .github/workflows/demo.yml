@@ -6,7 +6,7 @@ on:
     branches: [dev]
     paths:
       - 'scripts/demo-mcp.ts'
-      - 'demo.tape'
+      - 'scripts/demo.tape'
 
 permissions:
   contents: write
@@ -17,10 +17,12 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: latest
 
@@ -42,7 +44,7 @@ jobs:
           rm vhs.deb
 
       - name: Record demo GIF
-        run: vhs demo.tape
+        run: vhs scripts/demo.tape
 
       - name: Verify GIF exists
         run: test -f assets/demo.gif && echo "GIF recorded successfully ($(du -h assets/demo.gif | cut -f1))"
@@ -56,5 +58,5 @@ jobs:
             echo "No changes to demo GIF"
           else
             git commit -m "Update demo GIF"
-            git push
+            git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
           fi

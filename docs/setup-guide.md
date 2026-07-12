@@ -1,6 +1,6 @@
 # Setup Guide
 
-This guide covers installation for all supported clients. For configuration details, see [configuration.md](configuration.md).
+Get your agent remembering in under a minute. This guide covers installation for all supported clients. For configuration details, see [configuration.md](configuration.md). For the full tool inventory, see the [Tools Reference](tools-reference.md).
 
 ## Prerequisites
 - [Bun](https://bun.sh) >= 1.0.0 (required — uses `bun:sqlite` for storage)
@@ -13,9 +13,25 @@ Run the interactive installer:
 bunx open-zk-kb@latest
 ```
 
-This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed.
+This presents a multi-select prompt — use Space to select clients, Enter to confirm. Supported clients: OpenCode, Claude Code, Cursor, Windsurf, Zed, Pi, and OMP.
 
 > **Note**: The installer automatically copies `config.example.yaml` to `~/.config/open-zk-kb/config.yaml` if no config file exists yet. Local embeddings (MiniLM, 23MB) are enabled by default and require no API key.
+
+### Pi Installation
+
+Pi does not include native MCP support, so open-zk-kb ships as a Pi package extension that bridges the existing MCP server into Pi-native `knowledge-*` tools:
+
+```bash
+pi install npm:open-zk-kb
+```
+
+The open-zk-kb installer can also wire Pi settings and managed `AGENTS.md` instructions:
+
+```bash
+bunx open-zk-kb@latest install --client pi
+```
+
+Restart Pi after either install path so it can load the package extension.
 
 ### Manual Installation (for any MCP client)
 
@@ -28,7 +44,20 @@ Add to your client's MCP configuration — no cloning required:
   }
 }
 ```
-For OpenCode, use the `mcp` key with `"type": "local"` and `"command": ["bunx", "open-zk-kb@latest", "server"]`.
+For OpenCode, use the `mcp` key:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "open-zk-kb": {
+      "type": "local",
+      "command": ["bunx", "open-zk-kb@latest", "server"],
+      "enabled": true
+    }
+  }
+}
+```
 
 ## Install from source (for development)
 
@@ -37,15 +66,12 @@ git clone https://github.com/mrosnerr/open-zk-kb
 cd open-zk-kb
 bun install
 bun run build
-bun run setup            # interactive installer
+bun run setup install --client <name> --force
 ```
 
-Verification: `ls dist/mcp-server.js` should exist.
+The installer auto-detects the source checkout (via `.git` presence) and wires your client to local paths — the MCP server points at `dist/mcp-server.js`, Pi uses the local package path, and agent instructions are injected where the client supports managed instructions.
 
-For scripted/CI use:
-```bash
-bun run setup install --client opencode
-```
+See the [Development Guide](development.md#development-setup) for the full contributor workflow.
 
 ### Config file locations
 
@@ -56,27 +82,99 @@ bun run setup install --client opencode
 | Cursor | `~/.cursor/mcp.json` |
 | Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 | Zed | `~/.config/zed/settings.json` |
+| Pi | `~/.pi/agent/settings.json` |
+| OMP | `~/.omp/agent/mcp.json` |
+
+
+## Shared Server Mode (Multi-Session)
+
+By default, each MCP client session spawns its own server process. For environments with multiple concurrent sessions (OMP, multiple terminals), you can run a single shared HTTP server instead:
+
+### Quick Start
+
+```bash
+# Start the shared server (runs in foreground)
+open-zk-kb serve
+
+# Or with custom port/host
+open-zk-kb serve --port 18000 --host 0.0.0.0
+```
+
+### Configure OMP for HTTP
+
+```bash
+# Install with HTTP transport (use --force to convert from existing stdio config)
+bun run src/setup.ts install --client omp --transport http --force
+```
+
+This writes to `~/.omp/agent/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "open-zk-kb": {
+      "type": "http",
+      "url": "http://127.0.0.1:17244/mcp"
+    }
+  }
+}
+```
+
+### Transparent Proxy
+
+Existing stdio configurations automatically benefit from a running HTTP server. When `open-zk-kb server` (stdio mode) starts, it checks for a running HTTP server and bridges to it transparently — no config changes needed.
+
+### Configuration
+
+Optional `config.yaml` settings:
+
+```yaml
+server:
+  port: 17244      # Default port
+  host: 127.0.0.1  # Localhost only (recommended)
+```
+
+### Benefits
+
+- **Memory**: One ONNX embedding model (~23MB) instead of one per session
+- **SQLite**: Single database connection eliminates SQLITE_BUSY contention
+- **Startup**: Sessions connect instantly instead of loading the model
 
 ## Verify Installation
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.
-3. Ask your assistant: **"Run `knowledge-maintain stats`"**
-4. You should see vault statistics (0 notes on fresh install). This confirms the 3 tools are available:
+3. Ask your agent: **"Run `knowledge-stats`"**
+4. You should see vault statistics (0 notes on fresh install). This confirms the knowledge tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
-   - `knowledge-maintain` -- stats, review, promote, archive, rebuild
+   - `knowledge-template` -- canonical note template for a kind
+   - `knowledge-mine` -- bulk-screen candidates for duplicates and store
+   - `knowledge-stats` -- vault health metrics, staleness, growth rate
+   - `knowledge-maintain` -- review, promote, archive, rebuild
+   - `knowledge-ingest` -- extract article content from URLs or HTML
+   - `knowledge-overview` -- project entry point with auto-generated index and recent log
+   - `knowledge-get` -- fetch a specific note by id
+   - `knowledge-open` -- open the vault in Obsidian for visual browsing (see [Obsidian Guide](obsidian.md))
 
 ## Agent Instructions
 
-During installation, open-zk-kb delivers knowledge base instructions to clients that support it. The delivery mechanism varies by client:
+During installation, open-zk-kb delivers knowledge base instructions to clients that support it. These instructions teach your agent when to search, what to store, and how to keep memory useful across sessions. The delivery mechanism varies by client:
 
 | Client | Mechanism | Location |
 |--------|-----------|----------|
 | Claude Code | [Skill](https://code.claude.com/docs/en/skills) | `~/.claude/skills/open-zk-kb/SKILL.md` |
 | OpenCode | Managed block | `~/.config/opencode/AGENTS.md` |
 | Windsurf | Managed block | `~/.codeium/windsurf/memories/global_rules.md` |
+| Pi | Managed block | `~/.pi/agent/AGENTS.md` |
+| OMP | Skill + Preflight rule + TTSR rule | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/rules/open-zk-kb.md` + `~/.omp/agent/rules/open-zk-kb-enforce.md` |
 
-Cursor and Zed get the MCP server config automatically, but do not currently receive agent instructions.
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets three layers: a skill (detailed tool reference, loaded on-demand), an always-apply preflight rule (tiny, tells the agent to search KB in parallel with first exploration), and a TTSR enforcement rule (see below).
+
+### OMP: TTSR Enforcement Rule
+
+OMP supports **TTSR (Time-Traveling Stream Rules)** — a mechanism that monitors the model's output token stream during generation and interrupts mid-stream when a regex pattern matches. The TTSR enforcement rule catches the model claiming "I'll remember that" without actually calling `knowledge-store`, interrupts generation, injects a correction, and forces a retry.
+
+This is OMP-specific — the TTSR mechanism exists in the shared Pi/OMP engine, but Pi's native rule discovery only scans `.omp` paths, so TTSR rules cannot be installed for Pi through the setup CLI. No other supported client (Claude Code, Cursor, Windsurf, Zed, OpenCode) has an equivalent mid-generation interruption mechanism. The rule is installed at `~/.omp/agent/rules/open-zk-kb-enforce.md`.
 
 ### Claude Code (Skill)
 
@@ -104,23 +202,44 @@ Instructions are injected as a managed block wrapped in markers:
 ## Optional Configuration
 - **All settings** are in `~/.config/open-zk-kb/config.yaml`. Customize vault path, log level, lifecycle review thresholds, and vector embeddings in a single file. See [configuration.md](configuration.md).
 
+## Release Channels
+
+| Channel | npm tag | Stability | Use when |
+|---------|---------|-----------|----------|
+| **Stable** | `@latest` | Production-ready | Default for all users |
+| **Dev** | `@dev` | Bleeding-edge, may break | Testing unreleased changes from the `dev` branch |
+
+To install from the dev channel:
+
+```bash
+bunx open-zk-kb@dev install --client <name> --force
+```
+
+The installer auto-detects the dev release and writes `@dev` to your MCP config. Dev versions follow the format `X.Y.Z-dev.g<short-sha>` (e.g., `1.1.0-dev.g751771b`). Each push to the `dev` branch publishes a new release automatically.
+
+To switch back to stable:
+
+```bash
+bunx open-zk-kb@latest install --client <name> --force
+```
+
 ## Updating
 
 ### How Updates Work
 
 | Component | Auto-updates? | Mechanism |
 |-----------|---------------|-----------|
-| **MCP server** | ✅ Yes | `bunx open-zk-kb@latest` checks npm registry on each client restart |
+| **MCP server** | ✅ Yes | `bunx open-zk-kb@latest` (or `@dev`) checks npm registry on each client restart |
 | **Agent instructions** | ❌ No | Requires manual `install --force` to update |
 | **User config** | ❌ No | Your `config.yaml` is never modified after initial copy |
 
 ### Checking for Updates
 
-Run `knowledge-maintain stats` to see version information:
+Run `knowledge-stats` to see version information:
 
 ```
 ## Version
-- Server: 1.0.0 (latest)
+- Server: 1.2.0 (latest)
 - Instructions:
   - Claude Code: 1.0.0 ✓
   - OpenCode: 0.9.0 ⚠️
@@ -165,6 +284,14 @@ bun run setup uninstall --client opencode
 
 This removes the MCP server entry from the client config. Your notes in the vault are NOT deleted.
 
+If uninstall reports that managed agent instructions were skipped because they live in a symlinked shared file, rerun with `--remove-shared-agent-docs` to remove open-zk-kb's managed instructions from that shared target:
+
+```bash
+bunx open-zk-kb@latest uninstall --client opencode --remove-shared-agent-docs
+```
+
+This only removes open-zk-kb managed instruction blocks or files. Content outside managed markers is preserved, and your notes in the vault are still not deleted.
+
 To also remove the vault (irreversible):
 ```bash
 bunx open-zk-kb@latest uninstall --client opencode --remove-vault --confirm
@@ -182,9 +309,9 @@ bunx open-zk-kb@latest uninstall --client opencode --remove-vault --confirm
 | Dry run first | Add `--dry-run` to any setup command to preview changes without applying them |
 
 ## For AI Agents -- Integration Checklist
-This section is specifically for AI coding assistants setting up open-zk-kb:
+This section is specifically for agents setting up open-zk-kb:
 1. Run `bun --version` -- confirm >= 1.0.0 (if missing: `curl -fsSL https://bun.sh/install | bash`)
 2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor
-4. Verify by calling `knowledge-maintain stats`
-5. Knowledge capture is driven by agent instructions (skill for Claude Code, managed block for OpenCode/Windsurf) provided during setup. Calling models use `knowledge-store` directly.
+4. Verify by calling `knowledge-stats`
+5. Knowledge capture is driven by agent instructions (skill for Claude Code and OMP, managed block for OpenCode/Windsurf/Pi, package extension for Pi) provided during setup. Calling models use MCP tools directly, primarily querying the SQLite-backed server layer rather than browsing raw vault files.

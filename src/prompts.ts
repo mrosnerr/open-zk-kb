@@ -4,6 +4,7 @@
  */
 
 import type { NoteMetadata } from './storage/NoteRepository.js';
+import { extractWikiLinks } from './utils/wikilink.js';
 
 // ---- Kind-specific fallback guidance ----
 
@@ -14,11 +15,26 @@ export const KIND_GUIDANCE: Record<string, string> = {
   procedure: 'Follow these steps when performing this task.',
   resource: 'Recommended resource — reference when relevant.',
   observation: 'Unverified insight — consider but verify before relying on.',
+  domain: 'Project operating manual — follow conventions and boundaries defined here.',
+  index: 'Auto-generated project catalog — use knowledge-overview to view.',
+  log: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
 };
 
 // Kinds that benefit from a content preview in compact rendering
 const CONTENT_PREVIEW_KINDS = new Set(['procedure', 'reference', 'observation', 'resource']);
 const CONTENT_PREVIEW_MAX_CHARS = 150;
+
+// ---- Staleness metric ----
+
+/**
+ * Compute staleness in whole days from the most recent activity timestamp.
+ * Uses last_accessed_at if available, otherwise falls back to created_at.
+ * Pure computation — no judgment, no filtering.
+ */
+export function computeStaleness(note: { created_at: number; last_accessed_at?: number }): number {
+  const anchor = note.last_accessed_at ?? note.created_at;
+  return Math.max(0, Math.floor((Date.now() - anchor) / (1000 * 60 * 60 * 24)));
+}
 
 // ---- Shared note attributes ----
 
@@ -29,12 +45,30 @@ function buildNoteAttrs(note: NoteMetadata): string {
     `status="${note.status}"`,
   ];
 
+  if (note.lifecycle && note.lifecycle !== 'living') {
+    attrs.push(`lifecycle="${note.lifecycle}"`);
+  }
+
+  attrs.push(`staleness_days="${computeStaleness(note)}"`);
+
   const tags = Array.isArray(note.tags) ? note.tags : [];
   if (tags.length > 0) {
     attrs.push(`tags="${tags.join(', ')}"`);
   }
 
   return attrs.join(' ');
+}
+
+function renderRelatedNotes(content: string): string {
+  const links = extractWikiLinks(content);
+  if (links.length === 0) return '';
+
+  let xml = '  <related_notes hint="Use `knowledge-get` with noteId to retrieve full content">\n';
+  for (const link of links) {
+    xml += `    <link noteId="${link.id}">${link.display || link.slug}</link>\n`;
+  }
+  xml += '  </related_notes>\n';
+  return xml;
 }
 
 // ---- Compact note rendering (summary + guidance) ----
@@ -55,10 +89,11 @@ export function renderNoteForAgent(note: NoteMetadata): string {
       : content;
     xml += `  <content_preview>${preview}</content_preview>\n`;
     if (content.length > CONTENT_PREVIEW_MAX_CHARS) {
-      xml += `  <hint>Use knowledge-search to retrieve full content</hint>\n`;
+      xml += `  <hint>Use \`knowledge-get\` with noteId="${note.id}" to retrieve full content</hint>\n`;
     }
   }
 
+  xml += renderRelatedNotes(content);
   xml += `</note>`;
 
   return xml;
@@ -79,6 +114,7 @@ export function renderNoteForSearch(note: NoteMetadata): string {
     xml += `  <content>${content}</content>\n`;
   }
 
+  xml += renderRelatedNotes(content);
   xml += `</note>`;
 
   return xml;

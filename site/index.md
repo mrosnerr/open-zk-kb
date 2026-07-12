@@ -3,29 +3,27 @@ layout: home
 title: open-zk-kb
 ---
 
-# Shared, persistent memory for AI assistants
+# Your agent doesn't learn from you. This fixes that.
 
-Shared, persistent memory for AI assistants, built on the Zettelkasten method. One knowledge base for all your tools — so context persists across sessions and clients.
-
-It gives your assistant a **structured, searchable knowledge base** it queries automatically — so your preferences, decisions, and context persist across every conversation.
+You correct the same mistakes, re-explain the same conventions, re-teach the same context — every session. open-zk-kb gives your agent a memory that persists, so corrections stick and every session starts smarter than the last.
 
 ## How it works
 
 1. **Install in one command** — `bunx open-zk-kb@latest`
-2. **Your assistant stores knowledge** — decisions, preferences, patterns, procedures
+2. **Your agent stores what it learns** — corrections, preferences, decisions, gotchas
 3. **Next session, it searches first** — relevant context surfaces automatically
 
-Notes are Markdown files with YAML frontmatter. A SQLite index provides full-text search, with local vector embeddings for semantic matching. No API key needed. No cloud required.
+Your agent gets sharper the longer you use it — for *your* specific workflow.
 
-## Key features
+## What you get
 
-- **Hybrid search** — full-text + semantic embeddings, so results match meaning not just keywords
-- **Atomic notes** — one concept per note, typed (6 kinds) with lifecycle management (fleeting, permanent, archived)
-- **Local-first** — everything stays on your machine, no API keys required
-- **Multi-client** — Claude Code, Cursor, Windsurf, OpenCode, Zed
-- **Human-readable** — Markdown files you can browse, edit, and version control
-- **Rebuild from files** — database is an index; your `.md` files are the source of truth
-- **MIT licensed** — use it however you want
+- **Corrections that stick** — fix something once, your agent remembers across sessions and tools
+- **Works across every tool** — one knowledge base shared by Claude Code, Cursor, Windsurf, OpenCode, and Zed
+- **Finds what's relevant** — hybrid search matches meaning, not just keywords
+- **Runs locally** — no API keys, no cloud, your data stays on your machine
+- **Human-readable** — plain Markdown files you can browse, edit, and version control
+- **Browse in Obsidian** — fully themed vault with dashboard, navigation, and quick-add buttons
+- **Open source** — MIT licensed
 
 ## Quick start
 
@@ -33,7 +31,7 @@ Notes are Markdown files with YAML frontmatter. A SQLite index provides full-tex
 bunx open-zk-kb@latest
 ```
 
-The interactive installer adds the MCP server to your client and injects instructions that teach your assistant when and how to use the knowledge base.
+The interactive installer picks up your client, adds the MCP server, and injects instructions so your agent knows when and how to use the knowledge base.
 
 ## Learn more
 
