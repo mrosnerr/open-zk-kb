@@ -504,6 +504,29 @@ Project operating manual.
       expect(queue.permanent.total).toBe(1);
       expect(queue.permanent.notes.some(n => n.id === note.id)).toBe(true);
     });
+    it('excludes generated index and log notes from permanent review', async () => {
+      await handleStore({
+        title: 'Review Queue Source',
+        content: 'One project-scoped note creates generated navigation notes.',
+        kind: 'observation',
+        project: 'review-queue-project',
+      }, context.engine, null, context.config);
+
+      const generatedNotes = context.engine.getAll().filter(note =>
+        Array.isArray(note.tags) && note.tags.includes('project:review-queue-project')
+      );
+      expect(generatedNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation']);
+
+      const queue = context.engine.getReviewQueue(
+        'permanent',
+        0,
+        10,
+        context.config.lifecycle.exemptKinds,
+      );
+
+      expect(queue.permanent.total).toBe(0);
+      expect(queue.permanent.notes).toHaveLength(0);
+    });
 
     it('respects filter=fleeting and filter=permanent', () => {
       const fleeting = context.engine.store('Old fleeting note', {

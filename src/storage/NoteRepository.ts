@@ -2256,6 +2256,7 @@ export class NoteRepository {
         WHERE n.status = 'permanent' 
           AND n.created_at < ?
           AND n.access_count = 0
+          AND n.kind NOT IN ('index', 'log')
           ${exemptPlaceholders}
         ORDER BY COALESCE(bl.cnt, 0) ASC, n.created_at ASC
         LIMIT ?
@@ -2267,6 +2268,7 @@ export class NoteRepository {
       return this.db.prepare(`
         SELECT COUNT(*) as count FROM notes n
         WHERE n.status = 'permanent' AND n.created_at < ? AND n.access_count = 0
+          AND n.kind NOT IN ('index', 'log')
         ${exemptPlaceholders}
       `).get(...params) as { count: number };
     };
