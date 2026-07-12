@@ -5,6 +5,7 @@ import * as os from 'os';
 import type { Server } from 'bun';
 import {
   READ_ONLY_TOOLS,
+  buildMcpRequestHeaders,
   isRetriableSingleRequest,
   isRetriableRequest,
   isJsonRpcNotification,
@@ -35,6 +36,23 @@ describe('READ_ONLY_TOOLS', () => {
     expect(READ_ONLY_TOOLS['knowledge-ingest']).toBeUndefined();
     expect(READ_ONLY_TOOLS['knowledge-mine']).toBeUndefined();
     expect(READ_ONLY_TOOLS['knowledge-open']).toBeUndefined();
+  });
+});
+
+describe('buildMcpRequestHeaders', () => {
+  it('adds the configured bearer token', () => {
+    expect(buildMcpRequestHeaders('test-token')).toEqual({
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+      Authorization: 'Bearer test-token',
+    });
+  });
+
+  it('preserves unauthenticated request headers when no token is configured', () => {
+    expect(buildMcpRequestHeaders()).toEqual({
+      'Content-Type': 'application/json',
+      Accept: 'application/json, text/event-stream',
+    });
   });
 });
 
@@ -192,7 +210,7 @@ describe('isNotificationOnlyMessage', () => {
  */
 
 // Minimal MCP-like JSON-RPC handler — responds to tools/list and tools/call
-function createMcpHandler(serverId: string) {
+function createMcpHandler(serverId: string, authToken?: string) {
   return (req: Request): Response | Promise<Response> => {
     const url = new URL(req.url);
     if (url.pathname === '/health') {
@@ -204,6 +222,9 @@ function createMcpHandler(serverId: string) {
       return new Response('Not Found', { status: 404 });
     }
 
+    if (authToken !== undefined && req.headers.get('authorization') !== `Bearer ${authToken}`) {
+      return new Response('Unauthorized', { status: 401 });
+    }
     return req.json().then((body: { id?: unknown; method?: string }) => {
       const result = { serverId, method: body.method };
       return new Response(
@@ -212,6 +233,12 @@ function createMcpHandler(serverId: string) {
       );
     });
   };
+}
+
+function writeAuthConfig(tmpDir: string, authToken: string): void {
+  const configDir = path.join(tmpDir, 'config', 'open-zk-kb');
+  fs.mkdirSync(configDir, { recursive: true });
+  fs.writeFileSync(path.join(configDir, 'config.yaml'), `server:\n  authToken: ${authToken}\n`);
 }
 
 function writeStateFile(stateDir: string, port: number, pid: number) {
@@ -291,15 +318,17 @@ describe.skipIf(!INTEGRATION)('Stdio Bridge Self-Healing', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('should reconnect to a restarted HTTP server', async () => {
+  it('forwards the configured bearer token while reconnecting to a restarted HTTP server', async () => {
     // Start first server
+    const authToken = 'bridge-test-token';
     let server1: Server | null = Bun.serve({
       port: 0,
       hostname: '127.0.0.1',
-      fetch: createMcpHandler('server-1'),
+      fetch: createMcpHandler('server-1', authToken),
     });
 
     writeStateFile(stateDir, server1.port, process.pid);
+    writeAuthConfig(tmpDir, authToken);
 
     const proc = Bun.spawn(
       ['bun', 'run', CLI_PATH, 'server'],
@@ -336,7 +365,7 @@ describe.skipIf(!INTEGRATION)('Stdio Bridge Self-Healing', () => {
       const server2 = Bun.serve({
         port: 0,
         hostname: '127.0.0.1',
-        fetch: createMcpHandler('server-2'),
+        fetch: createMcpHandler('server-2', authToken),
       });
       writeStateFile(stateDir, server2.port, process.pid);
 

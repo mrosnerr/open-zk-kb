@@ -73,6 +73,7 @@ interface RawConfig {
   server?: {
     port?: number;
     host?: string;
+    authToken?: string;
   };
   embeddings?: EmbeddingsConfig;
 }
@@ -262,6 +263,9 @@ export function getConfig(): AppConfig {
       host: typeof raw?.server?.host === 'string' && raw.server.host.length > 0
         ? raw.server.host
         : DEFAULT_CONFIG.server.host,
+      authToken: typeof raw?.server?.authToken === 'string' && raw.server.authToken.length > 0
+        ? raw.server.authToken
+        : undefined,
     },
   };
 }

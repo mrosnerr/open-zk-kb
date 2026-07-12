@@ -14,6 +14,7 @@ import { readServerState, writeServerState, removeServerState } from './server-s
 export { readServerState, type ServerState } from './server-state.js';
 
 const config = getConfig();
+const httpAuthToken = config.server.authToken;
 
 // ── HTTP Server ──
 
@@ -33,6 +34,13 @@ export async function handleMcpRequest(req: Request): Promise<Response> {
   // Only handle /mcp endpoint
   if (url.pathname !== '/mcp') {
     return new Response('Not Found', { status: 404 });
+  }
+
+  if (!isHttpRequestAuthorized(req, httpAuthToken)) {
+    return new Response('Unauthorized', {
+      status: 401,
+      headers: { 'WWW-Authenticate': 'Bearer' },
+    });
   }
 
   // Top-level error isolation: any throw here MUST return an HTTP response,
@@ -105,10 +113,26 @@ export interface StartHttpServerOptions {
   host?: string;
 }
 
+export function isHttpRequestAuthorized(req: Request, authToken?: string): boolean {
+  return authToken === undefined || req.headers.get('authorization') === `Bearer ${authToken}`;
+}
+
+export function assertHttpServerSecurity(host: string, authToken?: string): void {
+  const isLoopbackHost = host.toLowerCase() === 'localhost'
+    || host === '::1'
+    || /^127(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/.test(host);
+  if (!isLoopbackHost && authToken === undefined) {
+    throw new Error(
+      `Refusing to bind HTTP server to non-loopback host "${host}" without server.authToken configured`,
+    );
+  }
+}
+
 export async function startHttpServer(options: StartHttpServerOptions = {}): Promise<void> {
   const port = options.port ?? config.server.port;
   const host = options.host ?? config.server.host;
 
+  assertHttpServerSecurity(host, httpAuthToken);
   ensureShutdownHandlers();
 
   // Check if another instance is already running.

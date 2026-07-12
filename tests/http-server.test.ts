@@ -63,6 +63,37 @@ describe('HTTP Server', () => {
       expect(typeof mod.startHttpServer).toBe('function');
     });
   });
+  describe('bind security', () => {
+    it('allows loopback binds without authentication', async () => {
+      const { assertHttpServerSecurity } = await loadFreshHttpServerModule();
+
+      expect(() => assertHttpServerSecurity('127.0.0.1')).not.toThrow();
+    });
+
+    it('rejects non-loopback binds without authentication', async () => {
+      const { assertHttpServerSecurity } = await loadFreshHttpServerModule();
+
+      expect(() => assertHttpServerSecurity('0.0.0.0')).toThrow(
+        'Refusing to bind HTTP server to non-loopback host "0.0.0.0" without server.authToken configured',
+      );
+    });
+
+    it('allows non-loopback binds with authentication', async () => {
+      const { assertHttpServerSecurity } = await loadFreshHttpServerModule();
+
+      expect(() => assertHttpServerSecurity('0.0.0.0', 'test-token')).not.toThrow();
+    });
+
+    it('requires the configured bearer token for MCP requests', async () => {
+      const { isHttpRequestAuthorized } = await loadFreshHttpServerModule();
+
+      expect(isHttpRequestAuthorized(new Request('http://localhost/mcp'), 'test-token')).toBe(false);
+      expect(isHttpRequestAuthorized(
+        new Request('http://localhost/mcp', { headers: { Authorization: 'Bearer test-token' } }),
+        'test-token',
+      )).toBe(true);
+    });
+  });
 
   describe('CLI serve command', () => {
     it('should call startHttpServer with parsed flags', async () => {

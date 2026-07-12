@@ -499,7 +499,7 @@ export function createMcpServer(): McpServer {
           project: args.project,
           dry_run: args.dry_run,
           model: args.model,
-        }, await getOrCreateRepo(), getEmbeddingConfig(), config);
+        }, await getOrCreateRepo(), getEmbeddingConfig(), config, gitVersioning);
         return { content: [{ type: 'text' as const, text: result }] };
       } catch (error) {
         logToFile('ERROR', 'knowledge-mine failed', {

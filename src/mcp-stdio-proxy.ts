@@ -62,6 +62,19 @@ async function* readStdinMessages(): AsyncGenerator<unknown> {
 /**
  * Forward a JSON-RPC message to the HTTP server and return the response.
  */
+export function buildMcpRequestHeaders(authToken?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    Accept: 'application/json, text/event-stream',
+  };
+
+  if (authToken !== undefined) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
+
+  return headers;
+}
+
 async function forwardToHttp(
   state: ServerState,
   message: unknown,
@@ -70,10 +83,7 @@ async function forwardToHttp(
     const hostForUrl = state.host.includes(':') ? `[${state.host}]` : state.host;
     const response = await fetch(`http://${hostForUrl}:${state.port}/mcp`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'application/json, text/event-stream',
-      },
+      headers: buildMcpRequestHeaders(config.server.authToken),
       body: JSON.stringify(message),
     });
 

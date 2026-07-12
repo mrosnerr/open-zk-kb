@@ -89,6 +89,7 @@ export interface StoreConfig {
 export interface ServerConfig {
   port: number;
   host: string;
+  authToken?: string;
 }
 
 export interface AppConfig {
