@@ -969,10 +969,10 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   const tags = [...(args.tags || [])];
 
   if (project) {
-    const projectTag = `project:${project}`;
-    if (!tags.includes(projectTag)) {
-      tags.push(projectTag);
+    for (let i = tags.length - 1; i >= 0; i--) {
+      if (tags[i].startsWith('project:')) tags.splice(i, 1);
     }
+    tags.push(`project:${project}`);
   }
 
   if (STRUCTURAL_KINDS.has(args.kind)) {
@@ -1193,7 +1193,8 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 
 export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedding?: number[] | null, config?: AppConfig): string {
   const requestedLimit = args.limit || 10;
-  const searchLimit = args.project ? Math.min(requestedLimit * 10, 100) : requestedLimit;
+  const excludeStructuralKinds = config?.search?.excludeLogFromSearch !== false && !STRUCTURAL_KINDS.has(args.kind as string);
+  const searchLimit = args.project || excludeStructuralKinds ? Math.min(requestedLimit * 10, 100) : requestedLimit;
   let results = repo.searchHybrid(args.query, queryEmbedding || null, {
     kind: args.kind,
     status: args.status ? toNoteStatus(args.status, 'fleeting') : undefined,
@@ -1201,7 +1202,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     limit: searchLimit,
   });
 
-  if (config?.search?.excludeLogFromSearch !== false && !STRUCTURAL_KINDS.has(args.kind as string)) {
+  if (excludeStructuralKinds) {
     results = results.filter(note => !STRUCTURAL_KINDS.has(note.kind));
   }
 

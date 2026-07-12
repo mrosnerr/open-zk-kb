@@ -67,6 +67,22 @@ describe('MCP Tool: knowledge-store', () => {
     expect(notes.length).toBe(1);
     expect(notes[0].tags).toContain('project:myapp');
   });
+  it('should replace existing project tags with an explicit project', async () => {
+    await handleStore({
+      title: 'Reassigned Project Decision',
+      content: 'This decision belongs to the replacement project.',
+      kind: 'decision',
+      project: 'replacement-project',
+      tags: ['project:original-project', 'client:cursor'],
+      summary: 'Decision moved to replacement project',
+      guidance: 'Use for replacement project work',
+    }, ctx.engine);
+
+    const note = ctx.engine.getByKind('decision')[0];
+    expect(note.tags.filter(tag => tag.startsWith('project:'))).toEqual(['project:replacement-project']);
+    expect(note.tags).toContain('client:cursor');
+  });
+
 
   it('should append related notes as wikilinks', async () => {
     // Store a first note
@@ -565,6 +581,27 @@ describe('MCP Tool: knowledge-search', () => {
     expect(output).toContain('Project Overfetch One');
     expect(output).toContain('Project Overfetch Two');
     expect(output).not.toContain('Non Project Overfetch');
+  });
+
+  it('should overfetch before excluding generated notes', () => {
+    const query = 'generated crowding keyword';
+    const generatedContent = Array(20).fill(query).join(' ');
+    for (let i = 0; i < 10; i++) {
+      ctx.engine.store(generatedContent, {
+        title: `Generated Crowding ${i}`,
+        kind: i % 2 === 0 ? 'index' : 'log',
+        tags: [`project:generated-${i}`],
+      });
+    }
+    ctx.engine.store(query, { title: 'Real Search Result', kind: 'reference' });
+
+    const ranked = ctx.engine.search(query, { limit: 10 });
+    expect(ranked).toHaveLength(10);
+    expect(ranked.every(note => note.kind === 'index' || note.kind === 'log')).toBe(true);
+
+    const output = handleSearch({ query, limit: 10 }, ctx.engine);
+    expect(output).toContain('Real Search Result');
+    expect(output).not.toContain('Generated Crowding');
   });
 
   it('should return no results message with hint', () => {
@@ -2233,6 +2270,16 @@ describe('MCP Tool: knowledge-maintain unlinked', () => {
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).toContain('Active Note');
     expect(output).not.toContain('Old Note');
+  });
+
+  it('should exclude generated index and log notes from unlinked detection', async () => {
+    ctx.engine.store('Generated navigation', { title: 'Project Index', kind: 'index' });
+    ctx.engine.store('Generated activity', { title: 'Project Log', kind: 'log' });
+
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
+    expect(output).toContain('No unlinked notes found');
+    expect(output).not.toContain('Project Index');
+    expect(output).not.toContain('Project Log');
   });
 
   it('should not list notes that have outgoing links', async () => {
