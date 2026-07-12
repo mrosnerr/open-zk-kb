@@ -1182,6 +1182,7 @@ export class NoteRepository {
     const row = this.db.prepare(`
       SELECT COUNT(*) as count FROM notes
       WHERE tags LIKE '%"project:%' AND status != 'archived'
+        AND kind NOT IN ('index', 'log')
     `).get() as { count: number };
     return row.count;
   }

@@ -11,7 +11,7 @@ import {
 } from './harness.js';
 import type { TestContext } from './harness.js';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
-import { handleStore, handleStats } from '../src/tool-handlers.js';
+import { handleStore, handleStats, handleOverview } from '../src/tool-handlers.js';
 
 describe('Knowledge Capture Integration Tests', () => {
   let context: TestContext;
@@ -114,6 +114,33 @@ describe('Knowledge Capture Integration Tests', () => {
       expect(output).toContain('  - observation: 1');
       expect(output).not.toContain('  - index:');
       expect(output).not.toContain('  - log:');
+    });
+
+    it('should count only real scoped notes for global overview unscoped math', async () => {
+      await handleStore({
+        title: 'Scoped Count Source',
+        content: 'One real project note for scoped count.',
+        kind: 'observation',
+        project: 'scoped-count-project',
+      }, context.engine, null, context.config);
+      context.engine.store('One real unscoped note.', {
+        title: 'Unscoped Count Source',
+        kind: 'reference',
+        status: 'permanent',
+      });
+
+      const projectNotes = context.engine.getAll().filter(note =>
+        Array.isArray(note.tags) && note.tags.includes('project:scoped-count-project')
+      );
+      expect(projectNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation']);
+      expect(context.engine.getScopedNoteCount()).toBe(1);
+
+      const stats = context.engine.getStats();
+      expect(stats.total - stats.archived - context.engine.getScopedNoteCount()).toBe(1);
+
+      const output = handleOverview({}, context.engine, context.config);
+      expect(output).toContain('Unscoped notes: 1');
+      expect(output).not.toContain('Unscoped notes: -');
     });
 
     it('should exclude generated project index and log notes from global knowledge stats and recent notes', async () => {
