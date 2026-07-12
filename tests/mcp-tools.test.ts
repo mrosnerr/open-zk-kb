@@ -3883,6 +3883,18 @@ describe('MCP Tool: knowledge-stats', () => {
     expect(output).toContain('Notes created: 1');
   });
 
+  it('should exclude generated navigation notes from scoped embedding stats', async () => {
+    const note = ctx.engine.store('Alpha note', { title: 'Alpha', kind: 'reference', tags: ['project:alpha'] });
+    ctx.engine.storeEmbedding(note.id, [0.1], 'test-model');
+    ctx.engine.store('Alpha index', { title: 'Alpha Index', kind: 'index', tags: ['project:alpha'] });
+    ctx.engine.store('Alpha log', { title: 'Alpha Log', kind: 'log', tags: ['project:alpha'] });
+
+    const output = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+
+    expect(output).toContain('## Health (1 notes)');
+    expect(output).toContain('- Embedded: 1/1 notes');
+  });
+
   it('should clamp 0d period to 30d default', async () => {
     ctx.engine.store('A note', { title: 'A', kind: 'reference' });
 

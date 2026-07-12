@@ -1012,7 +1012,7 @@ export class NoteRepository {
    * Get embedding stats for maintenance reporting.
    */
   getEmbeddingStats(project?: string): { total: number; withEmbedding: number; withoutEmbedding: number; models: Record<string, number> } {
-    const projectClause = project ? ` AND tags LIKE ?` : '';
+    const projectClause = project ? ` AND kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
     const projectParam = project ? [`%"project:${project}"%`] : [];
     const counts = this.db.prepare(`
       SELECT
