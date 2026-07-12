@@ -2031,7 +2031,8 @@ export class NoteRepository {
     const projectParam = project ? [`%"project:${project}"%`] : [];
     const stmt = this.db.prepare(`
       SELECT * FROM notes
-      WHERE status != 'archived'${projectClause}
+      WHERE status != 'archived'
+        AND kind NOT IN ('index', 'log')${projectClause}
         AND id NOT IN (
           SELECT l.source_id FROM note_links l
           JOIN notes n ON l.target_id = n.id WHERE n.status != 'archived'
