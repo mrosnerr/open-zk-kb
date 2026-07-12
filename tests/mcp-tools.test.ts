@@ -3402,6 +3402,24 @@ describe('Index and log note kinds', () => {
     expect(indexNote!.kind).toBe('index');
   });
 
+  it('should reject traversal in a raw project argument before navigation', async () => {
+    const project = '../../etc';
+    const outsidePath = path.resolve(ctx.tempDir, 'projects', project);
+
+    const output = await handleStore({
+      title: 'Traversal Attempt',
+      content: 'This must not be stored.',
+      kind: 'observation',
+      project,
+      summary: 'Traversal attempt',
+      guidance: 'Reject invalid project paths.',
+    }, ctx.engine, null, makeConfig());
+
+    expect(output).toBe(`Error: Invalid project name: "${project}"`);
+    expect(ctx.engine.getByKind('observation')).toHaveLength(0);
+    expect(fs.existsSync(outsidePath)).toBe(false);
+  });
+
   it('should include Dataview queries in index content', async () => {
     await storeProjectNote('Linked Note');
 

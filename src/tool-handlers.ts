@@ -620,9 +620,10 @@ function extractProjectFromTags(tags: string[]): string | null {
   return extractProjectTag(tags);
 }
 
-function rebuildProjectIndex(project: string, repo: NoteRepository, config?: AppConfig): void {
-  if (config?.navigation?.enableProjectIndex === false) return;
+function rebuildProjectIndex(project: string, repo: NoteRepository, config?: AppConfig): string[] {
+  if (config?.navigation?.enableProjectIndex === false) return [];
 
+  const changedPaths: string[] = [];
   try {
     const notes = repo.getProjectNotes(project);
     const splitConfig = config?.navigation ? {
@@ -632,7 +633,7 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
     const { content, subMocs } = buildIndexContent(project, notes, splitConfig);
     const existingIndex = repo.getIndexNote(project);
 
-    repo.store(content, {
+    const indexResult = repo.store(content, {
       existingId: existingIndex?.id,
       title: project,
       kind: 'index',
@@ -648,14 +649,20 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
         up: `[[${getGlobalHomeNoteBasename()}|Home]]`,
       },
     });
+    changedPaths.push(indexResult.path);
 
     if (subMocs.length > 0 && config?.vault) {
       for (const subMoc of subMocs) {
         const subMocDir = path.join(config.vault, 'projects', project, subMoc.dirName);
         if (!fs.existsSync(subMocDir)) fs.mkdirSync(subMocDir, { recursive: true });
-        fs.writeFileSync(getKindFolderNotePath(subMocDir, subMoc.dirName), subMoc.content, 'utf-8');
+        const subMocPath = getKindFolderNotePath(subMocDir, subMoc.dirName);
+        fs.writeFileSync(subMocPath, subMoc.content, 'utf-8');
+        changedPaths.push(subMocPath);
         const legacySubIndexPath = path.join(subMocDir, 'index.md');
-        if (fs.existsSync(legacySubIndexPath)) fs.unlinkSync(legacySubIndexPath);
+        if (fs.existsSync(legacySubIndexPath)) {
+          fs.unlinkSync(legacySubIndexPath);
+          changedPaths.push(legacySubIndexPath);
+        }
       }
     }
 
@@ -669,8 +676,12 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
           const legacySubIndexPath = path.join(projectDir, entry.name, 'index.md');
           if (!activeSubMocs.has(entry.name) && fs.existsSync(subIndexPath)) {
             fs.unlinkSync(subIndexPath);
+            changedPaths.push(subIndexPath);
           }
-          if (fs.existsSync(legacySubIndexPath)) fs.unlinkSync(legacySubIndexPath);
+          if (fs.existsSync(legacySubIndexPath)) {
+            fs.unlinkSync(legacySubIndexPath);
+            changedPaths.push(legacySubIndexPath);
+          }
         }
       }
     }
@@ -680,46 +691,44 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
       error: error instanceof Error ? error.message : String(error),
     });
   }
+  return changedPaths;
 }
 
-function appendProjectLog(project: string, event: string, repo: NoteRepository, config?: AppConfig): void {
-  if (config?.navigation?.enableProjectLog === false) return;
+function appendProjectLog(project: string, event: string, repo: NoteRepository, config?: AppConfig): string[] {
+  if (config?.navigation?.enableProjectLog === false) return [];
 
   try {
     const entry = buildLogEntry(event);
     const existingLog = repo.getLogNote(project);
 
-    if (existingLog) {
-      const existingContent = existingLog.content || '';
-      const newContent = appendToLogContent(existingContent, entry);
-      repo.store(newContent, {
-        existingId: existingLog.id,
-        title: `${project} Operations Log`,
-        kind: 'log',
-        status: 'permanent',
-        lifecycle: 'append-only',
-        tags: [`project:${project}`],
-        summary: `Chronological operations log for ${project}`,
-        guidance: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
-      });
-    } else {
-      const content = buildInitialLogContent(project, entry);
-      repo.store(content, {
-        title: `${project} Operations Log`,
-        kind: 'log',
-        status: 'permanent',
-        lifecycle: 'append-only',
-        tags: [`project:${project}`],
-        summary: `Chronological operations log for ${project}`,
-        guidance: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
-      });
-    }
+    const result = existingLog
+      ? repo.store(appendToLogContent(existingLog.content || '', entry), {
+          existingId: existingLog.id,
+          title: `${project} Operations Log`,
+          kind: 'log',
+          status: 'permanent',
+          lifecycle: 'append-only',
+          tags: [`project:${project}`],
+          summary: `Chronological operations log for ${project}`,
+          guidance: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
+        })
+      : repo.store(buildInitialLogContent(project, entry), {
+          title: `${project} Operations Log`,
+          kind: 'log',
+          status: 'permanent',
+          lifecycle: 'append-only',
+          tags: [`project:${project}`],
+          summary: `Chronological operations log for ${project}`,
+          guidance: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
+        });
+    return [result.path];
   } catch (error) {
     logToFile('WARN', 'Failed to append to project log', {
       project,
       event,
       error: error instanceof Error ? error.message : String(error),
     });
+    return [];
   }
 }
 
@@ -728,19 +737,21 @@ function updateProjectNavigation(
   event: string,
   repo: NoteRepository,
   config?: AppConfig,
-): void {
-  rebuildProjectIndex(project, repo, config);
-  appendProjectLog(project, event, repo, config);
+): string[] {
+  return [
+    ...rebuildProjectIndex(project, repo, config),
+    ...appendProjectLog(project, event, repo, config),
+  ];
 }
-
 function updateGlobalNavigation(
   project: string | null,
   event: string,
   repo: NoteRepository,
   config?: AppConfig,
-): void {
+): string[] {
   const vaultPath = config?.vault;
-  if (!vaultPath) return;
+  if (!vaultPath) return [];
+  const changedPaths: string[] = [];
   let fleetingNotes: NoteMetadata[] | null = null;
   let unscopedNotes: NoteMetadata[] | null = null;
 
@@ -765,14 +776,21 @@ function updateGlobalNavigation(
         includeReviewLink: config?.navigation?.enableReviewMoc !== false,
         includeGlobalLogLink: config?.navigation?.enableGlobalLog !== false,
       });
-      fs.writeFileSync(getGlobalHomeNotePath(vaultPath), content, 'utf-8');
+      const globalHomePath = getGlobalHomeNotePath(vaultPath);
+      fs.writeFileSync(globalHomePath, content, 'utf-8');
+      changedPaths.push(globalHomePath);
       const legacyGlobalIndex = path.join(vaultPath, 'index.md');
-      if (fs.existsSync(legacyGlobalIndex)) fs.unlinkSync(legacyGlobalIndex);
+      if (fs.existsSync(legacyGlobalIndex)) {
+        fs.unlinkSync(legacyGlobalIndex);
+        changedPaths.push(legacyGlobalIndex);
+      }
 
       const projectsDir = path.join(vaultPath, 'projects');
       if (fs.existsSync(projectsDir)) {
         const projectsContent = buildProjectsIndexContent(projectStats);
-        fs.writeFileSync(getProjectsFolderNotePath(vaultPath), projectsContent, 'utf-8');
+        const projectsFolderNote = getProjectsFolderNotePath(vaultPath);
+        fs.writeFileSync(projectsFolderNote, projectsContent, 'utf-8');
+        changedPaths.push(projectsFolderNote);
       }
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild global index', {
@@ -794,6 +812,7 @@ function updateGlobalNavigation(
       } else {
         fs.writeFileSync(globalLogPath, buildInitialGlobalLogContent(entry), 'utf-8');
       }
+      changedPaths.push(globalLogPath);
     } catch (error) {
       logToFile('WARN', 'Failed to append global log', {
         error: error instanceof Error ? error.message : String(error),
@@ -804,7 +823,9 @@ function updateGlobalNavigation(
   if (config?.navigation?.enableReviewMoc !== false) {
     try {
       const content = buildReviewContent(getFleetingNotes());
-      fs.writeFileSync(path.join(vaultPath, 'review.md'), content, 'utf-8');
+      const reviewPath = path.join(vaultPath, 'review.md');
+      fs.writeFileSync(reviewPath, content, 'utf-8');
+      changedPaths.push(reviewPath);
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild review MOC', {
         error: error instanceof Error ? error.message : String(error),
@@ -820,9 +841,14 @@ function updateGlobalNavigation(
       if (unscopedNotes.length > 0) {
         const content = buildGeneralIndexContent(unscopedNotes);
         if (!fs.existsSync(generalDir)) fs.mkdirSync(generalDir, { recursive: true });
-        fs.writeFileSync(getGeneralFolderNotePath(vaultPath), content, 'utf-8');
+        const generalFolderNote = getGeneralFolderNotePath(vaultPath);
+        fs.writeFileSync(generalFolderNote, content, 'utf-8');
+        changedPaths.push(generalFolderNote);
         const legacyGeneralIndex = path.join(generalDir, 'index.md');
-        if (fs.existsSync(legacyGeneralIndex)) fs.unlinkSync(legacyGeneralIndex);
+        if (fs.existsSync(legacyGeneralIndex)) {
+          fs.unlinkSync(legacyGeneralIndex);
+          changedPaths.push(legacyGeneralIndex);
+        }
 
         const notesByKindDir = new Map<string, { kind: string; notes: NoteMetadata[] }>();
         for (const note of unscopedNotes) {
@@ -839,13 +865,14 @@ function updateGlobalNavigation(
         for (const [dirName, { kind, notes: kindNotes }] of notesByKindDir) {
           const kindDir = path.join(generalDir, dirName);
           if (!fs.existsSync(kindDir)) fs.mkdirSync(kindDir, { recursive: true });
-          fs.writeFileSync(
-            getKindFolderNotePath(kindDir, dirName),
-            buildGeneralKindIndexContent(kind, kindNotes),
-            'utf-8',
-          );
+          const kindFolderNote = getKindFolderNotePath(kindDir, dirName);
+          fs.writeFileSync(kindFolderNote, buildGeneralKindIndexContent(kind, kindNotes), 'utf-8');
+          changedPaths.push(kindFolderNote);
           const legacyKindIndex = path.join(kindDir, 'index.md');
-          if (fs.existsSync(legacyKindIndex)) fs.unlinkSync(legacyKindIndex);
+          if (fs.existsSync(legacyKindIndex)) {
+            fs.unlinkSync(legacyKindIndex);
+            changedPaths.push(legacyKindIndex);
+          }
         }
 
         if (fs.existsSync(generalDir)) {
@@ -854,22 +881,39 @@ function updateGlobalNavigation(
             const kindIndex = getKindFolderNotePath(path.join(generalDir, entry.name), entry.name);
             if (!notesByKindDir.has(entry.name) && fs.existsSync(kindIndex)) {
               fs.unlinkSync(kindIndex);
+              changedPaths.push(kindIndex);
+            }
+            const legacyKindIndex = path.join(generalDir, entry.name, 'index.md');
+            if (fs.existsSync(legacyKindIndex)) {
+              fs.unlinkSync(legacyKindIndex);
+              changedPaths.push(legacyKindIndex);
             }
           }
         }
-      }
-      if (unscopedNotes.length === 0) {
+      } else {
         const generalIndex = getGeneralFolderNotePath(vaultPath);
-        if (fs.existsSync(generalIndex)) fs.unlinkSync(generalIndex);
+        if (fs.existsSync(generalIndex)) {
+          fs.unlinkSync(generalIndex);
+          changedPaths.push(generalIndex);
+        }
         const legacyGeneralIndex = path.join(generalDir, 'index.md');
-        if (fs.existsSync(legacyGeneralIndex)) fs.unlinkSync(legacyGeneralIndex);
+        if (fs.existsSync(legacyGeneralIndex)) {
+          fs.unlinkSync(legacyGeneralIndex);
+          changedPaths.push(legacyGeneralIndex);
+        }
         if (fs.existsSync(generalDir)) {
           for (const entry of fs.readdirSync(generalDir, { withFileTypes: true })) {
             if (!entry.isDirectory()) continue;
             const kindIndex = getKindFolderNotePath(path.join(generalDir, entry.name), entry.name);
-            if (fs.existsSync(kindIndex)) fs.unlinkSync(kindIndex);
+            if (fs.existsSync(kindIndex)) {
+              fs.unlinkSync(kindIndex);
+              changedPaths.push(kindIndex);
+            }
             const legacyKindIndex = path.join(generalDir, entry.name, 'index.md');
-            if (fs.existsSync(legacyKindIndex)) fs.unlinkSync(legacyKindIndex);
+            if (fs.existsSync(legacyKindIndex)) {
+              fs.unlinkSync(legacyKindIndex);
+              changedPaths.push(legacyKindIndex);
+            }
           }
         }
       }
@@ -877,18 +921,25 @@ function updateGlobalNavigation(
       const preferencesDir = path.join(vaultPath, 'preferences');
       if (personalizationNotes.length > 0) {
         if (!fs.existsSync(preferencesDir)) fs.mkdirSync(preferencesDir, { recursive: true });
-        fs.writeFileSync(
-          getPreferencesFolderNotePath(vaultPath),
-          buildPreferencesIndexContent(personalizationNotes),
-          'utf-8',
-        );
+        const preferencesFolderNote = getPreferencesFolderNotePath(vaultPath);
+        fs.writeFileSync(preferencesFolderNote, buildPreferencesIndexContent(personalizationNotes), 'utf-8');
+        changedPaths.push(preferencesFolderNote);
         const legacyPreferencesIndex = path.join(preferencesDir, 'index.md');
-        if (fs.existsSync(legacyPreferencesIndex)) fs.unlinkSync(legacyPreferencesIndex);
+        if (fs.existsSync(legacyPreferencesIndex)) {
+          fs.unlinkSync(legacyPreferencesIndex);
+          changedPaths.push(legacyPreferencesIndex);
+        }
       } else {
         const preferencesIndex = getPreferencesFolderNotePath(vaultPath);
-        if (fs.existsSync(preferencesIndex)) fs.unlinkSync(preferencesIndex);
+        if (fs.existsSync(preferencesIndex)) {
+          fs.unlinkSync(preferencesIndex);
+          changedPaths.push(preferencesIndex);
+        }
         const legacyPreferencesIndex = path.join(preferencesDir, 'index.md');
-        if (fs.existsSync(legacyPreferencesIndex)) fs.unlinkSync(legacyPreferencesIndex);
+        if (fs.existsSync(legacyPreferencesIndex)) {
+          fs.unlinkSync(legacyPreferencesIndex);
+          changedPaths.push(legacyPreferencesIndex);
+        }
       }
     } catch (error) {
       logToFile('WARN', 'Failed to rebuild general index', {
@@ -896,11 +947,17 @@ function updateGlobalNavigation(
       });
     }
   }
+  return changedPaths;
 }
 
 // ---- Handlers ----
 
 export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null): Promise<string> {
+  const project = args.project === undefined ? undefined : extractProjectTag([`project:${args.project}`]);
+  if (args.project !== undefined && !project) {
+    return `Error: Invalid project name: "${args.project}"`;
+  }
+
   const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
   const lifecycleDefaults = config?.lifecycleDefaults;
   const kindDefault = (lifecycleDefaults?.defaultForKind?.[args.kind] as Lifecycle | undefined) || KIND_DEFAULT_LIFECYCLE[args.kind];
@@ -911,8 +968,8 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   }
   const tags = [...(args.tags || [])];
 
-  if (args.project) {
-    const projectTag = `project:${args.project}`;
+  if (project) {
+    const projectTag = `project:${project}`;
     if (!tags.includes(projectTag)) {
       tags.push(projectTag);
     }
@@ -923,12 +980,12 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   }
 
   if (args.kind === 'domain') {
-    if (!args.project) {
+    if (!project) {
       return 'Error: Domain notes require a project parameter. A domain note is a project operating manual — it must be scoped to a specific project.';
     }
-    const existingDomain = repo.getDomainNote(args.project);
+    const existingDomain = repo.getDomainNote(project);
     if (existingDomain) {
-      return `A domain note already exists for project "${args.project}" [${existingDomain.id}]: "${existingDomain.title}". Update the existing note instead of creating a duplicate.`;
+      return `A domain note already exists for project "${project}" [${existingDomain.id}]: "${existingDomain.title}". Update the existing note instead of creating a duplicate.`;
     }
   }
 
@@ -968,16 +1025,6 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     guidance: args.guidance,
   });
 
-  if (gitVersioning) {
-    const project = args.project || extractProjectTag(tags);
-    gitVersioning.recordOp({
-      op: result.action === 'updated' ? 'update' : 'store',
-      noteId: result.id,
-      title: args.title,
-      kind: args.kind,
-      project: project || undefined,
-    });
-  }
 
   scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', args.kind, 1));
 
@@ -1126,12 +1173,21 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     output += `\n\nCapability: ${tier}`;
   }
 
-  const effectiveProject = args.project || extractProjectFromTags(tags);
+  const effectiveProject = project || extractProjectFromTags(tags);
+  const changedPaths = [result.path];
   if (effectiveProject) {
-    updateProjectNavigation(effectiveProject, `Created ${args.kind}: "${args.title}"`, repo, config);
+    changedPaths.push(...updateProjectNavigation(effectiveProject, `Created ${args.kind}: "${args.title}"`, repo, config));
   }
-  updateGlobalNavigation(effectiveProject || null, `Stored ${args.kind}: "${args.title}"`, repo, config);
-
+  changedPaths.push(...updateGlobalNavigation(effectiveProject || null, `Stored ${args.kind}: "${args.title}"`, repo, config));
+  if (gitVersioning) {
+    gitVersioning.recordOp({
+      op: result.action === 'updated' ? 'update' : 'store',
+      noteId: result.id,
+      title: args.title,
+      kind: args.kind,
+      project: effectiveProject || undefined,
+    }, changedPaths);
+  }
   return output;
 }
 
@@ -1245,16 +1301,16 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
       repo.promoteToPermanent(args.noteId);
+      const changedPaths = [note.path];
+      const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
       if (!STRUCTURAL_KINDS.has(note.kind)) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
         if (project) {
-          updateProjectNavigation(project, `Promoted "${note.title}" from fleeting to permanent`, repo, config);
+          changedPaths.push(...updateProjectNavigation(project, `Promoted "${note.title}" from fleeting to permanent`, repo, config));
         }
-        updateGlobalNavigation(project, `Promoted "${note.title}"`, repo, config);
+        changedPaths.push(...updateGlobalNavigation(project, `Promoted "${note.title}"`, repo, config));
       }
       if (gitVersioning) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
-        await gitVersioning.recordImmediate({ op: 'promote', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
+        await gitVersioning.recordImmediate({ op: 'promote', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined }, changedPaths);
       }
       return `Promoted "${note.title}" (${args.noteId}) to permanent status.`;
     }
@@ -1263,16 +1319,16 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
       repo.archive(args.noteId);
+      const changedPaths = [note.path];
+      const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
       if (!STRUCTURAL_KINDS.has(note.kind)) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
         if (project) {
-          updateProjectNavigation(project, `Archived "${note.title}"`, repo, config);
+          changedPaths.push(...updateProjectNavigation(project, `Archived "${note.title}"`, repo, config));
         }
-        updateGlobalNavigation(project, `Archived "${note.title}"`, repo, config);
+        changedPaths.push(...updateGlobalNavigation(project, `Archived "${note.title}"`, repo, config));
       }
       if (gitVersioning) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
-        await gitVersioning.recordImmediate({ op: 'archive', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
+        await gitVersioning.recordImmediate({ op: 'archive', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined }, changedPaths);
       }
       return `Archived "${note.title}" (${args.noteId}).`;
     }
@@ -1281,32 +1337,33 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const note = repo.getById(args.noteId);
       if (!note) return `Note not found: ${args.noteId}`;
       if (gitVersioning) {
-        await gitVersioning.preCommit(`Pre-delete snapshot: "${note.title}"`);
+        await gitVersioning.preCommit(`Pre-delete snapshot: "${note.title}"`, []);
       }
       repo.remove(args.noteId);
+      const changedPaths = [note.path];
+      const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
       if (!STRUCTURAL_KINDS.has(note.kind)) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
         if (project) {
-          updateProjectNavigation(project, `Deleted "${note.title}"`, repo, config);
+          changedPaths.push(...updateProjectNavigation(project, `Deleted "${note.title}"`, repo, config));
         }
-        updateGlobalNavigation(project, `Deleted "${note.title}"`, repo, config);
+        changedPaths.push(...updateGlobalNavigation(project, `Deleted "${note.title}"`, repo, config));
       }
       if (gitVersioning) {
-        const project = extractProjectFromTags(Array.isArray(note.tags) ? note.tags : []);
-        await gitVersioning.recordImmediate({ op: 'delete', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined });
+        await gitVersioning.recordImmediate({ op: 'delete', noteId: note.id, title: note.title, kind: note.kind, project: project || undefined }, changedPaths);
       }
       return `Deleted "${note.title}" (${args.noteId}).`;
     }
     case 'rebuild': {
-      if (gitVersioning) await gitVersioning.checkpoint('Pre-rebuild snapshot');
+      if (gitVersioning) await gitVersioning.checkpoint('Pre-rebuild snapshot', []);
       const result = repo.rebuildFromFiles();
       let output = `Indexed ${result.indexed} notes, ${result.errors} errors\nRebuild complete.`;
       const projects = repo.getAllProjects();
+      const changedPaths: string[] = [];
       for (const project of projects) {
-        rebuildProjectIndex(project, repo, config);
-        appendProjectLog(project, 'Full DB rebuild', repo, config);
+        changedPaths.push(...rebuildProjectIndex(project, repo, config));
+        changedPaths.push(...appendProjectLog(project, 'Full DB rebuild', repo, config));
       }
-      updateGlobalNavigation(null, 'Full DB rebuild', repo, config);
+      changedPaths.push(...updateGlobalNavigation(null, 'Full DB rebuild', repo, config));
       output += `\nRebuilt index for ${projects.length} project(s).`;
       if (embeddingConfig) {
         try {
@@ -1318,17 +1375,21 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += `\nEmbedding backfill failed: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
-      if (gitVersioning) await gitVersioning.checkpoint(`Full DB rebuild (${result.indexed} indexed)`);
+      if (gitVersioning) await gitVersioning.checkpoint(`Full DB rebuild (${result.indexed} indexed)`, changedPaths);
       return output;
     }
     case 'format': {
+      const formattedPaths = repo.getAll(Number.MAX_SAFE_INTEGER)
+        .filter(note => note.kind !== 'index' && fs.existsSync(note.path))
+        .map(note => note.path);
       const result = repo.formatAllFiles();
       const projects = repo.getAllProjects();
+      const changedPaths = [...formattedPaths];
       for (const proj of projects) {
-        rebuildProjectIndex(proj, repo, config);
+        changedPaths.push(...rebuildProjectIndex(proj, repo, config));
       }
-      updateGlobalNavigation(null, 'Format all files', repo, config);
-      if (gitVersioning) await gitVersioning.checkpoint(`Format ${result.formatted} notes`);
+      changedPaths.push(...updateGlobalNavigation(null, 'Format all files', repo, config));
+      if (gitVersioning) await gitVersioning.checkpoint(`Format ${result.formatted} notes`, changedPaths);
       return `Formatted ${result.formatted} note files (${result.skipped} skipped, ${result.errors} errors).\nRegenerated navigation for ${projects.length} project(s).`;
     }
     case 'upgrade': {
@@ -1901,7 +1962,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const dryRun = args.dryRun !== false;
       const commitsPaused = !dryRun && !!gitVersioning;
       if (commitsPaused && gitVersioning) {
-        await gitVersioning.checkpoint('Pre-migration snapshot');
+        await gitVersioning.checkpoint('Pre-migration snapshot', []);
         gitVersioning.pauseCommits();
       }
       try {
@@ -1991,15 +2052,16 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         }
 
         const rebuildResult = repo.rebuildFromFiles();
+        const changedPaths = moves.flatMap(move => [move.from, move.to]);
         const projects = repo.getAllProjects();
         for (const proj of projects) {
-          rebuildProjectIndex(proj, repo, config);
+          changedPaths.push(...rebuildProjectIndex(proj, repo, config));
         }
         output += `\nPost-migration rebuild: indexed ${rebuildResult.indexed} notes, rebuilt ${projects.length} project index(es).`;
-        updateGlobalNavigation(null, 'Layout migration completed', repo, config);
+        changedPaths.push(...updateGlobalNavigation(null, 'Layout migration completed', repo, config));
         if (commitsPaused && gitVersioning) {
           gitVersioning.resumeCommits();
-          await gitVersioning.checkpoint(`Layout migration (${moved} moved)`);
+          await gitVersioning.checkpoint(`Layout migration (${moved} moved)`, changedPaths);
         }
 
         const embeddingStats = repo.getEmbeddingStats();
