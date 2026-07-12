@@ -9,6 +9,7 @@
 
 ### Changed
 
+- **Slim injected agent instruction block** — moved detailed guidance to the skill and `knowledge-template` output, reducing managed client instructions to the core pre-flight and storage rules
 - **Compact `knowledge-store` output** — store responses now use `Stored <kind>: "title" → id` instead of the previous multi-line Kind/Status/Lifecycle/Path format
 
 ### Fixed
