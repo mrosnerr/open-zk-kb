@@ -152,7 +152,7 @@ describe('git-versioning.ts', () => {
     await versioning.init();
     writeVaultFile(vaultPath, '2026010101010100-debounced.md', '# Debounced\n');
 
-    versioning.recordOp(pendingOp({ title: 'Debounced' }));
+    versioning.recordOp(pendingOp({ title: 'Debounced' }), ['2026010101010100-debounced.md']);
     await Bun.sleep(DEBOUNCE_MS + 50);
 
     const log = await waitForLog(vaultPath, 'Store observation: "Debounced"');
@@ -165,7 +165,7 @@ describe('git-versioning.ts', () => {
     await versioning.init();
     writeVaultFile(vaultPath, '2026010101010100-immediate.md', '# Immediate\n');
 
-    await versioning.recordImmediate(pendingOp({ title: 'Immediate' }));
+    await versioning.recordImmediate(pendingOp({ title: 'Immediate' }), ['2026010101010100-immediate.md']);
 
     const log = gitLog(vaultPath);
     expect(log).toContain('Store observation: "Immediate"');
@@ -177,7 +177,7 @@ describe('git-versioning.ts', () => {
     await versioning.init();
     writeVaultFile(vaultPath, 'snapshot.md', '# Snapshot\n');
 
-    await versioning.preCommit('[snapshot] Before risky edit');
+    await versioning.preCommit('[snapshot] Before risky edit', ['snapshot.md']);
 
     const log = gitLog(vaultPath);
     expect(log).toContain('[snapshot] Before risky edit');
@@ -189,7 +189,7 @@ describe('git-versioning.ts', () => {
     await versioning.init();
     writeVaultFile(vaultPath, 'checkpoint.md', '# Checkpoint\n');
 
-    await versioning.checkpoint('Manual milestone');
+    await versioning.checkpoint('Manual milestone', ['checkpoint.md']);
 
     const log = gitLog(vaultPath);
     expect(log).toContain('[checkpoint] Manual milestone');
@@ -201,7 +201,7 @@ describe('git-versioning.ts', () => {
     await versioning.init();
     writeVaultFile(vaultPath, '2026010101010100-shutdown.md', '# Shutdown\n');
 
-    versioning.recordOp(pendingOp({ title: 'Shutdown' }));
+    versioning.recordOp(pendingOp({ title: 'Shutdown' }), ['2026010101010100-shutdown.md']);
     versioning.shutdownSync();
 
     const log = gitLog(vaultPath);
@@ -245,20 +245,21 @@ describe('git-versioning.ts', () => {
     expect(message).toContain('- 1 file changed outside server');
   });
 
-  it('init() recovers a dirty working tree with a [recovery] commit', async () => {
+  it('does not commit pre-existing vault changes when a note store is versioned', async () => {
     const vaultPath = createVault();
     initManualRepo(vaultPath);
     writeVaultFile(vaultPath, 'baseline.md', '# Baseline\n');
     manualCommit(vaultPath, 'Baseline');
-    appendVaultFile(vaultPath, 'baseline.md', '\nChanged before restart\n');
-    writeVaultFile(vaultPath, 'untracked.md', '# Untracked\n');
+    appendVaultFile(vaultPath, 'baseline.md', '\nManual change before versioning\n');
 
     versioning = new GitVersioning(vaultPath, ENABLED_CONFIG);
     await versioning.init();
+    writeVaultFile(vaultPath, 'manual-during-versioning.md', '# Manual change after versioning\n');
+    writeVaultFile(vaultPath, '2026010101010100-stored.md', '# Stored\n');
+    await versioning.recordImmediate(pendingOp({ title: 'Stored' }), ['2026010101010100-stored.md']);
 
-    const log = gitLog(vaultPath);
-    expect(log).toContain('[recovery] Uncommitted changes from prior session');
-    expect(gitStatus(vaultPath)).toBe('');
+    expect(gitFullLog(vaultPath)).toContain('Store observation: "Stored"');
+    expect(gitStatus(vaultPath)).toBe('M baseline.md\n?? manual-during-versioning.md');
   });
 
   it('batches multiple operations within one debounce window into a single commit', async () => {
@@ -269,8 +270,8 @@ describe('git-versioning.ts', () => {
     writeVaultFile(vaultPath, '2026010101010100-first.md', '# First\n');
     writeVaultFile(vaultPath, '2026010101010101-second.md', '# Second\n');
 
-    versioning.recordOp(pendingOp({ noteId: '2026010101010100', title: 'First' }));
-    versioning.recordOp(pendingOp({ op: 'update', noteId: '2026010101010101', title: 'Second', kind: 'decision' }));
+    versioning.recordOp(pendingOp({ noteId: '2026010101010100', title: 'First' }), ['2026010101010100-first.md']);
+    versioning.recordOp(pendingOp({ op: 'update', noteId: '2026010101010101', title: 'Second', kind: 'decision' }), ['2026010101010101-second.md']);
     await Bun.sleep(DEBOUNCE_MS + 50);
 
     expect(await waitForCommitCount(vaultPath, initialCount + 1)).toBe(initialCount + 1);
@@ -298,10 +299,10 @@ describe('git-versioning.ts', () => {
     versioning = new GitVersioning(vaultPath, DISABLED_CONFIG);
 
     await versioning.init();
-    versioning.recordOp(pendingOp({ title: 'Disabled' }));
-    await versioning.recordImmediate(pendingOp({ title: 'Disabled Immediate' }));
-    await versioning.preCommit('[snapshot] Disabled');
-    await versioning.checkpoint('Disabled');
+    versioning.recordOp(pendingOp({ title: 'Disabled' }), ['2026010101010100-disabled.md']);
+    await versioning.recordImmediate(pendingOp({ title: 'Disabled Immediate' }), ['2026010101010100-disabled.md']);
+    await versioning.preCommit('[snapshot] Disabled', ['2026010101010100-disabled.md']);
+    await versioning.checkpoint('Disabled', ['2026010101010100-disabled.md']);
     versioning.shutdownSync();
 
     expect(fs.existsSync(path.join(vaultPath, '.git'))).toBe(false);

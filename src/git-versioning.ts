@@ -55,6 +55,27 @@ const GIT_ENV = {
   GIT_COMMITTER_EMAIL: 'open-zk-kb@local',
 };
 
+function parsePorcelainPaths(output: string): string[] {
+  const records = output.split('\0');
+  const paths: string[] = [];
+
+  for (let index = 0; index < records.length; index++) {
+    const record = records[index];
+    if (record.length < 4) continue;
+
+    paths.push(record.slice(3));
+    if (record[0] === 'R' || record[0] === 'C' || record[1] === 'R' || record[1] === 'C') {
+      const sourcePath = records[++index];
+      if (sourcePath) paths.push(sourcePath);
+    }
+  }
+
+  return paths;
+}
+function parseNulSeparatedPaths(output: string): string[] {
+  return output.split('\0').filter(Boolean);
+}
+
 async function gitExec(args: string[], cwd: string): Promise<GitResult> {
   const proc = Bun.spawn(['git', ...args], {
     cwd,
@@ -69,7 +90,7 @@ async function gitExec(args: string[], cwd: string): Promise<GitResult> {
     proc.exited,
   ]);
 
-  return { exitCode, stdout: stdout.trim(), stderr: stderr.trim() };
+  return { exitCode, stdout: args.includes('-z') ? stdout : stdout.trim(), stderr: stderr.trim() };
 }
 
 function gitExecSync(args: string[], cwd: string): GitResult {
@@ -80,7 +101,7 @@ function gitExecSync(args: string[], cwd: string): GitResult {
 
   return {
     exitCode: result.exitCode,
-    stdout: result.stdout.toString().trim(),
+    stdout: args.includes('-z') ? result.stdout.toString() : result.stdout.toString().trim(),
     stderr: result.stderr.toString().trim(),
   };
 }
@@ -157,11 +178,14 @@ export class GitVersioning {
   private readonly vaultPath: string;
   private readonly config: VersioningConfig;
   private readonly opBuffer: PendingOp[] = [];
+  private readonly changedPaths = new Set<string>();
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private committing = false;
   private commitPaused = false;
   private initialized = false;
   private _shuttingDown = false;
+  // Existing-repository changes predate this process and are never auto-committed.
+  private readonly initialDirtyPaths = new Set<string>();
 
   constructor(vaultPath: string, config: VersioningConfig) {
     this.vaultPath = vaultPath;
@@ -189,6 +213,10 @@ export class GitVersioning {
         pluginPath: obsidianGitDir,
       });
     }
+    const existingRepository = fs.existsSync(gitDir);
+    if (existingRepository) {
+      await this.captureInitialDirtyPaths();
+    }
 
     if (!fs.existsSync(gitDir)) {
       const result = await gitExec(['init'], this.vaultPath);
@@ -209,25 +237,24 @@ export class GitVersioning {
         }
       }
     } else {
-      this.ensureGitignore();
+      if (this.ensureGitignore()) {
+        this.changedPaths.add('.gitignore');
+      }
     }
 
     this.cleanStaleLock();
-    await this.recoverUncommitted();
-
     this.initialized = true;
     logToFile('INFO', 'Git versioning initialized', {
       vaultPath: this.vaultPath,
       debounceMs: this.config.debounceMs,
     });
   }
-
-  private ensureGitignore(): void {
+  private ensureGitignore(): boolean {
     const gitignorePath = path.join(this.vaultPath, '.gitignore');
 
     if (!fs.existsSync(gitignorePath)) {
       fs.writeFileSync(gitignorePath, GITIGNORE_CONTENT, 'utf-8');
-      return;
+      return true;
     }
 
     const existing = fs.readFileSync(gitignorePath, 'utf-8');
@@ -243,7 +270,9 @@ export class GitVersioning {
     if (missing.length > 0) {
       const suffix = '\n# open-zk-kb: derived files\n' + missing.join('\n') + '\n';
       fs.writeFileSync(gitignorePath, existing.trimEnd() + '\n' + suffix, 'utf-8');
+      return true;
     }
+    return false;
   }
 
   private cleanStaleLock(): void {
@@ -272,32 +301,43 @@ export class GitVersioning {
     } catch { void 0; }
   }
 
-  private async recoverUncommitted(): Promise<void> {
-    const status = await gitExec(['status', '--porcelain'], this.vaultPath);
-    if (status.exitCode !== 0 || !status.stdout) return;
+  private async captureInitialDirtyPaths(): Promise<void> {
+    const status = await gitExec(['status', '--porcelain', '-z'], this.vaultPath);
+    if (status.exitCode !== 0) {
+      logToFile('WARN', 'Could not inspect existing vault changes before enabling versioning', {
+        stderr: status.stderr,
+      });
+      return;
+    }
 
-    const lines = status.stdout.split('\n').filter(Boolean);
-    if (lines.length === 0) return;
+    for (const filePath of parsePorcelainPaths(status.stdout)) {
+      this.initialDirtyPaths.add(filePath);
+    }
+  }
 
-    logToFile('INFO', 'Recovering uncommitted changes from prior session', { fileCount: lines.length });
+  private async stageChangedPaths(paths: readonly string[]): Promise<string[]> {
+    const eligiblePaths = paths.filter(filePath => !this.initialDirtyPaths.has(filePath));
+    if (eligiblePaths.length === 0) return [];
 
-    const addResult = await gitExec(['add', '-A'], this.vaultPath);
-    if (addResult.exitCode !== 0) return;
+    const addResult = await gitExec(['add', '--', ...eligiblePaths], this.vaultPath);
+    if (addResult.exitCode !== 0) {
+      logToFile('WARN', 'git add failed', { stderr: addResult.stderr });
+      return [];
+    }
 
-    const modifiedCount = lines.filter(l => l.startsWith(' M') || l.startsWith('M ')).length;
-    const newCount = lines.filter(l => l.startsWith('??') || l.startsWith('A ')).length;
-    const deletedCount = lines.filter(l => l.startsWith(' D') || l.startsWith('D ')).length;
+    const diffResult = await gitExec(['diff', '--cached', '--name-only', '-z', '--', ...eligiblePaths], this.vaultPath);
+    return diffResult.exitCode === 0 ? parseNulSeparatedPaths(diffResult.stdout) : [];
+  }
 
-    const parts: string[] = [];
-    if (newCount > 0) parts.push(`${newCount} new`);
-    if (modifiedCount > 0) parts.push(`${modifiedCount} modified`);
-    if (deletedCount > 0) parts.push(`${deletedCount} deleted`);
-    const detail = parts.length > 0 ? `\n\n- ${parts.join('\n- ')}` : '';
+  private stageChangedPathsSync(paths: readonly string[]): string[] {
+    const eligiblePaths = paths.filter(filePath => !this.initialDirtyPaths.has(filePath));
+    if (eligiblePaths.length === 0) return [];
 
-    await gitExec(
-      ['commit', '-m', `[recovery] Uncommitted changes from prior session${detail}`],
-      this.vaultPath,
-    );
+    const addResult = gitExecSync(['add', '--', ...eligiblePaths], this.vaultPath);
+    if (addResult.exitCode !== 0) return [];
+
+    const diffResult = gitExecSync(['diff', '--cached', '--name-only', '-z', '--', ...eligiblePaths], this.vaultPath);
+    return diffResult.exitCode === 0 ? parseNulSeparatedPaths(diffResult.stdout) : [];
   }
 
   private acquireLock(): boolean {
@@ -357,24 +397,19 @@ export class GitVersioning {
   }
 
   private async doCommit(): Promise<void> {
-    const addResult = await gitExec(['add', '-A'], this.vaultPath);
-    if (addResult.exitCode !== 0) {
-      logToFile('WARN', 'git add failed', { stderr: addResult.stderr });
-      return;
-    }
-
-    const diffResult = await gitExec(['diff', '--cached', '--name-only'], this.vaultPath);
-    const stagedFiles = diffResult.stdout ? diffResult.stdout.split('\n').filter(Boolean) : [];
+    const stagedFiles = await this.stageChangedPaths([...this.changedPaths]);
 
     if (stagedFiles.length === 0) {
       this.opBuffer.length = 0;
+      this.changedPaths.clear();
       return;
     }
 
     const message = buildCommitMessage([...this.opBuffer], stagedFiles, this.vaultPath);
     this.opBuffer.length = 0;
+    this.changedPaths.clear();
 
-    const commitResult = await gitExec(['commit', '-m', message], this.vaultPath);
+    const commitResult = await gitExec(['commit', '--only', '-m', message, '--', ...stagedFiles], this.vaultPath);
     if (commitResult.exitCode !== 0) {
       if (commitResult.stdout.includes('nothing to commit') || commitResult.stderr.includes('nothing to commit')) {
         return;
@@ -396,15 +431,28 @@ export class GitVersioning {
     }, delay);
   }
 
-  recordOp(op: PendingOp): void {
+  private recordChangedPaths(paths: readonly string[]): void {
+    for (const filePath of paths) {
+      const relativePath = path.isAbsolute(filePath) ? path.relative(this.vaultPath, filePath) : path.normalize(filePath);
+      if (relativePath === '' || relativePath === '.' || relativePath === '..' || relativePath.startsWith(`..${path.sep}`)) {
+        logToFile('WARN', 'Ignoring versioning path outside vault', { filePath });
+        continue;
+      }
+      this.changedPaths.add(relativePath);
+    }
+  }
+
+  recordOp(op: PendingOp, paths: readonly string[]): void {
     if (!this.config.enabled || !this.initialized) return;
     this.opBuffer.push(op);
+    this.recordChangedPaths(paths);
     this.scheduleDebounce();
   }
 
-  async recordImmediate(op: PendingOp): Promise<void> {
+  async recordImmediate(op: PendingOp, paths: readonly string[]): Promise<void> {
     if (!this.config.enabled || !this.initialized) return;
     this.opBuffer.push(op);
+    this.recordChangedPaths(paths);
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
@@ -412,13 +460,13 @@ export class GitVersioning {
     await this.commitPending();
   }
 
-  async preCommit(message: string): Promise<void> {
+  async preCommit(message: string, paths: readonly string[]): Promise<void> {
     if (!this.config.enabled || !this.initialized) return;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
-
+    this.recordChangedPaths(paths);
     this.committing = true;
     try {
       for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt++) {
@@ -427,13 +475,14 @@ export class GitVersioning {
           continue;
         }
         try {
-          const addResult = await gitExec(['add', '-A'], this.vaultPath);
-          if (addResult.exitCode !== 0) return;
+          const stagedFiles = await this.stageChangedPaths([...this.changedPaths]);
+          if (stagedFiles.length === 0) return;
 
-          const diffResult = await gitExec(['diff', '--cached', '--name-only'], this.vaultPath);
-          if (!diffResult.stdout) return;
-
-          await gitExec(['commit', '-m', message], this.vaultPath);
+          const result = await gitExec(['commit', '--only', '-m', message, '--', ...stagedFiles], this.vaultPath);
+          if (result.exitCode === 0) {
+            this.opBuffer.length = 0;
+            this.changedPaths.clear();
+          }
         } finally {
           this.releaseLock();
         }
@@ -444,13 +493,14 @@ export class GitVersioning {
     }
   }
 
-  async checkpoint(message: string): Promise<void> {
+  async checkpoint(message: string, paths: readonly string[]): Promise<void> {
     if (!this.config.enabled || !this.initialized) return;
     if (this.debounceTimer) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = null;
     }
 
+    this.recordChangedPaths(paths);
     this.opBuffer.length = 0;
 
     this.committing = true;
@@ -461,16 +511,14 @@ export class GitVersioning {
           continue;
         }
         try {
-          const addResult = await gitExec(['add', '-A'], this.vaultPath);
-          if (addResult.exitCode !== 0) return;
+          const stagedFiles = await this.stageChangedPaths([...this.changedPaths]);
+          if (stagedFiles.length === 0) return;
 
-          const diffResult = await gitExec(['diff', '--cached', '--name-only'], this.vaultPath);
-          if (!diffResult.stdout) return;
-
-          const fileCount = diffResult.stdout.split('\n').filter(Boolean).length;
+          const fileCount = stagedFiles.length;
           const fullMessage = `[checkpoint] ${message} (${fileCount} files)`;
 
-          await gitExec(['commit', '-m', fullMessage], this.vaultPath);
+          await gitExec(['commit', '--only', '-m', fullMessage, '--', ...stagedFiles], this.vaultPath);
+          this.changedPaths.clear();
         } finally {
           this.releaseLock();
         }
@@ -502,37 +550,27 @@ export class GitVersioning {
       this.debounceTimer = null;
     }
 
-    const status = gitExecSync(['status', '--porcelain'], this.vaultPath);
-    if (status.exitCode !== 0 || !status.stdout) return;
-
-    const lines = status.stdout.split('\n').filter(Boolean);
-    if (lines.length === 0) return;
-
     const lockPath = path.join(this.vaultPath, '.git', LOCK_DIR_NAME);
     try {
       fs.mkdirSync(lockPath);
     } catch {
-      logToFile('WARN', 'Could not acquire lock during shutdown — startup recovery will handle', {
+      logToFile('WARN', 'Could not acquire lock during shutdown', {
         pendingOps: this.opBuffer.length,
       });
       return;
     }
 
     try {
-      gitExecSync(['add', '-A'], this.vaultPath);
-
+      const stagedFiles = this.stageChangedPathsSync([...this.changedPaths]);
       const ops = [...this.opBuffer];
-      this.opBuffer.length = 0;
-
-      const diffResult = gitExecSync(['diff', '--cached', '--name-only'], this.vaultPath);
-      const stagedFiles = diffResult.stdout ? diffResult.stdout.split('\n').filter(Boolean) : [];
+      this.changedPaths.clear();
       if (stagedFiles.length === 0) return;
 
       const message = ops.length > 0
         ? buildCommitMessage(ops, stagedFiles, this.vaultPath)
         : `[shutdown] ${stagedFiles.length} uncommitted change${stagedFiles.length !== 1 ? 's' : ''}`;
 
-      gitExecSync(['commit', '-m', message], this.vaultPath);
+      gitExecSync(['commit', '--only', '-m', message, '--', ...stagedFiles], this.vaultPath);
     } finally {
       try { fs.rmdirSync(lockPath); } catch { void 0; }
     }
