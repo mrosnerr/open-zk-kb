@@ -405,12 +405,13 @@ describe.skipIf(!INTEGRATION)('Stdio Bridge Local Fallback', () => {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it('should process locally when shared server is gone', async () => {
+  it('processes locally with the configured bearer token when the shared server is gone', async () => {
+    const authToken = 'local-fallback-test-token';
     // Start a mock server that the bridge will initially connect to
     let mockServer: Server | null = Bun.serve({
       port: 0,
       hostname: '127.0.0.1',
-      fetch: createMcpHandler('mock-server'),
+      fetch: createMcpHandler('mock-server', authToken),
     });
 
     writeStateFile(stateDir, mockServer.port, process.pid);
@@ -421,7 +422,7 @@ describe.skipIf(!INTEGRATION)('Stdio Bridge Local Fallback', () => {
     fs.mkdirSync(configDir, { recursive: true });
     fs.writeFileSync(
       path.join(configDir, 'config.yaml'),
-      'server:\n  port: 0\n  host: "127.0.0.1"\n',
+      `server:\n  port: 0\n  host: "127.0.0.1"\n  authToken: ${authToken}\n`,
     );
 
     // Create data dir for SQLite

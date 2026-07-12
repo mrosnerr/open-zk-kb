@@ -175,10 +175,7 @@ async function processLocally(message: unknown): Promise<unknown | null> {
 
   const req = new Request('http://localhost/mcp', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json, text/event-stream',
-    },
+    headers: buildMcpRequestHeaders(config.server.authToken),
     body: JSON.stringify(message),
   });
 
