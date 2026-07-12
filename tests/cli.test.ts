@@ -27,6 +27,28 @@ describe('cli.ts', () => {
     expect(setupCalls).toBe(0);
   });
 
+  it('shuts down the MCP server when combined-mode stdin closes', async () => {
+    const cliModule = await loadFreshCliModule();
+    let stdinEndHandler: (() => void) | undefined;
+    let shutdownCalls = 0;
+
+    await cliModule.runCli(['server'], {
+      tryStdioBridge: async () => false,
+      startHttpServer: async () => {},
+      startServer: async () => {},
+      registerStdinEndHandler: (handler: () => void) => {
+        stdinEndHandler = handler;
+      },
+      shutdownServer: () => {
+        shutdownCalls += 1;
+      },
+    });
+
+    expect(stdinEndHandler).toBeDefined();
+    stdinEndHandler?.();
+    expect(shutdownCalls).toBe(1);
+  });
+
   it('routes non-server commands to runSetupCli', async () => {
     const cliModule = await loadFreshCliModule();
     let startCalls = 0;

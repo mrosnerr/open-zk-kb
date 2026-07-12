@@ -5,6 +5,8 @@ export interface CliDependencies {
   startHttpServer?: (options?: { port?: number; host?: string }) => Promise<void>;
   tryStdioBridge?: () => Promise<boolean>;
   runSetupCli?: (rawArgs: string[]) => Promise<void>;
+  registerStdinEndHandler?: (handler: () => void) => void;
+  shutdownServer?: () => void;
 }
 
 function parseFlag(args: string[], flag: string): string | undefined {
@@ -57,7 +59,10 @@ export async function runCli(rawArgs: string[] = process.argv.slice(2), deps: Cl
     // Note: StdioServerTransport already reads stdin (which resumes it);
     // we just need the exit handler, not an explicit resume().
     if (httpStarted) {
-      process.stdin.on('end', () => process.exit(0));
+      const shutdownServer = deps.shutdownServer ?? (await import('./mcp-server.js')).shutdownServer;
+      const registerStdinEndHandler = deps.registerStdinEndHandler
+        ?? ((handler: () => void) => process.stdin.once('end', handler));
+      registerStdinEndHandler(shutdownServer);
     }
 
     if (deps.startServer) {
