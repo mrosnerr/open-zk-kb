@@ -682,6 +682,24 @@ describe('MCP Tool: knowledge-maintain', () => {
     const gone = ctx.engine.getById(notes[0].id);
     expect(gone).toBeNull();
   });
+  it('should preserve Related sections when formatting notes', async () => {
+    const related = ctx.engine.store('Related note content', {
+      title: 'Related Format Target',
+      kind: 'reference',
+    });
+    const source = ctx.engine.store('Source note content', {
+      title: 'Related Format Source',
+      kind: 'reference',
+    });
+    const relatedSection = `## Related\n\n- [[${related.id}|Related Format Target]]\n`;
+    fs.appendFileSync(source.path, `\n${relatedSection}`, 'utf-8');
+
+    const output = await handleMaintain({ action: 'format' }, ctx.engine, ctx.config);
+
+    expect(output).toContain('Formatted');
+    expect(fs.readFileSync(source.path, 'utf-8')).toContain(relatedSection);
+  });
+
 
   it('should rebuild index', async () => {
     const output = await handleMaintain({ action: 'rebuild' }, ctx.engine, ctx.config);

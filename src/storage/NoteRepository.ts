@@ -1930,7 +1930,7 @@ export class NoteRepository {
         const navBreadcrumb = this.buildNavBreadcrumb(row.kind, tags);
         const titleLine = isStructural ? '' : `# ${row.title}\n\n`;
         const userContent = bodySections.content || bodyAfterTitle;
-        const noteBody = this.buildNoteBody({ content: userContent, guidance, context });
+        const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
 
         fs.writeFileSync(row.path, frontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
         formatted++;
