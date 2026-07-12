@@ -14,7 +14,6 @@ import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../sr
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
 import { handleStore, handleSearch, handleStats, handleMaintain, handleOverview, handleGet, handleOpen } from '../src/tool-handlers.js';
-import { injectAgentDocs } from '../src/agent-docs.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -682,6 +681,7 @@ describe('MCP Tool: knowledge-maintain', () => {
     const gone = ctx.engine.getById(notes[0].id);
     expect(gone).toBeNull();
   });
+
   it('should preserve Related sections when formatting notes', async () => {
     const related = ctx.engine.store('Related note content', {
       title: 'Related Format Target',
@@ -699,7 +699,6 @@ describe('MCP Tool: knowledge-maintain', () => {
     expect(output).toContain('Formatted');
     expect(fs.readFileSync(source.path, 'utf-8')).toContain(relatedSection);
   });
-
 
   it('should rebuild index', async () => {
     const output = await handleMaintain({ action: 'rebuild' }, ctx.engine, ctx.config);
@@ -954,15 +953,28 @@ describe('MCP Tool: knowledge-maintain', () => {
       process.env.XDG_CONFIG_HOME = path.join(tempRoot, '.config');
       const agentDocsPath = path.join(tempRoot, '.omp', 'agent', 'rules', 'open-zk-kb.md');
       const preamble = '---\nalwaysApply: true\ndescription: Knowledge base (open-zk-kb) persistent memory instructions\n---\n';
-      injectAgentDocs(agentDocsPath, 'compact', false, 'omp', undefined, preamble);
+      const staleBlock = [
+        '<!-- OPEN-ZK-KB:START v1.1.0 -- managed by open-zk-kb, do not edit -->',
+        '## Knowledge Base (open-zk-kb)',
+        'ALWAYS use the open-zk-kb MCP tools for persistent memory across sessions.',
+        'Run `knowledge-search` for relevant context on your FIRST tool call.',
+        'For full KB tool reference, read `skill://open-zk-kb`.',
+        '<!-- OPEN-ZK-KB:END -->',
+        '',
+      ].join('\n');
+      fs.mkdirSync(path.dirname(agentDocsPath), { recursive: true });
+      fs.writeFileSync(agentDocsPath, preamble + staleBlock, 'utf-8');
 
-      const output = await handleMaintain({ action: 'agent-docs', dryRun: false }, ctx.engine, ctx.config);
+      const output = await handleMaintain({ action: 'agent-docs', dryRun: false }, ctx.engine, ctx.config, undefined, '1.2.0');
       const content = fs.readFileSync(agentDocsPath, 'utf-8');
 
       expect(output).toContain('OMP');
       expect(output).toContain('Result: updated');
-      expect(content).toContain('Run `knowledge-search` for relevant context on your FIRST tool call');
-      expect(content).toContain('For full KB tool reference, read `skill://open-zk-kb`.');
+      expect(content).toContain('<!-- OPEN-ZK-KB:START v1.2.0 -- managed by open-zk-kb, do not edit -->');
+      expect(content).toContain('Persistent cross-session memory via `knowledge-*` MCP tools.');
+      expect(content).toContain('`knowledge-search` for relevant context.');
+      expect(content).toContain('`skill://open-zk-kb`.');
+      expect(content).not.toContain('`knowledge-template --kind {kind}`');
       expect(content).not.toContain('ALWAYS use the open-zk-kb MCP tools for persistent memory across sessions.');
     } finally {
       if (originalHome === undefined) delete process.env.HOME;

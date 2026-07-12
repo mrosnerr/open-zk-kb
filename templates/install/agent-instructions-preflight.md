@@ -1,5 +1,11 @@
 ## Knowledge Base (open-zk-kb)
-
-Run `knowledge-search` for relevant context on your FIRST tool call — parallel with other exploration (file reads, searches, etc.), not as a blocking prerequisite. Follow each note's `<guidance>` tag.
-If user says "remember", "always", "never", "I prefer", or corrects you → `knowledge-store` FIRST, then proceed.
-For full KB tool reference, read `skill://open-zk-kb`.
+Persistent cross-session memory via `knowledge-*` MCP tools.
+**Pre-flight before work:**
+`knowledge-search` for relevant context.
+Filter by `project` and `kind`; follow each note's `<guidance>`.
+**`knowledge-store` immediately, never defer:**
+- remember/always/never/prefers/correction → personalization; weighed choice → decision; non-obvious gotcha → observation; looked up twice → reference; multi-step workflow discovered → procedure; useful URL → resource (`knowledge-ingest` first).
+**Each note:** one concept only.
+Include a `summary` and imperative `guidance`.
+**Project session start:** `knowledge-overview`.
+**Full detail:** `skill://open-zk-kb`.

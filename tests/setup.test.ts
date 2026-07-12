@@ -85,6 +85,35 @@ function getExpectedPiPackageSource(): string {
   return path.resolve(path.dirname(testFilePath), '..');
 }
 
+const MANAGED_BLOCK_LINE_COUNT = 13;
+
+function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
+  const block = content.match(
+    /<!-- OPEN-ZK-KB:START(?: v[^\s]+)? -- managed by open-zk-kb, do not edit -->\n[\s\S]*?\n<!-- OPEN-ZK-KB:END -->/
+  )?.[0];
+
+  expect(block).toBeDefined();
+  if (!block) throw new Error('Expected an open-zk-kb managed instruction block');
+
+  expect(block.split('\n')).toHaveLength(MANAGED_BLOCK_LINE_COUNT);
+  expect(block).toContain('Persistent cross-session memory via `knowledge-*` MCP tools.');
+  expect(block).toContain('`knowledge-search` for relevant context.');
+  expect(block).toContain("Filter by `project` and `kind`; follow each note's `<guidance>`.");
+  expect(block).toContain('`knowledge-store` immediately, never defer:');
+  expect(block).toContain('useful URL → resource (`knowledge-ingest` first).');
+  expect(block).toContain('**Each note:** one concept only.');
+  expect(block).toContain('Include a `summary` and imperative `guidance`.');
+  expect(block).toContain('**Project session start:** `knowledge-overview`.');
+  expect(block).toContain(
+    usesOmpSkill
+      ? '`skill://open-zk-kb`.'
+      : '`knowledge-template --kind {kind}` and the `open-zk-kb` skill where supported.'
+  );
+  expect(block).not.toContain('Capture Checkpoints');
+  expect(block).not.toContain('knowledge-mine');
+  expect(block).not.toContain('knowledge-maintain');
+}
+
 
 describe('setup.ts', () => {
   let ctx: TestContext;
@@ -364,8 +393,7 @@ describe('setup.ts', () => {
     expect(fs.existsSync(agentDocsPath)).toBe(true);
     const agentDocs = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(agentDocs).toContain('OPEN-ZK-KB:START');
-    expect(agentDocs).toContain('knowledge-search');
-    expect(output).toContain('pi install');
+    expectSlimAgentDocsBlock(agentDocs);
     expect(output).toContain('Pi does not support MCP natively');
   });
 
@@ -539,12 +567,18 @@ describe('setup.ts', () => {
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
     expect(content).toContain('OPEN-ZK-KB:END');
-    expect(content).toContain('knowledge-search');
-    expect(content).toContain('knowledge-store');
-    expect(content).toContain('Use open-zk-kb for concise cross-session agent memory');
-    expect(content).toContain("project's existing knowledge location");
-    expect(content).toContain('docs, specs, ADRs, wikis, notes, or another convention');
+    expectSlimAgentDocsBlock(content);
   });
+  it('uses the slim managed instruction block for every instruction size', async () => {
+    const env = createIsolatedInstallEnv();
+    const agentDocsModule = await loadFreshAgentDocsModule();
+    for (const size of ['full', 'compact', 'rules', 'preflight'] as const) {
+      const agentDocsPath = path.join(env.rootDir, `${size}.md`);
+      agentDocsModule.injectAgentDocs(agentDocsPath, size);
+      expectSlimAgentDocsBlock(fs.readFileSync(agentDocsPath, 'utf-8'), size === 'preflight');
+    }
+  });
+
 
   it('install preserves existing content in agent docs file', async () => {
     const env = createIsolatedInstallEnv();
@@ -624,6 +658,7 @@ describe('setup.ts', () => {
     expect(firstResult.action).toBe('updated');
     expect(firstContent.startsWith(OMP_AGENT_DOCS_PREAMBLE)).toBe(true);
     expect(firstContent).toContain('User-owned rule content.');
+    expectSlimAgentDocsBlock(firstContent, true);
     expect(firstContent.match(/OPEN-ZK-KB:START/g)?.length).toBe(1);
     expect(firstContent.match(/OPEN-ZK-KB:END/g)?.length).toBe(1);
     expect(firstContent.split(OMP_AGENT_DOCS_PREAMBLE).length - 1).toBe(1);
@@ -700,12 +735,7 @@ describe('setup.ts', () => {
     const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
-    // Compact version has the triggers line but no "Capture Checkpoints" section
-    expect(content).toContain('Triggers');
-    expect(content).toContain('Use open-zk-kb for concise cross-session agent memory');
-    expect(content).toContain("project's existing knowledge location");
-    expect(content).toContain('docs, specs, ADRs, wikis, notes, or another convention');
-    expect(content).not.toContain('Capture Checkpoints');
+    expectSlimAgentDocsBlock(content);
   });
 
   it('install uses full instructions by default for opencode', async () => {
@@ -720,8 +750,7 @@ describe('setup.ts', () => {
     const agentDocsPath = path.join(env.xdgConfigHome, 'opencode', 'AGENTS.md');
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
-    // Full version has the "Capture Checkpoints" section
-    expect(content).toContain('Capture Checkpoints');
+    expectSlimAgentDocsBlock(content);
   });
 
   it('install injects agent docs for windsurf with compact default', async () => {
@@ -737,8 +766,7 @@ describe('setup.ts', () => {
     expect(fs.existsSync(agentDocsPath)).toBe(true);
     const content = fs.readFileSync(agentDocsPath, 'utf-8');
     expect(content).toContain('OPEN-ZK-KB:START');
-    // Windsurf defaults to compact — no "Capture Checkpoints"
-    expect(content).not.toContain('Capture Checkpoints');
+    expectSlimAgentDocsBlock(content);
   });
 
   it('inject repairs a partial managed block instead of appending another one', async () => {
@@ -1343,11 +1371,7 @@ describe('setup.ts', () => {
     expect(fs.existsSync(rulesPath)).toBe(true);
     const rulesContent = fs.readFileSync(rulesPath, 'utf-8');
     expect(rulesContent).toContain('OPEN-ZK-KB:START');
-    expect(rulesContent).toContain('knowledge-search');
-    expect(rulesContent).toContain('knowledge-maintain');
-    // Rules template is thin — no detailed kind reference
-    expect(rulesContent).not.toContain('### Storing Knowledge');
-    // Should not contain client filtering instructions
+    expectSlimAgentDocsBlock(rulesContent);
     expect(rulesContent).not.toContain('client: "');
 
     expect(output).toContain('Skill:');
@@ -2146,7 +2170,7 @@ describe('setup.ts', () => {
     expect(cleaned).not.toContain('OPEN-ZK-KB:START');
   });
 
-  it('omp install uses preflight instructions for rules/open-zk-kb.md (not full or compact)', async () => {
+  it('omp install injects the slim preflight rule', async () => {
     const env = createIsolatedInstallEnv();
     const setupModule = await loadFreshSetupModule();
 
@@ -2157,27 +2181,7 @@ describe('setup.ts', () => {
     });
 
     const rulesPath = path.join(env.homeDir, '.omp', 'agent', 'rules', 'open-zk-kb.md');
-    const content = fs.readFileSync(rulesPath, 'utf-8');
-
-    // Preflight template does NOT have these sections (they're full-only)
-    expect(content).not.toContain('### Pre-Flight');
-    expect(content).not.toContain('### Storing Knowledge');
-    expect(content).not.toContain('### Capture Checkpoints');
-
-    // Preflight template does NOT have compact-style reference material
-    expect(content).not.toContain('Kinds (key sections)');
-    expect(content).not.toContain('Maintain');
-    expect(content).not.toContain('Mine sessions');
-
-    // Preflight template DOES have the essentials
-    expect(content).toContain('knowledge-search');
-    expect(content).toContain('knowledge-store');
-
-    // Preflight template encourages parallel execution
-    expect(content).toContain('parallel');
-
-    // Preflight template points to skill for reference
-    expect(content).toContain('skill://open-zk-kb');
+    expectSlimAgentDocsBlock(fs.readFileSync(rulesPath, 'utf-8'), true);
   });
 
   it('omp install creates TTSR enforcement rule alongside main rule', async () => {
