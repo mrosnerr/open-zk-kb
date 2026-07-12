@@ -48,7 +48,7 @@ opencode.json
 .claude/
 .omo/
 # Agent runtime state (ephemeral). Planning files are local-only, not shipped in PRs.
-.agents/plans/
+.agents/state/
 .agents/tmp/
 .agents/cache/
 .agents/local/

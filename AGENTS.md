@@ -56,6 +56,14 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 └── .gitignore             # Excludes dist/, node_modules/, config.yaml, etc.
 ```
 
+## `.agents/`
+
+- `context/`: Project context appended to agent prompts.
+- `hooks/`: Rules. See [`.agents/hooks/README.md`](.agents/hooks/README.md) for the format.
+- `skills/`: Custom commands.
+- `capabilities/`: Extensions.
+- `state/`: Ephemeral runtime state, gitignored.
+
 ## Where to Look
 
 | Task | Location | Notes |
