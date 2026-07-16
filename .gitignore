@@ -47,6 +47,10 @@ opencode.json
 !.opencode/agents/reviewer.md
 .claude/
 .omo/
+.pi/
+.agents/
+openspec/
+.history/
 # Agent runtime state (ephemeral). Planning files are local-only, not shipped in PRs.
 .agents/state/
 .agents/tmp/
