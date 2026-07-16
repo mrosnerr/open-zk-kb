@@ -47,23 +47,12 @@ opencode.json
 !.opencode/agents/reviewer.md
 .claude/
 .omo/
-# Agent runtime state (ephemeral). Planning files are local-only, not shipped in PRs.
-.agents/state/
-.agents/tmp/
-.agents/cache/
-.agents/local/
-.agents/private/
-.agents/**/.env*
-.agents/**/*secret*
-.agents/**/*secrets*
-.agents/**/*token*
-.agents/**/*credential*
-.agents/**/*.local.md
-.agents/**/*.private.md
+.pi/
+.agents/
+openspec/
+.history/
 CONTEXT_*.md
 
 # Local test workspace (isolated OpenCode sessions for plugin dev)
 .test-workspace/
 
-# Runtime artifacts
-NoteRepository

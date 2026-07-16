@@ -1,6 +1,7 @@
-diff --git a/node_modules/@huggingface/transformers/src/backends/onnx.js b/node_modules/@huggingface/transformers/src/backends/onnx.js
---- a/node_modules/@huggingface/transformers/src/backends/onnx.js
-+++ b/node_modules/@huggingface/transformers/src/backends/onnx.js
+diff --git a/src/backends/onnx.js b/src/backends/onnx.js
+index 13b1a74..6bd95ef 100644
+--- a/src/backends/onnx.js
++++ b/src/backends/onnx.js
 @@ -20,7 +20,7 @@ import { env, apis, LogLevel } from '../env.js';
  
  // NOTE: Import order matters here. We need to import `onnxruntime-node` before `onnxruntime-web`.
@@ -10,7 +11,8 @@ diff --git a/node_modules/@huggingface/transformers/src/backends/onnx.js b/node_
  import * as ONNX_WEB from 'onnxruntime-web/webgpu';
  import { loadWasmBinary, loadWasmFactory } from './utils/cacheWasm.js';
  import { isBlobURL, toAbsoluteURL } from '../utils/hub/utils.js';
-@@ -106,33 +106,9 @@ if (ORT_SYMBOL in globalThis) {
+@@ -106,34 +106,10 @@ if (ORT_SYMBOL in globalThis) {
+     // If the JS runtime exposes their own ONNX runtime, use it
      ONNX = globalThis[ORT_SYMBOL];
  } else if (apis.IS_NODE_ENV) {
 -    ONNX = ONNX_NODE;
@@ -37,20 +39,20 @@ diff --git a/node_modules/@huggingface/transformers/src/backends/onnx.js b/node_
 -            supportedDevices.push('coreml');
 -            break;
 -    }
--
++    ONNX = ONNX_WEB;
+ 
 -    supportedDevices.push('webgpu');
 -    supportedDevices.push('cpu');
 -    defaultDevices = ['cpu'];
-+    ONNX = ONNX_WEB;
-+
 +    supportedDevices.push('wasm');
 +    defaultDevices = ['wasm'];
  } else {
      ONNX = ONNX_WEB;
  
-diff --git a/node_modules/@huggingface/transformers/src/utils/image.js b/node_modules/@huggingface/transformers/src/utils/image.js
---- a/node_modules/@huggingface/transformers/src/utils/image.js
-+++ b/node_modules/@huggingface/transformers/src/utils/image.js
+diff --git a/src/utils/image.js b/src/utils/image.js
+index d7d8c7f..7a75d16 100644
+--- a/src/utils/image.js
++++ b/src/utils/image.js
 @@ -14,7 +14,7 @@ import { Tensor } from './tensor.js';
  import { saveBlob } from './io.js';
  
@@ -71,12 +73,11 @@ diff --git a/node_modules/@huggingface/transformers/src/utils/image.js b/node_mo
  }
  
  // Defined here: https://github.com/python-pillow/Pillow/blob/a405e8406b83f8bfb8916e93971edc7407b8b1ff/src/libImaging/Imaging.h#L262-L268
-diff --git a/node_modules/@huggingface/transformers/src/utils/model-loader.js b/node_modules/@huggingface/transformers/src/utils/model-loader.js
---- a/node_modules/@huggingface/transformers/src/utils/model-loader.js
-+++ b/node_modules/@huggingface/transformers/src/utils/model-loader.js
-@@ -43,34 +43,34 @@ import { apis } from '../env.js';
-  */
- export async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
+diff --git a/src/utils/model-loader.js b/src/utils/model-loader.js
+index 599aefe..43234b6 100644
+--- a/src/utils/model-loader.js
++++ b/src/utils/model-loader.js
+@@ -45,7 +45,7 @@ export async function getCoreModelFile(pretrained_model_name_or_path, fileName,
      const baseName = `${fileName}${suffix}.onnx`;
      const fullPath = `${options.subfolder ?? ''}/${baseName}`;
  
@@ -85,22 +86,7 @@ diff --git a/node_modules/@huggingface/transformers/src/utils/model-loader.js b/
  }
  
  /**
-  * Loads external data files for a model.
-  *
-  * @param {string} pretrained_model_name_or_path The path to the directory containing the model files.
-  * @param {string} fileName The base name of the model file (without suffix or extension).
-  * @param {string} suffix The suffix to append to the file name (e.g., '_q4').
-  * @param {import('./hub.js').PretrainedModelOptions} options Additional options for loading the model.
-  * @param {import('./hub.js').ExternalData|Record<string, import('./hub.js').ExternalData>|undefined} use_external_data_format External data format configuration.
-  * @param {any} [session_options] Optional session options that may contain externalData configuration.
-  * @returns {Promise<Array<string|{path: string, data: Uint8Array}>>} A Promise that resolves to an array of external data files.
-  */
- export async function getModelDataFiles(
-     pretrained_model_name_or_path,
-     fileName,
-     suffix,
-     options,
-     use_external_data_format,
+@@ -68,7 +68,7 @@ export async function getModelDataFiles(
      session_options = {},
  ) {
      const baseName = `${fileName}${suffix}.onnx`;
@@ -109,12 +95,12 @@ diff --git a/node_modules/@huggingface/transformers/src/utils/model-loader.js b/
  
      /** @type {Promise<string|{path: string, data: Uint8Array}>[]} */
      let externalDataPromises = [];
- 
-     const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
-diff --git a/node_modules/@huggingface/transformers/dist/transformers.node.mjs b/node_modules/@huggingface/transformers/dist/transformers.node.mjs
---- a/node_modules/@huggingface/transformers/dist/transformers.node.mjs
-+++ b/node_modules/@huggingface/transformers/dist/transformers.node.mjs
-@@ -7542,6 +7542,6 @@ var float16ToFloat32 = (() => {
+diff --git a/dist/transformers.node.mjs b/dist/transformers.node.mjs
+index 7257f56..bb198e9 100644
+--- a/dist/transformers.node.mjs
++++ b/dist/transformers.node.mjs
+@@ -7542,7 +7542,7 @@ var uint16_to_float32 = /* @__PURE__ */ (function() {
+ })();
  
  // src/backends/onnx.js
 -import * as ONNX_NODE from "onnxruntime-node";
@@ -149,7 +135,8 @@ diff --git a/node_modules/@huggingface/transformers/dist/transformers.node.mjs b
  } else {
    ONNX = ort_webgpu_bundle_min_exports;
    if (apis.IS_WEBNN_AVAILABLE) {
-@@ -17728,6 +17714,6 @@ var AutomaticSpeechRecognitionPipeline = class extends ChunkPipeline {
+@@ -17726,7 +17712,7 @@ var CohereAsrProcessor = class extends Processor {
+ };
  
  // src/utils/image.js
 -import sharp from "sharp";
@@ -157,7 +144,7 @@ diff --git a/node_modules/@huggingface/transformers/dist/transformers.node.mjs b
  var createCanvasFunction;
  var ImageDataClass;
  var loadImageFunction;
-@@ -17751,6 +17737,8 @@ if (apis.IS_WEB_ENV) {
+@@ -17751,7 +17737,9 @@ if (apis.IS_WEB_ENV) {
      return newImage;
    };
  } else {
@@ -167,12 +154,8 @@ diff --git a/node_modules/@huggingface/transformers/dist/transformers.node.mjs b
 +  };
  }
  var RESAMPLING_MAPPING = {
-@@ -22388,18 +22376,18 @@ function getExternalDataChunkNames(fullName, numChunks) {
-   for (let i = 0; i < numChunks; ++i) {
-     names.push(`${fullName}_data${i === 0 ? "" : "_" + i}`);
-   }
-   return names;
- }
+   0: "nearest",
+@@ -22394,11 +22382,11 @@ function getExternalDataChunkNames(fullName, numChunks) {
  async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
    const baseName = `${fileName}${suffix}.onnx`;
    const fullPath = `${options.subfolder ?? ""}/${baseName}`;
@@ -186,4 +169,3 @@ diff --git a/node_modules/@huggingface/transformers/dist/transformers.node.mjs b
    let externalDataPromises = [];
    const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
    if (num_chunks > 0) {
-     if (num_chunks > MAX_EXTERNAL_DATA_CHUNKS) {
