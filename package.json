@@ -114,5 +114,8 @@
     "embeddings",
     "semantic-search"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "patchedDependencies": {
+    "@huggingface/transformers@4.0.1": "patches/@huggingface+transformers@4.0.1.patch"
+  }
 }
