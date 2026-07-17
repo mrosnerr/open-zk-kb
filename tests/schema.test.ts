@@ -32,7 +32,7 @@ describe('schema.ts', () => {
     return Boolean(row);
   }
 
-  it('sets schema version 7 for a fresh database after initialize and repair', () => {
+  it('sets current schema version for a fresh database after initialize and repair', () => {
     const db = new Database(':memory:');
     const schema = new SchemaManager(db);
 
@@ -41,7 +41,7 @@ describe('schema.ts', () => {
 
     expect(result.valid).toBe(true);
     expect(result.needsRebuild).toBe(false);
-    expect(getUserVersion(db)).toBe(8);
+    expect(getUserVersion(db)).toBe(11);
     db.close();
   });
 
@@ -122,7 +122,7 @@ describe('schema.ts', () => {
 
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('kind');
-    expect(getUserVersion(db)).toBe(8);
+    expect(getUserVersion(db)).toBe(11);
     db.close();
   });
 
@@ -157,7 +157,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('summary');
     expect(columns).toContain('guidance');
-    expect(getUserVersion(db)).toBe(8);
+    expect(getUserVersion(db)).toBe(11);
     db.close();
   });
 
@@ -194,7 +194,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('embedding');
     expect(columns).toContain('embedding_model');
-    expect(getUserVersion(db)).toBe(8);
+    expect(getUserVersion(db)).toBe(11);
     db.close();
   });
 
@@ -234,7 +234,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('content_hash');
     expect(tableExists(db, 'capture_metrics')).toBe(false);
-    expect(getUserVersion(db)).toBe(8);
+    expect(getUserVersion(db)).toBe(11);
     db.close();
   });
 
@@ -273,7 +273,7 @@ describe('schema.ts', () => {
 
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('lifecycle');
-    expect(getUserVersion(db)).toBe(8);
+    expect(getUserVersion(db)).toBe(11);
     db.close();
   });
 
@@ -313,7 +313,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('last_accessed_at');
     expect(tableExists(db, 'tool_telemetry')).toBe(true);
-    expect(getUserVersion(db)).toBe(8);
+    expect(getUserVersion(db)).toBe(11);
     db.close();
   });
 
@@ -343,7 +343,75 @@ describe('schema.ts', () => {
     schema.checkAndRepair();
 
     expect(tableExists(db, 'template_conformance')).toBe(true);
-    expect(getUserVersion(db)).toBe(8);
+    expect(getUserVersion(db)).toBe(11);
+    db.close();
+  });
+
+  it('migrates from v8 to v9: adds sessions table', () => {
+    const db = new Database(':memory:');
+    db.run(`
+      CREATE TABLE notes (
+        id TEXT PRIMARY KEY, path TEXT UNIQUE, title TEXT, content TEXT,
+        kind TEXT DEFAULT 'observation', status TEXT DEFAULT 'fleeting',
+        type TEXT DEFAULT 'atomic', tags TEXT DEFAULT '[]', context TEXT DEFAULT '',
+        created_at INTEGER, updated_at INTEGER, word_count INTEGER DEFAULT 0,
+        access_count INTEGER DEFAULT 0, summary TEXT DEFAULT '', guidance TEXT DEFAULT '',
+        embedding BLOB DEFAULT NULL, embedding_model TEXT DEFAULT NULL,
+        content_hash TEXT DEFAULT NULL, lifecycle TEXT DEFAULT 'living',
+        last_accessed_at INTEGER
+      )
+    `);
+    db.run("CREATE VIRTUAL TABLE notes_fts USING fts5(note_id, title, content, tags, context, tokenize='porter')");
+    db.run('CREATE TABLE note_links (source_id TEXT, target_id TEXT, link_text TEXT, created_at INTEGER, PRIMARY KEY (source_id, target_id))');
+    db.run(`CREATE TABLE tool_telemetry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, tool_name TEXT NOT NULL,
+      arg_kind TEXT, timestamp INTEGER NOT NULL, result_count INTEGER
+    )`);
+    db.run(`CREATE TABLE template_conformance (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, note_id TEXT NOT NULL, kind TEXT NOT NULL,
+      action TEXT NOT NULL, model TEXT, coverage REAL NOT NULL,
+      matched_categories TEXT NOT NULL, missing_categories TEXT NOT NULL,
+      hint_triggered INTEGER NOT NULL,
+      timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+    )`);
+    db.run('PRAGMA user_version = 8');
+
+    const schema = new SchemaManager(db);
+    schema.checkAndRepair();
+
+    expect(tableExists(db, 'sessions')).toBe(true);
+    const columns = getColumns(db, 'sessions');
+    expect(columns).toContain('session_id');
+    expect(columns).toContain('client');
+    expect(columns).toContain('client_version');
+    expect(columns).toContain('started_at');
+    expect(columns).toContain('ended_at');
+    expect(columns).toContain('vault_size');
+    expect(columns).toContain('version');
+    expect(columns).toContain('os_platform');
+    expect(columns).toContain('reported');
+    expect(getUserVersion(db)).toBe(11);
+    db.close();
+  });
+
+  it('migrates from v9 to v10: adds model column to tool_telemetry', () => {
+    const db = new Database(':memory:');
+    const schema = new SchemaManager(db);
+    schema.initialize();
+    // Build a real v9 state: drop and recreate tool_telemetry without model column
+    db.run('DROP TABLE IF EXISTS tool_telemetry');
+    db.run(`CREATE TABLE tool_telemetry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      invoked_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    )`);
+    db.run('PRAGMA user_version = 9');
+    schema.checkAndRepair();
+
+    const columns = getColumns(db, 'tool_telemetry');
+    expect(columns).toContain('model');
+    expect(getUserVersion(db)).toBe(11);
     db.close();
   });
 

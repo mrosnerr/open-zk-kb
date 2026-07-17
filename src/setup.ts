@@ -8,11 +8,12 @@ import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
+import YAML from 'yaml';
 import { expandPath } from './utils/path.js';
 import { injectAgentDocs, inspectAgentDocs, removeAgentDocs, getAgentDocsVersion } from './agent-docs.js';
 import type { InstructionSize } from './agent-docs.js';
 import { PKG_VERSION } from './version.js';
-import { getConfig } from './config.js';
+import { getConfig, isTelemetryShareConfigured } from './config.js';
 import { OMP_AGENT_DOCS_PREAMBLE } from './agent-docs-targets.js';
 
 function detectNpmTag(): 'dev' | 'latest' {
@@ -411,7 +412,9 @@ function isOpenZkKbPiPackageSource(source: string): boolean {
     }
   }
 
-  return path.isAbsolute(source) && isOpenZkKbLocalPackagePath(source);
+  // Handle both absolute and relative local paths
+  const resolved = path.isAbsolute(source) ? source : path.resolve(source);
+  return isOpenZkKbLocalPackagePath(resolved);
 }
 
 function isOpenZkKbLocalPackagePath(source: string): boolean {
@@ -695,6 +698,33 @@ function getVaultPath(): string {
 
 function getConfigYamlPath(): string {
   return path.join(xdgConfigHome, 'open-zk-kb', 'config.yaml');
+}
+
+/** Write telemetry enabled/share settings to config.yaml.
+ *  If the existing config has a non-mapping root (scalar/array), it is
+ *  replaced with a fresh mapping — this corrects corrupted configs. */
+function writeTelemetryConfig(enabled: boolean, share: boolean): void {
+  const configPath = getConfigYamlPath();
+  let doc: Record<string, unknown> = {};
+  if (fs.existsSync(configPath)) {
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const parsed = YAML.parse(content);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      doc = parsed as Record<string, unknown>;
+    } else if (parsed != null) {
+      // Non-mapping root (scalar or array) — correct it during setup
+      console.warn(`Warning: config.yaml has a non-mapping root (${typeof parsed}). Resetting to valid config.`);
+    }
+  }
+  const existing = doc.telemetry;
+  const telemetry = (existing && typeof existing === 'object' && !Array.isArray(existing))
+    ? existing as Record<string, unknown>
+    : {};
+  telemetry.enabled = enabled;
+  telemetry.share = share;
+  doc.telemetry = telemetry;
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, YAML.stringify(doc), 'utf-8');
 }
 
 /**
@@ -1679,7 +1709,7 @@ export function install(args: InstallArgs): InstallResult {
   if (httpAuthHeaderWarning) {
     details.push(httpAuthHeaderWarning);
   }
-  
+
   return { status: 'installed', clientName: clientConfig.name, output, details, staleSkippedSymlinks, agentDocsSkippedSymlink };
 }
 
@@ -2036,6 +2066,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     const force = args.includes('--force');
     const dryRun = args.includes('--dry-run');
     const yes = args.includes('--yes');
+    const noTelemetry = args.includes('--no-telemetry');
     const serverPath = parseFlagValue(args, '--server-path');
     const clientArg = parseFlagValue(args, '--client');
     const instructionsArg = parseFlagValue(args, '--instructions');
@@ -2176,9 +2207,70 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       }
     }
 
+    // --- Telemetry prompt helper ---
+    // Captures the user's choice but does NOT write config.
+    // Returns { enabled, share } to write after install succeeds,
+    // or null if no change is needed.
+    async function promptTelemetry(): Promise<{ enabled: boolean; share: boolean } | null> {
+      if (dryRun) return null;
+      if (noTelemetry) {
+        // Defaults are already disabled (enabled: false, share: false).
+        // Only need to write if config already exists and might have telemetry enabled.
+        const configPath = getConfigYamlPath();
+        if (fs.existsSync(configPath)) {
+          return { enabled: false, share: false };
+        }
+        return null;
+      }
+      if (yes || !process.stdin.isTTY) {
+        // Non-interactive: use config defaults
+        return null;
+      }
+      // Only prompt if the user hasn't explicitly configured share
+      if (isTelemetryShareConfigured()) return null;
+
+      const answer = await p.confirm({
+        message: 'Help improve open-zk-kb with anonymous usage analytics?\n' +
+          color.dim('    Session metadata: client, models, version, platform, vault size, tool usage counts.\n') +
+          color.dim('    Never any note contents, search queries, or personal data.\n') +
+          color.dim('    Open source and auditable: https://github.com/mrosnerr/open-zk-kb/blob/main/docs/telemetry.md'),
+        initialValue: false,
+      });
+      if (p.isCancel(answer)) return null; // Don't block install on cancel
+      // Only write config when opting in — the defaults are already disabled,
+      // so declining doesn't need a config write (and avoids creating a
+      // comment-stripped config.yaml before installClient seeds the example).
+      if (answer) {
+        return { enabled: true, share: true };
+      }
+      return null;
+    }
+
+    // Persist telemetry choice after successful install
+    function applyTelemetryChoice(choice: { enabled: boolean; share: boolean } | null): void {
+      if (!choice) return;
+      try {
+        writeTelemetryConfig(choice.enabled, choice.share);
+      } catch (err) {
+        if (!choice.enabled) {
+          // Opt-out write failed — warn user about fallback
+          console.error(
+            `Failed to write telemetry opt-out to config.\n` +
+            `  Set DO_NOT_TRACK=1 in your environment as a fallback.\n` +
+            `  ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+        // Opt-in write failure is non-fatal — config stays at safe defaults
+      }
+    }
+
+    // Capture telemetry choice before install (prompt runs early)
+    const telemetryChoice = await promptTelemetry();
+
     // --- Single-client mode ---
     if (client) {
       const result = await installClient(client, { serverPath, transport, force, dryRun, instructionSize, yes });
+      applyTelemetryChoice(telemetryChoice);
       console.log(result.output);
       return;
     }
@@ -2189,6 +2281,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         const result = await installClient(c, { serverPath, transport, force, dryRun, instructionSize, yes: true });
         console.log(result.output);
       }
+      applyTelemetryChoice(telemetryChoice);
       return;
     }
 
@@ -2251,6 +2344,9 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       }
     }
 
+    // Persist telemetry choice only after all installs succeed
+    applyTelemetryChoice(telemetryChoice);
+
     // Offer to launch a CLI client to try out the knowledge base
     if (!dryRun) {
       const cliClients = selected.flatMap((c) => {
@@ -2280,7 +2376,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
           const tryItConfig = CLIENT_CONFIGS[tryIt];
           const bin = tryItConfig.cliBinary;
           if (bin) {
-            p.outro(`Launching ${tryItConfig.name}...`);
+              p.outro(`Launching ${tryItConfig.name}...`);
             execFileSync(bin, ['Search the knowledge base for any existing notes'], {
               stdio: 'inherit',
             });

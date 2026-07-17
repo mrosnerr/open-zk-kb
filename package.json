@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
   "description": "Persistent memory for agents. Corrections stick, context compounds, every session starts smarter.",
   "type": "module",
@@ -42,6 +42,7 @@
   },
   "files": [
     "dist/",
+    "patches/",
     "skills/",
     "templates/",
     "README.md",
@@ -67,7 +68,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
-    "@huggingface/transformers": "^4.0.1",
+    "@huggingface/transformers": "4.0.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.12",
@@ -114,5 +115,8 @@
     "embeddings",
     "semantic-search"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "patchedDependencies": {
+    "@huggingface/transformers@4.0.1": "patches/@huggingface+transformers@4.0.1.patch"
+  }
 }

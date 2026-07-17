@@ -74,7 +74,8 @@ async function getLocalPipeline(modelName: string): Promise<FeatureExtractionPip
       const { pipeline, env } = await import('@huggingface/transformers');
       env.cacheDir = getModelCacheDir();
       configureCompiledBinaryWasm(env);
-      const pipelineOptions: PipelineOptions = isCompiledBinary()
+      const isBun = typeof Bun !== 'undefined';
+      const pipelineOptions: PipelineOptions = isBun
         ? { dtype: 'q8', device: 'wasm' }
         : { dtype: 'q8' };
       localPipeline = await pipeline('feature-extraction', modelName, pipelineOptions) as FeatureExtractionPipeline;

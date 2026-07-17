@@ -53,32 +53,21 @@ Embeddings work **out of the box** with zero configuration using a local model (
 - To override with an API provider (for higher-quality embeddings), configure the `embeddings` section with `provider: api`.
 - To disable embeddings entirely, set `enabled: false`.
 
-## Telemetry (Local-Only, Opt-In)
+## Telemetry
 
-Telemetry is **disabled by default** and must be explicitly opted into. When enabled, it is stored only in the local SQLite database under the vault — nothing is ever sent remotely. It records coarse tool invocation counters for `knowledge-stats` when called with `telemetry: true`.
+Telemetry has two layers, both **disabled by default**:
+
+**Local counters** (`telemetry.enabled`) — Records tool invocation counters and note access timestamps to the local SQLite database. Never leaves your machine. Used by `knowledge-stats` for usage breakdowns.
+
+**Anonymous sharing** (`telemetry.share`) — When also enabled, anonymous session metadata (client, models, version, platform, vault size, tool usage counts) is sent to PostHog (EU Cloud) on the next server startup. No note content, search queries, or personal data is ever shared. See [Telemetry](telemetry.md) for the full event schema.
 
 ```yaml
 telemetry:
-  enabled: true
+  enabled: true    # local counters only
+  share: true      # also send anonymous session data to PostHog
 ```
 
-When disabled (the default), open-zk-kb records no telemetry rows and also skips note access tracking (`last_accessed_at` and `access_count`). This treats access timestamps as privacy-sensitive metadata and makes the default posture maximally private.
-
-Recorded fields:
-- Synthetic per-connection session ID
-- Tool name (`search`, `store`, `maintain`)
-- Store kind or maintain action
-- Timestamp
-- Result count for searches and successful stores
-
-Not recorded:
-- Note content
-- Note bodies
-- Search query strings
-- Search result snippets
-- File paths
-- User identifiers, client identifiers, hostnames, or account names
-- API keys, tokens, credentials, or other secrets
+When disabled (the default), open-zk-kb records no telemetry rows, skips note access tracking (`last_accessed_at` and `access_count`), and sends nothing externally.
 
 ## Obsidian Vault Scaffold
 

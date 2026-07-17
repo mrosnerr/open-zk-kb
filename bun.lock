@@ -26,6 +26,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@huggingface/transformers@4.0.1": "patches/@huggingface+transformers@4.0.1.patch",
+  },
   "packages": {
     "@clack/core": ["@clack/core@1.1.0", "", { "dependencies": { "sisteransi": "^1.0.5" } }, "sha512-SVcm4Dqm2ukn64/8Gub2wnlA5nS2iWJyCkdNHcvNHPIeBTGojpdJ+9cZKwLfmqy7irD4N5qLteSilJlE0WLAtA=="],
 

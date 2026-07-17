@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.3.0
+
+### Added
+
+- **Anonymous usage analytics** — anonymous session telemetry via PostHog (EU Cloud). One `session` event per cleanly ended MCP server session, reported on the next startup. Contains client, models, version, platform, vault size, and tool usage counts. No note content, search queries, or personal data. Both `telemetry.enabled` and `telemetry.share` must be `true` to send data. `DO_NOT_TRACK=1` unconditionally blocks sharing. See [docs/telemetry.md](docs/telemetry.md)
+- **Install telemetry prompt** — interactive installations ask about anonymous analytics. Use `--no-telemetry` to skip. Defaults to opt-out (pressing Enter declines)
+- **Model tracking** — distinct model IDs per session for usage correlation
+- **Patch integrity CI** — pinned `@huggingface/transformers` to exact `4.0.1` with CI validation and test coverage for the WASM plugin patch
+
+### Fixed
+
+- Strip `patchedDependencies` from published npm package to avoid breaking consumers
+- Record session end on stdin close for reliable session reporting
+- TTL-based claim recovery prevents concurrent startups from interfering
+- Deferred telemetry config write until after successful install
+- Wrap claim transaction with `withBusyRetry` for SQLite busy resilience
+
+### Changed
+
+- Startup telemetry gated on `config.telemetry.enabled` — no eager vault/DB creation when disabled
+- Repo hygiene: gitignore cleanup, patch wiring, file modes
+
 ## 1.2.0 - 2026-07-09
 
 ### Added

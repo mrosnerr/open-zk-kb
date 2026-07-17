@@ -477,7 +477,11 @@ echo ""
 # ─── 18. npm pack produces valid package ───
 echo "▸ npm pack Validation"
 
+# Strip patchedDependencies before packing — it's a dev-only Bun feature
+# that breaks consumers when included in the published tarball.
+node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); delete p.patchedDependencies; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');"
 (bun pm pack || npm pack) >/dev/null 2>&1 || true
+git checkout package.json 2>/dev/null || true
 shopt -s nullglob
 TARBALL=""
 for CANDIDATE in open-zk-kb-*.tgz; do
@@ -519,7 +523,7 @@ if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
       fail "bin symlink" "open-zk-kb not found in node_modules/.bin/"
     fi
   else
-    fail "package install" "$(echo "$INSTALL_OUTPUT" | head -1)"
+    fail "package install" "$(echo "$INSTALL_OUTPUT" | head -5)"
   fi
 
   rm -rf "$PACK_DIR"

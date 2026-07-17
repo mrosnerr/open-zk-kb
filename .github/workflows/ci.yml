@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, dev]
 
+env:
+  # Prevent analytics from reaching PostHog during CI runs.
+  # Respects the consoledonottrack.com convention.
+  DO_NOT_TRACK: "1"
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -34,6 +39,34 @@ jobs:
 
       - name: Coverage report
         run: bun test --coverage
+
+      - name: Validate Transformers patch
+        run: |
+          # Bun applies patches at install via patchedDependencies.
+          # Verify the patched markers exist in both source and dist bundle.
+          # If this fails, the patch needs regenerating for the current
+          # @huggingface/transformers version.
+          node -e '
+            const fs = require("fs");
+            const checks = [
+              ["src/backends/onnx.js", "const ONNX_NODE = undefined;"],
+              ["src/utils/image.js", "Image processing is unavailable in this build."],
+              ["src/utils/model-loader.js", "getModelFile(pretrained_model_name_or_path, fullPath, true, options, false)"],
+              ["dist/transformers.node.mjs", "const ONNX_NODE = undefined;"],
+              ["dist/transformers.node.mjs", "Image processing is unavailable in this build."],
+            ];
+            const base = "node_modules/@huggingface/transformers/";
+            let ok = true;
+            for (const [file, marker] of checks) {
+              const content = fs.readFileSync(base + file, "utf-8");
+              if (!content.includes(marker)) {
+                console.error(`FAIL: ${file} missing marker: ${marker}`);
+                ok = false;
+              }
+            }
+            if (!ok) process.exit(1);
+            console.log("Transformers patch verified: all markers present");
+          '
 
   smoke:
     runs-on: ubuntu-latest
