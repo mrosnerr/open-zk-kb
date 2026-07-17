@@ -1711,14 +1711,16 @@ export class NoteRepository {
     return this.sessionId;
   }
 
-  recordSessionStart(client: string, clientVersion: string | null, vaultSize: number, version: string): void {
+  /** Record session start. When sharingEnabled is false, the session is
+   *  pre-marked as reported so it won't be uploaded if sharing is enabled later. */
+  recordSessionStart(client: string, clientVersion: string | null, vaultSize: number, version: string, sharingEnabled: boolean = false): void {
     if (!this.telemetryEnabled) return;
     try {
       withBusyRetry(() => {
         this.db.prepare(`
-          INSERT INTO sessions (session_id, client, client_version, started_at, vault_size, version, os_platform)
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(this.sessionId, client, clientVersion, Date.now(), vaultSize, version, process.platform);
+          INSERT INTO sessions (session_id, client, client_version, started_at, vault_size, version, os_platform, reported)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(this.sessionId, client, clientVersion, Date.now(), vaultSize, version, process.platform, sharingEnabled ? 0 : 1);
       });
     } catch {
       // Silent failure — session recording should never block anything

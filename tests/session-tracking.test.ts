@@ -32,7 +32,7 @@ describe('session tracking', () => {
 
   describe('recordSessionStart', () => {
     it('inserts a row with correct fields', () => {
-      ctx.engine.recordSessionStart('claude-code', '1.0.27', 42, '1.3.0');
+      ctx.engine.recordSessionStart('claude-code', '1.0.27', 42, '1.3.0', true);
 
       const db = getDb();
       const row = db.prepare('SELECT * FROM sessions WHERE session_id = ?').get(ctx.engine.getSessionId()) as Record<string, unknown>;
@@ -50,7 +50,7 @@ describe('session tracking', () => {
     });
 
     it('handles null client_version', () => {
-      ctx.engine.recordSessionStart('unknown', null, 0, '1.3.0');
+      ctx.engine.recordSessionStart('unknown', null, 0, '1.3.0', true);
 
       const db = getDb();
       const row = db.prepare('SELECT * FROM sessions WHERE session_id = ?').get(ctx.engine.getSessionId()) as Record<string, unknown>;
@@ -59,11 +59,31 @@ describe('session tracking', () => {
       expect(row.client).toBe('unknown');
       expect(row.client_version).toBeNull();
     });
+
+    it('pre-marks session as reported when sharing is disabled', () => {
+      ctx.engine.recordSessionStart('claude-code', '1.0', 5, '1.3.0', false);
+
+      const db = getDb();
+      const row = db.prepare('SELECT * FROM sessions WHERE session_id = ?').get(ctx.engine.getSessionId()) as Record<string, unknown>;
+      db.close();
+
+      expect(row.reported).toBe(1);
+    });
+
+    it('defaults to pre-marked when sharingEnabled omitted', () => {
+      ctx.engine.recordSessionStart('claude-code', '1.0', 5, '1.3.0');
+
+      const db = getDb();
+      const row = db.prepare('SELECT * FROM sessions WHERE session_id = ?').get(ctx.engine.getSessionId()) as Record<string, unknown>;
+      db.close();
+
+      expect(row.reported).toBe(1);
+    });
   });
 
   describe('recordSessionEnd', () => {
     it('updates ended_at for the current session', () => {
-      ctx.engine.recordSessionStart('cursor', '0.44', 10, '1.3.0');
+      ctx.engine.recordSessionStart('cursor', '0.44', 10, '1.3.0', true);
       ctx.engine.recordSessionEnd();
 
       const db = getDb();
@@ -167,7 +187,7 @@ describe('session tracking', () => {
 
     it('excludes the current session', () => {
       // Record current session
-      ctx.engine.recordSessionStart('claude-code', '1.0', 5, '1.3.0');
+      ctx.engine.recordSessionStart('claude-code', '1.0', 5, '1.3.0', true);
 
       const sessions = ctx.engine.getUnreportedSessions();
       expect(sessions).toHaveLength(0);

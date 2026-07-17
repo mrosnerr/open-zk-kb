@@ -580,6 +580,7 @@ export async function startServer() {
           clientInfo?.version ?? null,
           stats.total,
           version,
+          config.telemetry.share,
         );
         await reportPreviousSessions(r);
       } catch {
