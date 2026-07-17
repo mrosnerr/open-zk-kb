@@ -152,9 +152,9 @@ jobs:
           fi
           
           # Check SKILL.md frontmatter version
-          SKILL_VERSION=$(grep -m1 '^version:' skills/open-zk-kb/SKILL.md | sed 's/version: //')
+          SKILL_VERSION=$(grep -m1 '^version:' skill-templates/open-zk-kb/SKILL.md | sed 's/version: //')
           if [ "$SKILL_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::skills/open-zk-kb/SKILL.md version ($SKILL_VERSION) does not match package.json ($PKG_VERSION)"
+            echo "::error::skill-templates/open-zk-kb/SKILL.md version ($SKILL_VERSION) does not match package.json ($PKG_VERSION)"
             exit 1
           fi
           

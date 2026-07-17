@@ -40,7 +40,7 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 │   │   └── LogAppender.ts  # Auto-appends to per-project log notes
 │   ├── obsidian.ts         # Obsidian detection, vault registry, launch
 │   └── utils/              # Path resolution, wikilink parsing
-├── skills/                # Skill templates for Claude Code
+├── skill-templates/       # Skill templates for Claude Code
 │   └── open-zk-kb/        # Copied to ~/.claude/skills/open-zk-kb/ on install
 │       ├── SKILL.md        # Main skill (frontmatter + instructions)
 │       └── kinds-reference.md  # Supporting reference (loaded on-demand)
@@ -208,7 +208,7 @@ For any new feature, ask in order:
 - **Install via CLI**: `bun run setup install --client <name>` — single mechanism via `src/setup.ts`
 - **Wiki-links**: Obsidian-compatible `[[slug|display]]` format with backlink tracking in `note_links` table
 - **Knowledge capture**: Claude Code and OMP use skills; OpenCode, Windsurf, and Pi use injected managed blocks (`AGENTS.md` or `rules/`). Calling models use `knowledge-store` directly.
-- **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skills/open-zk-kb/`.
+- **Claude Code skill**: Instructions delivered as a skill at `~/.claude/skills/open-zk-kb/`. Template files in `skill-templates/open-zk-kb/`.
 - **Local embeddings**: MiniLM-L6-v2 (~23MB) enabled by default via `@huggingface/transformers`. No API key required. Opt-in to API embeddings via `config.yaml`.
 - **10 MCP tools**: knowledge-store, knowledge-search, knowledge-get, knowledge-template, knowledge-mine, knowledge-stats, knowledge-maintain, knowledge-ingest, knowledge-overview, knowledge-open
 - **Auto-generated notes**: `index` (per-project catalog, wikilinks grouped by kind) and `log` (per-project append-only event log) are auto-generated on project-scoped events. Agents cannot create them manually.
