@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main, dev]
 
+env:
+  # Prevent analytics from reaching PostHog during CI runs.
+  # Respects the consoledonottrack.com convention.
+  DO_NOT_TRACK: "1"
+
 jobs:
   build:
     runs-on: ubuntu-latest

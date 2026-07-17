@@ -62,6 +62,8 @@ export interface NavigationConfig {
 
 export interface TelemetryConfig {
   enabled: boolean;
+  share: boolean;
+  id?: string;
 }
 
 export interface ObsidianConfig {

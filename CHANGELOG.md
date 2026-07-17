@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Anonymous usage analytics** — anonymous session telemetry via PostHog (EU Cloud). One `session` event per MCP server session reported on the next startup, containing client, models, version, platform, vault size, and tool usage counts. No personal data collected. Set `telemetry.share: false` to opt out. See [docs/telemetry.md](docs/telemetry.md).
+- **Install telemetry prompt** — interactive installations ask about anonymous analytics. Use `--no-telemetry` to skip.
+
 ## 1.2.0 - 2026-07-09
 
 ### Added

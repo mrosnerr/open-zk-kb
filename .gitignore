@@ -20,6 +20,7 @@ test-binary
 
 # Environment files
 .env*
+!.env.example
 
 # Configuration (contains API keys)
 config.yaml

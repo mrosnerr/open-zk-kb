@@ -83,6 +83,20 @@ export interface StoreOptions {
 
 export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine' | 'template';
 
+export interface UnreportedSession {
+  session_id: string;
+  client: string;
+  client_version: string | null;
+  started_at: number;
+  ended_at: number | null;
+  vault_size: number;
+  version: string;
+  os_platform: string;
+  tool_counts: Record<string, number>;
+  total_invocations: number;
+  models: string[];
+}
+
 export interface TelemetryAggregates {
   sessions: number;
   searches: number;
@@ -1592,13 +1606,13 @@ export class NoteRepository {
     return row;
   }
 
-  recordToolInvocation(toolName: TelemetryToolName, argKind?: string, resultCount?: number): void {
+  recordToolInvocation(toolName: TelemetryToolName, argKind?: string, resultCount?: number, model?: string): void {
     if (!this.telemetryEnabled) return;
     withBusyRetry(() => {
       this.db.prepare(`
-        INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null);
+        INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count, model)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null, model ?? null);
     });
   }
 
@@ -1691,6 +1705,133 @@ export class NoteRepository {
       FROM tool_telemetry
       ORDER BY id
     `).all() as TelemetryRow[];
+  }
+
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  recordSessionStart(client: string, clientVersion: string | null, vaultSize: number, version: string): void {
+    if (!this.telemetryEnabled) return;
+    try {
+      withBusyRetry(() => {
+        this.db.prepare(`
+          INSERT INTO sessions (session_id, client, client_version, started_at, vault_size, version, os_platform)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(this.sessionId, client, clientVersion, Date.now(), vaultSize, version, process.platform);
+      });
+    } catch {
+      // Silent failure — session recording should never block anything
+    }
+  }
+
+  recordSessionEnd(): void {
+    try {
+      withBusyRetry(() => {
+        this.db.prepare(`
+          UPDATE sessions SET ended_at = ? WHERE session_id = ?
+        `).run(Date.now(), this.sessionId);
+      });
+    } catch {
+      // Silent failure
+    }
+  }
+
+  /**
+   * Atomically claim and return unreported sessions.
+   * Sets reported = 2 ("claiming") inside a transaction so concurrent
+   * startups cannot read the same rows. Use markSessionsReported() on
+   * success or releaseClaimedSessions() on failure.
+   */
+  getUnreportedSessions(limit: number = 50): UnreportedSession[] {
+    // Atomic claim: SELECT + UPDATE in one transaction
+    const sessions = this.db.transaction(() => {
+      const rows = this.db.prepare(`
+        SELECT session_id, client, client_version, started_at, ended_at, vault_size, version, os_platform
+        FROM sessions
+        WHERE reported = 0 AND session_id != ? AND ended_at IS NOT NULL
+        ORDER BY started_at DESC
+        LIMIT ?
+      `).all(this.sessionId, limit) as Array<{
+        session_id: string;
+        client: string;
+        client_version: string | null;
+        started_at: number;
+        ended_at: number | null;
+        vault_size: number;
+        version: string;
+        os_platform: string;
+      }>;
+
+      if (rows.length > 0) {
+        const ids = rows.map(r => r.session_id);
+        const placeholders = ids.map(() => '?').join(',');
+        this.db.prepare(
+          `UPDATE sessions SET reported = 2, claimed_at = ? WHERE session_id IN (${placeholders})`
+        ).run(Date.now(), ...ids);
+      }
+
+      return rows;
+    })();
+
+    return sessions.map(s => {
+      const toolRows = this.db.prepare(`
+        SELECT tool_name, COUNT(*) as count
+        FROM tool_telemetry
+        WHERE session_id = ?
+        GROUP BY tool_name
+      `).all(s.session_id) as Array<{ tool_name: string; count: number }>;
+
+      const tool_counts: Record<string, number> = {};
+      let total_invocations = 0;
+      for (const row of toolRows) {
+        tool_counts[row.tool_name] = row.count;
+        total_invocations += row.count;
+      }
+
+      const modelRows = this.db.prepare(`
+        SELECT DISTINCT model FROM tool_telemetry
+        WHERE session_id = ? AND model IS NOT NULL
+      `).all(s.session_id) as Array<{ model: string }>;
+      const models = modelRows.map(r => r.model);
+
+      return { ...s, tool_counts, total_invocations, models };
+    });
+  }
+
+  markSessionsReported(sessionIds: string[]): void {
+    if (sessionIds.length === 0) return;
+    const placeholders = sessionIds.map(() => '?').join(',');
+    withBusyRetry(() => {
+      this.db.prepare(`
+        UPDATE sessions SET reported = 1, claimed_at = NULL WHERE session_id IN (${placeholders})
+      `).run(...sessionIds);
+    });
+  }
+
+  /** Reset sessions stuck in claimed state (reported=2) whose claim has
+   *  expired. Uses a 60-second TTL so live reporters' in-flight claims
+   *  are not disturbed by concurrent startups. */
+  recoverAbandonedClaims(): void {
+    const ttlMs = 60_000; // 60 seconds — well above the 5s fetch timeout
+    const cutoff = Date.now() - ttlMs;
+    withBusyRetry(() => {
+      this.db.prepare(`
+        UPDATE sessions SET reported = 0, claimed_at = NULL
+        WHERE reported = 2 AND (claimed_at IS NULL OR claimed_at < ?)
+      `).run(cutoff);
+    });
+  }
+
+  /** Release claimed sessions back to unreported on send failure. */
+  releaseClaimedSessions(sessionIds: string[]): void {
+    if (sessionIds.length === 0) return;
+    const placeholders = sessionIds.map(() => '?').join(',');
+    withBusyRetry(() => {
+      this.db.prepare(`
+        UPDATE sessions SET reported = 0, claimed_at = NULL WHERE session_id IN (${placeholders}) AND reported = 2
+      `).run(...sessionIds);
+    });
   }
 
   recordConformance(record: ConformanceRecord): void {
