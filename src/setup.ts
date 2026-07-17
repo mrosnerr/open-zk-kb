@@ -2206,14 +2206,19 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     async function promptTelemetry(): Promise<void> {
       if (dryRun) return;
       if (noTelemetry) {
-        try {
-          writeTelemetryConfig(false, false);
-        } catch (err) {
-          p.log.error(
-            `Failed to write telemetry opt-out to config.\n` +
-            `  Set DO_NOT_TRACK=1 in your environment as a fallback.\n` +
-            `  ${err instanceof Error ? err.message : String(err)}`,
-          );
+        // Defaults are already disabled (enabled: false, share: false).
+        // Only write if config already exists and might have telemetry enabled.
+        const configPath = getConfigYamlPath();
+        if (fs.existsSync(configPath)) {
+          try {
+            writeTelemetryConfig(false, false);
+          } catch (err) {
+            p.log.error(
+              `Failed to write telemetry opt-out to config.\n` +
+              `  Set DO_NOT_TRACK=1 in your environment as a fallback.\n` +
+              `  ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         }
         return;
       }
@@ -2232,11 +2237,15 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         initialValue: false,
       });
       if (p.isCancel(answer)) return; // Don't block install on cancel
-      // Yes → enable local counters + sharing. No → disable everything.
-      try {
-        writeTelemetryConfig(answer, answer);
-      } catch {
-        // Non-fatal — config stays at safe defaults (disabled)
+      // Only write config when opting in — the defaults are already disabled,
+      // so declining doesn't need a config write (and avoids creating a
+      // comment-stripped config.yaml before installClient seeds the example).
+      if (answer) {
+        try {
+          writeTelemetryConfig(true, true);
+        } catch {
+          // Non-fatal — config stays at safe defaults (disabled)
+        }
       }
     }
 

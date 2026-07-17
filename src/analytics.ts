@@ -155,10 +155,15 @@ export async function reportPreviousSessions(repo: {
   getUnreportedSessions: (limit?: number) => UnreportedSession[];
   markSessionsReported: (ids: string[]) => void;
   releaseClaimedSessions: (ids: string[]) => void;
+  recoverAbandonedClaims: () => void;
 }): Promise<void> {
   let claimedIds: string[] = [];
   try {
     if (!isSharingEnabled()) return;
+
+    // Recover sessions left in claimed state by a previous process
+    // that was killed before it could release or mark them reported.
+    repo.recoverAbandonedClaims();
 
     // getUnreportedSessions atomically claims rows (reported=2)
     // so concurrent startups cannot read the same sessions

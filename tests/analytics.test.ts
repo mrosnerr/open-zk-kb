@@ -65,14 +65,17 @@ describe('analytics', () => {
   function createMockRepo(sessions: UnreportedSession[] = []) {
     const reportedIds: string[][] = [];
     const releasedIds: string[][] = [];
+    let recoverCalled = false;
     return {
       repo: {
         getUnreportedSessions: (_limit?: number) => sessions,
         markSessionsReported: (ids: string[]) => { reportedIds.push(ids); },
         releaseClaimedSessions: (ids: string[]) => { releasedIds.push(ids); },
+        recoverAbandonedClaims: () => { recoverCalled = true; },
       },
       reportedIds,
       releasedIds,
+      get recoverCalled() { return recoverCalled; },
     };
   }
 
@@ -163,29 +166,39 @@ describe('analytics', () => {
   // ── PII Snapshot Tests ──
 
   describe('PII snapshot — event properties are allowlisted', () => {
-    it('session event has only allowed keys', () => {
-      const allowedKeys = [
-        'client', 'client_version', 'duration_ms', 'models', 'os_platform',
-        'session_id', 'tool_maintain', 'tool_mine', 'tool_search',
-        'tool_store', 'tool_template', 'total_invocations', 'vault_size', 'version',
-      ];
-      const properties = {
-        client: 'claude-code',
-        client_version: '1.0.27',
-        session_id: 'abc',
-        version: '1.3.0',
-        os_platform: 'darwin',
-        vault_size: 42,
-        duration_ms: 30000,
-        total_invocations: 8,
-        tool_search: 5,
-        tool_store: 2,
-        tool_maintain: 1,
-        tool_mine: 0,
-        tool_template: 0,
-        models: ['claude-sonnet-4'],
-      };
-      expect(Object.keys(properties).sort()).toEqual(allowedKeys);
+    // These are the ONLY keys allowed in the session event properties
+    // (excluding PostHog metadata keys prefixed with $).
+    // If a new field is added to the payload, this test must be updated.
+    const allowedKeys = [
+      'client', 'client_version', 'duration_ms', 'models', 'os_platform',
+      'session_id', 'tool_maintain', 'tool_mine', 'tool_search',
+      'tool_store', 'tool_template', 'total_invocations', 'vault_size', 'version',
+    ];
+
+    it('real payload contains only allowlisted keys', async () => {
+      const env = createIsolatedEnv();
+      writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');
+
+      const { repo } = createMockRepo([createTestSession()]);
+
+      let capturedBody: Record<string, unknown> | null = null;
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: string | URL | Request, opts?: RequestInit) => {
+        capturedBody = JSON.parse(opts?.body as string);
+        return new Response('{}', { status: 200 });
+      }) as typeof fetch;
+
+      try {
+        await reportPreviousSessions(repo);
+        expect(capturedBody).not.toBeNull();
+        const batch = (capturedBody as Record<string, unknown>).batch as Array<Record<string, unknown>>;
+        const props = batch[0].properties as Record<string, unknown>;
+        // Filter out PostHog metadata keys (prefixed with $)
+        const appKeys = Object.keys(props).filter(k => !k.startsWith('$')).sort();
+        expect(appKeys).toEqual(allowedKeys);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     });
   });
 

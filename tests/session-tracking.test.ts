@@ -142,14 +142,27 @@ describe('session tracking', () => {
       const db = new Database(dbPath());
       for (let i = 0; i < 10; i++) {
         db.run(
-          'INSERT INTO sessions (session_id, client, started_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?)',
-          `prev-session-${i}`, 'test', Date.now() - (i * 10000), 0, '1.0.0', 0,
+          'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          `prev-session-${i}`, 'test', Date.now() - (i * 10000), Date.now() - (i * 10000) + 5000, 0, '1.0.0', 0,
         );
       }
       db.close();
 
       const sessions = ctx.engine.getUnreportedSessions(3);
       expect(sessions).toHaveLength(3);
+    });
+
+    it('excludes sessions without ended_at (still active)', () => {
+      const db = new Database(dbPath());
+      db.run(
+        'INSERT INTO sessions (session_id, client, started_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?)',
+        'active-session', 'claude-code', Date.now() - 60000, 10, '1.0.0', 0,
+      );
+      // No ended_at — session is still running
+      db.close();
+
+      const sessions = ctx.engine.getUnreportedSessions();
+      expect(sessions).toHaveLength(0);
     });
 
     it('excludes the current session', () => {
@@ -194,8 +207,8 @@ describe('session tracking', () => {
     it('getUnreportedSessions claims rows (reported=2) so second call returns empty', () => {
       const db = new Database(dbPath());
       db.run(
-        'INSERT INTO sessions (session_id, client, started_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?)',
-        'claim-test', 'claude-code', Date.now() - 60000, 10, '1.0.0', 0,
+        'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'claim-test', 'claude-code', Date.now() - 60000, Date.now() - 30000, 10, '1.0.0', 0,
       );
       db.close();
 
@@ -210,8 +223,8 @@ describe('session tracking', () => {
     it('releaseClaimedSessions makes rows available again', () => {
       const db = new Database(dbPath());
       db.run(
-        'INSERT INTO sessions (session_id, client, started_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?)',
-        'release-test', 'cursor', Date.now() - 60000, 5, '1.0.0', 0,
+        'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'release-test', 'cursor', Date.now() - 60000, Date.now() - 30000, 5, '1.0.0', 0,
       );
       db.close();
 
@@ -224,6 +237,27 @@ describe('session tracking', () => {
       // Now they should be available again
       const second = ctx.engine.getUnreportedSessions();
       expect(second).toHaveLength(1);
+    });
+
+    it('recoverAbandonedClaims resets claimed rows back to unreported', () => {
+      const db = new Database(dbPath());
+      db.run(
+        'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'stuck-session', 'cursor', Date.now() - 120000, Date.now() - 90000, 5, '1.0.0', 2,
+      );
+      db.close();
+
+      // Before recovery, getUnreportedSessions should not see it (reported=2)
+      const before = ctx.engine.getUnreportedSessions();
+      expect(before).toHaveLength(0);
+
+      // Recover abandoned claims
+      ctx.engine.recoverAbandonedClaims();
+
+      // Now it should be available
+      const after = ctx.engine.getUnreportedSessions();
+      expect(after).toHaveLength(1);
+      expect(after[0].session_id).toBe('stuck-session');
     });
 
     it('releaseClaimedSessions does not affect already-reported sessions', () => {

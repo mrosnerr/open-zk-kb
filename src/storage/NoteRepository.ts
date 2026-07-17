@@ -1749,7 +1749,7 @@ export class NoteRepository {
       const rows = this.db.prepare(`
         SELECT session_id, client, client_version, started_at, ended_at, vault_size, version, os_platform
         FROM sessions
-        WHERE reported = 0 AND session_id != ?
+        WHERE reported = 0 AND session_id != ? AND ended_at IS NOT NULL
         ORDER BY started_at DESC
         LIMIT ?
       `).all(this.sessionId, limit) as Array<{
@@ -1806,6 +1806,17 @@ export class NoteRepository {
       this.db.prepare(`
         UPDATE sessions SET reported = 1 WHERE session_id IN (${placeholders})
       `).run(...sessionIds);
+    });
+  }
+
+  /** Reset any sessions stuck in claimed state (reported=2) from a previous
+   *  process that died between claim and release. Safe to call at startup. */
+  recoverAbandonedClaims(): void {
+    withBusyRetry(() => {
+      this.db.prepare(`
+        UPDATE sessions SET reported = 0
+        WHERE reported = 2 AND session_id != ?
+      `).run(this.sessionId);
     });
   }
 

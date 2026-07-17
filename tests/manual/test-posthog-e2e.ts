@@ -135,4 +135,7 @@ async function run() {
   console.log('🧹 Cleaned up');
 }
 
-run().catch(console.error);
+run().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
