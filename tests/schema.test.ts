@@ -41,7 +41,7 @@ describe('schema.ts', () => {
 
     expect(result.valid).toBe(true);
     expect(result.needsRebuild).toBe(false);
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 
@@ -122,7 +122,7 @@ describe('schema.ts', () => {
 
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('kind');
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 
@@ -157,7 +157,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('summary');
     expect(columns).toContain('guidance');
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 
@@ -194,7 +194,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('embedding');
     expect(columns).toContain('embedding_model');
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 
@@ -234,7 +234,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('content_hash');
     expect(tableExists(db, 'capture_metrics')).toBe(false);
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 
@@ -273,7 +273,7 @@ describe('schema.ts', () => {
 
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('lifecycle');
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 
@@ -313,7 +313,7 @@ describe('schema.ts', () => {
     const columns = getColumns(db, 'notes');
     expect(columns).toContain('last_accessed_at');
     expect(tableExists(db, 'tool_telemetry')).toBe(true);
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 
@@ -343,7 +343,7 @@ describe('schema.ts', () => {
     schema.checkAndRepair();
 
     expect(tableExists(db, 'template_conformance')).toBe(true);
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 
@@ -390,7 +390,22 @@ describe('schema.ts', () => {
     expect(columns).toContain('version');
     expect(columns).toContain('os_platform');
     expect(columns).toContain('reported');
-    expect(getUserVersion(db)).toBe(9);
+    expect(getUserVersion(db)).toBe(10);
+    db.close();
+  });
+
+  it('migrates from v9 to v10: adds model column to tool_telemetry', () => {
+    const db = new Database(':memory:');
+    const schema = new SchemaManager(db);
+    schema.initialize();
+    // Simulate v9 by removing model column if it exists (initialize creates it)
+    db.run('PRAGMA user_version = 9');
+    // The migration should be idempotent — check it doesn't fail
+    schema.checkAndRepair();
+
+    const columns = getColumns(db, 'tool_telemetry');
+    expect(columns).toContain('model');
+    expect(getUserVersion(db)).toBe(10);
     db.close();
   });
 

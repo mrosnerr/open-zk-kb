@@ -152,22 +152,6 @@ For any new feature, ask in order:
 - Dataview, Meta Bind, QuickAdd-oriented affordances, and similar Obsidian-only UX should live in generated navigation files, not canonical knowledge notes.
 
 
-### Documentation Structure
-
-All project documentation lives in `docs/`. Only `index.md` and `log.md` belong in the docs root — everything else goes in a numbered subdirectory.
-
-| Directory | Contents | Convention |
-|---|---|---|
-| `01-principles/` | Core principles, policies | Living docs |
-| `02-patterns/` | Architecture, guides, practices | Living docs |
-| `03-sources/` | Raw materials, imports, links | Reference |
-| `04-references/` | Glossary, summaries | Mixed |
-| `05-research/` | Research findings | Dated snapshots, immutable |
-| `06-decisions/` | ADRs | Dated snapshots, immutable |
-| `07-specs/` | PRDs, design specs | Mixed |
-
-See `docs/index.md` for the full "Where Things Go" table.
-
 ---
 
 ## Boundaries
@@ -215,7 +199,7 @@ See `docs/index.md` for the full "Where Things Go" table.
 - **Hints, not directives**: Server responses include computed metrics (word count, similarity score, staleness days). Never phrased as recommendations.
 - **Behavioral guidance is advisory**: Instructions are "a request, not a guarantee" ([Anthropic](https://docs.anthropic.com/en/docs/claude-code/features-overview)). Deterministic enforcement requires hooks/plugins.
 - **Telemetry is local-only and opt-in**: Tool invocation counters are disabled by default; set `telemetry.enabled: true` to enable. Counters stay in SQLite, never include content or query strings. When disabled, both counter rows and access timestamp updates are skipped.
-- **Anonymous analytics sharing**: When `telemetry.share: true`, anonymous session metadata (client, version, platform, vault size, duration, tool usage counts) is persisted to SQLite and sent to PostHog (EU Cloud) on the next server startup. No PII, no note content, no queries, no network calls at shutdown. Set `telemetry.share: false` to opt out. All sharing logic lives in `src/analytics.ts`. See `docs/telemetry.md`.
+- **Anonymous analytics sharing**: When `telemetry.share: true`, anonymous session metadata (client, version, platform, vault size, duration, tool usage counts, model IDs) is persisted to SQLite and sent to PostHog (EU Cloud) on the next server startup. No PII, no note content, no queries, no network calls at shutdown. Set `telemetry.share: false` to opt out. All sharing logic lives in `src/analytics.ts`. See `docs/telemetry.md`.
 
 ## Notes
 

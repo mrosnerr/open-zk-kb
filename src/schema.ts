@@ -5,7 +5,7 @@ import { Database } from 'bun:sqlite';
 import { logToFile } from './logger.js';
 
 export class SchemaManager {
-  static readonly SCHEMA_VERSION = 9;
+  static readonly SCHEMA_VERSION = 10;
 
   private static readonly MIGRATIONS: Array<{
     version: number;
@@ -123,6 +123,16 @@ export class SchemaManager {
         SchemaManager.createSessionsTable(db);
       },
     },
+    {
+      version: 10,
+      description: 'Add model column to tool_telemetry',
+      migrate: (db) => {
+        const columns = db.prepare('PRAGMA table_info(tool_telemetry)').all() as Array<{ name: string }>;
+        if (!columns.some(c => c.name === 'model')) {
+          db.run('ALTER TABLE tool_telemetry ADD COLUMN model TEXT');
+        }
+      },
+    },
   ];
 
   private static createTelemetryTable(db: Database): void {
@@ -133,7 +143,8 @@ export class SchemaManager {
         tool_name TEXT NOT NULL,
         arg_kind TEXT,
         timestamp INTEGER NOT NULL,
-        result_count INTEGER
+        result_count INTEGER,
+        model TEXT
       )
     `);
     db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON tool_telemetry(timestamp)');

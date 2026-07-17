@@ -2222,7 +2222,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
       const answer = await p.confirm({
         message: 'Help improve open-zk-kb with anonymous usage analytics?\n' +
-          color.dim('    Session metadata: client, version, platform, vault size, tool usage counts.\n') +
+          color.dim('    Session metadata: client, models, version, platform, vault size, tool usage counts.\n') +
           color.dim('    Never any note contents, search queries, or personal data.\n') +
           color.dim('    Open source and auditable: https://github.com/mrosnerr/open-zk-kb/blob/main/docs/telemetry.md'),
         initialValue: true,

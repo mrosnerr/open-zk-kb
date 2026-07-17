@@ -24,6 +24,7 @@ One event per session, reported on the next server startup:
     "tool_maintain": 1,
     "tool_mine": 0,
     "tool_template": 0,
+    "models": ["claude-sonnet-4"],
     "session_id": "550e8400-e29b-41d4-a716-446655440000",
     "$lib": "open-zk-kb",
     "$lib_version": "1.3.0",
@@ -47,6 +48,7 @@ One event per session, reported on the next server startup:
 | `tool_maintain` | number | Number of maintain calls |
 | `tool_mine` | number | Number of mine calls |
 | `tool_template` | number | Number of template calls |
+| `models` | string[] | Distinct model IDs seen during the session |
 | `session_id` | string | Random UUID for dedup/debugging (not linkable to user identity) |
 
 ### Metadata on all events

@@ -65,6 +65,8 @@ export interface SessionProperties {
   tool_template: number;
   // Correlation
   session_id: string;
+  // Models
+  models: string[];
 }
 
 export interface AnalyticsEvent {
@@ -185,6 +187,8 @@ export async function reportPreviousSessions(repo: {
           tool_template: s.tool_counts.template ?? 0,
           // Correlation
           session_id: s.session_id,
+          // Models
+          models: s.models,
         },
       }, distinctId, sessionTimestamp));
     }

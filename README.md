@@ -79,7 +79,7 @@ Search combines SQLite FTS5 full-text indexing with local vector embeddings (Min
 
 ## Telemetry
 
-When opted in (`telemetry.share: true`), open-zk-kb sends anonymous session analytics to [PostHog](https://posthog.com) (EU Cloud) — which client you use, vault size, and tool usage counts. No note content, search queries, or personal data is ever collected. Set `telemetry.share: false` or `DO_NOT_TRACK=1` to opt out. See [Telemetry](docs/telemetry.md) for the full event schema and details.
+When opted in (`telemetry.share: true`), open-zk-kb sends anonymous session analytics to [PostHog](https://posthog.com) (EU Cloud) — which client and models you use, vault size, and tool usage counts. No note content, search queries, or personal data is ever collected. Set `telemetry.share: false` or `DO_NOT_TRACK=1` to opt out. See [Telemetry](docs/telemetry.md) for the full event schema and details.
 
 ## Documentation
 

@@ -111,15 +111,16 @@ describe('session tracking', () => {
         'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?, ?)',
         'prev-session', 'claude-code', Date.now() - 60000, Date.now() - 30000, 42, '1.3.0', 0,
       );
-      db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp) VALUES (?, ?, ?)', 'prev-session', 'search', Date.now() - 50000);
-      db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp) VALUES (?, ?, ?)', 'prev-session', 'search', Date.now() - 45000);
-      db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp) VALUES (?, ?, ?)', 'prev-session', 'store', Date.now() - 40000);
+      db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp, model) VALUES (?, ?, ?, ?)', 'prev-session', 'search', Date.now() - 50000, 'claude-sonnet-4');
+      db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp, model) VALUES (?, ?, ?, ?)', 'prev-session', 'search', Date.now() - 45000, 'claude-sonnet-4');
+      db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp, model) VALUES (?, ?, ?, ?)', 'prev-session', 'store', Date.now() - 40000, 'gpt-4o');
       db.close();
 
       const sessions = ctx.engine.getUnreportedSessions();
       expect(sessions).toHaveLength(1);
       expect(sessions[0].tool_counts).toEqual({ search: 2, store: 1 });
       expect(sessions[0].total_invocations).toBe(3);
+      expect(sessions[0].models.sort()).toEqual(['claude-sonnet-4', 'gpt-4o']);
     });
 
     it('returns empty tool_counts when no tool_telemetry rows exist', () => {
@@ -134,6 +135,7 @@ describe('session tracking', () => {
       expect(sessions).toHaveLength(1);
       expect(sessions[0].tool_counts).toEqual({});
       expect(sessions[0].total_invocations).toBe(0);
+      expect(sessions[0].models).toEqual([]);
     });
 
     it('respects limit parameter', () => {

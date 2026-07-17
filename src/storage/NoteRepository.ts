@@ -94,6 +94,7 @@ export interface UnreportedSession {
   os_platform: string;
   tool_counts: Record<string, number>;
   total_invocations: number;
+  models: string[];
 }
 
 export interface TelemetryAggregates {
@@ -1605,13 +1606,13 @@ export class NoteRepository {
     return row;
   }
 
-  recordToolInvocation(toolName: TelemetryToolName, argKind?: string, resultCount?: number): void {
+  recordToolInvocation(toolName: TelemetryToolName, argKind?: string, resultCount?: number, model?: string): void {
     if (!this.telemetryEnabled) return;
     withBusyRetry(() => {
       this.db.prepare(`
-        INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null);
+        INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count, model)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null, model ?? null);
     });
   }
 
@@ -1769,7 +1770,13 @@ export class NoteRepository {
         total_invocations += row.count;
       }
 
-      return { ...s, tool_counts, total_invocations };
+      const modelRows = this.db.prepare(`
+        SELECT DISTINCT model FROM tool_telemetry
+        WHERE session_id = ? AND model IS NOT NULL
+      `).all(s.session_id) as Array<{ model: string }>;
+      const models = modelRows.map(r => r.model);
+
+      return { ...s, tool_counts, total_invocations, models };
     });
   }
 

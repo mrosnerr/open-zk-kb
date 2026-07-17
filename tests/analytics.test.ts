@@ -85,6 +85,7 @@ describe('analytics', () => {
       os_platform: 'darwin',
       tool_counts: { search: 5, store: 2 },
       total_invocations: 7,
+      models: ['claude-sonnet-4'],
       ...overrides,
     };
   }
@@ -161,7 +162,7 @@ describe('analytics', () => {
   describe('PII snapshot — event properties are allowlisted', () => {
     it('session event has only allowed keys', () => {
       const allowedKeys = [
-        'client', 'client_version', 'duration_ms', 'os_platform',
+        'client', 'client_version', 'duration_ms', 'models', 'os_platform',
         'session_id', 'tool_maintain', 'tool_mine', 'tool_search',
         'tool_store', 'tool_template', 'total_invocations', 'vault_size', 'version',
       ];
@@ -179,6 +180,7 @@ describe('analytics', () => {
         tool_maintain: 1,
         tool_mine: 0,
         tool_template: 0,
+        models: ['claude-sonnet-4'],
       };
       expect(Object.keys(properties).sort()).toEqual(allowedKeys);
     });
@@ -270,6 +272,8 @@ describe('analytics', () => {
         expect(props.tool_template).toBe(0);
         // Correlation
         expect(props.session_id).toBe('test-session-123');
+        // Models
+        expect(props.models).toEqual(['claude-sonnet-4']);
         // Metadata
         expect(props.$lib).toBe('open-zk-kb');
         expect(props.$geoip_disable).toBe(true);
@@ -424,7 +428,7 @@ describe('analytics', () => {
       const env = createIsolatedEnv();
       writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');
 
-      const session = createTestSession({ tool_counts: {}, total_invocations: 0 });
+      const session = createTestSession({ tool_counts: {}, total_invocations: 0, models: [] });
       const { repo } = createMockRepo([session]);
 
       const calls: { body: unknown }[] = [];
