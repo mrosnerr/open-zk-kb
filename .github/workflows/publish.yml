@@ -91,6 +91,16 @@ jobs:
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'dev'
         run: npm version "${{ steps.release.outputs.version }}" --no-git-tag-version
 
+      - name: Strip patchedDependencies from package.json
+        if: steps.check.outputs.skip == 'false'
+        run: |
+          node -e "
+            const p = JSON.parse(require('fs').readFileSync('package.json','utf8'));
+            delete p.patchedDependencies;
+            require('fs').writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');
+          "
+          echo 'Stripped patchedDependencies for publish'
+
       - name: Publish (stable)
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
         run: npm publish --provenance --access public --tag latest
