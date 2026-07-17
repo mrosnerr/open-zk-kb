@@ -8,11 +8,12 @@ import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import * as p from '@clack/prompts';
 import color from 'picocolors';
+import YAML from 'yaml';
 import { expandPath } from './utils/path.js';
 import { injectAgentDocs, inspectAgentDocs, removeAgentDocs, getAgentDocsVersion } from './agent-docs.js';
 import type { InstructionSize } from './agent-docs.js';
 import { PKG_VERSION } from './version.js';
-import { getConfig } from './config.js';
+import { getConfig, isTelemetryShareConfigured } from './config.js';
 import { OMP_AGENT_DOCS_PREAMBLE } from './agent-docs-targets.js';
 
 function detectNpmTag(): 'dev' | 'latest' {
@@ -411,7 +412,9 @@ function isOpenZkKbPiPackageSource(source: string): boolean {
     }
   }
 
-  return path.isAbsolute(source) && isOpenZkKbLocalPackagePath(source);
+  // Handle both absolute and relative local paths
+  const resolved = path.isAbsolute(source) ? source : path.resolve(source);
+  return isOpenZkKbLocalPackagePath(resolved);
 }
 
 function isOpenZkKbLocalPackagePath(source: string): boolean {
@@ -695,6 +698,32 @@ function getVaultPath(): string {
 
 function getConfigYamlPath(): string {
   return path.join(xdgConfigHome, 'open-zk-kb', 'config.yaml');
+}
+
+/** Write telemetry enabled/share settings to config.yaml. */
+function writeTelemetryConfig(enabled: boolean, share: boolean): void {
+  try {
+    const configPath = getConfigYamlPath();
+    let doc: Record<string, unknown> = {};
+    if (fs.existsSync(configPath)) {
+      const content = fs.readFileSync(configPath, 'utf-8');
+      const parsed = YAML.parse(content);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        doc = parsed as Record<string, unknown>;
+      }
+    }
+    const existing = doc.telemetry;
+    const telemetry = (existing && typeof existing === 'object' && !Array.isArray(existing))
+      ? existing as Record<string, unknown>
+      : {};
+    telemetry.enabled = enabled;
+    telemetry.share = share;
+    doc.telemetry = telemetry;
+    fs.mkdirSync(path.dirname(configPath), { recursive: true });
+    fs.writeFileSync(configPath, YAML.stringify(doc), 'utf-8');
+  } catch {
+    // Silent failure — don't block install
+  }
 }
 
 /**
@@ -1679,7 +1708,7 @@ export function install(args: InstallArgs): InstallResult {
   if (httpAuthHeaderWarning) {
     details.push(httpAuthHeaderWarning);
   }
-  
+
   return { status: 'installed', clientName: clientConfig.name, output, details, staleSkippedSymlinks, agentDocsSkippedSymlink };
 }
 
@@ -2036,6 +2065,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     const force = args.includes('--force');
     const dryRun = args.includes('--dry-run');
     const yes = args.includes('--yes');
+    const noTelemetry = args.includes('--no-telemetry');
     const serverPath = parseFlagValue(args, '--server-path');
     const clientArg = parseFlagValue(args, '--client');
     const instructionsArg = parseFlagValue(args, '--instructions');
@@ -2176,8 +2206,32 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       }
     }
 
+    // --- Telemetry prompt helper ---
+    async function promptTelemetry(): Promise<void> {
+      if (noTelemetry) {
+        writeTelemetryConfig(true, false);
+        return;
+      }
+      if (yes || !process.stdin.isTTY) {
+        // Non-interactive: use config defaults
+        return;
+      }
+      // Only prompt if the user hasn't explicitly configured share
+      if (isTelemetryShareConfigured()) return;
+
+      const answer = await p.confirm({
+        message: 'Help improve open-zk-kb with anonymous usage analytics?\n' +
+          color.dim('    Only tool names, client, and vault size — never any note contents.\n') +
+          color.dim('    Open source and auditable: https://github.com/mrosnerr/open-zk-kb/blob/main/docs/telemetry.md'),
+        initialValue: true,
+      });
+      if (p.isCancel(answer)) return; // Don't block install on cancel
+      writeTelemetryConfig(true, answer);
+    }
+
     // --- Single-client mode ---
     if (client) {
+      await promptTelemetry();
       const result = await installClient(client, { serverPath, transport, force, dryRun, instructionSize, yes });
       console.log(result.output);
       return;
@@ -2236,6 +2290,9 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       process.exit(0);
     }
 
+    // Prompt for telemetry before installing
+    await promptTelemetry();
+
     // Show shared info once before per-client results
     p.log.info(color.dim(`Vault: ${getVaultPath()}`));
 
@@ -2280,7 +2337,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
           const tryItConfig = CLIENT_CONFIGS[tryIt];
           const bin = tryItConfig.cliBinary;
           if (bin) {
-            p.outro(`Launching ${tryItConfig.name}...`);
+              p.outro(`Launching ${tryItConfig.name}...`);
             execFileSync(bin, ['Search the knowledge base for any existing notes'], {
               stdio: 'inherit',
             });

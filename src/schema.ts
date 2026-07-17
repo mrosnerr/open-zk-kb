@@ -5,7 +5,7 @@ import { Database } from 'bun:sqlite';
 import { logToFile } from './logger.js';
 
 export class SchemaManager {
-  static readonly SCHEMA_VERSION = 8;
+  static readonly SCHEMA_VERSION = 9;
 
   private static readonly MIGRATIONS: Array<{
     version: number;
@@ -116,6 +116,13 @@ export class SchemaManager {
         SchemaManager.createConformanceTable(db);
       },
     },
+    {
+      version: 9,
+      description: 'Add sessions table for startup reporting',
+      migrate: (db) => {
+        SchemaManager.createSessionsTable(db);
+      },
+    },
   ];
 
   private static createTelemetryTable(db: Database): void {
@@ -131,6 +138,23 @@ export class SchemaManager {
     `);
     db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_timestamp ON tool_telemetry(timestamp)');
     db.run('CREATE INDEX IF NOT EXISTS idx_telemetry_session ON tool_telemetry(session_id)');
+  }
+
+  private static createSessionsTable(db: Database): void {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS sessions (
+        session_id TEXT PRIMARY KEY,
+        client TEXT NOT NULL DEFAULT 'unknown',
+        client_version TEXT,
+        started_at INTEGER NOT NULL,
+        ended_at INTEGER,
+        vault_size INTEGER NOT NULL DEFAULT 0,
+        version TEXT NOT NULL,
+        os_platform TEXT NOT NULL DEFAULT 'unknown',
+        reported INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    db.run('CREATE INDEX IF NOT EXISTS idx_sessions_reported ON sessions(reported)');
   }
 
   private static createConformanceTable(db: Database): void {
@@ -245,6 +269,7 @@ export class SchemaManager {
     this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_content_hash ON notes(content_hash)');
     this.db.run('CREATE INDEX IF NOT EXISTS idx_notes_last_accessed_at ON notes(last_accessed_at)');
     SchemaManager.createTelemetryTable(this.db);
+    SchemaManager.createSessionsTable(this.db);
     SchemaManager.createConformanceTable(this.db);
 
     this.db.run(`

@@ -22,6 +22,7 @@ import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { ensureObsidianScaffold } from './obsidian-scaffold.js';
 import { handleStore, handleSearch, handleStats, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
+import { reportPreviousSessions } from './analytics.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import { createGitVersioning } from './git-versioning.js';
 import type { GitVersioning } from './git-versioning.js';
@@ -560,6 +561,25 @@ export async function startServer() {
   await server.connect(transport);
   logToFile('INFO', 'MCP server: connected via stdio', {}, config);
 
+  // Fire-and-forget: record this session + report previous sessions
+  (async () => {
+    try {
+      const r = await getOrCreateRepo();
+      const clientInfo = server.server.getClientVersion();
+      const stats = r.getStats();
+      const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).version;
+      r.recordSessionStart(
+        clientInfo?.name ?? 'unknown',
+        clientInfo?.version ?? null,
+        stats.total,
+        version,
+      );
+      await reportPreviousSessions(r);
+    } catch {
+      // Silent failure — analytics should never block anything
+    }
+  })().catch(() => {});
+
   // Warm up embedding model in background so first search gets semantic results
   const embConfig = getEmbeddingConfig();
   if (embConfig) {
@@ -570,8 +590,15 @@ export async function startServer() {
 }
 
 
-export function shutdownServer() {
+export async function shutdownServer() {
   logToFile('INFO', 'MCP server: shutting down', {}, config);
+
+  // Record session end time locally (no network calls)
+  try {
+    if (repo) repo.recordSessionEnd();
+  } catch {
+    // Silent failure — never block shutdown
+  }
   if (gitVersioning) {
     try {
       gitVersioning.shutdownSync();

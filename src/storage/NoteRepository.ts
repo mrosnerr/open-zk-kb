@@ -83,6 +83,19 @@ export interface StoreOptions {
 
 export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine' | 'template';
 
+export interface UnreportedSession {
+  session_id: string;
+  client: string;
+  client_version: string | null;
+  started_at: number;
+  ended_at: number | null;
+  vault_size: number;
+  version: string;
+  os_platform: string;
+  tool_counts: Record<string, number>;
+  total_invocations: number;
+}
+
 export interface TelemetryAggregates {
   sessions: number;
   searches: number;
@@ -1691,6 +1704,82 @@ export class NoteRepository {
       FROM tool_telemetry
       ORDER BY id
     `).all() as TelemetryRow[];
+  }
+
+  getSessionId(): string {
+    return this.sessionId;
+  }
+
+  recordSessionStart(client: string, clientVersion: string | null, vaultSize: number, version: string): void {
+    try {
+      withBusyRetry(() => {
+        this.db.prepare(`
+          INSERT INTO sessions (session_id, client, client_version, started_at, vault_size, version, os_platform)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(this.sessionId, client, clientVersion, Date.now(), vaultSize, version, process.platform);
+      });
+    } catch {
+      // Silent failure — session recording should never block anything
+    }
+  }
+
+  recordSessionEnd(): void {
+    try {
+      withBusyRetry(() => {
+        this.db.prepare(`
+          UPDATE sessions SET ended_at = ? WHERE session_id = ?
+        `).run(Date.now(), this.sessionId);
+      });
+    } catch {
+      // Silent failure
+    }
+  }
+
+  getUnreportedSessions(limit: number = 50): UnreportedSession[] {
+    const sessions = this.db.prepare(`
+      SELECT session_id, client, client_version, started_at, ended_at, vault_size, version, os_platform
+      FROM sessions
+      WHERE reported = 0 AND session_id != ?
+      ORDER BY started_at DESC
+      LIMIT ?
+    `).all(this.sessionId, limit) as Array<{
+      session_id: string;
+      client: string;
+      client_version: string | null;
+      started_at: number;
+      ended_at: number | null;
+      vault_size: number;
+      version: string;
+      os_platform: string;
+    }>;
+
+    return sessions.map(s => {
+      const toolRows = this.db.prepare(`
+        SELECT tool_name, COUNT(*) as count
+        FROM tool_telemetry
+        WHERE session_id = ?
+        GROUP BY tool_name
+      `).all(s.session_id) as Array<{ tool_name: string; count: number }>;
+
+      const tool_counts: Record<string, number> = {};
+      let total_invocations = 0;
+      for (const row of toolRows) {
+        tool_counts[row.tool_name] = row.count;
+        total_invocations += row.count;
+      }
+
+      return { ...s, tool_counts, total_invocations };
+    });
+  }
+
+  markSessionsReported(sessionIds: string[]): void {
+    if (sessionIds.length === 0) return;
+    const placeholders = sessionIds.map(() => '?').join(',');
+    withBusyRetry(() => {
+      this.db.prepare(`
+        UPDATE sessions SET reported = 1 WHERE session_id IN (${placeholders})
+      `).run(...sessionIds);
+    });
   }
 
   recordConformance(record: ConformanceRecord): void {

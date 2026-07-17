@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Anonymous usage analytics** — anonymous telemetry sharing via PostHog (EU Cloud). Three event types: `install`, `session_ended`, `tool_invoked`. No personal data collected. New installations enable sharing by default; existing users are not affected. Set `telemetry.share: false` to opt out. See [docs/telemetry.md](docs/telemetry.md).
+- **Install telemetry prompt** — interactive installations ask about anonymous analytics. Use `--no-telemetry` to skip.
+
 ## 1.2.0 - 2026-07-09
 
 ### Added

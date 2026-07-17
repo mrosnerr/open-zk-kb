@@ -1247,6 +1247,7 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
 
   const accessedIds = [...(domainNote ? [domainNote.id] : []), ...results.map(note => note.id)];
   scheduleTelemetryWrite('search invocation', () => repo.recordToolInvocation('search', undefined, accessedIds.length));
+
   scheduleTelemetryWrite('search access update', () => repo.updateLastAccessed(accessedIds));
 
   if (results.length === 0 && !domainNote) {
@@ -1296,6 +1297,7 @@ async function backfillEmbeddings(
 
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
   scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action));
+
   switch (args.action) {
     case 'promote': {
       if (!args.noteId) return 'Error: noteId is required for promote action.';
@@ -2137,6 +2139,8 @@ export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?
   const project = args.project;
   const logLimit = Math.max(1, args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10);
 
+
+
   if (project) {
     return formatProjectOverview(project, logLimit, repo, config, args.model);
   }
@@ -2352,6 +2356,7 @@ export function handleGet(args: GetArgs, repo: NoteRepository): string {
   const note = repo.getById(args.noteId);
   if (!note) return `Note not found: ${args.noteId}`;
   scheduleTelemetryWrite('get access', () => repo.updateLastAccessed([note.id]));
+
   return renderNoteForSearch(note);
 }
 
@@ -2371,6 +2376,7 @@ export function handleTemplate(args: TemplateArgs, repo?: NoteRepository): strin
 
   if (repo) {
     scheduleTelemetryWrite('template', () => repo.recordToolInvocation('template', args.kind));
+
   }
 
   return getTemplate(args.kind, projectOverridePath);
@@ -2437,6 +2443,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
   }
 
   scheduleTelemetryWrite('mine', () => repo.recordToolInvocation('mine', undefined, args.candidates.length));
+
 
   const dryRun = args.dry_run ?? true;
   const embeddingTexts = args.candidates.map(candidate => buildEmbeddingText(candidate.title, candidate.summary, candidate.content));

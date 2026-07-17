@@ -108,6 +108,7 @@ EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Agent eval suite
 | `LifecycleViolationError` | class | `storage/NoteRepository.ts` | Thrown on snapshot update or append-only rewrite |
 | `getConfig` | function | `config.ts` | 2-layer merge: defaults → YAML config |
 | `logToFile` | function | `logger.ts` | File-based logging (XDG_STATE_HOME) |
+| `reportPreviousSessions` | function | `analytics.ts` | Report unreported sessions to PostHog on startup (fire-and-forget) |
 | `renderNoteForAgent` | function | `prompts.ts` | XML note rendering for agent consumption |
 | `renderNoteForSearch` | function | `prompts.ts` | XML note rendering with full content for search results |
 | `injectAgentDocs` | function | `agent-docs.ts` | Injects KB instructions into client instruction files |
@@ -214,6 +215,7 @@ See `docs/index.md` for the full "Where Things Go" table.
 - **Hints, not directives**: Server responses include computed metrics (word count, similarity score, staleness days). Never phrased as recommendations.
 - **Behavioral guidance is advisory**: Instructions are "a request, not a guarantee" ([Anthropic](https://docs.anthropic.com/en/docs/claude-code/features-overview)). Deterministic enforcement requires hooks/plugins.
 - **Telemetry is local-only and opt-in**: Tool invocation counters are disabled by default; set `telemetry.enabled: true` to enable. Counters stay in SQLite, never include content or query strings. When disabled, both counter rows and access timestamp updates are skipped.
+- **Anonymous analytics sharing**: When `telemetry.share: true`, anonymous usage events (tool name, model, scope, version, note count) are buffered in memory and sent to PostHog (EU Cloud) at shutdown. No PII, no note content, no queries. Set `telemetry.share: false` to opt out. All sharing logic lives in `src/analytics.ts`. See `docs/telemetry.md`.
 
 ## Notes
 
