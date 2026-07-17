@@ -561,6 +561,10 @@ export async function startServer() {
   await server.connect(transport);
   logToFile('INFO', 'MCP server: connected via stdio', {}, config);
 
+  // When the MCP client closes stdin (without SIGINT/SIGTERM),
+  // ensure we still record session end so the session is reportable.
+  process.stdin.once('end', () => shutdownServer());
+
   // Fire-and-forget: record this session + report previous sessions
   (async () => {
     try {
