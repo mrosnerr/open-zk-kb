@@ -66,7 +66,7 @@ When sharing is enabled, one event per session is reported on the next server st
 - Search queries
 - File paths or project names
 - Machine hostnames
-- IP addresses are not included in the payload; GeoIP enrichment is disabled via `$geoip_disable: true`. Note that the HTTP endpoint may still observe connection metadata (source IP), but PostHog does not store it when GeoIP is disabled
+- IP addresses are not included in the event payload. GeoIP enrichment is disabled via `$geoip_disable: true`, and the PostHog project has "Discard client IP data" enabled. As with any HTTP endpoint, PostHog's infrastructure may transiently observe the source IP during request processing
 - User names or email addresses
 - Geographic location (GeoIP enrichment is explicitly disabled)
 - Session IDs are random UUIDs — not linkable to any user identity beyond the anonymous `telemetry.id`
