@@ -702,28 +702,24 @@ function getConfigYamlPath(): string {
 
 /** Write telemetry enabled/share settings to config.yaml. */
 function writeTelemetryConfig(enabled: boolean, share: boolean): void {
-  try {
-    const configPath = getConfigYamlPath();
-    let doc: Record<string, unknown> = {};
-    if (fs.existsSync(configPath)) {
-      const content = fs.readFileSync(configPath, 'utf-8');
-      const parsed = YAML.parse(content);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        doc = parsed as Record<string, unknown>;
-      }
+  const configPath = getConfigYamlPath();
+  let doc: Record<string, unknown> = {};
+  if (fs.existsSync(configPath)) {
+    const content = fs.readFileSync(configPath, 'utf-8');
+    const parsed = YAML.parse(content);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      doc = parsed as Record<string, unknown>;
     }
-    const existing = doc.telemetry;
-    const telemetry = (existing && typeof existing === 'object' && !Array.isArray(existing))
-      ? existing as Record<string, unknown>
-      : {};
-    telemetry.enabled = enabled;
-    telemetry.share = share;
-    doc.telemetry = telemetry;
-    fs.mkdirSync(path.dirname(configPath), { recursive: true });
-    fs.writeFileSync(configPath, YAML.stringify(doc), 'utf-8');
-  } catch {
-    // Silent failure — don't block install
   }
+  const existing = doc.telemetry;
+  const telemetry = (existing && typeof existing === 'object' && !Array.isArray(existing))
+    ? existing as Record<string, unknown>
+    : {};
+  telemetry.enabled = enabled;
+  telemetry.share = share;
+  doc.telemetry = telemetry;
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, YAML.stringify(doc), 'utf-8');
 }
 
 /**
@@ -2210,7 +2206,15 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     async function promptTelemetry(): Promise<void> {
       if (dryRun) return;
       if (noTelemetry) {
-        writeTelemetryConfig(false, false);
+        try {
+          writeTelemetryConfig(false, false);
+        } catch (err) {
+          p.log.error(
+            `Failed to write telemetry opt-out to config.\n` +
+            `  Set DO_NOT_TRACK=1 in your environment as a fallback.\n` +
+            `  ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
         return;
       }
       if (yes || !process.stdin.isTTY) {
@@ -2225,10 +2229,15 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
           color.dim('    Session metadata: client, models, version, platform, vault size, tool usage counts.\n') +
           color.dim('    Never any note contents, search queries, or personal data.\n') +
           color.dim('    Open source and auditable: https://github.com/mrosnerr/open-zk-kb/blob/main/docs/telemetry.md'),
-        initialValue: true,
+        initialValue: false,
       });
       if (p.isCancel(answer)) return; // Don't block install on cancel
-      writeTelemetryConfig(true, answer);
+      // Yes → enable local counters + sharing. No → disable everything.
+      try {
+        writeTelemetryConfig(answer, answer);
+      } catch {
+        // Non-fatal — config stays at safe defaults (disabled)
+      }
     }
 
     // Apply telemetry config once before any install path

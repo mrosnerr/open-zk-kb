@@ -64,12 +64,15 @@ describe('analytics', () => {
 
   function createMockRepo(sessions: UnreportedSession[] = []) {
     const reportedIds: string[][] = [];
+    const releasedIds: string[][] = [];
     return {
       repo: {
         getUnreportedSessions: (_limit?: number) => sessions,
         markSessionsReported: (ids: string[]) => { reportedIds.push(ids); },
+        releaseClaimedSessions: (ids: string[]) => { releasedIds.push(ids); },
       },
       reportedIds,
+      releasedIds,
     };
   }
 
@@ -214,11 +217,11 @@ describe('analytics', () => {
       expect(isSharingEnabled()).toBe(false);
     });
 
-    it('honors explicit share: true even when DO_NOT_TRACK=1', () => {
+    it('DO_NOT_TRACK=1 blocks sharing even with explicit share: true', () => {
       const env = createIsolatedEnv();
       writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n');
       process.env.DO_NOT_TRACK = '1';
-      expect(isSharingEnabled()).toBe(true);
+      expect(isSharingEnabled()).toBe(false);
     });
   });
 
@@ -319,11 +322,11 @@ describe('analytics', () => {
       }
     });
 
-    it('does not mark sessions reported on non-2xx response', async () => {
+    it('releases claimed sessions on non-2xx response', async () => {
       const env = createIsolatedEnv();
       writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');
 
-      const { repo, reportedIds } = createMockRepo([createTestSession()]);
+      const { repo, reportedIds, releasedIds } = createMockRepo([createTestSession()]);
 
       const originalFetch = globalThis.fetch;
       globalThis.fetch = (async () => {
@@ -333,16 +336,18 @@ describe('analytics', () => {
       try {
         await reportPreviousSessions(repo);
         expect(reportedIds).toHaveLength(0);
+        expect(releasedIds).toHaveLength(1);
+        expect(releasedIds[0]).toEqual(['test-session-123']);
       } finally {
         globalThis.fetch = originalFetch;
       }
     });
 
-    it('does not mark sessions reported on fetch failure', async () => {
+    it('releases claimed sessions on fetch failure', async () => {
       const env = createIsolatedEnv();
       writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');
 
-      const { repo, reportedIds } = createMockRepo([createTestSession()]);
+      const { repo, reportedIds, releasedIds } = createMockRepo([createTestSession()]);
 
       const originalFetch = globalThis.fetch;
       globalThis.fetch = (async () => {
@@ -352,6 +357,7 @@ describe('analytics', () => {
       try {
         await reportPreviousSessions(repo);
         expect(reportedIds).toHaveLength(0);
+        expect(releasedIds).toHaveLength(1);
       } finally {
         globalThis.fetch = originalFetch;
       }
@@ -575,11 +581,11 @@ describe('analytics', () => {
       expect(isSharingEnabled()).toBe(false);
     });
 
-    it('explicit share: true overrides DO_NOT_TRACK', () => {
+    it('DO_NOT_TRACK=1 always blocks sharing even with explicit share: true', () => {
       const env = createIsolatedEnv();
       writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n');
       process.env.DO_NOT_TRACK = '1';
-      expect(isSharingEnabled()).toBe(true);
+      expect(isSharingEnabled()).toBe(false);
     });
 
     it('explicit share: false still blocks regardless of DO_NOT_TRACK', () => {

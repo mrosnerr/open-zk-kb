@@ -1737,23 +1737,42 @@ export class NoteRepository {
     }
   }
 
+  /**
+   * Atomically claim and return unreported sessions.
+   * Sets reported = 2 ("claiming") inside a transaction so concurrent
+   * startups cannot read the same rows. Use markSessionsReported() on
+   * success or releaseClaimedSessions() on failure.
+   */
   getUnreportedSessions(limit: number = 50): UnreportedSession[] {
-    const sessions = this.db.prepare(`
-      SELECT session_id, client, client_version, started_at, ended_at, vault_size, version, os_platform
-      FROM sessions
-      WHERE reported = 0 AND session_id != ?
-      ORDER BY started_at DESC
-      LIMIT ?
-    `).all(this.sessionId, limit) as Array<{
-      session_id: string;
-      client: string;
-      client_version: string | null;
-      started_at: number;
-      ended_at: number | null;
-      vault_size: number;
-      version: string;
-      os_platform: string;
-    }>;
+    // Atomic claim: SELECT + UPDATE in one transaction
+    const sessions = this.db.transaction(() => {
+      const rows = this.db.prepare(`
+        SELECT session_id, client, client_version, started_at, ended_at, vault_size, version, os_platform
+        FROM sessions
+        WHERE reported = 0 AND session_id != ?
+        ORDER BY started_at DESC
+        LIMIT ?
+      `).all(this.sessionId, limit) as Array<{
+        session_id: string;
+        client: string;
+        client_version: string | null;
+        started_at: number;
+        ended_at: number | null;
+        vault_size: number;
+        version: string;
+        os_platform: string;
+      }>;
+
+      if (rows.length > 0) {
+        const ids = rows.map(r => r.session_id);
+        const placeholders = ids.map(() => '?').join(',');
+        this.db.prepare(
+          `UPDATE sessions SET reported = 2 WHERE session_id IN (${placeholders})`
+        ).run(...ids);
+      }
+
+      return rows;
+    })();
 
     return sessions.map(s => {
       const toolRows = this.db.prepare(`
@@ -1786,6 +1805,17 @@ export class NoteRepository {
     withBusyRetry(() => {
       this.db.prepare(`
         UPDATE sessions SET reported = 1 WHERE session_id IN (${placeholders})
+      `).run(...sessionIds);
+    });
+  }
+
+  /** Release claimed sessions back to unreported on send failure. */
+  releaseClaimedSessions(sessionIds: string[]): void {
+    if (sessionIds.length === 0) return;
+    const placeholders = sessionIds.map(() => '?').join(',');
+    withBusyRetry(() => {
+      this.db.prepare(`
+        UPDATE sessions SET reported = 0 WHERE session_id IN (${placeholders}) AND reported = 2
       `).run(...sessionIds);
     });
   }

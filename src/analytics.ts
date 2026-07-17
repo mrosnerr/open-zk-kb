@@ -17,7 +17,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
-import { getConfig, getConfigPath, isTelemetryShareConfigured } from './config.js';
+import { getConfig, getConfigPath } from './config.js';
 import type { UnreportedSession } from './storage/NoteRepository.js';
 
 // ── PostHog Constants ──
@@ -77,13 +77,12 @@ export interface AnalyticsEvent {
 // ── Sharing Guards ──
 
 export function isSharingEnabled(): boolean {
+  // DO_NOT_TRACK=1 is an unconditional kill switch — it always wins,
+  // even if the user explicitly set share: true in config.
+  if (process.env.DO_NOT_TRACK === '1') return false;
+
   const config = getConfig();
   if (!config.telemetry.enabled || !config.telemetry.share) return false;
-
-  // If the user explicitly set share: true in config, honor that choice
-  // even when DO_NOT_TRACK=1 is set globally in their shell.
-  // If share was never explicitly configured (defaulted), respect DO_NOT_TRACK.
-  if (process.env.DO_NOT_TRACK === '1' && !isTelemetryShareConfigured()) return false;
 
   return true;
 }
@@ -155,12 +154,17 @@ function makePayload(event: AnalyticsEvent, distinctId: string, timestamp?: stri
 export async function reportPreviousSessions(repo: {
   getUnreportedSessions: (limit?: number) => UnreportedSession[];
   markSessionsReported: (ids: string[]) => void;
+  releaseClaimedSessions: (ids: string[]) => void;
 }): Promise<void> {
+  let claimedIds: string[] = [];
   try {
     if (!isSharingEnabled()) return;
 
+    // getUnreportedSessions atomically claims rows (reported=2)
+    // so concurrent startups cannot read the same sessions
     const sessions = repo.getUnreportedSessions(50);
     if (sessions.length === 0) return;
+    claimedIds = sessions.map(s => s.session_id);
 
     const distinctId = getOrCreateAnalyticsId();
     const batch: Record<string, unknown>[] = [];
@@ -200,11 +204,16 @@ export async function reportPreviousSessions(repo: {
       signal: AbortSignal.timeout(5000),
     });
 
-    // Only mark reported after successful POST — non-2xx leaves sessions retryable
     if (response.ok) {
-      repo.markSessionsReported(sessions.map(s => s.session_id));
+      repo.markSessionsReported(claimedIds);
+    } else {
+      // Non-2xx: release claimed rows so they can be retried
+      repo.releaseClaimedSessions(claimedIds);
     }
   } catch {
-    // Silent failure — sessions remain unreported for next startup
+    // Network error or timeout: release claimed rows for retry
+    if (claimedIds.length > 0) {
+      try { repo.releaseClaimedSessions(claimedIds); } catch { /* best effort */ }
+    }
   }
 }

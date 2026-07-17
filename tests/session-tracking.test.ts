@@ -189,4 +189,58 @@ describe('session tracking', () => {
       expect(() => ctx.engine.markSessionsReported([])).not.toThrow();
     });
   });
+
+  describe('atomic claim and release', () => {
+    it('getUnreportedSessions claims rows (reported=2) so second call returns empty', () => {
+      const db = new Database(dbPath());
+      db.run(
+        'INSERT INTO sessions (session_id, client, started_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?)',
+        'claim-test', 'claude-code', Date.now() - 60000, 10, '1.0.0', 0,
+      );
+      db.close();
+
+      const first = ctx.engine.getUnreportedSessions();
+      expect(first).toHaveLength(1);
+
+      // Second call should return empty — rows are claimed
+      const second = ctx.engine.getUnreportedSessions();
+      expect(second).toHaveLength(0);
+    });
+
+    it('releaseClaimedSessions makes rows available again', () => {
+      const db = new Database(dbPath());
+      db.run(
+        'INSERT INTO sessions (session_id, client, started_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?)',
+        'release-test', 'cursor', Date.now() - 60000, 5, '1.0.0', 0,
+      );
+      db.close();
+
+      const first = ctx.engine.getUnreportedSessions();
+      expect(first).toHaveLength(1);
+
+      // Release the claim
+      ctx.engine.releaseClaimedSessions(['release-test']);
+
+      // Now they should be available again
+      const second = ctx.engine.getUnreportedSessions();
+      expect(second).toHaveLength(1);
+    });
+
+    it('releaseClaimedSessions does not affect already-reported sessions', () => {
+      const db = new Database(dbPath());
+      db.run(
+        'INSERT INTO sessions (session_id, client, started_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?)',
+        'reported-test', 'opencode', Date.now() - 60000, 3, '1.0.0', 1,
+      );
+      db.close();
+
+      // Releasing a reported session should be a no-op
+      ctx.engine.releaseClaimedSessions(['reported-test']);
+
+      const db2 = getDb();
+      const row = db2.prepare('SELECT reported FROM sessions WHERE session_id = ?').get('reported-test') as { reported: number };
+      db2.close();
+      expect(row.reported).toBe(1);
+    });
+  });
 });

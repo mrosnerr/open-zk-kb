@@ -68,7 +68,6 @@ One event per session, reported on the next server startup:
 - Machine hostnames or IP addresses
 - User names or email addresses
 - Geographic location (GeoIP enrichment is explicitly disabled)
-- Model names or AI provider information
 - Session IDs are random UUIDs — not linkable to any user identity beyond the anonymous `telemetry.id`
 
 ## How to opt out
@@ -93,7 +92,7 @@ bunx open-zk-kb@latest --no-telemetry
 export DO_NOT_TRACK=1
 ```
 
-Note: an explicit `share: true` in config takes precedence over `DO_NOT_TRACK=1`. The config file is a deliberate per-app choice; the env var is a blanket default. To stop sharing, set `share: false`.
+`DO_NOT_TRACK=1` is an unconditional kill switch — it always blocks sharing, even if `share: true` is set in config. This follows the [consoledonottrack.com](https://consoledonottrack.com) convention: any indication of "don't track" wins.
 
 ## How it works
 
