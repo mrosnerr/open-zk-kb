@@ -700,7 +700,9 @@ function getConfigYamlPath(): string {
   return path.join(xdgConfigHome, 'open-zk-kb', 'config.yaml');
 }
 
-/** Write telemetry enabled/share settings to config.yaml. */
+/** Write telemetry enabled/share settings to config.yaml.
+ *  If the existing config has a non-mapping root (scalar/array), it is
+ *  replaced with a fresh mapping — this corrects corrupted configs. */
 function writeTelemetryConfig(enabled: boolean, share: boolean): void {
   const configPath = getConfigYamlPath();
   let doc: Record<string, unknown> = {};
@@ -709,6 +711,9 @@ function writeTelemetryConfig(enabled: boolean, share: boolean): void {
     const parsed = YAML.parse(content);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
       doc = parsed as Record<string, unknown>;
+    } else if (parsed != null) {
+      // Non-mapping root (scalar or array) — correct it during setup
+      console.warn(`Warning: config.yaml has a non-mapping root (${typeof parsed}). Resetting to valid config.`);
     }
   }
   const existing = doc.telemetry;

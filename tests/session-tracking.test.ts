@@ -239,11 +239,12 @@ describe('session tracking', () => {
       expect(second).toHaveLength(1);
     });
 
-    it('recoverAbandonedClaims resets claimed rows back to unreported', () => {
+    it('recoverAbandonedClaims resets expired claims back to unreported', () => {
       const db = new Database(dbPath());
+      // Claimed 2 minutes ago — well past the 60s TTL
       db.run(
-        'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?, ?)',
-        'stuck-session', 'cursor', Date.now() - 120000, Date.now() - 90000, 5, '1.0.0', 2,
+        'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'stuck-session', 'cursor', Date.now() - 120000, Date.now() - 90000, 5, '1.0.0', 2, Date.now() - 120000,
       );
       db.close();
 
@@ -258,6 +259,41 @@ describe('session tracking', () => {
       const after = ctx.engine.getUnreportedSessions();
       expect(after).toHaveLength(1);
       expect(after[0].session_id).toBe('stuck-session');
+    });
+
+    it('recoverAbandonedClaims does not reset fresh claims (within TTL)', () => {
+      const db = new Database(dbPath());
+      // Claimed just now — within 60s TTL
+      db.run(
+        'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported, claimed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+        'live-claim', 'claude-code', Date.now() - 60000, Date.now() - 30000, 10, '1.0.0', 2, Date.now(),
+      );
+      db.close();
+
+      ctx.engine.recoverAbandonedClaims();
+
+      // Should still be claimed — not recovered
+      const sessions = ctx.engine.getUnreportedSessions();
+      expect(sessions).toHaveLength(0);
+
+      const db2 = getDb();
+      const row = db2.prepare('SELECT reported FROM sessions WHERE session_id = ?').get('live-claim') as { reported: number };
+      db2.close();
+      expect(row.reported).toBe(2);
+    });
+
+    it('recoverAbandonedClaims recovers claims with NULL claimed_at (legacy)', () => {
+      const db = new Database(dbPath());
+      db.run(
+        'INSERT INTO sessions (session_id, client, started_at, ended_at, vault_size, version, reported) VALUES (?, ?, ?, ?, ?, ?, ?)',
+        'legacy-claim', 'opencode', Date.now() - 120000, Date.now() - 90000, 3, '1.0.0', 2,
+      );
+      db.close();
+
+      ctx.engine.recoverAbandonedClaims();
+
+      const sessions = ctx.engine.getUnreportedSessions();
+      expect(sessions).toHaveLength(1);
     });
 
     it('releaseClaimedSessions does not affect already-reported sessions', () => {

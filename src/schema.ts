@@ -5,7 +5,7 @@ import { Database } from 'bun:sqlite';
 import { logToFile } from './logger.js';
 
 export class SchemaManager {
-  static readonly SCHEMA_VERSION = 10;
+  static readonly SCHEMA_VERSION = 11;
 
   private static readonly MIGRATIONS: Array<{
     version: number;
@@ -133,6 +133,16 @@ export class SchemaManager {
         }
       },
     },
+    {
+      version: 11,
+      description: 'Add claimed_at column to sessions for TTL-based claim recovery',
+      migrate: (db) => {
+        const columns = db.prepare('PRAGMA table_info(sessions)').all() as Array<{ name: string }>;
+        if (!columns.some(c => c.name === 'claimed_at')) {
+          db.run('ALTER TABLE sessions ADD COLUMN claimed_at INTEGER');
+        }
+      },
+    },
   ];
 
   private static createTelemetryTable(db: Database): void {
@@ -162,7 +172,8 @@ export class SchemaManager {
         vault_size INTEGER NOT NULL DEFAULT 0,
         version TEXT NOT NULL,
         os_platform TEXT NOT NULL DEFAULT 'unknown',
-        reported INTEGER NOT NULL DEFAULT 0
+        reported INTEGER NOT NULL DEFAULT 0,
+        claimed_at INTEGER
       )
     `);
     db.run('CREATE INDEX IF NOT EXISTS idx_sessions_reported ON sessions(reported)');

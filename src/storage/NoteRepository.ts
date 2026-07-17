@@ -1767,8 +1767,8 @@ export class NoteRepository {
         const ids = rows.map(r => r.session_id);
         const placeholders = ids.map(() => '?').join(',');
         this.db.prepare(
-          `UPDATE sessions SET reported = 2 WHERE session_id IN (${placeholders})`
-        ).run(...ids);
+          `UPDATE sessions SET reported = 2, claimed_at = ? WHERE session_id IN (${placeholders})`
+        ).run(Date.now(), ...ids);
       }
 
       return rows;
@@ -1804,19 +1804,22 @@ export class NoteRepository {
     const placeholders = sessionIds.map(() => '?').join(',');
     withBusyRetry(() => {
       this.db.prepare(`
-        UPDATE sessions SET reported = 1 WHERE session_id IN (${placeholders})
+        UPDATE sessions SET reported = 1, claimed_at = NULL WHERE session_id IN (${placeholders})
       `).run(...sessionIds);
     });
   }
 
-  /** Reset any sessions stuck in claimed state (reported=2) from a previous
-   *  process that died between claim and release. Safe to call at startup. */
+  /** Reset sessions stuck in claimed state (reported=2) whose claim has
+   *  expired. Uses a 60-second TTL so live reporters' in-flight claims
+   *  are not disturbed by concurrent startups. */
   recoverAbandonedClaims(): void {
+    const ttlMs = 60_000; // 60 seconds — well above the 5s fetch timeout
+    const cutoff = Date.now() - ttlMs;
     withBusyRetry(() => {
       this.db.prepare(`
-        UPDATE sessions SET reported = 0
-        WHERE reported = 2 AND session_id != ?
-      `).run(this.sessionId);
+        UPDATE sessions SET reported = 0, claimed_at = NULL
+        WHERE reported = 2 AND (claimed_at IS NULL OR claimed_at < ?)
+      `).run(cutoff);
     });
   }
 
@@ -1826,7 +1829,7 @@ export class NoteRepository {
     const placeholders = sessionIds.map(() => '?').join(',');
     withBusyRetry(() => {
       this.db.prepare(`
-        UPDATE sessions SET reported = 0 WHERE session_id IN (${placeholders}) AND reported = 2
+        UPDATE sessions SET reported = 0, claimed_at = NULL WHERE session_id IN (${placeholders}) AND reported = 2
       `).run(...sessionIds);
     });
   }
