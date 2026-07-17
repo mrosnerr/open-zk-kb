@@ -2208,31 +2208,26 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     }
 
     // --- Telemetry prompt helper ---
-    async function promptTelemetry(): Promise<void> {
-      if (dryRun) return;
+    // Captures the user's choice but does NOT write config.
+    // Returns { enabled, share } to write after install succeeds,
+    // or null if no change is needed.
+    async function promptTelemetry(): Promise<{ enabled: boolean; share: boolean } | null> {
+      if (dryRun) return null;
       if (noTelemetry) {
         // Defaults are already disabled (enabled: false, share: false).
-        // Only write if config already exists and might have telemetry enabled.
+        // Only need to write if config already exists and might have telemetry enabled.
         const configPath = getConfigYamlPath();
         if (fs.existsSync(configPath)) {
-          try {
-            writeTelemetryConfig(false, false);
-          } catch (err) {
-            p.log.error(
-              `Failed to write telemetry opt-out to config.\n` +
-              `  Set DO_NOT_TRACK=1 in your environment as a fallback.\n` +
-              `  ${err instanceof Error ? err.message : String(err)}`,
-            );
-          }
+          return { enabled: false, share: false };
         }
-        return;
+        return null;
       }
       if (yes || !process.stdin.isTTY) {
         // Non-interactive: use config defaults
-        return;
+        return null;
       }
       // Only prompt if the user hasn't explicitly configured share
-      if (isTelemetryShareConfigured()) return;
+      if (isTelemetryShareConfigured()) return null;
 
       const answer = await p.confirm({
         message: 'Help improve open-zk-kb with anonymous usage analytics?\n' +
@@ -2241,25 +2236,41 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
           color.dim('    Open source and auditable: https://github.com/mrosnerr/open-zk-kb/blob/main/docs/telemetry.md'),
         initialValue: false,
       });
-      if (p.isCancel(answer)) return; // Don't block install on cancel
+      if (p.isCancel(answer)) return null; // Don't block install on cancel
       // Only write config when opting in — the defaults are already disabled,
       // so declining doesn't need a config write (and avoids creating a
       // comment-stripped config.yaml before installClient seeds the example).
       if (answer) {
-        try {
-          writeTelemetryConfig(true, true);
-        } catch {
-          // Non-fatal — config stays at safe defaults (disabled)
+        return { enabled: true, share: true };
+      }
+      return null;
+    }
+
+    // Persist telemetry choice after successful install
+    function applyTelemetryChoice(choice: { enabled: boolean; share: boolean } | null): void {
+      if (!choice) return;
+      try {
+        writeTelemetryConfig(choice.enabled, choice.share);
+      } catch (err) {
+        if (!choice.enabled) {
+          // Opt-out write failed — warn user about fallback
+          console.error(
+            `Failed to write telemetry opt-out to config.\n` +
+            `  Set DO_NOT_TRACK=1 in your environment as a fallback.\n` +
+            `  ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
+        // Opt-in write failure is non-fatal — config stays at safe defaults
       }
     }
 
-    // Apply telemetry config once before any install path
-    await promptTelemetry();
+    // Capture telemetry choice before install (prompt runs early)
+    const telemetryChoice = await promptTelemetry();
 
     // --- Single-client mode ---
     if (client) {
       const result = await installClient(client, { serverPath, transport, force, dryRun, instructionSize, yes });
+      applyTelemetryChoice(telemetryChoice);
       console.log(result.output);
       return;
     }
@@ -2270,6 +2281,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         const result = await installClient(c, { serverPath, transport, force, dryRun, instructionSize, yes: true });
         console.log(result.output);
       }
+      applyTelemetryChoice(telemetryChoice);
       return;
     }
 
@@ -2331,6 +2343,9 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         process.exitCode = 1;
       }
     }
+
+    // Persist telemetry choice only after all installs succeed
+    applyTelemetryChoice(telemetryChoice);
 
     // Offer to launch a CLI client to try out the knowledge base
     if (!dryRun) {

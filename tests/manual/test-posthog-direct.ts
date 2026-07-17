@@ -8,6 +8,9 @@
 // Unset DO_NOT_TRACK for this script
 delete process.env.DO_NOT_TRACK;
 
+import { readFileSync } from 'fs';
+const PKG_VERSION = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf-8')).version;
+
 import { getOrCreateAnalyticsId } from '../../src/analytics.js';
 
 const POSTHOG_HOST = 'https://eu.i.posthog.com';
@@ -21,7 +24,7 @@ const payload = {
   distinct_id: distinctId,
   properties: {
     $lib: 'open-zk-kb',
-    $lib_version: '1.2.0',
+    $lib_version: PKG_VERSION,
     $geoip_disable: true,
     tool: 'diagnostic',
   },

@@ -565,24 +565,28 @@ export async function startServer() {
   // ensure we still record session end so the session is reportable.
   process.stdin.once('end', () => shutdownServer());
 
-  // Fire-and-forget: record this session + report previous sessions
-  (async () => {
-    try {
-      const r = await getOrCreateRepo();
-      const clientInfo = server.server.getClientVersion();
-      const stats = r.getStats();
-      const version = PKG_VERSION;
-      r.recordSessionStart(
-        clientInfo?.name ?? 'unknown',
-        clientInfo?.version ?? null,
-        stats.total,
-        version,
-      );
-      await reportPreviousSessions(r);
-    } catch {
-      // Silent failure — analytics should never block anything
-    }
-  })().catch(() => {});
+  // Fire-and-forget: record this session + report previous sessions.
+  // Skip entirely when telemetry is disabled to avoid eagerly creating
+  // the vault database before the first real tool call.
+  if (config.telemetry.enabled) {
+    (async () => {
+      try {
+        const r = await getOrCreateRepo();
+        const clientInfo = server.server.getClientVersion();
+        const stats = r.getStats();
+        const version = PKG_VERSION;
+        r.recordSessionStart(
+          clientInfo?.name ?? 'unknown',
+          clientInfo?.version ?? null,
+          stats.total,
+          version,
+        );
+        await reportPreviousSessions(r);
+      } catch {
+        // Silent failure — analytics should never block anything
+      }
+    })().catch(() => {});
+  }
 
   // Warm up embedding model in background so first search gets semantic results
   const embConfig = getEmbeddingConfig();

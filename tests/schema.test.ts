@@ -398,9 +398,15 @@ describe('schema.ts', () => {
     const db = new Database(':memory:');
     const schema = new SchemaManager(db);
     schema.initialize();
-    // Simulate v9 by removing model column if it exists (initialize creates it)
+    // Build a real v9 state: drop and recreate tool_telemetry without model column
+    db.run('DROP TABLE IF EXISTS tool_telemetry');
+    db.run(`CREATE TABLE tool_telemetry (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL,
+      tool_name TEXT NOT NULL,
+      invoked_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
+    )`);
     db.run('PRAGMA user_version = 9');
-    // The migration should be idempotent — check it doesn't fail
     schema.checkAndRepair();
 
     const columns = getColumns(db, 'tool_telemetry');

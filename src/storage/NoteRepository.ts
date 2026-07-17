@@ -1744,8 +1744,9 @@ export class NoteRepository {
    * success or releaseClaimedSessions() on failure.
    */
   getUnreportedSessions(limit: number = 50): UnreportedSession[] {
-    // Atomic claim: SELECT + UPDATE in one transaction
-    const sessions = this.db.transaction(() => {
+    // Atomic claim: SELECT + UPDATE in one transaction.
+    // Wrapped with busy retry for concurrent startup resilience.
+    const sessions = withBusyRetry(() => this.db.transaction(() => {
       const rows = this.db.prepare(`
         SELECT session_id, client, client_version, started_at, ended_at, vault_size, version, os_platform
         FROM sessions
@@ -1772,7 +1773,7 @@ export class NoteRepository {
       }
 
       return rows;
-    })();
+    })());
 
     return sessions.map(s => {
       const toolRows = this.db.prepare(`

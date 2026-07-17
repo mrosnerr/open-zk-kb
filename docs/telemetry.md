@@ -1,10 +1,10 @@
 # Telemetry
 
-open-zk-kb collects anonymous usage analytics to understand adoption and guide development. This page documents what is collected, why, and how to opt out.
+open-zk-kb can collect anonymous usage analytics to understand adoption and guide development. **Sharing is disabled by default** — both `telemetry.enabled` and `telemetry.share` must be set to `true` to send any data. This page documents what is collected, why, and how to opt out.
 
 ## What we collect
 
-One event per session, reported on the next server startup:
+When sharing is enabled, one event per session is reported on the next server startup. Each event includes a top-level `distinct_id` (from `telemetry.id` in config) and `timestamp` (session start time):
 
 ### `session` — reported on next server startup
 
@@ -65,7 +65,8 @@ One event per session, reported on the next server startup:
 - Note content, titles, or slugs
 - Search queries
 - File paths or project names
-- Machine hostnames or IP addresses
+- Machine hostnames
+- IP addresses are not included in the payload; GeoIP enrichment is disabled via `$geoip_disable: true`. Note that the HTTP endpoint may still observe connection metadata (source IP), but PostHog does not store it when GeoIP is disabled
 - User names or email addresses
 - Geographic location (GeoIP enrichment is explicitly disabled)
 - Session IDs are random UUIDs — not linkable to any user identity beyond the anonymous `telemetry.id`
