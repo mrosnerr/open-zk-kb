@@ -41,7 +41,7 @@ When sharing is enabled, one event per session is reported on the next server st
 | `version` | string | Which open-zk-kb version is deployed |
 | `os_platform` | string | Platform (darwin, linux, win32) |
 | `vault_size` | number | Total notes in the vault at session start |
-| `duration_ms` | number \| null | Session length in milliseconds (null if not cleanly ended) |
+| `duration_ms` | number | Session length in milliseconds (only cleanly ended sessions are reported) |
 | `total_invocations` | number | Total tool calls in the session |
 | `tool_search` | number | Number of search calls |
 | `tool_store` | number | Number of store calls |
