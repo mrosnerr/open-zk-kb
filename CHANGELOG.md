@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.3.0
+
+- Record session end on stdin close for reportability
+- TTL-based claim recovery, correct malformed configs, fix example defaults
+- **Address review round 2** — active-session guard, abandoned claim recovery, PII allowlist, config preservation
+- **Harden telemetry consent** — DO_NOT_TRACK always wins, opt-out prompt defaults, atomic session claiming
+- Add model tracking, remove docs structure convention from AGENTS.md
+- **Address review feedback** — response.ok check, setup.ts fixes, docs consistency
+- **PostHog telemetry** — startup-based reporting with session tracking
+- Include patches/ in published tarball
+- Wire up patchedDependencies in package.json
+- **Fix repo hygiene** — gitignore, patch filename, file modes
+- Add .agents, openspec, and .history to gitignore
+- Add README documenting patches directory
+- Remove .agents directory from git tracking
+
 ## Unreleased
 
 ### Added
