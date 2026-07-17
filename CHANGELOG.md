@@ -2,6 +2,7 @@
 
 ## 1.3.0
 
+- Pin @huggingface/transformers to exact version and add patch integrity CI checks
 - Record session end on stdin close for reportability
 - TTL-based claim recovery, correct malformed configs, fix example defaults
 - **Address review round 2** — active-session guard, abandoned claim recovery, PII allowlist, config preservation
