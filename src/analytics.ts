@@ -189,15 +189,17 @@ export async function reportPreviousSessions(repo: {
       }, distinctId, sessionTimestamp));
     }
 
-    await fetch(`${POSTHOG_HOST}/batch/`, {
+    const response = await fetch(`${POSTHOG_HOST}/batch/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ api_key: POSTHOG_API_KEY, batch }),
       signal: AbortSignal.timeout(5000),
     });
 
-    // Only mark reported after successful POST
-    repo.markSessionsReported(sessions.map(s => s.session_id));
+    // Only mark reported after successful POST — non-2xx leaves sessions retryable
+    if (response.ok) {
+      repo.markSessionsReported(sessions.map(s => s.session_id));
+    }
   } catch {
     // Silent failure — sessions remain unreported for next startup
   }

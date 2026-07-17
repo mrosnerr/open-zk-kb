@@ -1711,6 +1711,7 @@ export class NoteRepository {
   }
 
   recordSessionStart(client: string, clientVersion: string | null, vaultSize: number, version: string): void {
+    if (!this.telemetryEnabled) return;
     try {
       withBusyRetry(() => {
         this.db.prepare(`

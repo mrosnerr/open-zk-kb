@@ -2208,8 +2208,9 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
     // --- Telemetry prompt helper ---
     async function promptTelemetry(): Promise<void> {
+      if (dryRun) return;
       if (noTelemetry) {
-        writeTelemetryConfig(true, false);
+        writeTelemetryConfig(false, false);
         return;
       }
       if (yes || !process.stdin.isTTY) {
@@ -2221,7 +2222,8 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
       const answer = await p.confirm({
         message: 'Help improve open-zk-kb with anonymous usage analytics?\n' +
-          color.dim('    Only tool names, client, and vault size — never any note contents.\n') +
+          color.dim('    Session metadata: client, version, platform, vault size, tool usage counts.\n') +
+          color.dim('    Never any note contents, search queries, or personal data.\n') +
           color.dim('    Open source and auditable: https://github.com/mrosnerr/open-zk-kb/blob/main/docs/telemetry.md'),
         initialValue: true,
       });
@@ -2229,9 +2231,11 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       writeTelemetryConfig(true, answer);
     }
 
+    // Apply telemetry config once before any install path
+    await promptTelemetry();
+
     // --- Single-client mode ---
     if (client) {
-      await promptTelemetry();
       const result = await installClient(client, { serverPath, transport, force, dryRun, instructionSize, yes });
       console.log(result.output);
       return;
@@ -2289,9 +2293,6 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       p.cancel('No clients selected.');
       process.exit(0);
     }
-
-    // Prompt for telemetry before installing
-    await promptTelemetry();
 
     // Show shared info once before per-client results
     p.log.info(color.dim(`Vault: ${getVaultPath()}`));

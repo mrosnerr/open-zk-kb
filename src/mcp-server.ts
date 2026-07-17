@@ -567,7 +567,7 @@ export async function startServer() {
       const r = await getOrCreateRepo();
       const clientInfo = server.server.getClientVersion();
       const stats = r.getStats();
-      const version = JSON.parse(fs.readFileSync(new URL('../package.json', import.meta.url), 'utf-8')).version;
+      const version = PKG_VERSION;
       r.recordSessionStart(
         clientInfo?.name ?? 'unknown',
         clientInfo?.version ?? null,

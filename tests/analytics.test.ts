@@ -315,6 +315,25 @@ describe('analytics', () => {
       }
     });
 
+    it('does not mark sessions reported on non-2xx response', async () => {
+      const env = createIsolatedEnv();
+      writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');
+
+      const { repo, reportedIds } = createMockRepo([createTestSession()]);
+
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async () => {
+        return new Response('rate limited', { status: 429 });
+      }) as typeof fetch;
+
+      try {
+        await reportPreviousSessions(repo);
+        expect(reportedIds).toHaveLength(0);
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
     it('does not mark sessions reported on fetch failure', async () => {
       const env = createIsolatedEnv();
       writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');

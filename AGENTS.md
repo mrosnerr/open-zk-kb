@@ -215,7 +215,7 @@ See `docs/index.md` for the full "Where Things Go" table.
 - **Hints, not directives**: Server responses include computed metrics (word count, similarity score, staleness days). Never phrased as recommendations.
 - **Behavioral guidance is advisory**: Instructions are "a request, not a guarantee" ([Anthropic](https://docs.anthropic.com/en/docs/claude-code/features-overview)). Deterministic enforcement requires hooks/plugins.
 - **Telemetry is local-only and opt-in**: Tool invocation counters are disabled by default; set `telemetry.enabled: true` to enable. Counters stay in SQLite, never include content or query strings. When disabled, both counter rows and access timestamp updates are skipped.
-- **Anonymous analytics sharing**: When `telemetry.share: true`, anonymous usage events (tool name, model, scope, version, note count) are buffered in memory and sent to PostHog (EU Cloud) at shutdown. No PII, no note content, no queries. Set `telemetry.share: false` to opt out. All sharing logic lives in `src/analytics.ts`. See `docs/telemetry.md`.
+- **Anonymous analytics sharing**: When `telemetry.share: true`, anonymous session metadata (client, version, platform, vault size, duration, tool usage counts) is persisted to SQLite and sent to PostHog (EU Cloud) on the next server startup. No PII, no note content, no queries, no network calls at shutdown. Set `telemetry.share: false` to opt out. All sharing logic lives in `src/analytics.ts`. See `docs/telemetry.md`.
 
 ## Notes
 
