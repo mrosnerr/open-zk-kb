@@ -614,7 +614,7 @@ function defaultAppearanceConfig(config: ObsidianConfig): Record<string, unknown
   if (config.readOnly) enabledCssSnippets.push('readonly-kb');
 
   return {
-    theme: 'system',
+    theme: 'obsidian',
     cssTheme: THEME_REGISTRY.name,
     enabledCssSnippets,
   };
@@ -1268,7 +1268,7 @@ function scaffoldWorkspaceDefaults(vaultPath: string): void {
   if (!existing) {
     writeJsonFile(filePath, {
       main: { id: crypto.randomUUID().replace(/-/g, '').slice(0, 16), type: 'split', children: [], direction: 'vertical' },
-      left: { id: crypto.randomUUID().replace(/-/g, '').slice(0, 16), type: 'split', children: [], direction: 'horizontal', width: 200, collapsed: true },
+      left: { id: crypto.randomUUID().replace(/-/g, '').slice(0, 16), type: 'split', children: [], direction: 'horizontal', width: 200, collapsed: false },
       right: { id: crypto.randomUUID().replace(/-/g, '').slice(0, 16), type: 'split', children: [], direction: 'horizontal', width: 300, collapsed: true },
     });
     return;
