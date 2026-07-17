@@ -68,7 +68,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
-    "@huggingface/transformers": "^4.0.1",
+    "@huggingface/transformers": "4.0.1",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.12",
