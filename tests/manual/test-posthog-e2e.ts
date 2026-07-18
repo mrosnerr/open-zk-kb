@@ -80,8 +80,8 @@ async function run() {
   });
   await sleep(2000);
 
-  console.log('▶ Session 1: Calling knowledge-stats...');
-  send(child1, 'tools/call', { name: 'knowledge-stats', arguments: {} });
+  console.log('▶ Session 1: Calling knowledge-health...');
+  send(child1, 'tools/call', { name: 'knowledge-health', arguments: {} });
   await sleep(1000);
 
   console.log('▶ Session 1: Calling knowledge-search...');

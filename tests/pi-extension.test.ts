@@ -84,8 +84,8 @@ describe('Pi extension', () => {
       });
 
       expect(registered.map((tool) => tool.name).sort()).toEqual([
-        'knowledge-get', 'knowledge-ingest', 'knowledge-maintain', 'knowledge-mine',
-        'knowledge-open', 'knowledge-overview', 'knowledge-search', 'knowledge-stats',
+        'knowledge-context', 'knowledge-get', 'knowledge-health', 'knowledge-ingest',
+        'knowledge-maintain', 'knowledge-mine', 'knowledge-open', 'knowledge-search',
         'knowledge-store', 'knowledge-template',
       ]);
       expect(promptHandler).toBeDefined();

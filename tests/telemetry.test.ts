@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { handleMaintain, handleSearch, handleStats, handleStore } from '../src/tool-handlers.js';
+import { handleMaintain, handleSearch, handleHealth, handleStore } from '../src/tool-handlers.js';
 import { cleanupTestHarness, createTestHarness, sleep, type TestContext } from './harness.js';
 
 describe('local tool telemetry', () => {
@@ -107,7 +107,7 @@ describe('local tool telemetry', () => {
     ctx.engine.recordToolInvocation('store', 'observation', 1);
     ctx.engine.recordToolInvocation('maintain', 'review');
 
-    const output = await handleStats({ telemetry: true }, ctx.engine, ctx.config);
+    const output = await handleHealth({ telemetry: true }, ctx.engine, ctx.config);
 
     expect(output).toContain('Last 30 days (1 sessions):');
     expect(output).toContain('  Searches: 1 (avg 1 per session)');

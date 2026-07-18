@@ -25,8 +25,8 @@ describe('READ_ONLY_TOOLS', () => {
   it('includes only side-effect-free tools', () => {
     expect(READ_ONLY_TOOLS['knowledge-search']).toBe(true);
     expect(READ_ONLY_TOOLS['knowledge-get']).toBe(true);
-    expect(READ_ONLY_TOOLS['knowledge-stats']).toBe(true);
-    expect(READ_ONLY_TOOLS['knowledge-overview']).toBe(true);
+    expect(READ_ONLY_TOOLS['knowledge-health']).toBe(true);
+    expect(READ_ONLY_TOOLS['knowledge-context']).toBe(true);
     expect(READ_ONLY_TOOLS['knowledge-template']).toBe(true);
   });
 
@@ -87,8 +87,8 @@ describe('isRetriableSingleRequest', () => {
   it('treats read-only tools/call as retriable', () => {
     expect(isRetriableSingleRequest(call('knowledge-search'))).toBe(true);
     expect(isRetriableSingleRequest(call('knowledge-get'))).toBe(true);
-    expect(isRetriableSingleRequest(call('knowledge-stats'))).toBe(true);
-    expect(isRetriableSingleRequest(call('knowledge-overview'))).toBe(true);
+    expect(isRetriableSingleRequest(call('knowledge-health'))).toBe(true);
+    expect(isRetriableSingleRequest(call('knowledge-context'))).toBe(true);
     expect(isRetriableSingleRequest(call('knowledge-template'))).toBe(true);
   });
 

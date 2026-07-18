@@ -36,10 +36,10 @@ async function run() {
     check('has knowledge-search', toolNames.includes('knowledge-search'));
     check('has knowledge-get', toolNames.includes('knowledge-get'));
     check('has knowledge-mine', toolNames.includes('knowledge-mine'));
-    check('has knowledge-stats', toolNames.includes('knowledge-stats'));
+    check('has knowledge-health', toolNames.includes('knowledge-health'));
     check('has knowledge-maintain', toolNames.includes('knowledge-maintain'));
     check('has knowledge-ingest', toolNames.includes('knowledge-ingest'));
-    check('has knowledge-overview', toolNames.includes('knowledge-overview'));
+    check('has knowledge-context', toolNames.includes('knowledge-context'));
     check('has knowledge-open', toolNames.includes('knowledge-open'));
     check('has knowledge-template', toolNames.includes('knowledge-template'));
   } catch (err) {
@@ -90,13 +90,13 @@ async function run() {
 
   try {
     const statsResult = await client.callTool({
-      name: 'knowledge-stats',
+      name: 'knowledge-health',
       arguments: {},
     });
     const statsText = JSON.stringify(statsResult);
-    check('knowledge-stats returns health info', statsText.includes('Health'));
+    check('knowledge-health returns health info', statsText.includes('Health'));
   } catch (err) {
-    check('knowledge-stats returns health info', false, String(err));
+    check('knowledge-health returns health info', false, String(err));
   }
 
   try {

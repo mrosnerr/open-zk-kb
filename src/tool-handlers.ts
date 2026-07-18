@@ -240,13 +240,13 @@ export interface IngestArgs {
   model?: string;
 }
 
-export interface OverviewArgs {
+export interface ContextArgs {
   project?: string;
   logEntries?: number;
   model?: string;
 }
 
-export interface StatsArgs {
+export interface HealthArgs {
   project?: string;
   period?: string;
   telemetry?: boolean;
@@ -348,7 +348,7 @@ function parsePeriodToDays(period?: string): number {
   return days > 0 ? days : 30;
 }
 
-export async function handleStats(args: StatsArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
+export async function handleHealth(args: HealthArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
   const days = parsePeriodToDays(args.period);
   const periodLabel = `${days}d`;
   const project = args.project;
@@ -641,7 +641,7 @@ function rebuildProjectIndex(project: string, repo: NoteRepository, config?: App
       lifecycle: 'living',
       tags: [`project:${project}`],
       summary: `Auto-generated home note for ${project}`,
-      guidance: 'Auto-generated project folder note — use knowledge-overview to view.',
+      guidance: 'Auto-generated project folder note — use knowledge-context to view.',
       extraFrontmatter: {
         'BC-folder-note-field': 'up',
         'BC-folder-note': true,
@@ -710,7 +710,7 @@ function appendProjectLog(project: string, event: string, repo: NoteRepository, 
           lifecycle: 'append-only',
           tags: [`project:${project}`],
           summary: `Chronological operations log for ${project}`,
-          guidance: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
+          guidance: 'Auto-generated operations log — use knowledge-context to view recent activity.',
         })
       : repo.store(buildInitialLogContent(project, entry), {
           title: `${project} Operations Log`,
@@ -719,7 +719,7 @@ function appendProjectLog(project: string, event: string, repo: NoteRepository, 
           lifecycle: 'append-only',
           tags: [`project:${project}`],
           summary: `Chronological operations log for ${project}`,
-          guidance: 'Auto-generated operations log — use knowledge-overview to view recent activity.',
+          guidance: 'Auto-generated operations log — use knowledge-context to view recent activity.',
         });
     return [result.path];
   } catch (error) {
@@ -976,7 +976,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   }
 
   if (STRUCTURAL_KINDS.has(args.kind)) {
-    return `Error: ${args.kind} notes are auto-generated per project. Use knowledge-overview to view them.`;
+    return `Error: ${args.kind} notes are auto-generated per project. Use knowledge-context to view them.`;
   }
 
   if (args.kind === 'domain') {
@@ -2092,7 +2092,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += '- Backfill embeddings: knowledge-maintain embed\n';
         }
         output += '- Check link health: knowledge-maintain link-health\n';
-        output += '- View vault stats: knowledge-stats\n';
+        output += '- View vault stats: knowledge-health\n';
       }
 
       return output;
@@ -2135,7 +2135,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
   }
 }
 
-export function handleOverview(args: OverviewArgs, repo: NoteRepository, config?: AppConfig): string {
+export function handleContext(args: ContextArgs, repo: NoteRepository, config?: AppConfig): string {
   const project = args.project;
   const logLimit = Math.max(1, args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10);
 

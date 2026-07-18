@@ -9,7 +9,7 @@ TypeScript source for the MCP server (`mcp-server.ts`), with core logic in `tool
 ```
 src/
 ├── mcp-server.ts          # MCP stdio server — 10 tools via @modelcontextprotocol/sdk
-├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleGet, handleTemplate, handleMine, handleStats, handleMaintain, handleIngest, handleOverview, handleOpen
+├── tool-handlers.ts       # Shared: handleStore, handleSearch, handleGet, handleTemplate, handleMine, handleHealth, handleMaintain, handleIngest, handleContext, handleOpen
 ├── storage/
 │   ├── NoteRepository.ts  # Core CRUD + FTS5 + link tracking (~1,370 LOC)
 │   ├── IndexBuilder.ts    # Auto-generates per-project index notes
@@ -34,7 +34,7 @@ src/
 ```
 Client request → mcp-server.ts
                         ↓
-               tool-handlers.ts (handleStore/Search/Get/Template/Mine/Stats/Maintain/Ingest/Overview/Open)
+               tool-handlers.ts (handleStore/Search/Get/Template/Mine/Health/Maintain/Ingest/Context/Open)
                         ↓
                NoteRepository.store/search/getStats/...
                     ↓              ↓

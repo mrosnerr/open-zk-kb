@@ -8,8 +8,8 @@ open-zk-kb exposes ten MCP tools. Your agent calls these automatically based on 
 | [`knowledge-ingest`](#knowledge-ingest) | Extract article content from URLs or HTML into structured markdown |
 | [`knowledge-search`](#knowledge-search) | Search the knowledge base before starting work |
 | [`knowledge-maintain`](#knowledge-maintain) | Review, promote, archive, and rebuild notes |
-| [`knowledge-stats`](#knowledge-stats) | Vault health metrics, staleness distribution, growth rates, and infrastructure status |
-| [`knowledge-overview`](#knowledge-overview) | Get a global or project overview with computed inventory and recent activity |
+| [`knowledge-health`](#knowledge-health) | Vault health metrics, staleness distribution, growth rates, and infrastructure status |
+| [`knowledge-context`](#knowledge-context) | Get a global or project overview with computed inventory and recent activity |
 | `knowledge-template` | Get the canonical note template for a specific kind |
 | `knowledge-mine` | Bulk-screen candidates from session history for duplicates and store |
 | `knowledge-open` | Open the vault in [Obsidian](obsidian.md) with a scaffolded theme, plugins, and homepage |
@@ -212,7 +212,7 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 
 | Action | Description | Requires `noteId` |
 |--------|-------------|-------------------|
-| `stats` | **Deprecated** — passthrough to [`knowledge-stats`](#knowledge-stats). Use that tool directly | No |
+| `stats` | **Deprecated** — passthrough to [`knowledge-health`](#knowledge-health). Use that tool directly | No |
 | `review` | Surface notes that haven't been accessed recently for triage | No |
 | `dedupe` | Find near-duplicate notes using SimHash similarity | No |
 | `promote` | Move a fleeting note to permanent status | Yes |
@@ -253,7 +253,7 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 
 ---
 
-## knowledge-stats
+## knowledge-health
 
 Standalone tool for vault health metrics, staleness distribution, growth rates, and infrastructure status.
 
@@ -285,7 +285,7 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 
 ---
 
-## knowledge-overview
+## knowledge-context
 
 Get a global or project-scoped overview with a computed inventory of notes, recent activity, and resources. Use at the start of a session to orient yourself.
 

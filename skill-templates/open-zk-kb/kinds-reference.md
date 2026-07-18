@@ -86,7 +86,7 @@ Auto-generated project catalog. Default status: `permanent`. Default lifecycle: 
 **Constraints**:
 - One per project — the server manages it, not agents
 - Cannot be created via `knowledge-store`
-- Use `knowledge-overview` to read it
+- Use `knowledge-context` to read it
 
 ## log
 Auto-generated chronological operations log. Default status: `permanent`. Default lifecycle: `append-only`.
@@ -98,7 +98,7 @@ Auto-generated chronological operations log. Default status: `permanent`. Defaul
 **Constraints**:
 - One per project — the server manages it, not agents
 - Cannot be created via `knowledge-store`
-- Use `knowledge-overview` to read recent entries
+- Use `knowledge-context` to read recent entries
 
 ## Lifecycle Reference
 

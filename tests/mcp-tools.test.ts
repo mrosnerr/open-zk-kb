@@ -13,7 +13,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
-import { handleStore, handleSearch, handleStats, handleMaintain, handleOverview, handleGet, handleOpen } from '../src/tool-handlers.js';
+import { handleStore, handleSearch, handleHealth, handleMaintain, handleContext, handleGet, handleOpen } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -1762,7 +1762,7 @@ describe('isNewerVersion', () => {
 
 // ---- Version check in stats output ----
 
-describe('MCP Tool: knowledge-stats version check', () => {
+describe('MCP Tool: knowledge-health version check', () => {
   let ctx: TestContext;
   const originalFetch = globalThis.fetch;
 
@@ -1779,7 +1779,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).toContain('## Version');
@@ -1794,7 +1794,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).not.toContain('Update Available');
@@ -1803,7 +1803,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
   it('should not show update notice when registry check fails', async () => {
     globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).not.toContain('Update Available');
@@ -1815,7 +1815,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config, null, '0.2.0',
     );
     expect(output).not.toContain('Update Available');
@@ -1827,7 +1827,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config,
     );
     expect(output).not.toContain('Update Available');
@@ -3662,7 +3662,7 @@ describe('Index and log note kinds', () => {
     await storeProjectNote('MyApp Domain', 'myapp', makeConfig(), 'domain');
     await storeProjectNote('Overview Note');
 
-    const output = handleOverview({ project: 'myapp' }, ctx.engine, makeConfig());
+    const output = handleContext({ project: 'myapp' }, ctx.engine, makeConfig());
     expect(output).toContain('## Project Overview: myapp');
     expect(output).toContain('### Domain');
     expect(output).toContain('### Inventory');
@@ -3671,7 +3671,7 @@ describe('Index and log note kinds', () => {
   });
 
   it('should return a not-found message for unknown projects', () => {
-    const output = handleOverview({ project: 'unknown-project' }, ctx.engine, makeConfig());
+    const output = handleContext({ project: 'unknown-project' }, ctx.engine, makeConfig());
     expect(output).toContain('No notes found for project "unknown-project"');
   });
 
@@ -3680,7 +3680,7 @@ describe('Index and log note kinds', () => {
     await storeProjectNote('Overview Entry Two');
     await storeProjectNote('Overview Entry Three');
 
-    const output = handleOverview({ project: 'myapp', logEntries: 2 }, ctx.engine, makeConfig());
+    const output = handleContext({ project: 'myapp', logEntries: 2 }, ctx.engine, makeConfig());
     const recentActivity = output.split('### Recent Activity\n')[1] || '';
     expect(recentActivity).not.toContain('Overview Entry One');
     expect(recentActivity).toContain('Overview Entry Two');
@@ -3692,7 +3692,7 @@ describe('Index and log note kinds', () => {
     const config = makeConfig({ navigation: { enableProjectIndex: false, enableProjectLog: false } });
     await storeProjectNote('Partial Domain', 'partial', config, 'domain');
 
-    const output = handleOverview({ project: 'partial' }, ctx.engine, config);
+    const output = handleContext({ project: 'partial' }, ctx.engine, config);
     expect(output).toContain('### Domain');
     expect(output).toContain('Partial Domain');
   });
@@ -3818,7 +3818,7 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
       expect(mineContent[0].text).not.toContain('domain notes require a project parameter');
 
       const overviewResult = await client.callTool({
-        name: 'knowledge-overview',
+        name: 'knowledge-context',
         arguments: { project: 'candidate-only' },
       });
       const overviewContent = overviewResult.content as Array<{ type: string; text: string }>;
@@ -3831,7 +3831,7 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
   });
 });
 
-describe('MCP Tool: knowledge-stats', () => {
+describe('MCP Tool: knowledge-health', () => {
   let ctx: TestContext;
 
   beforeEach(() => { ctx = createTestHarness(); });
@@ -3841,7 +3841,7 @@ describe('MCP Tool: knowledge-stats', () => {
     ctx.engine.store('Note A', { title: 'A', kind: 'reference' });
     ctx.engine.store('Note B', { title: 'B', kind: 'decision', status: 'permanent' });
 
-    const output = await handleStats({}, ctx.engine, ctx.config);
+    const output = await handleHealth({}, ctx.engine, ctx.config);
     expect(output).toContain('# Knowledge Base Stats');
     expect(output).toContain('## Health (2 notes)');
     expect(output).toContain('Fleeting: 1');
@@ -3853,21 +3853,21 @@ describe('MCP Tool: knowledge-stats', () => {
   it('should include growth rate section with period', async () => {
     ctx.engine.store('Recent note', { title: 'Recent', kind: 'observation' });
 
-    const output = await handleStats({ period: '7d' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ period: '7d' }, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 7d)');
     expect(output).toContain('Notes created: 1');
     expect(output).toContain('observation: 1');
   });
 
   it('should default period to 30d', async () => {
-    const output = await handleStats({}, ctx.engine, ctx.config);
+    const output = await handleHealth({}, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 30d)');
   });
 
   it('should include link health section', async () => {
     ctx.engine.store('Standalone', { title: 'Orphan', kind: 'reference' });
 
-    const output = await handleStats({}, ctx.engine, ctx.config);
+    const output = await handleHealth({}, ctx.engine, ctx.config);
     expect(output).toContain('## Link Health');
     expect(output).toContain('1 unlinked');
   });
@@ -3876,7 +3876,7 @@ describe('MCP Tool: knowledge-stats', () => {
     ctx.engine.store('Alpha note', { title: 'Alpha', kind: 'reference', tags: ['project:alpha'] });
     ctx.engine.store('Beta note', { title: 'Beta', kind: 'reference', tags: ['project:beta'] });
 
-    const output = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'alpha' }, ctx.engine, ctx.config);
     expect(output).toContain('Knowledge Base Stats — alpha');
     expect(output).toContain('## Health (1 notes)');
     expect(output).toContain('## Growth');
@@ -3889,7 +3889,7 @@ describe('MCP Tool: knowledge-stats', () => {
     ctx.engine.store('Alpha index', { title: 'Alpha Index', kind: 'index', tags: ['project:alpha'] });
     ctx.engine.store('Alpha log', { title: 'Alpha Log', kind: 'log', tags: ['project:alpha'] });
 
-    const output = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'alpha' }, ctx.engine, ctx.config);
 
     expect(output).toContain('## Health (1 notes)');
     expect(output).toContain('- Embedded: 1/1 notes');
@@ -3898,7 +3898,7 @@ describe('MCP Tool: knowledge-stats', () => {
   it('should clamp 0d period to 30d default', async () => {
     ctx.engine.store('A note', { title: 'A', kind: 'reference' });
 
-    const output = await handleStats({ period: '0d' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ period: '0d' }, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 30d)');
     expect(output).not.toContain('Infinity');
   });
@@ -3908,17 +3908,17 @@ describe('MCP Tool: knowledge-stats', () => {
     ctx.engine.store('Global standalone', { title: 'Global', kind: 'reference' });
 
     // Alpha has one note with no links — should show 1 unlinked when scoped to alpha
-    const alphaOutput = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+    const alphaOutput = await handleHealth({ project: 'alpha' }, ctx.engine, ctx.config);
     expect(alphaOutput).toContain('## Link Health');
     expect(alphaOutput).toContain('1 unlinked');
 
     // Global stats should show 3 unlinked (alpha + beta + global)
-    const globalOutput = await handleStats({}, ctx.engine, ctx.config);
+    const globalOutput = await handleHealth({}, ctx.engine, ctx.config);
     expect(globalOutput).toContain('3 unlinked');
   });
 });
 
-describe('MCP Tool: knowledge-overview global', () => {
+describe('MCP Tool: knowledge-context global', () => {
   let ctx: TestContext;
 
   beforeEach(() => { ctx = createTestHarness(); });
@@ -3934,7 +3934,7 @@ describe('MCP Tool: knowledge-overview global', () => {
       summary: 'Sum', guidance: 'Guide',
     }, ctx.engine, null, ctx.config);
 
-    const output = handleOverview({}, ctx.engine, ctx.config);
+    const output = handleContext({}, ctx.engine, ctx.config);
     expect(output).toContain('## Knowledge Base Overview');
     expect(output).toContain('### Projects');
     expect(output).toContain('**alpha**');
@@ -3948,7 +3948,7 @@ describe('MCP Tool: knowledge-overview global', () => {
       summary: 'Sum', guidance: 'Guide',
     }, ctx.engine, null, ctx.config);
 
-    const output = handleOverview({}, ctx.engine, ctx.config);
+    const output = handleContext({}, ctx.engine, ctx.config);
     expect(output).toContain('Unscoped notes:');
   });
 });

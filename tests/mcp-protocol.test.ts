@@ -59,15 +59,15 @@ describe('MCP Protocol E2E', () => {
 
     const toolNames = tools.tools.map((t) => t.name).sort();
     expect(toolNames).toEqual([
-      'knowledge-get', 'knowledge-ingest', 'knowledge-maintain', 'knowledge-mine',
-      'knowledge-open', 'knowledge-overview', 'knowledge-search', 'knowledge-stats',
+      'knowledge-context', 'knowledge-get', 'knowledge-health', 'knowledge-ingest',
+      'knowledge-maintain', 'knowledge-mine', 'knowledge-open', 'knowledge-search',
       'knowledge-store', 'knowledge-template',
     ]);
   });
 
-  it('knowledge-stats returns valid response', async () => {
+  it('knowledge-health returns valid response', async () => {
     const result = await client!.callTool({
-      name: 'knowledge-stats',
+      name: 'knowledge-health',
       arguments: {},
     });
 

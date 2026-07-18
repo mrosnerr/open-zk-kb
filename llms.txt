@@ -51,7 +51,7 @@ Parameters:
 - dry_run (boolean, optional): Preview only without storing (default: true)
 - project (string, optional): Scope all mined notes to a project
 
-### knowledge-stats
+### knowledge-health
 Operational metrics and health dashboard for the knowledge base.
 
 Parameters:
@@ -72,7 +72,7 @@ Parameters:
 - url (string, optional): URL to fetch and extract
 - html (string, optional): Raw HTML to extract (preferred — pass HTML from your web tools)
 
-### knowledge-overview
+### knowledge-context
 Get a knowledge base overview with computed inventory (note counts by kind, recent notes, resources) and recent log entries.
 
 Parameters:

@@ -8,7 +8,7 @@ description: >
   "ingest a URL", "open Obsidian", "what template for a decision", or mentions
   knowledge base operations. Provides detailed reference for the 10 open-zk-kb
   MCP tools: knowledge-search, knowledge-store, knowledge-get, knowledge-maintain,
-  knowledge-overview, knowledge-template, knowledge-mine, knowledge-stats,
+  knowledge-context, knowledge-template, knowledge-mine, knowledge-health,
   knowledge-ingest, knowledge-open.
 allowed-tools:
   - mcp__open-zk-kb__knowledge-search
@@ -17,10 +17,10 @@ allowed-tools:
   - mcp__open-zk-kb__knowledge-template
   - mcp__open-zk-kb__knowledge-maintain
   - mcp__open-zk-kb__knowledge-ingest
-  - mcp__open-zk-kb__knowledge-overview
+  - mcp__open-zk-kb__knowledge-context
   - mcp__open-zk-kb__knowledge-mine
   - mcp__open-zk-kb__knowledge-open
-  - mcp__open-zk-kb__knowledge-stats
+  - mcp__open-zk-kb__knowledge-health
 ---
 
 ## Storing Knowledge
@@ -127,14 +127,14 @@ When a useful URL comes up: `knowledge-ingest` to extract, then `knowledge-store
 - **Without a web tool**: `knowledge-ingest(url: "...")` directly — basic fetch, may fail on protected sites.
 
 ### Project Overview
-Use `knowledge-overview` at the start of a session to orient yourself:
-- `knowledge-overview(project: "my-project")` — returns computed inventory (note counts by kind, recent notes, resources) and recent log entries for a project
-- `knowledge-overview()` — omit `project` for a global overview across all projects
+Use `knowledge-context` at the start of a session to orient yourself:
+- `knowledge-context(project: "my-project")` — returns computed inventory (note counts by kind, recent notes, resources) and recent log entries for a project
+- `knowledge-context()` — omit `project` for a global overview across all projects
 - Optional: `logEntries` (number, default 10) to control how many log entries are shown
 
 ### Maintenance
 
-**Metrics**: `knowledge-stats` — operational metrics including health counts, embedding coverage, link health, staleness distribution, growth by kind, and infrastructure status. Parameters: `project?`, `period?` ("7d"/"30d"/"90d", default "30d"), `telemetry?`.
+**Metrics**: `knowledge-health` — operational metrics including health counts, embedding coverage, link health, staleness distribution, growth by kind, and infrastructure status. Parameters: `project?`, `period?` ("7d"/"30d"/"90d", default "30d"), `telemetry?`.
 
 **One-command maintenance**: `knowledge-maintain(action: "full")` — runs rebuild → migrate-layout → format → dedupe → embed → link-health in dependency order.
 
