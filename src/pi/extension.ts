@@ -107,6 +107,10 @@ class OpenZkKbMcpBridge {
         };
       }
     } catch (error) {
+      // Abort/cancel — re-throw without resetting the shared bridge
+      if (error instanceof Error && (error.name === 'AbortError' || signal?.aborted)) {
+        throw error;
+      }
       // Transport/protocol failure — reset the bridge for reconnection
       await this.reset();
       const stderr = this.stderrTail.trim();
