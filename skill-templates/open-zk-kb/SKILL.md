@@ -58,7 +58,7 @@ Titles are **scannable labels** (3–6 words), not summaries. Detail belongs in 
 
 ### Good vs Bad Examples
 ✅ **Good** — concise title, correct kind, actionable guidance:
-```
+```yaml
 title: "Bun SQLite WAL mode"
 kind: "observation"
 summary: "SQLite in Bun uses journal mode by default; WAL must be set explicitly."
@@ -66,7 +66,7 @@ guidance: "Run `db.exec('PRAGMA journal_mode=WAL')` after opening any Bun SQLite
 ```
 
 🚫 **Bad** — vague title, wrong kind, useless guidance:
-```
+```yaml
 title: "Database stuff"
 kind: "reference"
 summary: "Some notes about the database."
@@ -74,6 +74,7 @@ guidance: "Check the database."
 ```
 
 ### Kind Selection Guide
+
 | Scenario | Kind |
 |----------|------|
 | User says they prefer tabs over spaces | **personalization** |

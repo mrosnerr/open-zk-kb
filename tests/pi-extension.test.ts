@@ -67,6 +67,7 @@ describe('Pi extension', () => {
           stderr: 'pipe',
         },
         clientName: 'test-open-zk-kb-pi',
+        httpUrl: undefined,
       });
 
       extension({
@@ -82,9 +83,11 @@ describe('Pi extension', () => {
         },
       });
 
-      expect(registered.map((tool) => tool.name)).toContain('knowledge-search');
-      expect(registered.map((tool) => tool.name)).toContain('knowledge-store');
-      expect(registered.map((tool) => tool.name)).toContain('knowledge-template');
+      expect(registered.map((tool) => tool.name).sort()).toEqual([
+        'knowledge-get', 'knowledge-ingest', 'knowledge-maintain', 'knowledge-mine',
+        'knowledge-open', 'knowledge-overview', 'knowledge-search', 'knowledge-stats',
+        'knowledge-store', 'knowledge-template',
+      ]);
       expect(promptHandler).toBeDefined();
 
       const promptResult = await promptHandler?.({ systemPrompt: 'Base prompt' });

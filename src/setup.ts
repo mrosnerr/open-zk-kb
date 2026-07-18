@@ -834,11 +834,11 @@ function ensureDirThroughSymlinks(dirPath: string): void {
 
 /**
  * Returns the path to the skill template directory in the package.
- * Works from both src/ (development) and dist/ (production) because skills/
+ * Works from both src/ (development) and dist/ (production) because skill-templates/
  * is at the project root, one level up from either location.
  */
 function getSkillTemplateDir(): string {
-  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'skills', 'open-zk-kb');
+  return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'skill-templates', 'open-zk-kb');
 }
 
 /** Returns the path to ~/.claude/CLAUDE.md for migration checks. */

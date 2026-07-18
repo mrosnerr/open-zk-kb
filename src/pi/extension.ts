@@ -6,48 +6,11 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import type { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CompatibilityCallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+import type { ExtensionAPI, ToolDefinition, AgentToolResult } from '@earendil-works/pi-coding-agent';
+import { TOOL_DEFINITIONS } from '../tool-meta.js';
+import { toTypeBoxSchema } from './tool-schemas.js';
 
-interface JsonSchema {
-  type: 'object';
-  properties?: Record<string, unknown>;
-  required?: string[];
-  additionalProperties?: boolean;
-}
-
-interface PiToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  details?: Record<string, unknown>;
-  isError?: boolean;
-}
-
-interface PiToolDefinition {
-  name: string;
-  label: string;
-  description: string;
-  promptSnippet?: string;
-  promptGuidelines?: string[];
-  parameters: JsonSchema;
-  executionMode?: 'sequential' | 'parallel';
-  execute(
-    toolCallId: string,
-    params: Record<string, unknown>,
-    signal?: AbortSignal,
-  ): Promise<PiToolResult>;
-}
-
-interface PiExtensionApi {
-  registerTool(tool: PiToolDefinition): void;
-  on(event: 'session_shutdown', handler: () => void | Promise<void>): void;
-  on(event: 'before_agent_start', handler: (event: BeforeAgentStartEvent) => BeforeAgentStartResult | Promise<BeforeAgentStartResult>): void;
-}
-
-interface BeforeAgentStartEvent {
-  systemPrompt: string;
-}
-
-interface BeforeAgentStartResult {
-  systemPrompt?: string;
-}
+// ─── Types ───────────────────────────────────────────────────────────────────
 
 interface BridgeOptions {
   server: StdioServerParameters;
@@ -57,179 +20,7 @@ interface BridgeOptions {
 
 type ToolName = typeof TOOL_DEFINITIONS[number]['name'];
 
-const STRING_ARRAY_SCHEMA = {
-  type: 'array',
-  items: { type: 'string' },
-};
-
-const CANDIDATE_SCHEMA = {
-  type: 'object',
-  properties: {
-    kind: { type: 'string', enum: ['personalization', 'decision', 'procedure', 'reference', 'resource', 'observation', 'domain'] },
-    title: { type: 'string' },
-    content: { type: 'string' },
-    summary: { type: 'string' },
-    guidance: { type: 'string' },
-    project: { type: 'string' },
-    tags: STRING_ARRAY_SCHEMA,
-    source: { type: 'string' },
-  },
-  required: ['kind', 'title', 'content', 'summary', 'guidance'],
-  additionalProperties: false,
-};
-
-const TOOL_DEFINITIONS = [
-  {
-    name: 'knowledge-store',
-    label: 'Store Knowledge',
-    description: 'Store or update a concise persistent knowledge note for future agent sessions.',
-    promptSnippet: 'Store or update durable cross-session memory in open-zk-kb.',
-    parameters: objectSchema({
-      kind: enumSchema(['personalization', 'decision', 'procedure', 'reference', 'resource', 'observation', 'domain']),
-      title: { type: 'string' },
-      content: { type: 'string' },
-      summary: { type: 'string' },
-      guidance: { type: 'string' },
-      project: { type: 'string' },
-      tags: STRING_ARRAY_SCHEMA,
-      lifecycle: enumSchema(['living', 'snapshot', 'append-only']),
-      client: { type: 'string' },
-      status: enumSchema(['fleeting', 'permanent', 'archived']),
-      related: STRING_ARRAY_SCHEMA,
-      model: { type: 'string' },
-    }, ['kind', 'title', 'content', 'summary', 'guidance']),
-  },
-  {
-    name: 'knowledge-ingest',
-    label: 'Ingest Knowledge Source',
-    description: 'Extract article-style content from a URL or supplied HTML for storage in open-zk-kb.',
-    promptSnippet: 'Extract URL or HTML content before storing useful resources in open-zk-kb.',
-    parameters: objectSchema({
-      url: { type: 'string' },
-      html: { type: 'string' },
-      model: { type: 'string' },
-    }),
-  },
-  {
-    name: 'knowledge-search',
-    label: 'Search Knowledge',
-    description: 'Search persistent cross-session memory with full-text and semantic retrieval.',
-    promptSnippet: 'Search open-zk-kb for relevant prior context and guidance.',
-    parameters: objectSchema({
-      query: { type: 'string' },
-      client: { type: 'string' },
-      project: { type: 'string' },
-      kind: enumSchema(['personalization', 'decision', 'procedure', 'reference', 'resource', 'observation', 'domain', 'index', 'log']),
-      tags: STRING_ARRAY_SCHEMA,
-      limit: { type: 'number' },
-      status: enumSchema(['fleeting', 'permanent', 'archived']),
-      lifecycle: enumSchema(['living', 'snapshot', 'append-only']),
-      model: { type: 'string' },
-    }, ['query']),
-  },
-  {
-    name: 'knowledge-overview',
-    label: 'Knowledge Overview',
-    description: 'Get a project knowledge overview: generated index and recent log entries.',
-    promptSnippet: 'Load an open-zk-kb project overview at the start of project work.',
-    parameters: objectSchema({
-      project: { type: 'string' },
-      logEntries: { type: 'number' },
-      model: { type: 'string' },
-    }),
-  },
-  {
-    name: 'knowledge-stats',
-    label: 'Knowledge Stats',
-    description: 'Operational metrics and health indicators: note counts, embedding coverage, link health, staleness distribution, growth rate over a configurable period, infrastructure status, and version info.',
-    promptSnippet: 'Check open-zk-kb vault health, staleness, and growth metrics.',
-    parameters: objectSchema({
-      project: { type: 'string' },
-      period: { type: 'string' },
-      telemetry: { type: 'boolean' },
-      model: { type: 'string' },
-    }),
-  },
-  {
-    name: 'knowledge-open',
-    label: 'Open in Obsidian',
-    description: 'Open the knowledge base vault in Obsidian for visual browsing. Detects Obsidian installation and launches it pointed at the vault.',
-    promptSnippet: 'Open open-zk-kb notes for human review when requested.',
-    parameters: objectSchema({
-      project: { type: 'string' },
-    }),
-  },
-  {
-    name: 'knowledge-maintain',
-    label: 'Maintain Knowledge',
-    description: 'Run knowledge base maintenance actions: promote, archive, delete, rebuild, format, upgrade, upgrade-read, upgrade-apply, review, dedupe, embed, agent-docs, scope-audit, unlinked, broken-links, link-health, migrate-layout, upgrade-vault, full.',
-    promptSnippet: 'Inspect or maintain open-zk-kb health and lifecycle state.',
-    parameters: objectSchema({
-      action: enumSchema(['promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply', 'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'unlinked', 'broken-links', 'link-health', 'migrate-layout', 'upgrade-vault', 'full']),
-      noteId: { type: 'string' },
-      limit: { type: 'number' },
-      dryRun: { type: 'boolean' },
-      filter: enumSchema(['fleeting', 'permanent']),
-      days: { type: 'number' },
-      model: { type: 'string' },
-    }, ['action']),
-  },
-  {
-    name: 'knowledge-mine',
-    label: 'Mine Knowledge',
-    description: 'Bulk-screen candidate memories from prior sessions for deduplication before storage.',
-    promptSnippet: 'Mine previous sessions for candidate open-zk-kb notes.',
-    parameters: objectSchema({
-      candidates: {
-        type: 'array',
-        items: CANDIDATE_SCHEMA,
-      },
-      dry_run: { type: 'boolean' },
-      project: { type: 'string' },
-      model: { type: 'string' },
-    }, ['candidates']),
-  },
-  {
-    name: 'knowledge-get',
-    label: 'Get Knowledge Note',
-    description: 'Retrieve a single note by its exact ID. Faster and more precise than knowledge-search. Use when you already know the note ID (e.g. from injected context hints).',
-    promptSnippet: 'Fetch a specific open-zk-kb note by id for fast retrieval.',
-    parameters: objectSchema({
-      noteId: { type: 'string' },
-      model: { type: 'string' },
-    }, ['noteId']),
-  },
-  {
-    name: 'knowledge-template',
-    label: 'Knowledge Template',
-    description: 'Get the canonical note template for a knowledge kind before storing structured memory.',
-    promptSnippet: 'Load an open-zk-kb note template before storing structured knowledge.',
-    parameters: objectSchema({
-      kind: enumSchema(['personalization', 'decision', 'procedure', 'reference', 'resource', 'observation', 'domain', 'index', 'log']),
-      project: { type: 'string' },
-      model: { type: 'string' },
-    }, ['kind']),
-  },
-] as const;
-
-const PROMPT_GUIDELINES = [
-  'Use knowledge-search before work that may benefit from prior cross-session memory; pass client: "pi" for Pi-specific context.',
-  'Use knowledge-store immediately when the user asks you to remember a preference, decision, procedure, observation, reference, or useful resource.',
-  'Use knowledge-template before knowledge-store when creating a structured note kind for the first time in a session.',
-];
-
-function objectSchema(properties: Record<string, unknown>, required: string[] = []): JsonSchema {
-  return {
-    type: 'object',
-    properties,
-    required,
-    additionalProperties: false,
-  };
-}
-
-function enumSchema(values: string[]): Record<string, unknown> {
-  return { type: 'string', enum: values };
-}
+// ─── MCP Bridge ──────────────────────────────────────────────────────────────
 
 function defaultServerParameters(): StdioServerParameters {
   const extensionDir = path.dirname(fileURLToPath(import.meta.url));
@@ -282,11 +73,12 @@ class OpenZkKbMcpBridge {
 
   constructor(private readonly options: BridgeOptions) {}
 
-  async callTool(name: ToolName, args: Record<string, unknown>, signal?: AbortSignal): Promise<PiToolResult> {
+  async callTool(name: ToolName, args: Record<string, unknown>, signal?: AbortSignal): Promise<AgentToolResult<Record<string, unknown> | undefined>> {
     if (signal?.aborted) {
-      return { content: [{ type: 'text', text: 'Cancelled' }], isError: true };
+      throw new Error('Cancelled');
     }
 
+    let toolErrorText: string | undefined;
     try {
       const client = await this.getClient();
       const result = await client.callTool(
@@ -296,25 +88,34 @@ class OpenZkKbMcpBridge {
       );
 
       if (hasContent(result)) {
-        return {
-          content: [{ type: 'text', text: textFromMcpContent(result.content) }],
-          details: result.structuredContent ? { structuredContent: result.structuredContent } : undefined,
-          isError: result.isError,
-        };
+        const text = textFromMcpContent(result.content);
+        if (result.isError) {
+          // Tool-level error — defer throw until after try/catch to avoid resetting the bridge
+          toolErrorText = text;
+        } else {
+          return {
+            content: [{ type: 'text', text }],
+            details: result.structuredContent ? { structuredContent: result.structuredContent } : undefined,
+          };
+        }
       }
 
-      return {
-        content: [{ type: 'text', text: JSON.stringify(result) }],
-      };
+      if (!toolErrorText) {
+        return {
+          content: [{ type: 'text', text: JSON.stringify(result) }],
+          details: undefined,
+        };
+      }
     } catch (error) {
+      // Transport/protocol failure — reset the bridge for reconnection
       await this.reset();
       const stderr = this.stderrTail.trim();
       const suffix = stderr ? `\n\nServer stderr:\n${stderr}` : '';
-      return {
-        content: [{ type: 'text', text: `open-zk-kb Pi bridge failed: ${formatError(error)}${suffix}` }],
-        isError: true,
-      };
+      throw new Error(`open-zk-kb: ${formatError(error)}${suffix}`, { cause: error });
     }
+
+    // Tool-level error — throw outside try/catch so the bridge is NOT reset
+    throw new Error(toolErrorText);
   }
 
   async close(): Promise<void> {
@@ -347,7 +148,6 @@ class OpenZkKbMcpBridge {
         return client;
       } catch {
         // HTTP connection failed — fall back to stdio for this and future calls.
-        // MCP SDK clients are single-transport, so the fallback uses a fresh client.
         this.httpDisabled = true;
         this.transport = undefined;
         await transport.close().catch(() => undefined);
@@ -384,6 +184,8 @@ class OpenZkKbMcpBridge {
     }
   }
 }
+
+// ─── HTTP Server Detection ───────────────────────────────────────────���───────
 
 function isLoopbackHost(host: string): boolean {
   return host === '127.0.0.1' || host === 'localhost' || host === '::1';
@@ -436,28 +238,32 @@ function detectHttpServer(): string | undefined {
   }
 }
 
+// ─── Extension Entry Point ───────────────────────────────────────────────────
+
 export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
-  return (pi: PiExtensionApi): void => {
+  return (pi: ExtensionAPI): void => {
     const bridge = new OpenZkKbMcpBridge({
       server: options?.server ?? defaultServerParameters(),
       clientName: options?.clientName ?? 'open-zk-kb-pi',
-      httpUrl: options?.httpUrl ?? detectHttpServer(),
+      httpUrl: 'httpUrl' in (options ?? {}) ? options!.httpUrl : detectHttpServer(),
     });
 
     for (const definition of TOOL_DEFINITIONS) {
+      const parameters = toTypeBoxSchema(definition.params);
       pi.registerTool({
         name: definition.name,
         label: definition.label,
         description: definition.description,
         promptSnippet: definition.promptSnippet,
-        promptGuidelines: PROMPT_GUIDELINES,
-        parameters: definition.parameters,
-        executionMode: 'sequential',
-        execute: (_toolCallId, params, signal) => bridge.callTool(definition.name, params, signal),
-      });
+        promptGuidelines: 'promptGuidelines' in definition ? definition.promptGuidelines : undefined,
+        parameters,
+        executionMode: definition.executionMode,
+        execute: (_toolCallId, params, signal) => bridge.callTool(definition.name, params as Record<string, unknown>, signal),
+      } as ToolDefinition);
     }
 
     pi.on('before_agent_start', (event) => {
+      // Skip injection if the skill or agent docs already provide KB instructions
       if (event.systemPrompt.includes('OPEN-ZK-KB:START') || event.systemPrompt.includes('knowledge-search')) {
         return {};
       }
