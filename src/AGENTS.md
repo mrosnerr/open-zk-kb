@@ -34,7 +34,7 @@ src/
 ```
 Client request → mcp-server.ts
                         ↓
-               tool-handlers.ts (handleStore/Search/Get/Template/Mine/Stats/Maintain/Ingest/Overview/Open)
+               tool-handlers.ts (handleStore/Search/Get/Template/Mine/Health/Maintain/Ingest/Context/Open)
                         ↓
                NoteRepository.store/search/getStats/...
                     ↓              ↓
