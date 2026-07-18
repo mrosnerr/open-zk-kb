@@ -47,7 +47,7 @@
 # navigation:
 #   enableProjectIndex: true              # Auto-rebuild project index on every store/archive/promote/delete/rebuild
 #   enableProjectLog: true               # Auto-append to project log on every event
-#   overviewLogEntryLimit: 10            # Recent log entries shown in knowledge-overview
+#   overviewLogEntryLimit: 10            # Recent log entries shown in knowledge-context
 
 # ─── Obsidian Vault Experience ────────────────────────────────────────────────
 # Batteries-included vault scaffold used by knowledge-open.

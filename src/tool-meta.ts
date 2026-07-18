@@ -328,15 +328,15 @@ export const TOOL_DEFINITIONS = [
 	},
 
 	{
-		name: "knowledge-overview",
-		label: "Knowledge Overview",
+		name: "knowledge-context",
+		label: "Knowledge Context",
 		description:
-			"Get an overview of the knowledge base. With project: domain note, inventory by kind, recent notes, " +
+			"Get a context of the knowledge base. With project: domain note, inventory by kind, recent notes, " +
 			"resources, and activity log. Without project: all projects with note counts, global inventory, and recent notes.",
 		promptSnippet:
-			"Load an open-zk-kb project overview at the start of project work.",
+			"Load an open-zk-kb project context at the start of project work.",
 		promptGuidelines: [
-			"Use knowledge-overview at the start of a project session to load prior context, decisions, and recent activity.",
+			"Use knowledge-context at the start of a project session to load prior context, decisions, and recent activity.",
 		],
 		executionMode: "parallel",
 		params: {
@@ -344,7 +344,7 @@ export const TOOL_DEFINITIONS = [
 				type: "string",
 				required: false,
 				description:
-					"Project name to get overview for. Omit for global overview.",
+					"Project name to get context for. Omit for global context.",
 			},
 			logEntries: {
 				type: "number",
@@ -404,8 +404,8 @@ export const TOOL_DEFINITIONS = [
 	},
 
 	{
-		name: "knowledge-stats",
-		label: "Knowledge Stats",
+		name: "knowledge-health",
+		label: "Knowledge Health",
 		description:
 			"Operational metrics and health indicators: note counts, embedding coverage, link health, " +
 			"staleness distribution, growth rate over a configurable period, infrastructure status, and version info.",

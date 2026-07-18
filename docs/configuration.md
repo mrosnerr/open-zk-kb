@@ -57,7 +57,7 @@ Embeddings work **out of the box** with zero configuration using a local model (
 
 Telemetry has two layers, both **disabled by default**:
 
-**Local counters** (`telemetry.enabled`) — Records tool invocation counters and note access timestamps to the local SQLite database. Never leaves your machine. Used by `knowledge-stats` for usage breakdowns.
+**Local counters** (`telemetry.enabled`) — Records tool invocation counters and note access timestamps to the local SQLite database. Never leaves your machine. Used by `knowledge-health` for usage breakdowns.
 
 **Anonymous sharing** (`telemetry.share`) — When also enabled, anonymous session metadata (client, models, version, platform, vault size, tool usage counts) is sent to PostHog (EU Cloud) on the next server startup. No note content, search queries, or personal data is ever shared. See [Telemetry](telemetry.md) for the full event schema.
 

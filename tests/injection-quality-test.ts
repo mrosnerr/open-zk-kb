@@ -82,7 +82,7 @@ async function run() {
 
   // Show stats for context
   console.log('\n--- KB Stats ---\n');
-  const statsResult = await client.callTool({ name: 'knowledge-stats', arguments: {} });
+  const statsResult = await client.callTool({ name: 'knowledge-health', arguments: {} });
   console.log(text(statsResult));
 
   await client.close();

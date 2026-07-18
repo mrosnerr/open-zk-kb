@@ -23,7 +23,7 @@ import { toZodSchema } from './tool-schemas.js';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { ensureObsidianScaffold } from './obsidian-scaffold.js';
-import { handleStore, handleSearch, handleStats, handleMaintain, handleIngest, handleOverview, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
+import { handleStore, handleSearch, handleHealth, handleMaintain, handleIngest, handleContext, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
 import { reportPreviousSessions } from './analytics.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import { createGitVersioning } from './git-versioning.js';
@@ -259,29 +259,29 @@ export function createMcpServer(): McpServer {
     },
   );
 
-  // ---- knowledge-overview ----
+  // ---- knowledge-context ----
 
-  const overviewTool = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-overview')!;
-  const overviewSchema = toZodSchema(overviewTool.params).extend({
-    logEntries: z.number().int().min(1).optional().describe(overviewTool.params.logEntries.description!),
+  const contextTool = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-context')!;
+  const contextSchema = toZodSchema(contextTool.params).extend({
+    logEntries: z.number().int().min(1).optional().describe(contextTool.params.logEntries.description!),
   }) as z.ZodType<any>;
 
   server.registerTool(
-    'knowledge-overview',
+    'knowledge-context',
     {
-      description: overviewTool.description,
-      inputSchema: overviewSchema as unknown as AnySchema,
+      description: contextTool.description,
+      inputSchema: contextSchema as unknown as AnySchema,
     },
-    async (args: z.infer<typeof overviewSchema>) => {
+    async (args: z.infer<typeof contextSchema>) => {
       try {
-        const result = handleOverview({
+        const result = handleContext({
           project: args.project,
           logEntries: args.logEntries,
           model: args.model,
         }, await getOrCreateRepo(), config);
         return { content: [{ type: 'text' as const, text: result }] };
       } catch (error) {
-        logToFile('ERROR', 'knowledge-overview failed', {
+        logToFile('ERROR', 'knowledge-context failed', {
           error: error instanceof Error ? error.message : String(error),
         }, config);
         return {
@@ -351,20 +351,20 @@ export function createMcpServer(): McpServer {
     },
   );
 
-  // ---- knowledge-stats ----
+  // ---- knowledge-health ----
 
-  const statsTool = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-stats')!;
-  const statsSchema = toZodSchema(statsTool.params) as z.ZodType<any>;
+  const healthTool = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-health')!;
+  const healthSchema = toZodSchema(healthTool.params) as z.ZodType<any>;
 
   server.registerTool(
-    'knowledge-stats',
+    'knowledge-health',
     {
-      description: statsTool.description,
-      inputSchema: statsSchema as unknown as AnySchema,
+      description: healthTool.description,
+      inputSchema: healthSchema as unknown as AnySchema,
     },
-    async (args: z.infer<typeof statsSchema>) => {
+    async (args: z.infer<typeof healthSchema>) => {
       try {
-        const result = await handleStats({
+        const result = await handleHealth({
           project: args.project,
           period: args.period,
           telemetry: args.telemetry,
@@ -372,7 +372,7 @@ export function createMcpServer(): McpServer {
         }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION, gitVersioning);
         return { content: [{ type: 'text' as const, text: result }] };
       } catch (error) {
-        logToFile('ERROR', 'knowledge-stats failed', {
+        logToFile('ERROR', 'knowledge-health failed', {
           error: error instanceof Error ? error.message : String(error),
         }, config);
         return {

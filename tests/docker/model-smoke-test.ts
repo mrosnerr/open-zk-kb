@@ -111,7 +111,7 @@ async function testKbRoundTripWithEmbeddings() {
     check('semantic search finds relevant note', searchText.includes('Tailwind'), `search: ${searchText.substring(0, 100)}`);
 
     const statsResult = await client.callTool({
-      name: 'knowledge-stats',
+      name: 'knowledge-health',
       arguments: {},
     });
     const statsText = text(statsResult);

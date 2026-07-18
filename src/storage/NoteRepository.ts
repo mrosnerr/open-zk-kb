@@ -1563,7 +1563,7 @@ export class NoteRepository {
 
   /**
    * Get notes created within a time window, grouped by kind.
-   * Used by knowledge-stats for growth rate reporting.
+   * Used by knowledge-health for growth rate reporting.
    */
   getGrowthByKind(sinceMs: number, project?: string): Record<string, number> {
     const projectClause = project ? ` AND kind NOT IN ('index', 'log') AND tags LIKE ?` : '';

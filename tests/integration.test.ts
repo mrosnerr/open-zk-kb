@@ -11,7 +11,7 @@ import {
 } from './harness.js';
 import type { TestContext } from './harness.js';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
-import { handleStore, handleStats, handleOverview } from '../src/tool-handlers.js';
+import { handleStore, handleHealth, handleContext } from '../src/tool-handlers.js';
 
 describe('Knowledge Capture Integration Tests', () => {
   let context: TestContext;
@@ -107,7 +107,7 @@ describe('Knowledge Capture Integration Tests', () => {
         observation: 1,
       });
 
-      const output = await handleStats({ project: 'knowledge-stats-project', period: '7d' }, context.engine, context.config);
+      const output = await handleHealth({ project: 'knowledge-stats-project', period: '7d' }, context.engine, context.config);
       expect(output).toContain('## Health (1 notes)');
       expect(output).toContain('- 0–7d: 1');
       expect(output).toContain('- Notes created: 1');
@@ -138,7 +138,7 @@ describe('Knowledge Capture Integration Tests', () => {
       const stats = context.engine.getStats();
       expect(stats.total - stats.archived - context.engine.getScopedNoteCount()).toBe(1);
 
-      const output = handleOverview({}, context.engine, context.config);
+      const output = handleContext({}, context.engine, context.config);
       expect(output).toContain('Unscoped notes: 1');
       expect(output).not.toContain('Unscoped notes: -');
     });

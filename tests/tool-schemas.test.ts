@@ -17,8 +17,8 @@ const params: Record<string, ParamDef> = {
 describe('shared tool schemas', () => {
   it('defines the complete, unique tool contract', () => {
     expect(TOOL_DEFINITIONS.map(tool => tool.name)).toEqual([
-      'knowledge-store', 'knowledge-ingest', 'knowledge-search', 'knowledge-overview',
-      'knowledge-open', 'knowledge-get', 'knowledge-stats', 'knowledge-maintain',
+      'knowledge-store', 'knowledge-ingest', 'knowledge-search', 'knowledge-context',
+      'knowledge-open', 'knowledge-get', 'knowledge-health', 'knowledge-maintain',
       'knowledge-mine', 'knowledge-template',
     ]);
     expect(new Set(TOOL_DEFINITIONS.map(tool => tool.name)).size).toBe(10);

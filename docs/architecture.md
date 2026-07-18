@@ -40,7 +40,7 @@ Obsidian plays a separate role: it is the primary human browsing and interaction
 │   handleGet()       │
 │   handleMaintain()  │
 │   handleIngest()    │
-│   handleOverview()  │
+│   handleContext()   │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
@@ -71,7 +71,7 @@ The system employs a hybrid storage strategy to balance portability with perform
 
 The vault has two distinct consumers:
 
-* **Agents** query MCP tools such as `knowledge-search`, `knowledge-store`, and `knowledge-overview`. Their primary path is the SQLite-backed repository and server-owned rendering logic.
+* **Agents** query MCP tools such as `knowledge-search`, `knowledge-store`, and `knowledge-context`. Their primary path is the SQLite-backed repository and server-owned rendering logic.
 * **Humans** browse the vault in Obsidian using generated shell pages, activity logs, graph view, templates, scaffolded plugins, and Dataview-rendered sections.
 
 This distinction is intentional. Core knowledge notes (`decision`, `procedure`, `reference`, `resource`, `observation`, `personalization`, `domain`) remain markdown-native and portable. Navigation notes (`index`, `log`) are allowed to carry richer Obsidian-specific UX because they are primarily human-facing surfaces. In the current design, the server creates and maintains the shell files, while Dataview increasingly owns the rendered lists and tables inside those shells.
@@ -87,7 +87,7 @@ The MCP server provides a reactive interface to the knowledge base:
     * **Streamable HTTP** (`open-zk-kb serve`): Single shared process for all clients. Uses `Bun.serve()` with `WebStandardStreamableHTTPServerTransport` in stateless mode. Recommended for multi-session environments (OMP, multiple terminals).
 * **Shared Server Discovery**: When running in stdio mode, the server first checks if a shared HTTP server is available (via `$XDG_RUNTIME_DIR/open-zk-kb/server.json`). If found and healthy, it transparently bridges stdio→HTTP, avoiding resource duplication.
 * **Resilience**: Bridges recover transparently from server crashes or restarts through an internal retry chain (retry → re-probe → process locally). See [Performance and Resilience](performance.md) for latency benchmarks, memory profiles, and failure mode analysis.
-* **Tools**: Registers [ten core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-template`, `knowledge-mine`, `knowledge-stats`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
+* **Tools**: Registers [ten core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-template`, `knowledge-mine`, `knowledge-health`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-context`, and `knowledge-open`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).
     * **Model**: `Xenova/all-MiniLM-L6-v2` (quantized q8, ~23MB).
