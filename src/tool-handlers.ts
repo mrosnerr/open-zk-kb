@@ -484,7 +484,7 @@ export async function handleStats(args: StatsArgs, repo: NoteRepository, config:
         if (!inst.instructionVersion) {
           statusIcon = '?';
         } else if (latest && isNewerVersion(inst.instructionVersion, latest)) {
-          statusIcon = '⚠️';
+          statusIcon = '⚠';
         } else {
           statusIcon = '✓';
         }
@@ -577,7 +577,7 @@ export async function handleIngest(args: IngestArgs, repo?: NoteRepository): Pro
     const existing = repo.findByUrl(sourceUrl);
     if (existing.length > 0) {
       output += '\n## Existing KB Coverage\n';
-      output += `⚠️ ${existing.length} note(s) already reference this URL:\n`;
+      output += `⚠ ${existing.length} note(s) already reference this URL:\n`;
       for (const note of existing) {
         output += `- ${note.title} [${note.id}]\n`;
       }
@@ -1601,7 +1601,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           for (let i = 0; i < notes.length; i++) {
             const note = notes[i];
             const isPermanent = note.status === 'permanent';
-            const marker = isPermanent ? '🔒 (permanent - protected)' : (i === 0 ? '(keep)' : '(duplicate)');
+            const marker = isPermanent ? '⦸ (permanent - protected)' : (i === 0 ? '(keep)' : '(duplicate)');
             output += `- ${note.id} | ${note.status} | ${note.access_count || 0} accesses | ${marker}\n`;
           }
 
@@ -1633,7 +1633,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           for (let i = 0; i < notes.length; i++) {
             const note = notes[i];
             const isPermanent = note.status === 'permanent';
-            const marker = isPermanent ? '🔒 (permanent - protected)' : (i === 0 ? '(keep)' : '(near-duplicate)');
+            const marker = isPermanent ? '⦸ (permanent - protected)' : (i === 0 ? '(keep)' : '(near-duplicate)');
             output += `- ${note.id} | "${note.title}" | ${note.status} | ${marker}\n`;
           }
 
@@ -1655,7 +1655,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       output += '## Next Steps:\n';
       output += '[A] Archive specific duplicate (requires --noteId)\n';
       output += '[B] View specific note details (use knowledge-search)\n';
-      output += '\n⚠️ Permanent notes (🔒) are never auto-archived. Promote the best version before archiving others.\n';
+      output += '\n⚠ Permanent notes (⦸) are never auto-archived. Promote the best version before archiving others.\n';
 
       return output;
     }
@@ -2122,7 +2122,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           sections.push(result);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
-          sections.push(`⚠️ Failed: ${msg}`);
+          sections.push(`⚠ Failed: ${msg}`);
           logToFile('WARN', `Full maintenance step "${step.action}" failed`, { error: msg });
         }
         stepNum++;
@@ -2185,7 +2185,7 @@ function formatProjectOverview(project: string, logLimit: number, repo: NoteRepo
   if (recentNotes.length > 0) {
     output += '### Recent Notes\n';
     for (const note of recentNotes) {
-      const status = note.status === 'permanent' ? '🔒' : note.status === 'archived' ? '📦' : '📝';
+      const status = note.status === 'permanent' ? '⦸' : note.status === 'archived' ? '▪' : '▫';
       output += `- ${status} **${note.title}** (${note.kind})\n`;
     }
     if (projectNotes.length > recentNotes.length) {
@@ -2266,7 +2266,7 @@ function formatGlobalOverview(logLimit: number, repo: NoteRepository, config?: A
   if (recentNotes.length > 0) {
     output += '### Recent Notes\n';
     for (const note of recentNotes) {
-      const status = note.status === 'permanent' ? '🔒' : note.status === 'archived' ? '📦' : '📝';
+      const status = note.status === 'permanent' ? '⦸' : note.status === 'archived' ? '▪' : '▫';
       const project = extractProjectFromTags(note.tags);
       const projectSuffix = project ? ` [${project}]` : '';
       output += `- ${status} **${note.title}** (${note.kind})${projectSuffix}\n`;
