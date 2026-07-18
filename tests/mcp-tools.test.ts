@@ -1164,7 +1164,7 @@ describe('MCP Tool: knowledge-maintain', () => {
     const result = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
 
     expect(result).toContain('permanent - protected');
-    expect(result).toContain('⚠️ Permanent notes (🔒) are never auto-archived');
+    expect(result).toContain('⚠ Permanent notes (⦸) are never auto-archived');
     expect(result).toContain(`Archive ${duplicate.id}`);
     expect(result).not.toContain(`Archive ${permanent.id}`);
   });

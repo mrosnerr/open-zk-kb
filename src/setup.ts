@@ -2140,7 +2140,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         parts.push(`  ${color.dim(agentDocsPath)}\n  ${color.dim(`→ ${agentDocsSymlinkTarget}`)}`);
       }
       for (const { stalePath, target } of staleSymlinks) {
-        parts.push(`  ${color.dim(stalePath)}\n  ${color.dim(`→ ${target}`)}\n\n  ⚠️  has stale KB block`);
+        parts.push(`  ${color.dim(stalePath)}\n  ${color.dim(`→ ${target}`)}\n\n  ⚠  has stale KB block`);
       }
       const actionDesc = staleSymlinks.length > 0 && !agentDocsSymlinkTarget
         ? 'file to remove the stale block'
