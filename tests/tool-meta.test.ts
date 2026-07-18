@@ -174,9 +174,11 @@ describe('toTypeBoxSchema', () => {
       required: { type: 'string', required: true },
       optional: { type: 'string', required: false },
     });
-    // Required fields appear in schema.required array or don't have Optional wrapper
+    // Required fields appear in schema.required array, optional fields do not
     expect(schema.properties.required).toBeDefined();
     expect(schema.properties.optional).toBeDefined();
+    expect(schema.required).toContain('required');
+    expect(schema.required ?? []).not.toContain('optional');
   });
 
   it('handles enum fields', () => {
