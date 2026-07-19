@@ -5,7 +5,7 @@
     "": {
       "dependencies": {
         "@clack/prompts": "^1.1.0",
-        "@huggingface/transformers": "^4.0.1",
+        "@huggingface/transformers": "4.0.1",
         "@modelcontextprotocol/sdk": "^1.26.0",
         "@mozilla/readability": "^0.6.0",
         "linkedom": "^0.18.12",
@@ -17,6 +17,7 @@
       "devDependencies": {
         "@earendil-works/pi-ai": "^0.80.10",
         "@earendil-works/pi-coding-agent": "^0.80.10",
+        "@earendil-works/pi-tui": "^0.80.10",
         "@eslint/js": "^10.0.1",
         "@types/turndown": "^5.0.6",
         "@typescript-eslint/eslint-plugin": "^8.58.1",
@@ -27,6 +28,18 @@
         "typescript": "^6.0.2",
         "typescript-eslint": "^8.58.1",
       },
+      "peerDependencies": {
+        "@earendil-works/pi-ai": "*",
+        "@earendil-works/pi-coding-agent": "*",
+        "@earendil-works/pi-tui": "*",
+        "typebox": "*",
+      },
+      "optionalPeers": [
+        "@earendil-works/pi-ai",
+        "@earendil-works/pi-coding-agent",
+        "@earendil-works/pi-tui",
+        "typebox",
+      ],
     },
   },
   "patchedDependencies": {

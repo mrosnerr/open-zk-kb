@@ -55,4 +55,4 @@ export function classifyModel(model: string | undefined): CapabilityTier {
   return 'medium';
 }
 
-export const MODEL_HINT = '\n\n💡 Pass the `model` parameter (e.g., model="claude-opus-4") to enable richer responses including related note suggestions.';
+export const MODEL_HINT = '\n\nⓘ Pass the `model` parameter (e.g., model="claude-opus-4") to enable richer responses including related note suggestions.';

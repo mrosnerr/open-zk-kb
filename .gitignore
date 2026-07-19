@@ -54,6 +54,7 @@ openspec/
 .history/
 CONTEXT_*.md
 
-# Local test workspace (isolated OpenCode sessions for plugin dev)
+# Local test and demo workspaces
 .test-workspace/
+.tmp/
 

@@ -88,26 +88,26 @@ describe('Knowledge Capture Integration Tests', () => {
         title: 'Project Knowledge Stats Source',
         content: 'One real project note for project-scoped stats.',
         kind: 'observation',
-        project: 'knowledge-stats-project',
+        project: 'knowledge-health-project',
       }, context.engine, null, context.config);
 
       const projectNotes = context.engine.getAll().filter(note =>
-        Array.isArray(note.tags) && note.tags.includes('project:knowledge-stats-project')
+        Array.isArray(note.tags) && note.tags.includes('project:knowledge-health-project')
       );
       expect(projectNotes.map(note => note.kind).sort()).toEqual(['index', 'log', 'observation']);
 
-      expect(context.engine.getStats('knowledge-stats-project').total).toBe(1);
-      expect(context.engine.getStalenessDistribution('knowledge-stats-project')).toEqual({
+      expect(context.engine.getStats('knowledge-health-project').total).toBe(1);
+      expect(context.engine.getStalenessDistribution('knowledge-health-project')).toEqual({
         fresh: 1,
         recent: 0,
         aging: 0,
         stale: 0,
       });
-      expect(context.engine.getGrowthByKind(Date.now() - 7 * 86400000, 'knowledge-stats-project')).toEqual({
+      expect(context.engine.getGrowthByKind(Date.now() - 7 * 86400000, 'knowledge-health-project')).toEqual({
         observation: 1,
       });
 
-      const output = await handleHealth({ project: 'knowledge-stats-project', period: '7d' }, context.engine, context.config);
+      const output = await handleHealth({ project: 'knowledge-health-project', period: '7d' }, context.engine, context.config);
       expect(output).toContain('## Health (1 notes)');
       expect(output).toContain('- 0–7d: 1');
       expect(output).toContain('- Notes created: 1');
