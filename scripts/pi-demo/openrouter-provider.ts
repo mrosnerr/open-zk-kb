@@ -40,6 +40,10 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
       id: MODEL,
       name: 'OpenAI gpt-oss-120b',
       api: 'openai-completions',
+      compat: {
+        maxTokensField: 'max_tokens',
+        supportsUsageInStreaming: false,
+      },
       reasoning: false,
       input: ['text'],
       cost: { input: 0.037, output: 0.17, cacheRead: 0.037, cacheWrite: 0.037 },
