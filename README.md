@@ -65,6 +65,22 @@ Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Ze
 
 See the [Setup Guide](docs/setup-guide.md) for manual installation and troubleshooting.
 
+### Pi: native knowledge tools
+
+Install the Pi package, then restart Pi:
+
+```bash
+pi install npm:open-zk-kb
+```
+
+The extension exposes all ten `knowledge-*` tools directly in Pi. Results use Pi-native compact rendering: search, store, context, and health have focused summaries and expandable detail, while the other tools show concise status output. The MCP server and local SQLite/embedding work still run with **Bun >= 1.0**; Pi itself runs under its supported Node.js runtime. Installing Bun is therefore required even when using the Pi package.
+
+<p align="center">
+  <img src="assets/pi-demo.png" alt="Native open-zk-kb search and store results in Pi" width="720">
+</p>
+
+For installer-managed Pi instructions, verification, and troubleshooting, see [Pi installation](docs/setup-guide.md#pi-installation).
+
 ## Configuration
 
 Zero configuration required. Local embeddings work out of the box with no API key.

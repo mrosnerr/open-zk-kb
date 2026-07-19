@@ -2202,7 +2202,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
       guidance: 'Test',
     }, ctx.engine);
 
-    expect(output).toContain('💡');
+    expect(output).toContain('ⓘ');
     expect(output).toContain('model');
   });
 
@@ -2216,7 +2216,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
       model: 'claude-sonnet-4',
     }, ctx.engine);
 
-    expect(output).not.toContain('💡');
+    expect(output).not.toContain('ⓘ');
   });
 
   it('should show capability tier for high-tier models', async () => {

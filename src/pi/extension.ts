@@ -2,12 +2,13 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CompatibilityCallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ExtensionAPI, ToolDefinition, AgentToolResult } from '@earendil-works/pi-coding-agent';
+import type { ExtensionAPI, AgentToolResult } from '@earendil-works/pi-coding-agent';
 import { TOOL_DEFINITIONS } from '../tool-meta.js';
+import { RENDER_RESULTS } from './renderers.js';
 import { toTypeBoxSchema } from './tool-schemas.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -22,6 +23,26 @@ type ToolName = typeof TOOL_DEFINITIONS[number]['name'];
 
 // ─── MCP Bridge ──────────────────────────────────────────────────────────────
 
+const DEMO_ISOLATION_ENV = [
+  'HOME',
+  'TMPDIR',
+  'XDG_CONFIG_HOME',
+  'XDG_DATA_HOME',
+  'XDG_RUNTIME_DIR',
+  'XDG_STATE_HOME',
+] as const;
+
+function serverEnvironment(): Record<string, string> {
+  const env = getDefaultEnvironment();
+  for (const name of DEMO_ISOLATION_ENV) {
+    const value = process.env[name];
+    if (value !== undefined) {
+      env[name] = value;
+    }
+  }
+  return env;
+}
+
 function defaultServerParameters(): StdioServerParameters {
   const extensionDir = path.dirname(fileURLToPath(import.meta.url));
   const cliPath = path.resolve(extensionDir, '..', 'cli.js');
@@ -29,6 +50,7 @@ function defaultServerParameters(): StdioServerParameters {
     command: 'bun',
     args: [cliPath, 'server'],
     cwd: process.cwd(),
+    env: serverEnvironment(),
     stderr: 'pipe',
   };
 }
@@ -249,21 +271,23 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
     const bridge = new OpenZkKbMcpBridge({
       server: options?.server ?? defaultServerParameters(),
       clientName: options?.clientName ?? 'open-zk-kb-pi',
-      httpUrl: 'httpUrl' in (options ?? {}) ? options!.httpUrl : detectHttpServer(),
+      httpUrl: options && 'httpUrl' in options ? options.httpUrl : detectHttpServer(),
     });
 
     for (const definition of TOOL_DEFINITIONS) {
       const parameters = toTypeBoxSchema(definition.params);
+      const renderResult = RENDER_RESULTS[definition.name];
       pi.registerTool({
         name: definition.name,
         label: definition.label,
         description: definition.description,
         promptSnippet: definition.promptSnippet,
-        promptGuidelines: 'promptGuidelines' in definition ? definition.promptGuidelines : undefined,
+        promptGuidelines: 'promptGuidelines' in definition ? [...definition.promptGuidelines] : undefined,
         parameters,
         executionMode: definition.executionMode,
         execute: (_toolCallId, params, signal) => bridge.callTool(definition.name, params as Record<string, unknown>, signal),
-      } as ToolDefinition);
+        renderResult: renderResult ?? undefined,
+      });
     }
 
     pi.on('before_agent_start', (event) => {
