@@ -4,6 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
 import { createOpenZkKbPiExtension } from '../src/pi/extension.js';
+import { ICONS } from '../src/pi/renderer/constants.js';
 import { RENDER_RESULTS } from '../src/pi/renderers.js';
 
 interface RegisteredTool {
@@ -188,12 +189,20 @@ Related notes:
     tags: ['pi', 'renderer'],
   };
 
-  function render(name: string, text: string, expanded: boolean, args: Record<string, unknown> = {}, isError = false, width = 100): string {
+  function render(
+    name: string,
+    text: string,
+    expanded: boolean,
+    args: Record<string, unknown> = {},
+    isError = false,
+    width = 100,
+    isPartial = false,
+  ): string {
     return RENDER_RESULTS[name](
       { content: [{ type: 'text', text }] },
       { expanded },
       theme as never,
-      { args, expanded, isPartial: false, isError },
+      { args, expanded, isPartial, isError },
     ).render(width).join('\n');
   }
 
@@ -236,6 +245,11 @@ Related notes:
 
     expect(render('knowledge-ingest', fixtures['knowledge-ingest'], false)).not.toContain('# Ingested page');
     expect(render('knowledge-template', fixtures['knowledge-template'], false)).not.toContain('# Template');
+
+    const partial = 'First partial line\nSecond partial line';
+    const partialOutput = render('knowledge-maintain', partial, false, {}, false, 100, true);
+    expect(partialOutput).toContain(partial);
+    expect(partialOutput).not.toContain(ICONS.maintain);
   });
 
   it('renders a curated store preview without model-facing diagnostics', () => {
@@ -285,6 +299,18 @@ Related notes:
     expect(sanitized).not.toContain('hostile title');
     expect(sanitized).not.toContain('\u001b[2J');
     expect(sanitized).toContain('query');
+
+    const embeddedClosingTag = `<note id="2026071801234599" kind="reference" status="permanent">
+  <summary>XML delimiter example</summary>
+  <guidance>Preserve literal closing tags.</guidance>
+  <content>A code sample contains &lt;note&gt; and a literal </note> marker, followed by content that must remain visible.</content>
+</note>`;
+    const embeddedRendered = render('knowledge-search', embeddedClosingTag, true);
+    expect(embeddedRendered).toContain('literal </note> marker');
+    expect(embeddedRendered.replace(/\s+/g, ' ')).toContain('content that must remain visible');
+
+    const malformedEnvelope = '<note id="broken" kind="reference"><summary>Incomplete</summary>\nraw tail';
+    expect(render('knowledge-search', malformedEnvelope, false)).toContain(malformedEnvelope);
   });
 
   it('keeps every renderer within narrow and normal ANSI-aware viewports', () => {

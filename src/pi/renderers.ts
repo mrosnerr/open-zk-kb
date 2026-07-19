@@ -109,12 +109,28 @@ interface ParsedNote {
 }
 
 function parseNotes(text: string): ParsedNote[] {
-  return [...text.matchAll(/<note\s+([^>]*)>([\s\S]*?)<\/note>/g)].map((match) => {
-    const value = (name: string): string =>
-      match[2].match(new RegExp(`<${name}>([\\s\\S]*?)<\\/${name}>`))?.[1].trim() ?? '';
+  const starts = [...text.matchAll(/^<note\s+([^>\n]*)>/gm)];
+  const notes: ParsedNote[] = [];
+
+  for (const [index, match] of starts.entries()) {
+    const openingEnd = (match.index ?? 0) + match[0].length;
+    const segmentEnd = starts[index + 1]?.index ?? text.length;
+    const segment = text.slice(openingEnd, segmentEnd);
+    const closingOffset = segment.lastIndexOf('</note>');
+    if (closingOffset < 0) return [];
+    const body = segment.slice(0, closingOffset);
+    const value = (name: string): string => {
+      const opening = `<${name}>`;
+      const closing = `</${name}>`;
+      const valueStart = body.indexOf(opening);
+      const valueEnd = body.lastIndexOf(closing);
+      return valueStart >= 0 && valueEnd >= valueStart + opening.length
+        ? body.slice(valueStart + opening.length, valueEnd).trim()
+        : '';
+    };
     const attribute = (name: string): string =>
       match[1].match(new RegExp(`${name}="([^"]*)"`))?.[1] ?? '';
-    return {
+    const note = {
       id: attribute('id'),
       kind: attribute('kind'),
       status: attribute('status'),
@@ -123,7 +139,11 @@ function parseNotes(text: string): ParsedNote[] {
       guidance: value('guidance'),
       content: value('content'),
     };
-  }).filter((note) => note.summary);
+    if (!note.summary) return [];
+    notes.push(note);
+  }
+
+  return notes;
 }
 
 function searchResult(
@@ -331,6 +351,7 @@ function firstStatusLine(text: string): string {
 function simpleResult(icon: string): RenderResultFn {
   return (result, options, theme, context) => {
     const text = textOf(result);
+    if (context.isPartial && !context.isError) return raw(text);
     if (context.isError) return errorResult(text, theme);
     if (!text) return raw(text);
     const output = options.expanded

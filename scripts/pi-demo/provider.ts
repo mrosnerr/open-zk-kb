@@ -122,6 +122,7 @@ function streamScripted(
 
     if (options?.signal?.aborted) {
       output.stopReason = 'aborted';
+      output.errorMessage = 'The scripted demo request was cancelled.';
       stream.push({ type: 'error', reason: 'aborted', error: output });
       stream.end();
       return;

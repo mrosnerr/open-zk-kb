@@ -23,13 +23,27 @@ for (const text of required) {
   if (!workflow.includes(text)) throw new Error(`Release workflow is missing safety contract: ${text}`);
 }
 
+const shellSecretReference = /\$(?:\{OPENROUTER_API_KEY\}|OPENROUTER_API_KEY\b)/;
+for (const example of [
+  'echo "$' + 'OPENROUTER_API_KEY"',
+  'printf "%s" "${' + 'OPENROUTER_API_KEY}"',
+  'curl -H "Authorization: Bearer $' + 'OPENROUTER_API_KEY"',
+]) {
+  if (!shellSecretReference.test(example)) {
+    throw new Error('Release workflow audit does not recognize a known shell secret reference');
+  }
+}
+
 for (const line of workflow.split('\n')) {
   if (/git push/.test(line) && /refs\/heads\/(dev|main)(?:\s|"|$)/.test(line)) {
     throw new Error(`Release workflow pushes directly to a protected branch: ${line.trim()}`);
   }
-}
-if (/OPENROUTER_API_KEY[^\n]*(echo|printf)/.test(workflow)) {
-  throw new Error('Release workflow may print OPENROUTER_API_KEY');
+  if (shellSecretReference.test(line)) {
+    throw new Error('Release workflow must not expand OPENROUTER_API_KEY in shell commands');
+  }
+  if (/\bset\s+(?:-x|-o\s+xtrace)\b|\bbash\s+-x\b/.test(line)) {
+    throw new Error('Release workflow may enable shell tracing while handling secrets');
+  }
 }
 if (/bun-version:\s*latest/.test(workflow)) {
   throw new Error('Release workflow must pin Bun for reproducible media');
