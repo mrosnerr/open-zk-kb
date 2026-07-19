@@ -50,10 +50,11 @@ jobs:
           bun install --frozen-lockfile
           bun install --global @earendil-works/pi-coding-agent@0.80.10
 
-      - name: Install FFmpeg, ttyd, and VHS
+      - name: Install FFmpeg, ttyd, VHS, and Pi helpers
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg ttyd
+          sudo apt-get install -y fd-find ffmpeg ripgrep ttyd
+          sudo ln -sf /usr/bin/fdfind /usr/local/bin/fd
           curl -fsSL https://github.com/charmbracelet/vhs/releases/download/v0.10.0/vhs_0.10.0_amd64.deb -o vhs.deb
           echo "$VHS_DEB_SHA256  vhs.deb" | sha256sum --check --strict
           sudo apt-get install -y ./vhs.deb
@@ -115,10 +116,11 @@ jobs:
           bun install --frozen-lockfile
           bun install --global @earendil-works/pi-coding-agent@0.80.10
 
-      - name: Install FFmpeg, ttyd, and VHS
+      - name: Install FFmpeg, ttyd, VHS, and Pi helpers
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg ttyd
+          sudo apt-get install -y fd-find ffmpeg ripgrep ttyd
+          sudo ln -sf /usr/bin/fdfind /usr/local/bin/fd
           curl -fsSL https://github.com/charmbracelet/vhs/releases/download/v0.10.0/vhs_0.10.0_amd64.deb -o vhs.deb
           echo "$VHS_DEB_SHA256  vhs.deb" | sha256sum --check --strict
           sudo apt-get install -y ./vhs.deb
