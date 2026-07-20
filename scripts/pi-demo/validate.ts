@@ -13,6 +13,7 @@ interface TraceEvent {
   tool?: string;
   isError?: boolean;
   text?: string;
+  ordinal?: number;
 }
 
 async function probe(file: string): Promise<Probe> {
@@ -89,17 +90,20 @@ if (mode === 'release') {
   const rememberPrompt = 'Please remember that I understand coding concepts best through cooking metaphors';
   const rustPrompt = 'Please explain how macros in rust work';
   const healthPrompt = 'Whats the status of the knowledge base?';
+  const releaseTape = fs.readFileSync(path.join(projectRoot, 'scripts', 'pi-demo', 'release.tape'), 'utf8');
+  if (!/^Type "\/new"$/m.test(releaseTape)) {
+    throw new Error('Release tape does not contain the required /new session boundary');
+  }
   const rememberIndex = trace.findIndex((event) => event.event === 'input' && event.text === rememberPrompt);
-  const newIndex = trace.findIndex((event, index) => index > rememberIndex && event.event === 'input' && event.text === '/new');
-  const rustIndex = trace.findIndex((event, index) => index > newIndex && event.event === 'input' && event.text === rustPrompt);
+  const rustIndex = trace.findIndex((event, index) => index > rememberIndex && event.event === 'input' && event.text === rustPrompt);
   const healthIndex = trace.findIndex((event, index) => index > rustIndex && event.event === 'input' && event.text === healthPrompt);
-  const newSession = trace.findIndex((event, index) => index > newIndex && index < rustIndex && event.event === 'session_start');
-  const storeIndex = trace.findIndex((event, index) => index > rememberIndex && index < newIndex && event.event === 'tool-result' && event.tool === 'knowledge-store' && event.isError === false);
-  const storeCompletion = trace.findIndex((event, index) => index > storeIndex && index < newIndex && event.event === 'assistant-text' && event.text?.includes('Cooking preference saved.'));
+  const storeIndex = trace.findIndex((event, index) => index > rememberIndex && index < rustIndex && event.event === 'tool-result' && event.tool === 'knowledge-store' && event.isError === false);
+  const storeCompletion = trace.findIndex((event, index) => index > storeIndex && index < rustIndex && event.event === 'assistant-text' && event.text?.includes('Cooking preference saved.'));
+  const newSession = trace.findIndex((event, index) => index > storeCompletion && index < rustIndex && event.event === 'session_start' && event.ordinal === 2);
   const searchIndex = trace.findIndex((event, index) => index > rustIndex && index < healthIndex && event.event === 'tool-result' && event.tool === 'knowledge-search' && event.isError === false);
   const healthToolIndex = trace.findIndex((event, index) => index > healthIndex && event.event === 'tool-result' && event.tool === 'knowledge-health' && event.isError === false);
   const healthCompletion = trace.findIndex((event, index) => index > healthToolIndex && event.event === 'assistant-text' && event.text?.includes('Knowledge base status loaded.'));
-  if (rememberIndex < 0 || newIndex < 0 || newSession < 0 || rustIndex < 0 || healthIndex < 0 || storeIndex < 0 || storeCompletion < 0 || searchIndex < 0 || healthToolIndex < 0 || healthCompletion < 0) {
+  if (rememberIndex < 0 || newSession < 0 || rustIndex < 0 || healthIndex < 0 || storeIndex < 0 || storeCompletion < 0 || searchIndex < 0 || healthToolIndex < 0 || healthCompletion < 0) {
     throw new Error('Release trace does not prove ordered prompts, fresh session, successful tools, and completed answers');
   }
   const explanation = trace
