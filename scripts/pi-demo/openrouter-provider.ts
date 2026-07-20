@@ -4,6 +4,11 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 const PROVIDER = 'open-zk-release';
 const MODEL = 'openai/gpt-oss-120b';
 const SEED = 42_019;
+const COMPLETION_NOTICES = [
+  ['Cooking preference saved.', 'Preference response complete.'],
+  ['That is the recipe.', 'Rust response complete.'],
+  ['Knowledge base status loaded.', 'Health response complete.'],
+] as const;
 
 let sessionOrdinal = 0;
 
@@ -93,9 +98,12 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
     trace({ event: 'tool-result', tool: event.toolName, isError: event.isError });
   });
 
-  pi.on('message_end', (event) => {
+  pi.on('message_end', (event, ctx) => {
     if (event.message.role !== 'assistant') return;
     const text = assistantText(event.message);
-    if (text) trace({ event: 'assistant-text', text });
+    if (!text) return;
+    trace({ event: 'assistant-text', text });
+    const notice = COMPLETION_NOTICES.find(([marker]) => text.endsWith(marker));
+    if (notice) ctx.ui.notify(notice[1], 'info');
   });
 }

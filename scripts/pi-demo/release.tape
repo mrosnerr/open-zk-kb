@@ -17,7 +17,7 @@ Show
 
 Type "Please remember that I understand coding concepts best through cooking metaphors"
 Enter
-Wait+Screen /Cooking preference saved\./
+Wait+Screen /Preference response complete\./
 Sleep 2s
 
 Type "/new"
@@ -26,12 +26,12 @@ Sleep 2s
 
 Type "Please explain how macros in rust work"
 Enter
-Wait+Screen /That is the recipe\./
+Wait+Screen /Rust response complete\./
 Sleep 3s
 
 Type "Whats the status of the knowledge base?"
 Enter
-Wait+Screen /Knowledge base status loaded\./
+Wait+Screen /Health response complete\./
 Sleep 4s
 
 Type "/quit"
