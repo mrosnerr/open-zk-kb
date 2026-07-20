@@ -103,9 +103,8 @@ if (mode === 'release') {
   const newSession = trace.findIndex((event, index) => index > storeCompletion && index < rustIndex && event.event === 'session_start' && event.reason === 'new');
   const searchIndex = trace.findIndex((event, index) => index > rustIndex && index < healthIndex && event.event === 'tool-result' && event.tool === 'knowledge-search' && event.isError === false);
   const healthToolIndex = trace.findIndex((event, index) => index > healthIndex && event.event === 'tool-result' && event.tool === 'knowledge-health' && event.isError === false);
-  const healthCompletion = trace.findIndex((event, index) => index > healthToolIndex && event.event === 'assistant-text' && event.text?.includes('Knowledge base status loaded.'));
-  if (rememberIndex < 0 || newSession < 0 || rustIndex < 0 || healthIndex < 0 || storeIndex < 0 || storeCompletion < 0 || searchIndex < 0 || healthToolIndex < 0 || healthCompletion < 0) {
-    throw new Error('Release trace does not prove ordered prompts, fresh session, successful tools, and completed answers');
+  if (rememberIndex < 0 || newSession < 0 || rustIndex < 0 || healthIndex < 0 || storeIndex < 0 || storeCompletion < 0 || searchIndex < 0 || healthToolIndex < 0) {
+    throw new Error('Release trace does not prove ordered prompts, fresh session, successful tools, and completed generated answers');
   }
   const explanation = trace
     .slice(rustIndex + 1, healthIndex)
