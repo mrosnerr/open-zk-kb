@@ -10,6 +10,7 @@ const COMPLETION_NOTICES = [
 ] as const;
 
 let sessionOrdinal = 0;
+let pendingTool: string | undefined;
 
 function trace(event: Record<string, unknown>): void {
   const tracePath = process.env.OPEN_ZK_KB_PI_DEMO_TRACE;
@@ -69,14 +70,15 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
       ...payload,
       temperature: 0,
       seed: SEED,
-      reasoning: {
-        effort: 'low',
-        exclude: true,
-      },
+      ...(pendingTool ? {
+        tool_choice: {
+          type: 'function',
+          function: { name: pendingTool },
+        },
+      } : {}),
       provider: {
         ...provider,
         require_parameters: true,
-        sort: 'latency',
       },
     };
   });
@@ -95,11 +97,19 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
 
   pi.on('input', (event) => {
     trace({ event: 'input', text: event.text });
+    pendingTool = event.text === 'Please remember that I understand coding concepts best through cooking metaphors'
+      ? 'knowledge-store'
+      : event.text === 'Please explain how macros in rust work'
+        ? 'knowledge-search'
+        : event.text === 'Whats the status of the knowledge base?'
+          ? 'knowledge-health'
+          : undefined;
   });
 
   pi.on('tool_execution_end', (event, ctx) => {
     if (!event.toolName.startsWith('knowledge-')) return;
     trace({ event: 'tool-result', tool: event.toolName, isError: event.isError });
+    if (event.toolName === pendingTool && !event.isError) pendingTool = undefined;
     if (event.toolName === 'knowledge-health' && !event.isError) {
       ctx.ui.notify('Health result complete.', 'info');
     }

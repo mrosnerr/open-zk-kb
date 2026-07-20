@@ -29,7 +29,7 @@ interface Endpoint {
   supported_parameters?: string[];
 }
 const payload = await routes.json() as { data?: { endpoints?: Endpoint[] } };
-const requiredParameters = ['max_tokens', 'reasoning', 'seed', 'temperature', 'tools'];
+const requiredParameters = ['max_tokens', 'seed', 'temperature', 'tools'];
 const compatibleRoutes = (payload.data?.endpoints ?? []).filter((endpoint) => (
   endpoint.status === 0
   && requiredParameters.every((parameter) => endpoint.supported_parameters?.includes(parameter))
