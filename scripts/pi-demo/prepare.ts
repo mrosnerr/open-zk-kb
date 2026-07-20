@@ -106,6 +106,7 @@ async function main(): Promise<void> {
   fs.mkdirSync(piAgentDir, { recursive: true });
   fs.writeFileSync(path.join(piAgentDir, 'settings.json'), `${JSON.stringify({
     quietStartup: true,
+    hideThinkingBlock: true,
     enableInstallTelemetry: false,
     defaultProjectTrust: 'always',
   }, null, 2)}\n`);
