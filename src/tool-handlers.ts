@@ -1295,6 +1295,39 @@ async function backfillEmbeddings(
   return { requested: notesWithout.length, stored };
 }
 
+type PreferenceAuditSignal = { type: string; evidence: string[] };
+
+function collectRegexEvidence(text: string, pattern: RegExp): string[] {
+  return [...text.matchAll(pattern)]
+    .map(match => match[0].trim())
+    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
+}
+
+function detectPreferenceAuditSignals(note: NoteMetadata): PreferenceAuditSignal[] {
+  const text = [note.title, note.summary, note.content, note.guidance].filter(Boolean).join('\n');
+  const definitions: Array<{ type: string; pattern: RegExp }> = [
+    { type: 'temporary-wording', pattern: /\b(?:temporary|temporarily|for now|currently|this (?:session|task)|until (?:further notice|tomorrow|next week))\b/gi },
+    { type: 'exact-path', pattern: /(?:[A-Za-z]:\\(?:[^\s<>:"|?*]+\\)*[^\s<>:"|?*]+|(?:~|\.{1,2})?\/(?:[\w.-]+\/)*[\w.-]+|(?:^|\s)\.[\w.-]+\/(?:[\w.-]+\/)*[\w.-]+)/gm },
+    { type: 'hex-color', pattern: /#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?\b/gi },
+    { type: 'model-identifier', pattern: /\b(?:gpt-?[34](?:[.\w-]*)?|claude-(?:\d|opus|sonnet|haiku)[\w.-]*|gemini-[\w.-]+|llama-?\d[\w.-]*)\b/gi },
+    { type: 'model-routing', pattern: /\b(?:route|routing|fallback|default model|model selection)\b/gi },
+    { type: 'configuration-language', pattern: /\b(?:configure|configured|configuration|set|install|implement|implementation|enable|disable)\b/gi },
+  ];
+  const signals = definitions
+    .map(({ type, pattern }) => ({ type, evidence: collectRegexEvidence(text, pattern) }))
+    .filter(signal => signal.evidence.length > 0);
+
+  const tags = Array.isArray(note.tags) ? note.tags : [];
+  const hasApplicability = tags.some(tag => tag.startsWith('project:') || tag.startsWith('client:'));
+  if (!hasApplicability) {
+    const technologyEvidence = collectRegexEvidence(text, /\b(?:OpenCode|Claude Code|Cursor|Windsurf|Zed|VS Code|React|Next\.js|TypeScript|Python|Bun)\b/gi);
+    if (technologyEvidence.length > 0) {
+      signals.push({ type: 'missing-applicability', evidence: technologyEvidence });
+    }
+  }
+  return signals;
+}
+
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
   scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action, undefined, args.model));
 
@@ -1751,6 +1784,30 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       output += `dryRun: ${dryRun} — ${dryRun ? 'no changes applied. Set dryRun: false to apply repairs.' : 'repairs applied.'}`;
+      return output;
+    }
+    case 'preference-audit': {
+      const notes = repo.getAll(Number.MAX_SAFE_INTEGER)
+        .filter(note => note.kind === 'personalization' && note.status !== 'archived')
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const findings = notes
+        .map(note => ({ note, signals: detectPreferenceAuditSignals(note) }))
+        .filter(finding => finding.signals.length > 0);
+
+      let output = '## Preference Audit (Read-only)\n\n';
+      output += `Active personalization notes scanned: ${notes.length}\n`;
+      output += 'Mutation: none\n';
+      if (findings.length === 0) {
+        return output + '\nNo preference quality signals found.';
+      }
+
+      output += `Notes with deterministic signals: ${findings.length}\n`;
+      for (const { note, signals } of findings) {
+        output += `\n### "${note.title}" [${note.id}]\n`;
+        for (const signal of signals) {
+          output += `- ${signal.type}: ${signal.evidence.map(value => JSON.stringify(value)).join(', ')}\n`;
+        }
+      }
       return output;
     }
     case 'scope-audit': {

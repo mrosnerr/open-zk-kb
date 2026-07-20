@@ -2053,6 +2053,87 @@ describe('MCP Tool: knowledge-search (client filtering)', () => {
   });
 });
 
+describe('MCP Tool: knowledge-maintain preference-audit', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('reports deterministic matched evidence without directives', async () => {
+    ctx.engine.store('For now configure /etc/open-zk/config.yaml with #1a2b3c and route gpt-4o for OpenCode.', {
+      title: 'Temporary Harness Setup',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+
+    expect(output).toContain('Preference Audit (Read-only)');
+    expect(output).toContain('"For now"');
+    expect(output).toContain('exact-path: "/etc/open-zk/config.yaml"');
+    expect(output).toContain('hex-color: "#1a2b3c"');
+    expect(output).toContain('model-identifier: "gpt-4o"');
+    expect(output).toContain('model-routing: "route"');
+    expect(output).toContain('configuration-language: "configure"');
+    expect(output).toContain('missing-applicability: "OpenCode"');
+    expect(output).not.toMatch(/should|recommend|reclassify|archive this|edit this/i);
+  });
+
+  it('reports a clean result when active preferences have no signals', async () => {
+    ctx.engine.store('The user prefers concise explanations with examples.', {
+      title: 'Concise Explanations',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('No preference quality signals found');
+  });
+
+  it('excludes archived personalization notes', async () => {
+    ctx.engine.store('Temporarily configure C:\\Users\\teal\\settings.json to #fff.', {
+      title: 'Archived Setup',
+      kind: 'personalization',
+      status: 'archived',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('Active personalization notes scanned: 0');
+    expect(output).not.toContain('Archived Setup');
+  });
+
+  it('never mutates notes even when dryRun is false', async () => {
+    const stored = ctx.engine.store('Currently use claude-sonnet-4 routing in Claude Code.', {
+      title: 'Current Route',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+    const before = ctx.engine.getById(stored.id);
+    if (!before) throw new Error('Stored preference not found before audit');
+
+    const output = await handleMaintain(
+      { action: 'preference-audit', dryRun: false }, ctx.engine, ctx.config,
+    );
+    const after = ctx.engine.getById(stored.id);
+    if (!after) throw new Error('Stored preference not found after audit');
+
+    expect(output).toContain('Mutation: none');
+    expect(after.content).toBe(before.content);
+    expect(after.status).toBe(before.status);
+    expect(after.tags).toEqual(before.tags);
+  });
+});
+
 describe('MCP Tool: knowledge-maintain scope-audit', () => {
   let ctx: TestContext;
 

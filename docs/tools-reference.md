@@ -225,7 +225,8 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 | `upgrade-read` | Read a specific migration's instructions | Yes (migration ID) |
 | `upgrade-apply` | Apply a data migration | Yes (migration ID) |
 | `format` | Re-serialize all note files with canonical frontmatter and navigation | No |
-| `scope-audit` | Detect mis-scoped client tags | No |
+| `scope-audit` | Detect incorrectly scoped client tags | No |
+| `preference-audit` | Report deterministic quality signals in active personalization notes; read-only and non-mutating | No |
 | `unlinked` | Find notes with no wikilinks | No |
 | `broken-links` | Find wikilinks to non-existent notes | No |
 | `link-health` | Combined report: unlinked + broken links + one-way links | No |
@@ -250,6 +251,16 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 ```json
 { "action": "rebuild", "dryRun": true }
 ```
+
+```json
+{ "action": "preference-audit", "dryRun": true }
+```
+
+### Preference audit output
+
+`preference-audit` scans non-archived personalization notes and reports deterministic matched evidence, including temporary wording, exact filesystem or client configuration paths, hex colors, model identifiers or routing language, configuration verbs, and missing applicability tags when scoped technology names appear. A clean scan reports that no preference quality signals were found.
+
+The action is always read-only: it does not reclassify, archive, edit, or otherwise mutate notes. Its results are evidence for caller judgment, not instructions to take an action. Applicability remains represented by `project:*` and `client:*` tags; absence of both means universal.
 
 ---
 
