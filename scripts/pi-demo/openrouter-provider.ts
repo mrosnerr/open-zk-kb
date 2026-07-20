@@ -106,13 +106,10 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
           : undefined;
   });
 
-  pi.on('tool_execution_end', (event, ctx) => {
+  pi.on('tool_execution_end', (event) => {
     if (!event.toolName.startsWith('knowledge-')) return;
     trace({ event: 'tool-result', tool: event.toolName, isError: event.isError });
     if (event.toolName === pendingTool && !event.isError) pendingTool = undefined;
-    if (event.toolName === 'knowledge-health' && !event.isError) {
-      ctx.ui.setWidget('release-health-complete', ['Health result complete.'], { placement: 'belowEditor' });
-    }
   });
 
   pi.on('message_end', (event, ctx) => {
