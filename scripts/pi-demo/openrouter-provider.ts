@@ -111,7 +111,7 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
     trace({ event: 'tool-result', tool: event.toolName, isError: event.isError });
     if (event.toolName === pendingTool && !event.isError) pendingTool = undefined;
     if (event.toolName === 'knowledge-health' && !event.isError) {
-      ctx.ui.notify('Health result complete.', 'info');
+      ctx.ui.setWidget('release-health-complete', ['Health result complete.'], { placement: 'belowEditor' });
     }
   });
 
