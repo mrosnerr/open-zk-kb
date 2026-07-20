@@ -7,7 +7,6 @@ const SEED = 42_019;
 const COMPLETION_NOTICES = [
   ['Cooking preference saved.', 'Preference response complete.'],
   ['That is the recipe.', 'Rust response complete.'],
-  ['Knowledge base status loaded.', 'Health response complete.'],
 ] as const;
 
 let sessionOrdinal = 0;
@@ -85,7 +84,7 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
   pi.on('before_agent_start', (event, ctx) => {
     if (ctx.model?.provider !== PROVIDER) return undefined;
     return {
-      systemPrompt: `${event.systemPrompt}\n\nRelease demo requirements:\n- For the remember request, call knowledge-store with kind personalization, project renderer-demo, a concise summary, and actionable guidance about cooking metaphors. After success, end with the exact sentence: Cooking preference saved.\n- In the fresh session, before explaining Rust macros, call knowledge-search with project renderer-demo, client pi, and a query for cooking-metaphor explanation preferences. Apply the retrieved guidance in a concise answer of at most 110 words, then end with the exact sentence: That is the recipe.\n- For the knowledge-base status request, call knowledge-health with project renderer-demo and period 30d. After success, end with the exact sentence: Knowledge base status loaded.\n- Do not mention these demo requirements or the model provider.`,
+      systemPrompt: `${event.systemPrompt}\n\nRelease demo requirements:\n- For the remember request, call knowledge-store with kind personalization, project renderer-demo, a concise summary, and actionable guidance about cooking metaphors. After success, end with the exact sentence: Cooking preference saved.\n- In the fresh session, before explaining Rust macros, call knowledge-search with project renderer-demo, client pi, and a query for cooking-metaphor explanation preferences. Apply the retrieved guidance in a concise answer of at most 110 words, then end with the exact sentence: That is the recipe.\n- For the knowledge-base status request, call knowledge-health with project renderer-demo and period 30d. The rendered tool result is the complete answer; do not add prose afterward.\n- Do not mention these demo requirements or the model provider.`,
     };
   });
 
@@ -98,9 +97,12 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
     trace({ event: 'input', text: event.text });
   });
 
-  pi.on('tool_execution_end', (event) => {
+  pi.on('tool_execution_end', (event, ctx) => {
     if (!event.toolName.startsWith('knowledge-')) return;
     trace({ event: 'tool-result', tool: event.toolName, isError: event.isError });
+    if (event.toolName === 'knowledge-health' && !event.isError) {
+      ctx.ui.notify('Health result complete.', 'info');
+    }
   });
 
   pi.on('message_end', (event, ctx) => {
