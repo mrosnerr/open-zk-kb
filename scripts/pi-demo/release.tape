@@ -31,10 +31,9 @@ Sleep 3s
 
 Type "Whats the status of the knowledge base?"
 Enter
-Wait+Screen /Health result complete\./
-Sleep 5s
+Sleep 8s
 Escape
-Sleep 500ms
+Sleep 3s
 
 Type "/quit"
 Enter
