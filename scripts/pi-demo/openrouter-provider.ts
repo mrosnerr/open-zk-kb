@@ -70,9 +70,14 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
       ...payload,
       temperature: 0,
       seed: SEED,
+      reasoning: {
+        effort: 'low',
+        exclude: true,
+      },
       provider: {
         ...provider,
         require_parameters: true,
+        sort: 'latency',
       },
     };
   });
