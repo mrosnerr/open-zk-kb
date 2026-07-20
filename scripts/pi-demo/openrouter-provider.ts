@@ -79,9 +79,9 @@ export default function openRouterReleaseProvider(pi: ExtensionAPI): void {
     };
   });
 
-  pi.on('session_start', () => {
+  pi.on('session_start', (event) => {
     sessionOrdinal += 1;
-    trace({ event: 'session_start', ordinal: sessionOrdinal });
+    trace({ event: 'session_start', ordinal: sessionOrdinal, reason: event.reason });
   });
 
   pi.on('input', (event) => {
