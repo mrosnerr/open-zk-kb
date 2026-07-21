@@ -82,7 +82,8 @@ jobs:
           NPM_PUBLISHED: ${{ steps.check.outputs.skip }}
         run: |
           TAG="v$VERSION"
-          TAG_SHA=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null || true)
+          TAG_SHA=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG" \
+            --jq "map(select(.ref == \"refs/tags/$TAG\"))[0].object.sha // \"\"")
           if [ "$NPM_PUBLISHED" = "true" ] && [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$COMMIT_SHA" ]; then
             echo "run=false" >> "$GITHUB_OUTPUT"
             echo "Version $VERSION was already released from $TAG_SHA; no stable release work is needed for $COMMIT_SHA."
@@ -157,7 +158,8 @@ jobs:
           PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
           TAG="v$VERSION"
-          TAG_SHA=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null || true)
+          TAG_SHA=$(gh api "repos/$GH_REPO/git/matching-refs/tags/$TAG" \
+            --jq "map(select(.ref == \"refs/tags/$TAG\"))[0].object.sha // \"\"")
           if [ -z "$TAG_SHA" ]; then
             gh api --method POST "repos/$GH_REPO/git/refs" \
               -f ref="refs/tags/$TAG" \
