@@ -1330,7 +1330,7 @@ function detectPreferenceAuditSignals(note: NoteMetadata): PreferenceAuditSignal
   const text = [note.title, note.summary, note.content, note.guidance].filter(Boolean).join('\n');
   const definitions: Array<{ type: string; pattern: RegExp }> = [
     { type: 'temporary-wording', pattern: /\b(?:temporary|temporarily|for now|currently|this (?:session|task)|until (?:further notice|tomorrow|next week))\b/gi },
-    { type: 'exact-path', pattern: /(?:[A-Za-z]:\\(?:[^\s<>:"|?*]+\\)*[^\s<>:"|?*]+|(?:~|\.{1,2})?\/(?:[\w.-]+\/)*[\w.-]+|(?:^|\s)\.[\w.-]+\/(?:[\w.-]+\/)*[\w.-]+)/gm },
+    { type: 'exact-path', pattern: /(?<!\S)(?:[A-Za-z]:\\(?:[^\s<>:"|?*]+\\)*[^\s<>:"|?*]+|(?:~|\.{1,2})?\/(?:[\w.-]+\/)*[\w.-]+|\.[\w.-]+\/(?:[\w.-]+\/)*[\w.-]+)/gm },
     { type: 'hex-color', pattern: /#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?\b/gi },
     { type: 'model-identifier', pattern: /\b(?:gpt-?[34](?:[.\w-]*)?|claude-(?:\d|opus|sonnet|haiku)[\w.-]*|gemini-[\w.-]+|llama-?\d[\w.-]*)\b/gi },
     { type: 'model-routing', pattern: /\b(?:route|routing|fallback|default model|model selection)\b/gi },
@@ -2248,7 +2248,7 @@ export function buildPreferenceCapsule(
     const scopeTags = note.tags.filter(tag => tag.startsWith('project:') || tag.startsWith('client:'));
     const scope = scopeTags.length > 0 ? scopeTags.join(', ') : 'universal';
     const storedGuidance = note.guidance?.trim();
-    const guidance = (storedGuidance || `Honor this preference: ${(note.summary || note.title).trim()}`)
+    const guidance = (storedGuidance || (note.summary || note.title).trim())
       .replace(/\s+/g, ' ');
     const line = `- [${scope}] ${guidance} [${note.id}]`;
     const nextCharacters = characters + line.length + (lines.length > 0 ? 1 : 0);

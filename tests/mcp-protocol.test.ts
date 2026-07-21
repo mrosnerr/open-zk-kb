@@ -60,21 +60,22 @@ describe('MCP Protocol E2E', () => {
     const toolNames = tools.tools.map((t) => t.name).sort();
     expect(toolNames).toEqual([
       'knowledge-context', 'knowledge-get', 'knowledge-health', 'knowledge-ingest',
-      'knowledge-maintain', 'knowledge-mine', 'knowledge-open', 'knowledge-search',
-      'knowledge-store', 'knowledge-template',
+      'knowledge-maintain', 'knowledge-mine', 'knowledge-open', 'knowledge-overview',
+      'knowledge-search', 'knowledge-stats', 'knowledge-store', 'knowledge-template',
     ]);
+
+    expect(tools.tools.find(tool => tool.name === 'knowledge-overview')?.description).toContain('Deprecated alias');
+    expect(tools.tools.find(tool => tool.name === 'knowledge-stats')?.description).toContain('Deprecated alias');
   });
 
-  it('knowledge-health returns valid response', async () => {
-    const result = await client!.callTool({
-      name: 'knowledge-health',
-      arguments: {},
-    });
-
-    const content = result.content as Array<{ type: string; text: string }>;
-    expect(content).toHaveLength(1);
-    expect(content[0].type).toBe('text');
-    expect(content[0].text).toContain('Knowledge Base Stats');
+  it('knowledge-health and its deprecated alias return valid responses', async () => {
+    for (const name of ['knowledge-health', 'knowledge-stats']) {
+      const result = await client!.callTool({ name, arguments: {} });
+      const content = result.content as Array<{ type: string; text: string }>;
+      expect(content).toHaveLength(1);
+      expect(content[0].type).toBe('text');
+      expect(content[0].text).toContain('Knowledge Base Stats');
+    }
   });
 
   it('knowledge-store creates a note', async () => {
@@ -218,6 +219,12 @@ describe('MCP Protocol E2E', () => {
     expect(structured?.preferenceCapsule?.selected).toBeGreaterThanOrEqual(1);
     expect(structured?.preferenceCapsule?.omitted).toBeGreaterThanOrEqual(0);
     expect(structured?.preferenceCapsule?.text).toContain('[client:pi] Keep Pi protocol output concise.');
+
+    const aliasResult = await client!.callTool({
+      name: 'knowledge-overview',
+      arguments: { client: 'pi', includePreferences: true },
+    });
+    expect(aliasResult.structuredContent).toEqual(result.structuredContent);
   });
 
   it('handles unknown tool gracefully', async () => {

@@ -2082,6 +2082,46 @@ describe('MCP Tool: knowledge-maintain preference-audit', () => {
     expect(output).not.toMatch(/should|recommend|reclassify|archive this|edit this/i);
   });
 
+  it('reports supported filesystem path forms at valid boundaries', async () => {
+    ctx.engine.store('/opt/open-zk/config.yaml C:\\Users\\person\\settings.json ~/.config/open-zk ./local/config.json ../shared/config.json .cursor/rules.json', {
+      title: 'Path Forms',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+
+    for (const path of [
+      '/opt/open-zk/config.yaml',
+      'C:\\Users\\person\\settings.json',
+      '~/.config/open-zk',
+      './local/config.json',
+      '../shared/config.json',
+      '.cursor/rules.json',
+    ]) {
+      expect(output).toContain(JSON.stringify(path));
+    }
+  });
+
+  it('does not report URL hosts or URL paths as filesystem paths', async () => {
+    ctx.engine.store('See https://example.com/docs/file.md and https://example.com/.config/settings.json.', {
+      title: 'Documentation Links',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+
+    expect(output).not.toContain('exact-path:');
+    expect(output).toContain('No preference quality signals found');
+  });
+
   it('reports a clean result when active preferences have no signals', async () => {
     ctx.engine.store('The user prefers concise explanations with examples.', {
       title: 'Concise Explanations',
@@ -4068,15 +4108,15 @@ describe('MCP Tool: compact preference capsule', () => {
     expect(capsule.text).toMatch(/^- \[universal\] Keep answers concise across Pi sessions\. \[\d{16}\]$/);
   });
 
-  it('returns structured capsule data without changing context text and supplies imperative legacy fallback', () => {
+  it('returns structured capsule data without changing context text and supplies neutral legacy fallback', () => {
     storePreference('Legacy preference', '');
     const plain = handleContext({ project: 'unknown-project' }, ctx.engine, ctx.config);
     const result = handleContextResult({ project: 'unknown-project', client: 'pi', includePreferences: true }, ctx.engine, ctx.config);
 
     expect(result.text).toBe(plain);
     expect(result.preferenceCapsule?.selected).toBe(1);
-    expect(result.preferenceCapsule?.lines[0].guidance).toBe('Honor this preference: Legacy preference summary');
-    expect(result.preferenceCapsule?.lines[0].line).toMatch(/^- \[universal\] Honor this preference: .+ \[\d{16}\]$/);
+    expect(result.preferenceCapsule?.lines[0].guidance).toBe('Legacy preference summary');
+    expect(result.preferenceCapsule?.lines[0].line).toMatch(/^- \[universal\] Legacy preference summary \[\d{16}\]$/);
   });
 });
 

@@ -35,7 +35,7 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
 
-          if echo "$CHANGED" | grep -Eq '^(src/|plugin/|package\.json|bun\.lock(b)?|config\.example\.yaml|agent-instructions-(full|compact)\.md)'; then
+          if echo "$CHANGED" | grep -Eq '^(src/|plugin/|skill-templates/|package\.json|bun\.lock(b)?|config\.example\.yaml|agent-instructions-(full|compact)\.md)'; then
             echo "needs_bump=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_bump=false" >> "$GITHUB_OUTPUT"
@@ -62,6 +62,8 @@ jobs:
           HEAD_VERSION: ${{ steps.versions.outputs.head }}
           BASE_VERSION: ${{ steps.versions.outputs.base }}
         run: |
+          # JavaScript template literals are intentionally protected from shell expansion.
+          # shellcheck disable=SC2016
           node --input-type=module -e '
             function parseSemver(v) {
               const match = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/);

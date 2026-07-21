@@ -266,38 +266,40 @@ export function createMcpServer(): McpServer {
     logEntries: z.number().int().min(1).optional().describe(contextTool.params.logEntries.description!),
   }) as z.ZodType<any>;
 
-  server.registerTool(
-    'knowledge-context',
-    {
-      description: contextTool.description,
-      inputSchema: contextSchema as unknown as AnySchema,
-    },
-    async (args: z.infer<typeof contextSchema>) => {
-      try {
-        const result = handleContextResult({
-          project: args.project,
-          logEntries: args.logEntries,
-          model: args.model,
-          includePreferences: args.includePreferences,
-          client: args.client,
-        }, await getOrCreateRepo(), config);
-        return {
-          content: [{ type: 'text' as const, text: result.text }],
-          ...(result.preferenceCapsule
-            ? { structuredContent: { preferenceCapsule: result.preferenceCapsule } }
-            : {}),
-        };
-      } catch (error) {
-        logToFile('ERROR', 'knowledge-context failed', {
-          error: error instanceof Error ? error.message : String(error),
-        }, config);
-        return {
-          content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-          isError: true,
-        };
-      }
-    },
-  );
+  const contextHandler = async (args: z.infer<typeof contextSchema>) => {
+    try {
+      const result = handleContextResult({
+        project: args.project,
+        logEntries: args.logEntries,
+        model: args.model,
+        includePreferences: args.includePreferences,
+        client: args.client,
+      }, await getOrCreateRepo(), config);
+      return {
+        content: [{ type: 'text' as const, text: result.text }],
+        ...(result.preferenceCapsule
+          ? { structuredContent: { preferenceCapsule: result.preferenceCapsule } }
+          : {}),
+      };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-context failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  };
+
+  server.registerTool('knowledge-context', {
+    description: contextTool.description,
+    inputSchema: contextSchema as unknown as AnySchema,
+  }, contextHandler);
+  server.registerTool('knowledge-overview', {
+    description: 'Deprecated alias for knowledge-context. Use knowledge-context instead.',
+    inputSchema: contextSchema as unknown as AnySchema,
+  }, contextHandler);
 
   // ---- knowledge-open ----
 
@@ -363,32 +365,34 @@ export function createMcpServer(): McpServer {
   const healthTool = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-health')!;
   const healthSchema = toZodSchema(healthTool.params) as z.ZodType<any>;
 
-  server.registerTool(
-    'knowledge-health',
-    {
-      description: healthTool.description,
-      inputSchema: healthSchema as unknown as AnySchema,
-    },
-    async (args: z.infer<typeof healthSchema>) => {
-      try {
-        const result = await handleHealth({
-          project: args.project,
-          period: args.period,
-          telemetry: args.telemetry,
-          model: args.model,
-        }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION, gitVersioning);
-        return { content: [{ type: 'text' as const, text: result }] };
-      } catch (error) {
-        logToFile('ERROR', 'knowledge-health failed', {
-          error: error instanceof Error ? error.message : String(error),
-        }, config);
-        return {
-          content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
-          isError: true,
-        };
-      }
-    },
-  );
+  const healthHandler = async (args: z.infer<typeof healthSchema>) => {
+    try {
+      const result = await handleHealth({
+        project: args.project,
+        period: args.period,
+        telemetry: args.telemetry,
+        model: args.model,
+      }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION, gitVersioning);
+      return { content: [{ type: 'text' as const, text: result }] };
+    } catch (error) {
+      logToFile('ERROR', 'knowledge-health failed', {
+        error: error instanceof Error ? error.message : String(error),
+      }, config);
+      return {
+        content: [{ type: 'text' as const, text: `Error: ${error instanceof Error ? error.message : String(error)}` }],
+        isError: true,
+      };
+    }
+  };
+
+  server.registerTool('knowledge-health', {
+    description: healthTool.description,
+    inputSchema: healthSchema as unknown as AnySchema,
+  }, healthHandler);
+  server.registerTool('knowledge-stats', {
+    description: 'Deprecated alias for knowledge-health. Use knowledge-health instead.',
+    inputSchema: healthSchema as unknown as AnySchema,
+  }, healthHandler);
 
   // ---- knowledge-maintain ----
 

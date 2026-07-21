@@ -212,7 +212,6 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 
 | Action | Description | Requires `noteId` |
 |--------|-------------|-------------------|
-| `stats` | **Deprecated** — passthrough to [`knowledge-health`](#knowledge-health). Use that tool directly | No |
 | `review` | Surface notes that haven't been accessed recently for triage | No |
 | `dedupe` | Find near-duplicate notes using SimHash similarity | No |
 | `promote` | Move a fleeting note to permanent status | Yes |

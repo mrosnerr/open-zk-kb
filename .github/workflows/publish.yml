@@ -32,22 +32,26 @@ jobs:
         run: |
           if [ "${{ github.ref_name }}" = "main" ]; then
             LOCAL_VERSION=$(node -p "require('./package.json').version")
-            echo "version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
-            echo "tag=latest" >> "$GITHUB_OUTPUT"
-            echo "type=stable" >> "$GITHUB_OUTPUT"
-            if echo "$LOCAL_VERSION" | grep -qE '(alpha|beta|rc)'; then
-              echo "prerelease=true" >> "$GITHUB_OUTPUT"
-            else
-              echo "prerelease=false" >> "$GITHUB_OUTPUT"
-            fi
+            {
+              echo "version=$LOCAL_VERSION"
+              echo "tag=latest"
+              echo "type=stable"
+              if echo "$LOCAL_VERSION" | grep -qE '(alpha|beta|rc)'; then
+                echo "prerelease=true"
+              else
+                echo "prerelease=false"
+              fi
+            } >> "$GITHUB_OUTPUT"
           elif [ "${{ github.ref_name }}" = "dev" ]; then
             BASE_VERSION=$(node -p "require('./package.json').version")
             SHORT_SHA=$(git rev-parse --short HEAD)
             DEV_VERSION="${BASE_VERSION}-dev.g${SHORT_SHA}"
-            echo "version=$DEV_VERSION" >> "$GITHUB_OUTPUT"
-            echo "tag=dev" >> "$GITHUB_OUTPUT"
-            echo "type=dev" >> "$GITHUB_OUTPUT"
-            echo "prerelease=true" >> "$GITHUB_OUTPUT"
+            {
+              echo "version=$DEV_VERSION"
+              echo "tag=dev"
+              echo "type=dev"
+              echo "prerelease=true"
+            } >> "$GITHUB_OUTPUT"
           else
             echo "::warning::Unexpected branch '${{ github.ref_name }}' — skipping publish."
             echo "type=skip" >> "$GITHUB_OUTPUT"
@@ -68,23 +72,35 @@ jobs:
           fi
 
       - name: Install dependencies
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
         run: bun install
 
       - name: Build
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
         run: bun run build
 
       - name: Lint
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
         run: bun run lint
 
       - name: Test
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
         run: bun test
 
+      - name: Build plugin binaries
+        if: steps.release.outputs.type == 'stable'
+        run: bun run build:plugin
+
+      - name: Install mcp-publisher
+        if: steps.release.outputs.type == 'stable'
+        run: |
+          curl -fsSL -o mcp-publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/v1.7.9/mcp-publisher_linux_amd64.tar.gz"
+          echo "ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac  mcp-publisher.tar.gz" | sha256sum -c -
+          tar xz -f mcp-publisher.tar.gz mcp-publisher
+          rm mcp-publisher.tar.gz
+
       - name: Prepare bin scripts
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
         run: chmod +x dist/cli.js dist/setup.js dist/mcp-server.js
 
       - name: Set dev version in package.json
@@ -92,7 +108,7 @@ jobs:
         run: npm version "${{ steps.release.outputs.version }}" --no-git-tag-version
 
       - name: Strip patchedDependencies from package.json
-        if: steps.check.outputs.skip == 'false'
+        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
         run: |
           node -e "
             const p = JSON.parse(require('fs').readFileSync('package.json','utf8'));
@@ -109,21 +125,27 @@ jobs:
         if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'dev'
         run: npm publish --provenance --access public --tag dev --ignore-scripts
 
-      - name: Build plugin binaries
-        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
-        run: bun run build:plugin
-
-      - name: Create GitHub Release
-        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
+      - name: Create or update GitHub Release
+        if: steps.release.outputs.type == 'stable'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          VERSION: ${{ steps.release.outputs.version }}
+          PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
-          VERSION="${{ steps.release.outputs.version }}"
           TAG="v$VERSION"
-          git tag "$TAG"
-          git push "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" "$TAG"
+          TAG_SHA=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null || true)
+          if [ -z "$TAG_SHA" ]; then
+            gh api --method POST "repos/$GH_REPO/git/refs" \
+              -f ref="refs/tags/$TAG" \
+              -f sha="$COMMIT_SHA"
+          elif [ "$TAG_SHA" != "$COMMIT_SHA" ]; then
+            echo "::error::Existing tag $TAG points to $TAG_SHA, expected $COMMIT_SHA"
+            exit 1
+          fi
           PRERELEASE_FLAG=""
-          if [ "${{ steps.release.outputs.prerelease }}" = "true" ]; then
+          if [ "$PRERELEASE" = "true" ]; then
             PRERELEASE_FLAG="--prerelease"
           fi
           cat > release-notes.md <<EOF
@@ -131,26 +153,25 @@ jobs:
           **npm:** https://www.npmjs.com/package/open-zk-kb/v/$VERSION
           **Claude Code plugin:** \`/plugin install github:mrosnerr/open-zk-kb/plugin\`
           EOF
-          gh release create "$TAG" \
-            --title "$TAG" \
-            --notes-file release-notes.md \
-            $PRERELEASE_FLAG \
-            plugin/bin/open-zk-kb-darwin-arm64 \
-            plugin/bin/open-zk-kb-darwin-x64 \
-            plugin/bin/open-zk-kb-linux-x64 \
-            plugin/bin/open-zk-kb-linux-arm64 \
+          ASSETS=(
+            plugin/bin/open-zk-kb-darwin-arm64
+            plugin/bin/open-zk-kb-darwin-x64
+            plugin/bin/open-zk-kb-linux-x64
+            plugin/bin/open-zk-kb-linux-arm64
             plugin/bin/open-zk-kb-windows-x64.exe
-
-      - name: Install mcp-publisher
-        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
-        run: |
-          curl -fsSL -o mcp-publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/v1.7.9/mcp-publisher_linux_amd64.tar.gz"
-          echo "ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac  mcp-publisher.tar.gz" | sha256sum -c -
-          tar xz -f mcp-publisher.tar.gz mcp-publisher
-          rm mcp-publisher.tar.gz
+          )
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "${ASSETS[@]}" --clobber
+          else
+            gh release create "$TAG" \
+              --title "$TAG" \
+              --notes-file release-notes.md \
+              $PRERELEASE_FLAG \
+              "${ASSETS[@]}"
+          fi
 
       - name: Publish to MCP Registry
-        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
+        if: steps.release.outputs.type == 'stable'
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
