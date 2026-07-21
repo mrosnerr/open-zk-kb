@@ -67,13 +67,6 @@
   "scripts": {
     "build": "tsc",
     "dev:scaffold": "bun run scripts/dev-scaffold.ts",
-    "demo:pi:prepare": "bun run scripts/pi-demo/prepare.ts",
-    "demo:pi:audit": "bun run scripts/pi-demo/audit-workflow.ts",
-    "demo:pi:preview": "bun run scripts/pi-demo/preview.ts",
-    "demo:pi": "bun run demo:pi:technical",
-    "demo:pi:technical": "bun run scripts/pi-demo/prepare.ts --canonical && rm -f .tmp/pi-demo/pi-demo-technical.mp4 .tmp/pi-demo/pi-demo-technical.png .tmp/pi-demo/pi-demo-technical-health.png .tmp/pi-demo/pi-demo-technical-explanation.png .tmp/pi-demo/pi-demo-technical-cleanup.png && vhs scripts/pi-demo/technical.tape && bun run scripts/pi-demo/validate.ts --mode technical",
-    "demo:pi:local": "bun run scripts/pi-demo/prepare.ts --canonical && rm -f .tmp/pi-demo/pi-demo-technical.mp4 .tmp/pi-demo/pi-demo-technical.png .tmp/pi-demo/pi-demo-technical-health.png .tmp/pi-demo/pi-demo-technical-explanation.png .tmp/pi-demo/pi-demo-technical-cleanup.png && vhs scripts/pi-demo/technical.tape && bun run scripts/pi-demo/validate.ts --mode technical",
-    "demo:pi:release": "bun run scripts/pi-demo/prepare.ts --canonical && bun run scripts/pi-demo/preflight-openrouter.ts && rm -rf .tmp/pi-demo/release-candidate && mkdir -p .tmp/pi-demo/release-candidate && vhs scripts/pi-demo/release.tape && OPEN_ZK_KB_PI_DEMO_MEDIA_ROOT=.tmp/pi-demo/release-candidate bun run scripts/pi-demo/validate.ts --mode release",
     "prepublishOnly": "bun run build && bun run typecheck && bun test",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
