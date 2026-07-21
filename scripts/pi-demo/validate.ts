@@ -1,7 +1,13 @@
 #!/usr/bin/env bun
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { assertDemoIsolation, defaultDemoRoot, demoTracePath, projectRoot } from './support.js';
+import { assertDemoIsolation, defaultDemoRoot, demoTracePath, projectRoot, vaultPath } from './support.js';
+
+const REMEMBER_PROMPT = 'Please remember that I understand coding concepts best through cooking metaphors';
+const RUST_PROMPT = 'Please explain how macros in rust work';
+const HEALTH_PROMPT = 'Whats the status of the knowledge base?';
+const REMOVE_PROMPT = 'I was joking about the cooking metaphors. Please remove that preference.';
+const RUST_ANSWER = 'A Rust macro is like a cookie cutter for code. You define rules for the shape once, then apply them to different batches of dough—Rust syntax supplied as input. Depending on that input, the macro can produce slightly different shapes or even elaborate designs. Rust expands the result into code during compilation. This saves you from writing recurring code patterns by hand.';
 
 interface Probe {
   streams?: Array<{ width?: number; height?: number }>;
@@ -13,8 +19,11 @@ interface TraceEvent {
   tool?: string;
   isError?: boolean;
   text?: string;
-  ordinal?: number;
   reason?: string;
+  concise?: boolean;
+  cooking?: boolean;
+  healthy?: boolean;
+  metrics?: string;
 }
 
 async function probe(file: string): Promise<Probe> {
@@ -28,7 +37,7 @@ async function probe(file: string): Promise<Probe> {
 }
 
 function hasSuccessfulTool(trace: TraceEvent[], tool: string): boolean {
-  return trace.some((event) => event.event === 'tool-result' && event.tool === tool && event.isError === false);
+  return trace.some(event => event.event === 'tool-result' && event.tool === tool && event.isError === false);
 }
 
 function assertSecretAbsent(files: string[]): void {
@@ -36,17 +45,20 @@ function assertSecretAbsent(files: string[]): void {
   if (!secret) return;
   const needle = Buffer.from(secret);
   for (const file of files) {
-    if (fs.readFileSync(file).includes(needle)) {
-      throw new Error(`OpenRouter secret material found in ${file}`);
-    }
+    if (fs.readFileSync(file).includes(needle)) throw new Error(`OpenRouter secret material found in ${file}`);
   }
 }
 
-const modeArg = process.argv.indexOf('--mode');
-const mode = modeArg >= 0 ? process.argv[modeArg + 1] : 'technical';
-if (mode !== 'technical' && mode !== 'release') {
-  throw new Error(`Unknown validation mode: ${mode}`);
+function assertDimensions(label: string, probeResult: Probe): void {
+  const stream = probeResult.streams?.at(0);
+  if (stream?.width !== 1200 || stream.height !== 800) {
+    throw new Error(`${label} dimensions must be 1200x800, got ${stream?.width ?? '?'}x${stream?.height ?? '?'}`);
+  }
 }
+
+const modeIndex = process.argv.indexOf('--mode');
+const mode = modeIndex >= 0 ? process.argv[modeIndex + 1] : 'technical';
+if (mode !== 'technical' && mode !== 'release') throw new Error(`Unknown validation mode: ${mode}`);
 
 const mediaRoot = mode === 'release'
   ? path.resolve(process.env.OPEN_ZK_KB_PI_DEMO_MEDIA_ROOT ?? path.join(projectRoot, 'assets'))
@@ -54,71 +66,79 @@ const mediaRoot = mode === 'release'
 const basename = mode === 'release' ? 'pi-demo' : 'pi-demo-technical';
 const video = path.join(mediaRoot, `${basename}.mp4`);
 const image = path.join(mediaRoot, `${basename}.png`);
-for (const file of [video, image]) {
+const healthImage = path.join(mediaRoot, `${basename}-health.png`);
+const explanationImage = path.join(mediaRoot, `${basename}-explanation.png`);
+const cleanupImage = path.join(mediaRoot, `${basename}-cleanup.png`);
+const media = [video, image, ...[healthImage, explanationImage, cleanupImage].filter(file => fs.existsSync(file))];
+for (const file of media) {
   const size = fs.statSync(file).size;
   if (size < 20_000) throw new Error(`${file} is unexpectedly small (${size} bytes)`);
 }
 
 const videoProbe = await probe(video);
-const imageProbe = await probe(image);
-const videoStream = videoProbe.streams?.at(0);
-const imageStream = imageProbe.streams?.at(0);
-for (const [label, stream] of [['video', videoStream], ['image', imageStream]] as const) {
-  if (stream?.width !== 1200 || stream.height !== 800) {
-    throw new Error(`${label} dimensions must be 1200x800, got ${stream?.width ?? '?'}x${stream?.height ?? '?'}`);
-  }
-}
+assertDimensions('video', videoProbe);
+assertDimensions('image', await probe(image));
+if (fs.existsSync(healthImage)) assertDimensions('health image', await probe(healthImage));
+if (fs.existsSync(explanationImage)) assertDimensions('explanation image', await probe(explanationImage));
+if (fs.existsSync(cleanupImage)) assertDimensions('cleanup image', await probe(cleanupImage));
 const duration = Number(videoProbe.format?.duration ?? 0);
-const maximumDuration = mode === 'release' ? 120 : 60;
-if (duration < 15 || duration > maximumDuration) {
-  throw new Error(`Video duration must be between 15 and ${maximumDuration} seconds, got ${duration}`);
+const maximumDuration = mode === 'release' ? 120 : 90;
+if (duration < 10 || duration > maximumDuration) {
+  throw new Error(`Video duration must be between 10 and ${maximumDuration} seconds, got ${duration}`);
 }
 
 const trace = fs.readFileSync(demoTracePath, 'utf8')
   .trim()
   .split('\n')
-  .map((line) => JSON.parse(line) as TraceEvent);
-const requiredTools = mode === 'release'
-  ? ['knowledge-store', 'knowledge-search', 'knowledge-health']
-  : ['knowledge-store', 'knowledge-search'];
-for (const tool of requiredTools) {
-  if (!hasSuccessfulTool(trace, tool)) {
-    throw new Error(`Capture did not receive a successful ${tool} result`);
+  .map(line => JSON.parse(line) as TraceEvent);
+for (const tool of ['knowledge-store', 'knowledge-health', 'knowledge-maintain']) {
+  if (!hasSuccessfulTool(trace, tool)) throw new Error(`Capture did not receive a successful ${tool} result`);
+}
+
+const tapeName = mode === 'release' ? 'release.tape' : 'technical.tape';
+const tape = fs.readFileSync(path.join(projectRoot, 'scripts', 'pi-demo', tapeName), 'utf8');
+if ((tape.match(/^Type "\/new"$/gm) ?? []).length < 2) {
+  throw new Error(`${tapeName} must start fresh sessions before Rust and health`);
+}
+
+const rememberIndex = trace.findIndex(event => event.event === 'input' && event.text === REMEMBER_PROMPT);
+const rustIndex = trace.findIndex((event, index) => index > rememberIndex && event.event === 'input' && event.text === RUST_PROMPT);
+const healthIndex = trace.findIndex((event, index) => index > rustIndex && event.event === 'input' && event.text === HEALTH_PROMPT);
+const storeIndex = trace.findIndex((event, index) => index > rememberIndex && index < rustIndex && event.event === 'tool-result' && event.tool === 'knowledge-store' && event.isError === false);
+const storeCompletion = trace.findIndex((event, index) => index > storeIndex && index < rustIndex && event.event === 'assistant-text' && event.text === 'Cooking preference saved.');
+const rustSession = trace.findIndex((event, index) => index > storeCompletion && index < rustIndex && event.event === 'session_start' && event.reason === 'new');
+const capsuleIndex = trace.findIndex((event, index) => index > rustSession && index < healthIndex && event.event === 'capsule' && event.concise && event.cooking);
+const rustWindowSearch = trace.findIndex((event, index) => index > rustIndex && index < healthIndex && event.tool === 'knowledge-search');
+const explanationIndex = trace.findIndex((event, index) => index > rustIndex && index < healthIndex && event.event === 'assistant-text' && event.text === RUST_ANSWER);
+const healthSession = trace.findIndex((event, index) => index > explanationIndex && index < healthIndex && event.event === 'session_start' && event.reason === 'new');
+const healthToolIndex = trace.findIndex((event, index) => index > healthIndex && event.event === 'tool-result' && event.tool === 'knowledge-health' && event.isError === false);
+const cleanupSession = trace.findIndex((event, index) => index > healthToolIndex && event.event === 'session_start' && event.reason === 'new');
+const removeIndex = trace.findIndex((event, index) => index > cleanupSession && event.event === 'input' && event.text === REMOVE_PROMPT);
+const deleteIndex = trace.findIndex((event, index) => index > removeIndex && event.event === 'tool-result' && event.tool === 'knowledge-maintain' && event.isError === false);
+const removeCompletion = trace.findIndex((event, index) => index > deleteIndex && event.event === 'assistant-text' && event.text === 'Cooking-metaphor preference removed.');
+
+if ([rememberIndex, rustIndex, healthIndex, storeIndex, storeCompletion, rustSession, capsuleIndex, explanationIndex, healthSession, healthToolIndex, cleanupSession, removeIndex, deleteIndex, removeCompletion].some(index => index < 0) || rustWindowSearch >= 0) {
+  throw new Error('Capture trace does not prove ordered prompts, automatic preferences, exact Rust copy, healthy status, preference deletion, and zero Rust-window search');
+}
+
+const canonical = mode === 'release' || fs.existsSync(path.join(defaultDemoRoot, '.canonical'));
+const healthResult = trace[healthToolIndex];
+if (canonical) {
+  if (!healthResult?.healthy || !healthResult.metrics
+    || !/Health \(240 notes\)/i.test(healthResult.metrics)
+    || !/Embedded: 240\/240 notes/i.test(healthResult.metrics)
+    || !/All clear/i.test(healthResult.metrics)) {
+    throw new Error('Canonical health trace does not prove 240 healthy notes, complete embeddings, and all-clear links');
   }
 }
 
-if (mode === 'release') {
-  const rememberPrompt = 'Please remember that I understand coding concepts best through cooking metaphors';
-  const rustPrompt = 'Please explain how macros in rust work';
-  const healthPrompt = 'Whats the status of the knowledge base?';
-  const releaseTape = fs.readFileSync(path.join(projectRoot, 'scripts', 'pi-demo', 'release.tape'), 'utf8');
-  if (!/^Type "\/new"$/m.test(releaseTape)) {
-    throw new Error('Release tape does not contain the required /new session boundary');
-  }
-  const rememberIndex = trace.findIndex((event) => event.event === 'input' && event.text === rememberPrompt);
-  const rustIndex = trace.findIndex((event, index) => index > rememberIndex && event.event === 'input' && event.text === rustPrompt);
-  const healthIndex = trace.findIndex((event, index) => index > rustIndex && event.event === 'input' && event.text === healthPrompt);
-  const storeIndex = trace.findIndex((event, index) => index > rememberIndex && index < rustIndex && event.event === 'tool-result' && event.tool === 'knowledge-store' && event.isError === false);
-  const storeCompletion = trace.findIndex((event, index) => index > storeIndex && index < rustIndex && event.event === 'assistant-text' && event.text?.includes('Cooking preference saved.'));
-  const newSession = trace.findIndex((event, index) => index > storeCompletion && index < rustIndex && event.event === 'session_start' && event.reason === 'new');
-  const searchIndex = trace.findIndex((event, index) => index > rustIndex && index < healthIndex && event.event === 'tool-result' && event.tool === 'knowledge-search' && event.isError === false);
-  const healthToolIndex = trace.findIndex((event, index) => index > healthIndex && event.event === 'tool-result' && event.tool === 'knowledge-health' && event.isError === false);
-  if (rememberIndex < 0 || newSession < 0 || rustIndex < 0 || healthIndex < 0 || storeIndex < 0 || storeCompletion < 0 || searchIndex < 0 || healthToolIndex < 0) {
-    throw new Error('Release trace does not prove ordered prompts, fresh session, successful tools, and completed generated answers');
-  }
-  const explanation = trace
-    .slice(rustIndex + 1, healthIndex)
-    .filter((event) => event.event === 'assistant-text' && event.text)
-    .map((event) => event.text)
-    .join('\n');
-  if (explanation.length < 100 || !/macro/i.test(explanation) || !/(cook|recipe|kitchen|ingredient)/i.test(explanation)) {
-    throw new Error('Release capture lacks a substantial cooking-metaphor explanation of Rust macros');
-  }
-  if (!explanation.includes('That is the recipe.')) {
-    throw new Error('Release explanation did not reach its required completion marker');
-  }
+const preferenceFiles = fs.existsSync(path.join(vaultPath, 'preferences'))
+  ? fs.readdirSync(path.join(vaultPath, 'preferences')).filter(file => /^\d{16}-.*\.md$/.test(file))
+  : [];
+if (preferenceFiles.length !== 1 || preferenceFiles.some(file => file.includes('cooking'))) {
+  throw new Error(`Final cleanup did not leave exactly the concise preference: ${preferenceFiles.join(', ')}`);
 }
 
-assertSecretAbsent([video, image, demoTracePath]);
+assertSecretAbsent([...media, demoTracePath]);
 assertDemoIsolation();
-console.log(`Validated ${mode} Pi demo: ${requiredTools.join('/')}, 1200x800, ${duration.toFixed(1)}s`);
+console.log(`Validated ${mode}${canonical ? ' canonical' : ''} Pi demo: store/automatic-preferences/exact-answer/health/delete/cleanup, 1200x800, ${duration.toFixed(1)}s`);

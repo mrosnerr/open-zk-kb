@@ -2319,6 +2319,20 @@ export class NoteRepository {
     });
   }
 
+  getPermanentPersonalizations(): NoteMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE kind = 'personalization' AND status = 'permanent'
+      ORDER BY updated_at DESC, id ASC
+    `);
+    const results = stmt.all() as NoteMetadata[];
+    return results.map(r => ({
+      ...r,
+      kind: 'personalization',
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
   getRecentNotes(limit: number = 5): NoteMetadata[] {
     const stmt = this.db.prepare(`
       SELECT * FROM notes 

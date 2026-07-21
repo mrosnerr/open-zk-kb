@@ -244,6 +244,29 @@ export interface ContextArgs {
   project?: string;
   logEntries?: number;
   model?: string;
+  includePreferences?: boolean;
+  client?: string;
+}
+
+export interface PreferenceCapsuleLine {
+  scope: string;
+  guidance: string;
+  id: string;
+  line: string;
+}
+
+export interface PreferenceCapsule {
+  lines: PreferenceCapsuleLine[];
+  text: string;
+  eligible: number;
+  selected: number;
+  omitted: number;
+  estimatedTokens: number;
+}
+
+export interface ContextResult {
+  text: string;
+  preferenceCapsule?: PreferenceCapsule;
 }
 
 export interface HealthArgs {
@@ -2192,16 +2215,77 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
   }
 }
 
-export function handleContext(args: ContextArgs, repo: NoteRepository, config?: AppConfig): string {
+const CAPSULE_NOTE_LIMIT = 12;
+const CAPSULE_TOKEN_LIMIT = 800;
+
+export function buildPreferenceCapsule(
+  repo: NoteRepository,
+  targets: { project?: string; client?: string },
+): PreferenceCapsule {
+  const universal: NoteMetadata[] = [];
+  const scoped: NoteMetadata[] = [];
+
+  for (const note of repo.getPermanentPersonalizations()) {
+    const projects = note.tags.filter(tag => tag.startsWith('project:')).map(tag => tag.slice('project:'.length));
+    const clients = note.tags.filter(tag => tag.startsWith('client:')).map(tag => tag.slice('client:'.length));
+    const projectMatches = projects.length === 0 || (targets.project !== undefined && projects.includes(targets.project));
+    const clientMatches = clients.length === 0 || clients.includes('all') || (targets.client !== undefined && clients.includes(targets.client));
+    if (!projectMatches || !clientMatches) continue;
+    (projects.length === 0 && clients.length === 0 ? universal : scoped).push(note);
+  }
+
+  const ranked: NoteMetadata[] = [];
+  const groupLength = Math.max(universal.length, scoped.length);
+  for (let index = 0; index < groupLength; index++) {
+    if (universal[index]) ranked.push(universal[index]);
+    if (scoped[index]) ranked.push(scoped[index]);
+  }
+
+  const lines: PreferenceCapsuleLine[] = [];
+  let characters = 0;
+  for (const note of ranked) {
+    if (lines.length >= CAPSULE_NOTE_LIMIT) break;
+    const scopeTags = note.tags.filter(tag => tag.startsWith('project:') || tag.startsWith('client:'));
+    const scope = scopeTags.length > 0 ? scopeTags.join(', ') : 'universal';
+    const storedGuidance = note.guidance?.trim();
+    const guidance = storedGuidance || `Honor this preference: ${(note.summary || note.title).trim()}`;
+    const line = `- [${scope}] ${guidance} [${note.id}]`;
+    const nextCharacters = characters + line.length + (lines.length > 0 ? 1 : 0);
+    // Skip an oversized preference rather than stopping selection entirely: a
+    // later, more concise preference may still fit within the capsule budget.
+    if (Math.ceil(nextCharacters / 4) > CAPSULE_TOKEN_LIMIT) continue;
+    lines.push({ scope, guidance, id: note.id, line });
+    characters = nextCharacters;
+  }
+
+  const eligible = ranked.length;
+  return {
+    lines,
+    text: lines.map(item => item.line).join('\n'),
+    eligible,
+    selected: lines.length,
+    omitted: eligible - lines.length,
+    estimatedTokens: Math.ceil(characters / 4),
+  };
+}
+
+export function handleContextResult(args: ContextArgs, repo: NoteRepository, config?: AppConfig): ContextResult {
   const project = args.project;
   const logLimit = Math.max(1, args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10);
+  const text = project
+    ? formatProjectOverview(project, logLimit, repo, config, args.model)
+    : formatGlobalOverview(logLimit, repo, config, args.model);
 
+  return {
+    text,
+    ...(args.includePreferences
+      ? { preferenceCapsule: buildPreferenceCapsule(repo, { project, client: args.client }) }
+      : {}),
+  };
+}
 
-
-  if (project) {
-    return formatProjectOverview(project, logLimit, repo, config, args.model);
-  }
-  return formatGlobalOverview(logLimit, repo, config, args.model);
+export function handleContext(args: ContextArgs, repo: NoteRepository, config?: AppConfig): string {
+  return handleContextResult(args, repo, config).text;
 }
 
 function formatProjectOverview(project: string, logLimit: number, repo: NoteRepository, config?: AppConfig, model?: string): string {

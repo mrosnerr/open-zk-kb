@@ -56,7 +56,7 @@ function stream(model: Model<Api>, context: Context, _options?: SimpleStreamOpti
     const text = last.content.filter(item => item.type === 'text').map(item => item.text).join('\n');
     const tracePath = process.env.PI_PERSONALIZATION_TRACE;
     if (!tracePath) throw new Error('PI_PERSONALIZATION_TRACE is required');
-    fs.appendFileSync(tracePath, `${JSON.stringify({ tool: last.toolName, isError: last.isError, text })}\n`);
+    fs.appendFileSync(tracePath, `${JSON.stringify({ tool: last.toolName, isError: last.isError, text, systemPrompt: context.systemPrompt })}\n`);
     if (!auditRequested && last.toolName === 'knowledge-maintain' && !last.isError) {
       auditRequested = true;
       call(events, output, { type: 'toolCall', id: 'audit', name: 'knowledge-maintain', arguments: { action: 'preference-audit' } });

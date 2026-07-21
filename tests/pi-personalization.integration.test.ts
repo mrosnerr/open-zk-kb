@@ -53,9 +53,11 @@ describe('Pi personalization scope integration', () => {
       const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
       expect(exitCode, `Pi failed.\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(0);
       expect(stdout).toContain('integration complete');
-      const records = fs.readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { tool: string; isError: boolean; text: string });
+      const records = fs.readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { tool: string; isError: boolean; text: string; systemPrompt: string });
       expect(records).toHaveLength(2);
       expect(records.every(record => record.tool === 'knowledge-maintain' && !record.isError)).toBe(true);
+      expect(records.every(record => record.systemPrompt.includes('Keep answers concise.'))).toBe(true);
+      expect(records.every(record => !record.systemPrompt.includes('<'))).toBe(true);
       const audit = records[1].text;
       expect(audit).toContain('Active personalization notes scanned: 3');
       expect(audit).toContain('Mutation: none');

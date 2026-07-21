@@ -184,6 +184,42 @@ describe('MCP Protocol E2E', () => {
     expect(allText).toContain('This is only for Claude Code');
   });
 
+  it('knowledge-context returns a structured matching preference capsule on request', async () => {
+    const tools = await client!.listTools();
+    const contextTool = tools.tools.find(tool => tool.name === 'knowledge-context');
+    const schema = contextTool?.inputSchema as { properties?: Record<string, unknown> } | undefined;
+    expect(schema?.properties).toHaveProperty('includePreferences');
+
+    await client!.callTool({
+      name: 'knowledge-store',
+      arguments: {
+        title: 'Pi Protocol Preference',
+        content: 'Keep Pi protocol output concise.',
+        kind: 'personalization',
+        status: 'permanent',
+        client: 'pi',
+        summary: 'Pi protocol output stays concise',
+        guidance: 'Keep Pi protocol output concise.',
+      },
+    });
+
+    const result = await client!.callTool({
+      name: 'knowledge-context',
+      arguments: { client: 'pi', includePreferences: true },
+    });
+    const structured = result.structuredContent as {
+      preferenceCapsule?: {
+        selected?: number;
+        omitted?: number;
+        text?: string;
+      };
+    } | undefined;
+
+    expect(structured?.preferenceCapsule?.selected).toBeGreaterThanOrEqual(1);
+    expect(structured?.preferenceCapsule?.omitted).toBeGreaterThanOrEqual(0);
+    expect(structured?.preferenceCapsule?.text).toContain('[client:pi] Keep Pi protocol output concise.');
+  });
+
   it('handles unknown tool gracefully', async () => {
     const result = await client!.callTool({
       name: 'nonexistent-tool',

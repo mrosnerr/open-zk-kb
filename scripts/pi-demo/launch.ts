@@ -1,10 +1,18 @@
 #!/usr/bin/env bun
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { assertDemoIsolation, demoEnvironment, demoRoot, packageRoot, projectRoot } from './support.js';
+import {
+  assertDemoIsolation,
+  demoEnvironment,
+  demoRoot,
+  packageRoot,
+  projectRoot,
+  rendererDemoRoot,
+} from './support.js';
 
 const prepared = process.argv.includes('--prepared');
 const release = process.argv.includes('--release');
+const canonical = release || process.argv.includes('--canonical');
 let activeProcess: ReturnType<typeof Bun.spawn> | undefined;
 let interrupted: NodeJS.Signals | undefined;
 
@@ -31,7 +39,9 @@ const signalHandlers = (['SIGINT', 'SIGTERM', 'SIGHUP'] as const).map((signal) =
 async function main(): Promise<number> {
   try {
     if (!prepared) {
-      const prepare = Bun.spawn(['bun', 'run', path.join(projectRoot, 'scripts', 'pi-demo', 'prepare.ts')], {
+      const prepareArgs = ['bun', 'run', path.join(projectRoot, 'scripts', 'pi-demo', 'prepare.ts')];
+      if (canonical) prepareArgs.push('--canonical');
+      const prepare = Bun.spawn(prepareArgs, {
         cwd: projectRoot,
         env: demoEnvironment(),
         stdin: 'ignore',
@@ -83,6 +93,7 @@ async function main(): Promise<number> {
       'knowledge-store',
       'knowledge-context',
       'knowledge-health',
+      'knowledge-maintain',
     ].join(',');
     const provider = release ? 'open-zk-release' : 'open-zk-demo';
     const model = release ? 'openai/gpt-oss-120b' : 'scripted';
@@ -105,7 +116,7 @@ async function main(): Promise<number> {
       '--extension', presentationPath,
     ];
     const pi = Bun.spawn(piArgs, {
-      cwd: projectRoot,
+      cwd: rendererDemoRoot,
       env: demoEnvironment({ network: release }),
       stdin: 'inherit',
       stdout: 'inherit',

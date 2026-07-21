@@ -352,6 +352,16 @@ export const TOOL_DEFINITIONS = [
 				required: false,
 				description: "Number of recent log entries to show (default: 10)",
 			},
+			includePreferences: {
+				type: "boolean",
+				required: false,
+				description: "Include a structured capsule of matching permanent preferences",
+			},
+			client: {
+				type: "string",
+				required: false,
+				description: "Client target used to match scoped preferences",
+			},
 			model: {
 				type: "string",
 				required: false,

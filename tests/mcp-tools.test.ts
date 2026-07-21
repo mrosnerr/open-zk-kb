@@ -13,7 +13,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
-import { handleStore, handleSearch, handleHealth, handleMaintain, handleContext, handleGet, handleOpen } from '../src/tool-handlers.js';
+import { buildPreferenceCapsule, handleStore, handleSearch, handleHealth, handleMaintain, handleContext, handleContextResult, handleGet, handleOpen } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -3909,6 +3909,144 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
       await client.close();
       if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('MCP Tool: compact preference capsule', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  function storePreference(
+    title: string,
+    guidance: string,
+    tags: string[] = [],
+    status: 'fleeting' | 'permanent' | 'archived' = 'permanent',
+  ): void {
+    ctx.engine.store(title, {
+      title,
+      kind: 'personalization',
+      status,
+      tags,
+      summary: `${title} summary`,
+      guidance,
+    });
+  }
+
+  it('matches universal, project, client, and mixed applicability while excluding inactive notes', () => {
+    storePreference('Universal', 'Keep answers concise.');
+    storePreference('Atlas project', 'Use Atlas conventions.', ['project:atlas']);
+    storePreference('Other project', 'Use Other conventions.', ['project:other']);
+    storePreference('Pi client', 'Collapse long Pi output.', ['client:pi']);
+    storePreference('Other client', 'Use another harness style.', ['client:other']);
+    storePreference('Atlas Pi mixed', 'Use Atlas conventions in Pi.', ['project:atlas', 'client:pi']);
+    storePreference('Atlas other mixed', 'Use Atlas conventions elsewhere.', ['project:atlas', 'client:other']);
+    storePreference('Fleeting', 'Temporarily do this.', [], 'fleeting');
+    storePreference('Archived', 'No longer do this.', [], 'archived');
+
+    const both = buildPreferenceCapsule(ctx.engine, { project: 'atlas', client: 'pi' });
+    expect(both.eligible).toBe(4);
+    expect(both.selected).toBe(4);
+    expect(both.omitted).toBe(0);
+    expect(both.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Use Atlas conventions.',
+      'Collapse long Pi output.',
+      'Use Atlas conventions in Pi.',
+    ]));
+    expect(both.text).not.toContain('Other conventions');
+    expect(both.text).not.toContain('Temporarily');
+    expect(both.text).not.toContain('No longer');
+
+    const projectOnly = buildPreferenceCapsule(ctx.engine, { project: 'atlas' });
+    expect(projectOnly.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Use Atlas conventions.',
+    ]));
+    expect(projectOnly.selected).toBe(2);
+
+    const clientOnly = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(clientOnly.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Collapse long Pi output.',
+    ]));
+    expect(clientOnly.selected).toBe(2);
+  });
+
+  it('interleaves universal and scoped preferences by recency', async () => {
+    storePreference('Universal older', 'Use the older universal preference.');
+    await Bun.sleep(2);
+    storePreference('Scoped older', 'Use the older scoped preference.', ['client:pi']);
+    await Bun.sleep(2);
+    storePreference('Universal newer', 'Use the newer universal preference.');
+    await Bun.sleep(2);
+    storePreference('Scoped newer', 'Use the newer scoped preference.', ['client:pi']);
+
+    const capsule = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(capsule.lines.map(line => line.guidance)).toEqual([
+      'Use the newer universal preference.',
+      'Use the newer scoped preference.',
+      'Use the older universal preference.',
+      'Use the older scoped preference.',
+    ]);
+  });
+
+  it('enforces the 12-note and estimated 800-token budgets and reports omitted notes', () => {
+    for (let index = 0; index < 20; index++) {
+      storePreference(`Short ${index}`, `Apply short preference ${index}.`, index % 2 === 0 ? [] : ['client:pi']);
+    }
+    const noteLimited = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(noteLimited.eligible).toBe(20);
+    expect(noteLimited.selected).toBe(12);
+    expect(noteLimited.omitted).toBe(8);
+    expect(noteLimited.estimatedTokens).toBeLessThanOrEqual(800);
+
+    const longContext = createTestHarness();
+    try {
+      for (let index = 0; index < 10; index++) {
+        longContext.engine.store(`Long ${index}`, {
+          title: `Long ${index}`,
+          kind: 'personalization',
+          status: 'permanent',
+          summary: `Long ${index} summary`,
+          guidance: `Apply ${String(index).padStart(2, '0')} ${'carefully '.repeat(55)}`,
+        });
+      }
+      const tokenLimited = buildPreferenceCapsule(longContext.engine, {});
+      expect(tokenLimited.eligible).toBe(10);
+      expect(tokenLimited.selected).toBeGreaterThan(0);
+      expect(tokenLimited.selected).toBeLessThan(10);
+      expect(tokenLimited.omitted).toBe(10 - tokenLimited.selected);
+      expect(tokenLimited.estimatedTokens).toBeLessThanOrEqual(800);
+    } finally {
+      cleanupTestHarness(longContext);
+    }
+  });
+
+  it('skips an individually oversized preference and still selects later concise guidance', async () => {
+    storePreference('Concise older', 'Keep the concise preference.');
+    await Bun.sleep(2);
+    storePreference('Oversized newer', `Apply ${'extremely carefully '.repeat(200)}`);
+
+    const capsule = buildPreferenceCapsule(ctx.engine, {});
+    expect(capsule.eligible).toBe(2);
+    expect(capsule.selected).toBe(1);
+    expect(capsule.omitted).toBe(1);
+    expect(capsule.text).toContain('Keep the concise preference.');
+    expect(capsule.text).not.toContain('extremely carefully');
+    expect(capsule.estimatedTokens).toBeLessThanOrEqual(800);
+  });
+
+  it('returns structured capsule data without changing context text and supplies imperative legacy fallback', () => {
+    storePreference('Legacy preference', '');
+    const plain = handleContext({ project: 'unknown-project' }, ctx.engine, ctx.config);
+    const result = handleContextResult({ project: 'unknown-project', client: 'pi', includePreferences: true }, ctx.engine, ctx.config);
+
+    expect(result.text).toBe(plain);
+    expect(result.preferenceCapsule?.selected).toBe(1);
+    expect(result.preferenceCapsule?.lines[0].guidance).toBe('Honor this preference: Legacy preference summary');
+    expect(result.preferenceCapsule?.lines[0].line).toMatch(/^- \[universal\] Honor this preference: .+ \[\d{16}\]$/);
   });
 });
 

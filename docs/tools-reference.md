@@ -300,12 +300,16 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 
 Get a global or project-scoped overview with a computed inventory of notes, recent activity, and resources. Use at the start of a session to orient yourself.
 
+The Pi extension also requests a compact project preference capsule from this tool when a session starts. It injects the capsule through the system prompt and displays a separate, deduplicated TUI entry; the model does not need to initiate a search. See the [Pi Experience](pi.md#automatic-project-preferences).
+
 ### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project` | string | No | Project name. Omit for a global overview across all projects |
 | `logEntries` | number | No | Number of recent log entries to include (default: 10) |
+| `includePreferences` | boolean | No | Include a compact capsule of matching active personalization notes |
+| `client` | string | No | Client identifier used to include matching client-scoped preferences |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
 
 ### Global overview (no `project`)
