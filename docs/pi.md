@@ -12,7 +12,7 @@ Bun remains required for the local MCP server and SQLite storage. Restart Pi aft
 
 ## Automatic Project Preferences
 
-When a Pi session starts, the extension loads active preferences for the current project through `knowledge-context`. The preference capsule enters model context through the system prompt, so it is available before the model responds and does not require a model-initiated `knowledge-search` call.
+When a Pi session starts, the extension loads permanent preferences for the current project through `knowledge-context`. The preference capsule enters model context through the system prompt, so it is available before the model responds and does not require a model-initiated `knowledge-search` call.
 
 Pi separately displays an honest, deduplicated session entry:
 

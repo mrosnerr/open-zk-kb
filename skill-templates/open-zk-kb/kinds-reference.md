@@ -7,7 +7,7 @@ An enduring user preference or behavioral expectation. Default lifecycle: `livin
 
 **When to store**: The preference remains useful beyond the current task and its applicability is explicit. Preference language such as “I prefer,” “always,” or “never” is evidence, not sufficient classification by itself.
 
-**Durability test**: Would this still help a future agent if the current project, implementation, subscription, configuration, or harness disappeared? If not, use `decision`, `reference`, `domain`, or a fleeting note instead.
+**Durability test**: Evaluate endurance within the declared scope. Would this still help a future agent working in that project or client after the current task and transient implementation, subscription, or configuration change? Universal preferences must also remain broadly useful across projects and clients. If not, use `decision`, `reference`, `domain`, or a fleeting note instead.
 
 **Applicability**:
 - Universal: no `project:*` or `client:*` tag; applies across projects and harnesses.
@@ -17,7 +17,7 @@ An enduring user preference or behavioral expectation. Default lifecycle: `livin
 
 **Positive examples**:
 - “Keep answers concise in every client” — universal.
-- “In Claude Code, ask before running long test suites” — `client:claude-code`.
+- “In Claude Code, ask before running long test suites” — `client:claude-code`; useful across future Claude Code sessions.
 - “For the docs project, explain changes with user-facing examples” — `project:docs`.
 
 **Negative examples**:

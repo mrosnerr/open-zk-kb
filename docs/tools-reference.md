@@ -308,7 +308,7 @@ The Pi extension also requests a compact project preference capsule from this to
 |-----------|------|----------|-------------|
 | `project` | string | No | Project name. Omit for a global overview across all projects |
 | `logEntries` | number | No | Number of recent log entries to include (default: 10) |
-| `includePreferences` | boolean | No | Include a compact capsule of matching active personalization notes |
+| `includePreferences` | boolean | No | Include a compact capsule of matching permanent personalization notes |
 | `client` | string | No | Client identifier used to include matching client-scoped preferences |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
 

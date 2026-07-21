@@ -41,17 +41,6 @@ function sanitizeTerminalText(value: string): string {
     .join('');
 }
 
-function stripXmlMarkup(value: string): string {
-  // Strip protocol XML markup only after a note envelope has parsed successfully.
-  return sanitizeTerminalText(value)
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<\?[^>]*\?>/g, '')
-    .replace(/<!\[CDATA\[/g, '')
-    .replace(/\]\]>/g, '')
-    .replace(/<![^>]*>/g, '')
-    .replace(/<\/?[A-Za-z][^>]*>/g, '');
-}
-
 function textOf(result: AgentToolResult<unknown>): string {
   return result.content
     .filter((part): part is Extract<typeof part, { type: 'text' }> => part.type === 'text')
@@ -150,9 +139,9 @@ function parseNotes(text: string): ParsedNote[] {
       kind: attribute('kind'),
       status: attribute('status'),
       tags: attribute('tags'),
-      summary: stripXmlMarkup(value('summary')),
-      guidance: stripXmlMarkup(value('guidance')),
-      content: stripXmlMarkup(value('content')),
+      summary: sanitizeTerminalText(value('summary')),
+      guidance: sanitizeTerminalText(value('guidance')),
+      content: sanitizeTerminalText(value('content')),
     };
     if (!note.summary) return [];
     notes.push(note);

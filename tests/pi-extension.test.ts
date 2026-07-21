@@ -402,9 +402,20 @@ Related notes:
   <content>A code sample contains &lt;note&gt; and a literal </note> marker, followed by content that must remain visible.</content>
 </note>`;
     const embeddedRendered = render('knowledge-search', embeddedClosingTag, true);
-    expect(embeddedRendered).toContain('literal  marker');
-    expect(embeddedRendered).not.toMatch(/<\/?note(?:\s|>)/);
+    expect(embeddedRendered).toContain('literal </note> marker');
+    expect(embeddedRendered).not.toContain('<note id=');
     expect(embeddedRendered.replace(/\s+/g, ' ')).toContain('content that must remain visible');
+
+    const authoredMarkup = `<note id="2026071801234598" kind="reference" status="permanent">
+  <summary>Preserve Array<T> examples</summary>
+  <guidance>Render <Button disabled> literally.</guidance>
+  <content><section data-kind="example">Keep user-authored markup.</section>\u001b[2J</content>
+</note>`;
+    const authoredMarkupRendered = render('knowledge-get', authoredMarkup, true);
+    expect(authoredMarkupRendered).toContain('Array<T>');
+    expect(authoredMarkupRendered).toContain('<Button disabled>');
+    expect(authoredMarkupRendered).toContain('<section data-kind="example">Keep user-authored markup.</section>');
+    expect(authoredMarkupRendered).not.toContain('\u001b[2J');
 
     const malformedEnvelope = '<note id="broken" kind="reference"><summary>Incomplete</summary>\nraw tail';
     const malformedRendered = render('knowledge-search', malformedEnvelope, false);

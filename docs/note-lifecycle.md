@@ -39,7 +39,7 @@ When a note is created, its `kind` determines its initial `status`. Some kinds a
 
 ### Personalization durability and applicability
 
-Because personalization notes default to permanent and may be exempt from review, reserve them for preferences that remain useful after the current implementation, configuration, subscription, project, or harness disappears. This is the **durability test**.
+Because personalization notes default to permanent and may be exempt from review, apply the **durability test within the declared scope**: a project- or client-scoped preference must remain useful in future work within that scope after the current task and transient implementation, configuration, or subscription changes. A universal preference must also remain broadly useful across projects and clients.
 
 Applicability uses existing tags:
 - No `project:*` or `client:*` tags means universal.

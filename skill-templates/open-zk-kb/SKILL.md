@@ -91,7 +91,7 @@ guidance: "Check the database."
 
 Use `personalization` only for an **enduring user preference or behavioral expectation**. Preference wording alone (such as “I prefer” or “use X”) is not sufficient.
 
-Apply the **durability test** before storing: *Would this still help a future agent if the current project, implementation, subscription, configuration, or harness disappeared?* If not, use `decision`, `reference`, `domain`, or a fleeting note as appropriate.
+Apply the **durability test within the declared scope** before storing: *Would this still help a future agent working in that project or client after the current task and transient implementation, subscription, or configuration change?* Universal preferences must also remain broadly useful across projects and clients. If not, use `decision`, `reference`, `domain`, or a fleeting note as appropriate.
 
 Record applicability explicitly using existing scope parameters/tags:
 - **Universal** — omit both `project` and `client`; do this only when the preference applies across projects and harnesses.
@@ -106,7 +106,7 @@ Do **not** store these as general personalization:
 - Feature or implementation requirements, such as “add OAuth to this app” → `decision` or project-scoped reference/domain guidance.
 
 ✅ Durable personalization: “Keep answers concise in every client.”
-✅ Scoped personalization: “In Claude Code, ask before running long test suites” with `client: "claude-code"`.
+✅ Scoped personalization: “In Claude Code, ask before running long test suites” with `client: "claude-code"`; this remains useful across future Claude Code sessions.
 
 ### Boundaries
 ✅ **Always**:

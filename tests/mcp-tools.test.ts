@@ -3974,6 +3974,27 @@ describe('MCP Tool: compact preference capsule', () => {
     expect(clientOnly.selected).toBe(2);
   });
 
+  it('orders same-day rebuilt preferences by newest ID', () => {
+    const older = ctx.engine.store({
+      title: 'Older rebuilt preference',
+      kind: 'personalization',
+      status: 'permanent',
+      summary: 'Older rebuilt preference summary',
+      guidance: 'Use the older rebuilt preference.',
+    });
+    const newer = ctx.engine.store({
+      title: 'Newer rebuilt preference',
+      kind: 'personalization',
+      status: 'permanent',
+      summary: 'Newer rebuilt preference summary',
+      guidance: 'Use the newer rebuilt preference.',
+    });
+
+    ctx.engine.rebuildFromFiles();
+    const capsule = buildPreferenceCapsule(ctx.engine, {});
+    expect(capsule.lines.map(line => line.id)).toEqual([newer.id, older.id]);
+  });
+
   it('interleaves universal and scoped preferences by recency', async () => {
     storePreference('Universal older', 'Use the older universal preference.');
     await Bun.sleep(2);
@@ -4036,6 +4057,15 @@ describe('MCP Tool: compact preference capsule', () => {
     expect(capsule.text).toContain('Keep the concise preference.');
     expect(capsule.text).not.toContain('extremely carefully');
     expect(capsule.estimatedTokens).toBeLessThanOrEqual(800);
+  });
+
+  it('normalizes multiline guidance into one capsule record', () => {
+    storePreference('Multiline preference', 'Keep answers\nconcise across\tPi sessions.');
+
+    const capsule = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(capsule.lines).toHaveLength(1);
+    expect(capsule.lines[0].guidance).toBe('Keep answers concise across Pi sessions.');
+    expect(capsule.text).toMatch(/^- \[universal\] Keep answers concise across Pi sessions\. \[\d{16}\]$/);
   });
 
   it('returns structured capsule data without changing context text and supplies imperative legacy fallback', () => {

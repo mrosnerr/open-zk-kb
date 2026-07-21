@@ -2248,7 +2248,8 @@ export function buildPreferenceCapsule(
     const scopeTags = note.tags.filter(tag => tag.startsWith('project:') || tag.startsWith('client:'));
     const scope = scopeTags.length > 0 ? scopeTags.join(', ') : 'universal';
     const storedGuidance = note.guidance?.trim();
-    const guidance = storedGuidance || `Honor this preference: ${(note.summary || note.title).trim()}`;
+    const guidance = (storedGuidance || `Honor this preference: ${(note.summary || note.title).trim()}`)
+      .replace(/\s+/g, ' ');
     const line = `- [${scope}] ${guidance} [${note.id}]`;
     const nextCharacters = characters + line.length + (lines.length > 0 ? 1 : 0);
     // Skip an oversized preference rather than stopping selection entirely: a

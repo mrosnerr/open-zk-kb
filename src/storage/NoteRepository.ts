@@ -2323,7 +2323,7 @@ export class NoteRepository {
     const stmt = this.db.prepare(`
       SELECT * FROM notes
       WHERE kind = 'personalization' AND status = 'permanent'
-      ORDER BY updated_at DESC, id ASC
+      ORDER BY updated_at DESC, id DESC
     `);
     const results = stmt.all() as NoteMetadata[];
     return results.map(r => ({

@@ -31,7 +31,7 @@ describe('Pi personalization scope integration', () => {
     fs.mkdirSync(preferences, { recursive: true });
     fs.mkdirSync(path.join(configHome, 'open-zk-kb'), { recursive: true });
     fs.mkdirSync(home, { recursive: true });
-    fs.writeFileSync(path.join(configHome, 'open-zk-kb', 'config.yaml'), `vault: ${JSON.stringify(vault)}\ntelemetry:\n  enabled: false\n`);
+    fs.writeFileSync(path.join(configHome, 'open-zk-kb', 'config.yaml'), `vault: ${JSON.stringify(vault)}\nembeddings:\n  enabled: false\ntelemetry:\n  enabled: false\n`);
     fs.writeFileSync(path.join(preferences, '2026030100000001-universal.md'), note('2026030100000001', 'Universal concise answers', 'permanent', ['writing'], 'Keep answers concise.'));
     fs.writeFileSync(path.join(preferences, '2026030100000002-pi.md'), note('2026030100000002', 'Pi TypeScript setup', 'fleeting', ['client:pi'], 'For now configure TypeScript output for Pi.'));
     fs.writeFileSync(path.join(preferences, '2026030100000003-project.md'), note('2026030100000003', 'Project Python setup', 'permanent', ['project:atlas'], 'Install Python tooling for Atlas.'));

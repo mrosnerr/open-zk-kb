@@ -129,6 +129,17 @@ function finishWithText(
 	stream.end();
 }
 
+function finishWithError(
+	stream: AssistantMessageEventStream,
+	output: AssistantMessage,
+	message: string,
+): void {
+	output.stopReason = "error";
+	output.errorMessage = message;
+	stream.push({ type: "error", reason: "error", error: output });
+	stream.end();
+}
+
 function streamScripted(
 	model: Model<Api>,
 	context: Context,
@@ -182,17 +193,22 @@ function streamScripted(
 		}
 		const prompt = lastUserText(context);
 		if (prompt === REMOVE_PROMPT && !cookingPreferenceId) {
-			throw new Error("Stored cooking preference ID was not captured");
+			finishWithError(stream, output, "Stored cooking preference ID was not captured");
+			return;
 		}
 		if (prompt === RUST_PROMPT) {
 			const systemPrompt = context.systemPrompt ?? "";
 			const concise = /concise/i.test(systemPrompt);
 			const cooking = /cook|kitchen/i.test(systemPrompt);
 			trace({ event: "capsule", concise, cooking });
-			if (!concise || !cooking)
-				throw new Error(
+			if (!concise || !cooking) {
+				finishWithError(
+					stream,
+					output,
 					"Fresh-session system prompt did not contain both preferences",
 				);
+				return;
+			}
 			finishWithText(stream, output, RUST_ANSWER);
 			return;
 		}

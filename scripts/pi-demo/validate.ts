@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { assertDemoIsolation, defaultDemoRoot, demoTracePath, projectRoot, vaultPath } from './support.js';
+import { assertDemoIsolation, defaultDemoRoot, demoRoot, demoTracePath, projectRoot, vaultPath } from './support.js';
 
 const REMEMBER_PROMPT = 'Please remember that I understand coding concepts best through cooking metaphors';
 const RUST_PROMPT = 'Please explain how macros in rust work';
@@ -69,7 +69,7 @@ const image = path.join(mediaRoot, `${basename}.png`);
 const healthImage = path.join(mediaRoot, `${basename}-health.png`);
 const explanationImage = path.join(mediaRoot, `${basename}-explanation.png`);
 const cleanupImage = path.join(mediaRoot, `${basename}-cleanup.png`);
-const media = [video, image, ...[healthImage, explanationImage, cleanupImage].filter(file => fs.existsSync(file))];
+const media = [video, image, healthImage, explanationImage, cleanupImage];
 for (const file of media) {
   const size = fs.statSync(file).size;
   if (size < 20_000) throw new Error(`${file} is unexpectedly small (${size} bytes)`);
@@ -78,9 +78,9 @@ for (const file of media) {
 const videoProbe = await probe(video);
 assertDimensions('video', videoProbe);
 assertDimensions('image', await probe(image));
-if (fs.existsSync(healthImage)) assertDimensions('health image', await probe(healthImage));
-if (fs.existsSync(explanationImage)) assertDimensions('explanation image', await probe(explanationImage));
-if (fs.existsSync(cleanupImage)) assertDimensions('cleanup image', await probe(cleanupImage));
+assertDimensions('health image', await probe(healthImage));
+assertDimensions('explanation image', await probe(explanationImage));
+assertDimensions('cleanup image', await probe(cleanupImage));
 const duration = Number(videoProbe.format?.duration ?? 0);
 const maximumDuration = mode === 'release' ? 120 : 90;
 if (duration < 10 || duration > maximumDuration) {
@@ -121,7 +121,7 @@ if ([rememberIndex, rustIndex, healthIndex, storeIndex, storeCompletion, rustSes
   throw new Error('Capture trace does not prove ordered prompts, automatic preferences, exact Rust copy, healthy status, preference deletion, and zero Rust-window search');
 }
 
-const canonical = mode === 'release' || fs.existsSync(path.join(defaultDemoRoot, '.canonical'));
+const canonical = mode === 'release' || fs.existsSync(path.join(demoRoot, '.canonical'));
 const healthResult = trace[healthToolIndex];
 if (canonical) {
   if (!healthResult?.healthy || !healthResult.metrics
