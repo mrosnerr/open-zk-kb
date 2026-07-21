@@ -10,6 +10,7 @@ if (demoRoot === demoRootParent || !demoRoot.startsWith(`${demoRootParent}${path
   throw new Error(`OPEN_ZK_KB_PI_DEMO_ROOT must be a child of ${demoRootParent}`);
 }
 export const packageRoot = path.join(demoRoot, 'staged', 'package');
+export const rendererDemoRoot = path.join(demoRoot, 'renderer-demo');
 export const demoHome = path.join(demoRoot, 'home');
 export const xdgConfigHome = path.join(demoRoot, 'xdg', 'config');
 export const xdgDataHome = path.join(demoRoot, 'xdg', 'data');

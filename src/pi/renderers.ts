@@ -1,6 +1,6 @@
-import { truncateToWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
-import type { Component } from '@earendil-works/pi-tui';
 import type { AgentToolResult, Theme, ToolRenderResultOptions } from '@earendil-works/pi-coding-agent';
+import type { Component } from '@earendil-works/pi-tui';
+import { truncateToWidth, wrapTextWithAnsi } from '@earendil-works/pi-tui';
 import { ICONS } from './renderer/constants.js';
 import { WidthClamp } from './renderer/width-clamp.js';
 
@@ -28,13 +28,17 @@ class WidthAwareResult implements Component {
 
 function sanitizeTerminalText(value: string): string {
   // Tool output may contain terminal control sequences from stored or remote content.
+  const osc = new RegExp(String.raw`\x1b\][^\x07]*(?:\x07|$)`, 'g');
+  const csi = new RegExp(String.raw`\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-2A-Za-z])`, 'g');
   return value
-    // eslint-disable-next-line no-control-regex
-    .replace(/\x1b\][^\x07]*(?:\x07|$)/g, '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-2A-Za-z])/g, '')
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '');
+    .replace(osc, '')
+    .replace(csi, '')
+    .split('')
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127);
+    })
+    .join('');
 }
 
 function textOf(result: AgentToolResult<unknown>): string {
@@ -57,11 +61,11 @@ function wrappedLines(values: string[]): Component {
 }
 
 function raw(text: string): Component {
-  return wrappedLines(text.split('\n'));
+  return wrappedLines(sanitizeTerminalText(text).split('\n'));
 }
 
 function errorResult(text: string, theme: Theme): Component {
-  const output = text.split('\n');
+  const output = sanitizeTerminalText(text).split('\n');
   output[0] = theme.fg('error', `${ICONS.error} ${output[0] || 'Tool failed'}`);
   return wrappedLines(output);
 }
@@ -135,9 +139,9 @@ function parseNotes(text: string): ParsedNote[] {
       kind: attribute('kind'),
       status: attribute('status'),
       tags: attribute('tags'),
-      summary: value('summary'),
-      guidance: value('guidance'),
-      content: value('content'),
+      summary: sanitizeTerminalText(value('summary')),
+      guidance: sanitizeTerminalText(value('guidance')),
+      content: sanitizeTerminalText(value('content')),
     };
     if (!note.summary) return [];
     notes.push(note);
@@ -299,17 +303,29 @@ function healthResult(
     .map((line) => line.match(/^[-*]\s+(Fleeting|Permanent|Archived|Other[^:]*):\s*(\d+)/i))
     .filter((match): match is RegExpMatchArray => Boolean(match))
     .map((match) => `${match[2]} ${match[1].toLowerCase()}`);
+  const growth = sections.find(([heading]) => /^Growth(?:\s|\()/i.test(heading))?.[1] ?? '';
+  const kindLabels: Record<string, string> = { personalization: 'preferences' };
+  const kindOrder = ['personalization', 'decision', 'observation', 'procedure', 'reference', 'resource', 'domain'];
+  const kindCounts = [...growth.matchAll(/^\s*[-*]\s+([a-z]+):\s*(\d+)\s*$/gim)]
+    .map((match) => ({ kind: match[1].toLowerCase(), count: match[2] }))
+    .sort((left, right) => kindOrder.indexOf(left.kind) - kindOrder.indexOf(right.kind))
+    .map(({ kind, count }) => `${count} ${kindLabels[kind] ?? (count === '1' ? kind : `${kind}s`)}`);
+  const embedded = sectionBody(sections, 'Embeddings').match(/Embedded:\s*(\d+)\/(\d+)\s+notes?/i);
   const links = sectionBody(sections, 'Link Health');
-  const linkLine = /Issues:/i.test(links)
+  const linkIssue = /Issues:/i.test(links)
     ? theme.fg('warning', `${ICONS.error} ${links.replace(/^[-*]\s*/, '')}`)
-    : /All clear/i.test(links)
-      ? theme.fg('success', `${ICONS.success} links healthy`)
-      : '';
+    : '';
+  const healthySignals = [
+    embedded ? `${embedded[1]}/${embedded[2]} embedded` : '',
+    /All clear/i.test(links) ? 'links healthy' : '',
+  ].filter(Boolean).join(' · ');
 
   return fixedLines([
-    theme.fg('success', `${ICONS.health} ${theme.bold(`${total} notes`)}`),
+    theme.fg('success', `${ICONS.health} ${theme.bold(`${project ? `${project} · ` : ''}${total} notes`)}`),
     statuses.join(' · '),
-    linkLine,
+    kindCounts.join(' · '),
+    healthySignals ? theme.fg('success', `${ICONS.success} ${healthySignals}`) : '',
+    linkIssue,
   ].filter(Boolean));
 }
 
@@ -348,6 +364,26 @@ function firstStatusLine(text: string): string {
     .replace(/\*\*/g, '') ?? '';
 }
 
+function templateResult(
+  result: AgentToolResult<unknown>,
+  options: ToolRenderResultOptions,
+  theme: Theme,
+  context: ToolRenderContext,
+): Component {
+  const text = textOf(result);
+  if (context.isPartial && !context.isError) return raw(text);
+  if (context.isError) return errorResult(text, theme);
+
+  const kind = sanitizeTerminalText(String(context.args.kind ?? 'knowledge'));
+  if (!options.expanded) {
+    return fixedLines([theme.fg('success', `${ICONS.template} Loaded ${kind} template`)]);
+  }
+  return wrappedLines([
+    theme.fg('success', `${ICONS.template} ${theme.bold(`${kind} template`)}`),
+    ...text.split('\n'),
+  ]);
+}
+
 function simpleResult(icon: string): RenderResultFn {
   return (result, options, theme, context) => {
     const text = textOf(result);
@@ -370,6 +406,6 @@ export const RENDER_RESULTS: Record<string, RenderResultFn> = {
   'knowledge-maintain': simpleResult(ICONS.maintain),
   'knowledge-mine': simpleResult(ICONS.mine),
   'knowledge-ingest': simpleResult(ICONS.ingest),
-  'knowledge-template': simpleResult(ICONS.template),
+  'knowledge-template': templateResult,
   'knowledge-open': simpleResult(ICONS.open),
 };

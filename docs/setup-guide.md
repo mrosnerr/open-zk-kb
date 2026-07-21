@@ -35,6 +35,14 @@ Restart Pi after either install path so it can load the package extension.
 
 Pi loads ten native `knowledge-*` tools. Search, store, context, and health results use compact Pi TUI summaries with expandable details; the remaining tools use concise status renderers. Pi's native tool shell remains visible around each result.
 
+Permanent project preferences load automatically when a Pi session starts. The preference capsule enters the model's system prompt, while a separate, deduplicated `knowledge-context` entry makes the extension activity visible in the TUI without fabricating a model tool call.
+
+<p align="center">
+  <a href="../assets/pi-preference-store.png"><img src="../assets/pi-preference-store.png" alt="A native knowledge-store result in Pi" width="720"></a>
+</p>
+
+See the [Pi Experience](pi.md) for the complete preference workflow, health view, and renderer gallery.
+
 The package can be installed by Pi's Node.js-based package manager, but open-zk-kb's server requires **Bun >= 1.0** for `bun:sqlite`. Keep `bun` on your `PATH`; do not substitute `npm exec` or `npx` for the documented `bunx` server commands. To verify both layers after restarting Pi, ask Pi to run `knowledge-health`.
 
 ### Manual Installation (for any MCP client)

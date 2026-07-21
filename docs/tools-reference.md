@@ -225,7 +225,8 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 | `upgrade-read` | Read a specific migration's instructions | Yes (migration ID) |
 | `upgrade-apply` | Apply a data migration | Yes (migration ID) |
 | `format` | Re-serialize all note files with canonical frontmatter and navigation | No |
-| `scope-audit` | Detect mis-scoped client tags | No |
+| `scope-audit` | Detect incorrectly scoped client tags | No |
+| `preference-audit` | Report deterministic quality signals in active personalization notes; read-only and non-mutating | No |
 | `unlinked` | Find notes with no wikilinks | No |
 | `broken-links` | Find wikilinks to non-existent notes | No |
 | `link-health` | Combined report: unlinked + broken links + one-way links | No |
@@ -250,6 +251,16 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 ```json
 { "action": "rebuild", "dryRun": true }
 ```
+
+```json
+{ "action": "preference-audit", "dryRun": true }
+```
+
+### Preference audit output
+
+`preference-audit` scans non-archived personalization notes and reports deterministic matched evidence, including temporary wording, exact filesystem or client configuration paths, hex colors, model identifiers or routing language, configuration verbs, and missing applicability tags when scoped technology names appear. A clean scan reports that no preference quality signals were found.
+
+The action is always read-only: it does not reclassify, archive, edit, or otherwise mutate notes. Its results are evidence for caller judgment, not instructions to take an action. Applicability remains represented by `project:*` and `client:*` tags; absence of both means universal.
 
 ---
 
@@ -289,12 +300,16 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 
 Get a global or project-scoped overview with a computed inventory of notes, recent activity, and resources. Use at the start of a session to orient yourself.
 
+The Pi extension also requests a compact project preference capsule from this tool when a session starts. It injects the capsule through the system prompt and displays a separate, deduplicated TUI entry; the model does not need to initiate a search. See the [Pi Experience](pi.md#automatic-project-preferences).
+
 ### Parameters
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `project` | string | No | Project name. Omit for a global overview across all projects |
 | `logEntries` | number | No | Number of recent log entries to include (default: 10) |
+| `includePreferences` | boolean | No | Include a compact capsule of matching permanent personalization notes |
+| `client` | string | No | Client identifier used to include matching client-scoped preferences |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
 
 ### Global overview (no `project`)

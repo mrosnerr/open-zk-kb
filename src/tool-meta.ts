@@ -58,6 +58,7 @@ export const MAINTAIN_ACTIONS = [
 	"embed",
 	"agent-docs",
 	"scope-audit",
+	"preference-audit",
 	"unlinked",
 	"broken-links",
 	"link-health",
@@ -351,6 +352,16 @@ export const TOOL_DEFINITIONS = [
 				required: false,
 				description: "Number of recent log entries to show (default: 10)",
 			},
+			includePreferences: {
+				type: "boolean",
+				required: false,
+				description: "Include a structured capsule of matching permanent preferences",
+			},
+			client: {
+				type: "string",
+				required: false,
+				description: "Client target used to match scoped preferences",
+			},
 			model: {
 				type: "string",
 				required: false,
@@ -445,7 +456,7 @@ export const TOOL_DEFINITIONS = [
 		label: "Maintain Knowledge",
 		description:
 			"Maintain the knowledge base: review (pending notes), dedupe (duplicates), promote, archive, " +
-			"delete, rebuild, upgrade, and managed agent docs repair.",
+			"delete, rebuild, upgrade, managed agent docs repair, and read-only preference quality evidence.",
 		promptSnippet: "Inspect or maintain open-zk-kb health and lifecycle state.",
 		executionMode: "sequential",
 		params: {
@@ -456,7 +467,7 @@ export const TOOL_DEFINITIONS = [
 					"Maintenance action: review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, " +
 					"format (re-serialize all note files with canonical frontmatter and navigation), upgrade, " +
 					"embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), " +
-					"scope-audit (detect mis-scoped client tags), unlinked (notes with no wikilinks), " +
+					"scope-audit (detect mis-scoped client tags), preference-audit (read-only deterministic evidence for active personalization notes; never changes notes), unlinked (notes with no wikilinks), " +
 					"broken-links (wikilinks to non-existent notes), link-health (combined report: unlinked notes + broken links + one-way links), " +
 					"migrate-layout (move flat vault to kind-based directory structure), " +
 					"upgrade-vault (refresh Obsidian scaffold assets), or " +

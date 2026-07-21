@@ -3,14 +3,28 @@
 Detailed descriptions and examples for each knowledge base note kind.
 
 ## personalization
-User preferences, habits, and working style. Default lifecycle: `living`.
+An enduring user preference or behavioral expectation. Default lifecycle: `living` and default status: `permanent`, so classify it narrowly.
 
-**When to store**: User says "I prefer", "always", "never", or corrects your approach.
+**When to store**: The preference remains useful beyond the current task and its applicability is explicit. Preference language such as “I prefer,” “always,” or “never” is evidence, not sufficient classification by itself.
 
-**Examples**:
-- "Prefer Bun over Node.js"
-- "Single quotes in TypeScript"
-- "Pacific timezone, async comms"
+**Durability test**: Evaluate endurance within the declared scope. Would this still help a future agent working in that project or client after the current task and transient implementation, subscription, or configuration change? Universal preferences must also remain broadly useful across projects and clients. If not, use `decision`, `reference`, `domain`, or a fleeting note instead.
+
+**Applicability**:
+- Universal: no `project:*` or `client:*` tag; applies across projects and harnesses.
+- Project: use the `project` parameter, which adds `project:<name>`.
+- Client/harness: use the `client` parameter, which adds `client:<name>`.
+- Use both scopes only when both applicability constraints are real.
+
+**Positive examples**:
+- “Keep answers concise in every client” — universal.
+- “In Claude Code, ask before running long test suites” — `client:claude-code`; useful across future Claude Code sessions.
+- “For the docs project, explain changes with user-facing examples” — `project:docs`.
+
+**Negative examples**:
+- “Set the theme to `#1E1E1E`” or “config lives at `/Users/me/.config/app`” records exact configuration state → `reference`, or fleeting if temporary.
+- “Route this task to model X” or “use the Pro subscription this month” is temporary routing/subscription state → fleeting `reference` or `decision`.
+- “This repository must use Bun” and “use tabs because the formatter requires them” are project requirements → `decision` or `domain`.
+- “Add OAuth to this app” is a feature/implementation requirement → project `decision` or domain guidance.
 
 ## decision
 Architecture choices, trade-off analyses, and rationale. Default lifecycle: `snapshot`.

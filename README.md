@@ -10,10 +10,24 @@ You open a new session and your agent has no idea who you are. Again. You re-exp
 open-zk-kb gives your agent a memory — so corrections stick, context compounds, and every session starts smarter than the last.
 
 <p align="center">
-  <img src="assets/demo.gif" alt="open-zk-kb demo" width="640">
+  <a href="assets/pi-demo.mp4">
+    <img src="assets/pi-demo.png" alt="A healthy 240-note open-zk-kb vault rendered natively in Pi" width="760">
+  </a>
   <br>
-  <sub>Your agent stores what it learns and searches it next session — automatically.</sub>
+  <sub>240 linked, embedded notes and automatic preference injection in Pi. <a href="assets/pi-demo.mp4">Watch the 47-second demo.</a></sub>
 </p>
+
+## Quick start
+
+> **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
+
+```bash
+bunx open-zk-kb@latest
+```
+
+The installer configures your selected clients, installs agent instructions, and creates a local vault. Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **Pi**, and **OMP**.
+
+See the [Setup Guide](docs/setup-guide.md) for manual installation and troubleshooting.
 
 ## Why open-zk-kb?
 
@@ -36,6 +50,23 @@ open-zk-kb fixes that.
 
 Your agent gets sharper the longer you use it — for *your* specific workflow.
 
+### Preferences follow you into the next session
+
+<table>
+  <tr>
+    <td align="center"><a href="assets/pi-preference-store.png"><img src="assets/pi-preference-store.png" alt="Store a cooking-metaphor preference in Pi"></a></td>
+    <td align="center"><a href="assets/pi-preference-application.png"><img src="assets/pi-preference-application.png" alt="Pi automatically applies the stored preference in a new session"></a></td>
+    <td align="center"><a href="assets/pi-preference-removal.png"><img src="assets/pi-preference-removal.png" alt="Remove the preference through a native knowledge-maintain result"></a></td>
+  </tr>
+  <tr>
+    <td align="center"><strong>1. Store it</strong><br><sub>A native tool result confirms the durable preference.</sub></td>
+    <td align="center"><strong>2. Start fresh</strong><br><sub>The next session loads it automatically—no search call needed.</sub></td>
+    <td align="center"><strong>3. Stay in control</strong><br><sub>Remove it whenever it stops being useful.</sub></td>
+  </tr>
+</table>
+
+Click any screenshot to inspect the full-size Pi output, or see the [complete Pi experience](docs/pi.md).
+
 ## Browse your notes in Obsidian
 
 Your knowledge base is a fully themed [Obsidian](https://obsidian.md) vault — homepage dashboard, kind-based folders with icons, breadcrumb navigation, and quick-add buttons. No manual setup.
@@ -48,24 +79,7 @@ Your knowledge base is a fully themed [Obsidian](https://obsidian.md) vault — 
 
 See the [Obsidian Guide](docs/obsidian.md) for the full walkthrough.
 
-## Quick start
-
-> **Requires [Bun](https://bun.sh)** — install with `curl -fsSL https://bun.sh/install | bash`
-
-```bash
-bunx open-zk-kb@latest
-```
-
-That's it. The interactive installer:
-1. Adds the MCP server to your client config
-2. Installs knowledge base instructions so your agent knows when and how to use it
-3. Creates a local vault at `~/.local/share/open-zk-kb`
-
-Supported clients: **OpenCode**, **Claude Code**, **Cursor**, **Windsurf**, **Zed**, **Pi**, **OMP**
-
-See the [Setup Guide](docs/setup-guide.md) for manual installation and troubleshooting.
-
-### Pi: native knowledge tools
+## Pi: native knowledge tools
 
 Install the Pi package, then restart Pi:
 
@@ -75,11 +89,9 @@ pi install npm:open-zk-kb
 
 The extension exposes all ten `knowledge-*` tools directly in Pi. Results use Pi-native compact rendering: search, store, context, and health have focused summaries and expandable detail, while the other tools show concise status output. The MCP server and local SQLite/embedding work still run with **Bun >= 1.0**; Pi itself runs under its supported Node.js runtime. Installing Bun is therefore required even when using the Pi package.
 
-<p align="center">
-  <img src="assets/pi-demo.png" alt="Native open-zk-kb search and store results in Pi" width="720">
-</p>
+Pi also loads active project preferences automatically when a session starts and injects them into model context without requiring a model-initiated search. The visible `knowledge-context` entry reports what happened without fabricating a tool call.
 
-For installer-managed Pi instructions, verification, and troubleshooting, see [Pi installation](docs/setup-guide.md#pi-installation).
+See the [Pi experience guide](docs/pi.md) for the complete preference workflow and renderer examples. For installer-managed instructions, verification, and troubleshooting, see [Pi installation](docs/setup-guide.md#pi-installation).
 
 ## Configuration
 
@@ -100,6 +112,7 @@ When opted in (`telemetry.enabled: true` and `telemetry.share: true`), open-zk-k
 ## Documentation
 
 - [Setup Guide](docs/setup-guide.md) — installation, client-specific setup, troubleshooting
+- [Pi Experience](docs/pi.md) — native tools, automatic preferences, and renderer gallery
 - [Tools Reference](docs/tools-reference.md) — all 10 MCP tools with parameters and examples
 - [Note Lifecycle](docs/note-lifecycle.md) — note kinds, statuses, review system
 - [Configuration](docs/configuration.md) — embeddings, vault, Obsidian scaffold

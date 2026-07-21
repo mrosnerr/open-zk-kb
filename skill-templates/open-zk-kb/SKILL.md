@@ -77,13 +77,36 @@ guidance: "Check the database."
 
 | Scenario | Kind |
 |----------|------|
-| User says they prefer tabs over spaces | **personalization** |
+| User consistently prefers concise answers across work | **personalization** |
+| User wants tabs in this project because its formatter requires them | **decision** or **domain** |
+| Current harness routes requests to a named model | **reference** (or fleeting if temporary) |
 | We chose PostgreSQL over MySQL after comparing replication | **decision** |
 | Bun's SQLite requires explicit WAL mode for concurrent access | **observation** |
 | API endpoint for user creation is `POST /api/v2/users` | **reference** |
 | Deploy: run build, tag version, push to registry | **procedure** |
 | Bun SQLite docs: https://bun.sh/docs/api/sqlite | **resource** |
 | Project's agent role, scope, conventions, and boundaries | **domain** |
+
+### Personalization Boundary
+
+Use `personalization` only for an **enduring user preference or behavioral expectation**. Preference wording alone (such as “I prefer” or “use X”) is not sufficient.
+
+Apply the **durability test within the declared scope** before storing: *Would this still help a future agent working in that project or client after the current task and transient implementation, subscription, or configuration change?* Universal preferences must also remain broadly useful across projects and clients. If not, use `decision`, `reference`, `domain`, or a fleeting note as appropriate.
+
+Record applicability explicitly using existing scope parameters/tags:
+- **Universal** — omit both `project` and `client`; do this only when the preference applies across projects and harnesses.
+- **Project** — pass `project` (stored as `project:<name>`).
+- **Client/harness** — pass `client` (stored as `client:<name>`).
+- A preference may have both scopes when both genuinely apply.
+
+Do **not** store these as general personalization:
+- Exact configuration state, such as `#1E1E1E`, `/Users/me/.config/app`, or `model: claude-3-5-sonnet` → `reference`, or fleeting if temporary.
+- Temporary choices, such as “use the Pro subscription this month” or “route to model X for this task” → fleeting `reference` or `decision`.
+- Project requirements, such as “this repository must use Bun” or “use tabs because the formatter requires them” → `decision` or `domain`.
+- Feature or implementation requirements, such as “add OAuth to this app” → `decision` or project-scoped reference/domain guidance.
+
+✅ Durable personalization: “Keep answers concise in every client.”
+✅ Scoped personalization: “In Claude Code, ask before running long test suites” with `client: "claude-code"`; this remains useful across future Claude Code sessions.
 
 ### Boundaries
 ✅ **Always**:

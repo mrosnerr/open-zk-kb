@@ -25,7 +25,7 @@ When a note is created, its `kind` determines its initial `status`. Some kinds a
 
 | Kind | Default Status | Description |
 | :--- | :--- | :--- |
-| `personalization` | **Permanent** | User preferences, habits, and personal style. |
+| `personalization` | **Permanent** | Enduring user preferences or behavioral expectations, with universal, project, or client/harness applicability. |
 | `reference` | **Fleeting** | Technical facts, API details, and documentation snippets. |
 | `decision` | **Permanent** | Architectural choices, project commitments, and trade-offs. |
 | `procedure` | **Fleeting** | Step-by-step workflows and recurring tasks. |
@@ -36,6 +36,18 @@ When a note is created, its `kind` determines its initial `status`. Some kinds a
 | `log` | **Permanent** | Auto-generated project activity history used mainly as a human-facing activity surface in Obsidian. |
 
 `index` and `log` are special structural notes. They are server-generated, not manually authored via `knowledge-store`, and may contain richer Obsidian-specific UX than core knowledge notes.
+
+### Personalization durability and applicability
+
+Because personalization notes default to permanent and may be exempt from review, apply the **durability test within the declared scope**: a project- or client-scoped preference must remain useful in future work within that scope after the current task and transient implementation, configuration, or subscription changes. A universal preference must also remain broadly useful across projects and clients.
+
+Applicability uses existing tags:
+- No `project:*` or `client:*` tags means universal.
+- `project:<name>` means the preference applies to that project.
+- `client:<name>` means it applies to that client or harness.
+- Both tag families may be present when both constraints apply.
+
+Exact paths, color values, model routes, temporary choices, feature requirements, and project implementation requirements are not general preferences. Depending on their purpose and expected lifetime, capture them as a `decision`, `reference`, `domain`, or fleeting note instead.
 
 ## The Review System
 
@@ -56,6 +68,8 @@ The system analyzes two primary signals to generate review recommendations:
 
 ### Exemptions
 Certain kinds of knowledge (like `personalization` and `decision`) are often exempt from the standard review cycle to ensure they are always available in active context. These are defined in the `exemptKinds` configuration.
+
+`knowledge-maintain` action `preference-audit` provides a separate, read-only check of non-archived personalization notes. It reports deterministic evidence such as temporary wording, exact paths or colors, model/routing language, configuration verbs, and missing applicability around scoped technology names. It does not change notes or decide whether a preference is incorrectly classified.
 
 ## Visual Flow
 

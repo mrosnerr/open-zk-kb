@@ -523,6 +523,45 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
   return lines.join('\n');
 }
 
+function buildPreferencesDataviewTable(
+  whereClause: string,
+  appliesToExpr: string,
+): string[] {
+  return [
+    '```dataviewjs',
+    `const normalizeTag = t => typeof t === "string" ? t : (t && typeof t.tag === "string" ? t.tag : (t && typeof t.name === "string" ? t.name : String(t)));`,
+    `const tagsFor = p => (p.file.tags || []).map(normalizeTag);`,
+    `const pages = dv.pages('"preferences"')`,
+    `  .where(p => p.file.name !== "preferences")`,
+    `  .where(p => p.status !== 'archived')`,
+    `  .where(${whereClause})`,
+    '  .sort(p => p.created, "desc");',
+    `dv.table(["Preference", "Tagline", "Created", "Applies to", " "], pages.map(p => {`,
+    '  const actions = dv.el("span", "", { cls: "dataview-actions" });',
+    '  const editBtn = actions.createEl("a", { cls: "dv-action-btn", attr: { "aria-label": "Edit", title: "Edit this note" } });',
+    '  obsidian.setIcon(editBtn, "pencil");',
+    '  editBtn.addEventListener("click", async (e) => {',
+    '    e.preventDefault();',
+    '    const confirmed = confirm(`Edit "${p.title || p.file.name}"?\\n\\nChanges to notes affect AI assistant behavior. Edits to title, summary, and guidance fields are used by agents across sessions.`);',
+    '    if (confirmed) { const f = app.vault.getAbstractFileByPath(p.file.path); if (f) { const leaf = app.workspace.getLeaf("tab"); await leaf.openFile(f, { state: { mode: "source" } }); } }',
+    '  });',
+    '  const delBtn = actions.createEl("a", { cls: "dv-action-btn dv-action-btn-destructive", attr: { "aria-label": "Delete", title: "Delete this note" } });',
+    '  obsidian.setIcon(delBtn, "trash-2");',
+    '  delBtn.addEventListener("click", async (e) => {',
+    '    e.preventDefault();',
+    '    const file = app.vault.getAbstractFileByPath(p.file.path);',
+    '    if (!file) { new Notice("File not found"); return; }',
+    '    const confirmed = confirm(`Delete "${file.name}"? This moves it to trash.`);',
+    '    if (confirmed) { await app.vault.trash(file, true); const row = delBtn.closest("tr"); if (row) row.remove(); new Notice("Deleted: " + file.name); }',
+    '  });',
+    '  const label = p.title || p.file.name.replace(/^\\d{16}-/, "");',
+    `  const appliesTo = ${appliesToExpr};`,
+    '  return [dv.fileLink(p.file.path, false, label), p.tagline || "", p.created || "", appliesTo, actions];',
+    '}));',
+    '```',
+  ];
+}
+
 export function buildPreferencesIndexContent(_notes: NoteMetadata[]): string {
   const lines: string[] = [];
 
@@ -541,8 +580,34 @@ export function buildPreferencesIndexContent(_notes: NoteMetadata[]): string {
   lines.push(`# \`[!!user-cog]\` Preferences${prefsAddLink}`);
   lines.push('`[!!info|Personal style, habits, and tool preferences|var(--color-pink-rgb)]`');
   lines.push('');
-  lines.push(...buildDataviewTable('preferences', 'personalization', 'Preferences'));
+
+  // Universal
+  lines.push('## Universal Preferences');
   lines.push('');
+  lines.push(...buildPreferencesDataviewTable(
+    `p => !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:') || t.startsWith('client:') || t.startsWith('#client:'))`,
+    `"Universal"`,
+  ));
+  lines.push('');
+
+  // Harness
+  lines.push('## Harness Preferences');
+  lines.push('');
+  lines.push(...buildPreferencesDataviewTable(
+    `p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:'))`,
+    `tagsFor(p).filter(t => t.startsWith('client:') || t.startsWith('#client:') || t.startsWith('project:') || t.startsWith('#project:')).map(t => t.replace(/^#/, '')).join(', ') || 'Universal'`,
+  ));
+  lines.push('');
+
+  // Project
+  lines.push('## Project Preferences');
+  lines.push('');
+  lines.push(...buildPreferencesDataviewTable(
+    `p => tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:'))`,
+    `tagsFor(p).filter(t => t.startsWith('client:') || t.startsWith('#client:') || t.startsWith('project:') || t.startsWith('#project:')).map(t => t.replace(/^#/, '')).join(', ') || 'Universal'`,
+  ));
+  lines.push('');
+
   lines.push('---');
   lines.push(`Last rebuilt: ${formatDateTime()}`);
 

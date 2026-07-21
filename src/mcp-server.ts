@@ -23,7 +23,7 @@ import { toZodSchema } from './tool-schemas.js';
 import { getConfig, getEmbeddingsConfig } from './config.js';
 import { logToFile } from './logger.js';
 import { ensureObsidianScaffold } from './obsidian-scaffold.js';
-import { handleStore, handleSearch, handleHealth, handleMaintain, handleIngest, handleContext, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
+import { handleStore, handleSearch, handleHealth, handleMaintain, handleIngest, handleContextResult, handleOpen, handleMine, handleTemplate, handleGet } from './tool-handlers.js';
 import { reportPreviousSessions } from './analytics.js';
 import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './embeddings.js';
 import { createGitVersioning } from './git-versioning.js';
@@ -274,12 +274,19 @@ export function createMcpServer(): McpServer {
     },
     async (args: z.infer<typeof contextSchema>) => {
       try {
-        const result = handleContext({
+        const result = handleContextResult({
           project: args.project,
           logEntries: args.logEntries,
           model: args.model,
+          includePreferences: args.includePreferences,
+          client: args.client,
         }, await getOrCreateRepo(), config);
-        return { content: [{ type: 'text' as const, text: result }] };
+        return {
+          content: [{ type: 'text' as const, text: result.text }],
+          ...(result.preferenceCapsule
+            ? { structuredContent: { preferenceCapsule: result.preferenceCapsule } }
+            : {}),
+        };
       } catch (error) {
         logToFile('ERROR', 'knowledge-context failed', {
           error: error instanceof Error ? error.message : String(error),

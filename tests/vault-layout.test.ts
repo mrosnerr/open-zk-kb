@@ -10,7 +10,7 @@ import {
 import type { TestContext } from './harness.js';
 import { resolveNotePath, walkMarkdownFiles, extractProjectFromTags } from '../src/storage/path-resolver.js';
 import { handleMaintain, handleStore } from '../src/tool-handlers.js';
-import { buildIndexContent } from '../src/storage/IndexBuilder.js';
+import { buildIndexContent, buildPreferencesIndexContent } from '../src/storage/IndexBuilder.js';
 import { buildReviewContent } from '../src/storage/ReviewBuilder.js';
 import type { NoteMetadata } from '../src/storage/NoteRepository.js';
 
@@ -872,3 +872,69 @@ Flat content`;
      expect(content).toContain('confirm(`Delete');
    });
  });
+
+describe('Preferences Navigation', () => {
+  it('excludes archived notes from all preference sections', () => {
+    const content = buildPreferencesIndexContent([]);
+    const occurrences = (content.match(/\.where\(p => p\.status !== 'archived'\)/g) || []).length;
+    expect(occurrences).toBe(3);
+  });
+
+  it('segments universal, harness, and project preferences', () => {
+    const content = buildPreferencesIndexContent([]);
+    expect(content).toContain('## Universal Preferences');
+    expect(content).toContain('## Harness Preferences');
+    expect(content).toContain('## Project Preferences');
+
+    const tableCount = (content.match(/dv\.table\(/g) || []).length;
+    expect(tableCount).toBe(3);
+
+    expect(content).toContain(
+      "p => !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:') || t.startsWith('client:') || t.startsWith('#client:'))"
+    );
+    expect(content).toContain(
+      "p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')))"
+    );
+    expect(content).toContain(
+      "p => tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:')))"
+    );
+  });
+
+  it('normalizes string and object-shaped Dataview tags before classification', () => {
+    const content = buildPreferencesIndexContent([]);
+    expect(content).toContain(
+      'const normalizeTag = t => typeof t === "string" ? t : (t && typeof t.tag === "string" ? t.tag : (t && typeof t.name === "string" ? t.name : String(t)));'
+    );
+    expect(content).toContain('const tagsFor = p => (p.file.tags || []).map(normalizeTag);');
+  });
+
+  it('shows applicability labels for scoped notes', () => {
+    const content = buildPreferencesIndexContent([]);
+    expect(content).toContain('["Preference", "Tagline", "Created", "Applies to", " "]');
+    expect(content).toContain('const appliesTo = "Universal";');
+    expect(content).toContain(
+      "tagsFor(p).filter(t => t.startsWith('client:') || t.startsWith('#client:') || t.startsWith('project:') || t.startsWith('#project:')).map(t => t.replace(/^#/, '')).join(', ') || 'Universal'"
+    );
+    expect(content).toContain(
+      "tagsFor(p).filter(t => t.startsWith('client:') || t.startsWith('#client:') || t.startsWith('project:') || t.startsWith('#project:')).map(t => t.replace(/^#/, '')).join(', ') || 'Universal'"
+    );
+  });
+
+  it('mixed-scope notes appear in both harness and project sections', () => {
+    const content = buildPreferencesIndexContent([]);
+    const harnessIdx = content.indexOf('## Harness Preferences');
+    const projectIdx = content.indexOf('## Project Preferences');
+    expect(harnessIdx).toBeGreaterThan(-1);
+    expect(projectIdx).toBeGreaterThan(-1);
+
+    const harnessSection = content.slice(harnessIdx, projectIdx);
+    const projectSection = content.slice(projectIdx);
+
+    expect(harnessSection).toContain(
+      "p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')))"
+    );
+    expect(projectSection).toContain(
+      "p => tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:')))"
+    );
+  });
+});

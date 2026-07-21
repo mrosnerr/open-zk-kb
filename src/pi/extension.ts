@@ -1,12 +1,13 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import type { AgentToolResult, ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import { Box, Text } from '@earendil-works/pi-tui';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { StdioServerParameters } from '@modelcontextprotocol/sdk/client/stdio.js';
+import { getDefaultEnvironment, StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { CompatibilityCallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
-import type { ExtensionAPI, AgentToolResult } from '@earendil-works/pi-coding-agent';
 import { TOOL_DEFINITIONS } from '../tool-meta.js';
 import { RENDER_RESULTS } from './renderers.js';
 import { toTypeBoxSchema } from './tool-schemas.js';
@@ -19,18 +20,58 @@ interface BridgeOptions {
   httpUrl?: string;
 }
 
-type ToolName = typeof TOOL_DEFINITIONS[number]['name'];
+type ToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
+
+const MUTATING_TOOLS = new Set<ToolName>(['knowledge-store', 'knowledge-ingest', 'knowledge-maintain', 'knowledge-mine']);
+
+function preferenceText(result: AgentToolResult<Record<string, unknown> | undefined>): string | undefined {
+  const structured = result.details?.structuredContent;
+  if (!structured || typeof structured !== 'object') return undefined;
+  const capsule = (structured as Record<string, unknown>).preferenceCapsule;
+  if (!capsule || typeof capsule !== 'object') return undefined;
+  const text = (capsule as Record<string, unknown>).text;
+  return typeof text === 'string' && text.trim() ? text.trim() : undefined;
+}
+
+const PREFERENCE_ENTRY_TYPE = 'open-zk-kb-preferences';
+
+interface PreferenceEntryData {
+  fingerprint: string;
+  preferences: Array<{ scope: string; guidance: string }>;
+}
+
+function preferenceEntryData(capsule: string): PreferenceEntryData {
+  const oscPattern = new RegExp(String.raw`\x1b\][^\x07]*(?:\x07|$)`, 'g');
+  const csiPattern = new RegExp(String.raw`\x1b(?:\[[0-?]*[ -/]*[@-~]|[()][0-2A-Za-z])`, 'g');
+  const withoutAnsi = capsule.replace(oscPattern, '').replace(csiPattern, '');
+  const clean = [...withoutAnsi]
+    .filter((character) => {
+      const code = character.charCodeAt(0);
+      return code === 10 || code === 13 || code === 9 || (code >= 32 && code !== 127);
+    })
+    .join('');
+  const preferences = clean
+    .split('\n')
+    .map((line) => {
+      const match = line.trim().match(/^-?\s*\[([^\]]+)]\s*(.*)$/);
+      if (!match) return undefined;
+      const [, scope, rawGuidance] = match;
+      if (!scope || !rawGuidance) return undefined;
+      return {
+        scope,
+        guidance: rawGuidance
+          .replace(/\s*\(id:\s*[^)]+\)\s*$/, '')
+          .replace(/\s*\[\d{12,16}]\s*$/, '')
+          .trim(),
+      };
+    })
+    .filter((item): item is { scope: string; guidance: string } => Boolean(item?.guidance));
+  return { fingerprint: clean, preferences };
+}
 
 // ─── MCP Bridge ──────────────────────────────────────────────────────────────
 
-const DEMO_ISOLATION_ENV = [
-  'HOME',
-  'TMPDIR',
-  'XDG_CONFIG_HOME',
-  'XDG_DATA_HOME',
-  'XDG_RUNTIME_DIR',
-  'XDG_STATE_HOME',
-] as const;
+const DEMO_ISOLATION_ENV = ['HOME', 'TMPDIR', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_RUNTIME_DIR', 'XDG_STATE_HOME'] as const;
 
 function serverEnvironment(): Record<string, string> {
   const env = getDefaultEnvironment();
@@ -62,7 +103,11 @@ function formatError(error: unknown): string {
   return String(error);
 }
 
-function hasContent(result: unknown): result is { content: Array<unknown>; isError?: boolean; structuredContent?: Record<string, unknown> } {
+function hasContent(result: unknown): result is {
+  content: Array<unknown>;
+  isError?: boolean;
+  structuredContent?: Record<string, unknown>;
+} {
   return Boolean(result && typeof result === 'object' && 'content' in result && Array.isArray((result as { content?: unknown }).content));
 }
 
@@ -103,11 +148,7 @@ class OpenZkKbMcpBridge {
     let toolErrorText: string | undefined;
     try {
       const client = await this.getClient();
-      const result = await client.callTool(
-        { name, arguments: args },
-        CompatibilityCallToolResultSchema,
-        signal ? { signal } : undefined,
-      );
+      const result = await client.callTool({ name, arguments: args }, CompatibilityCallToolResultSchema, signal ? { signal } : undefined);
 
       if (hasContent(result)) {
         const text = textFromMcpContent(result.content);
@@ -137,7 +178,9 @@ class OpenZkKbMcpBridge {
       await this.reset();
       const stderr = this.stderrTail.trim();
       const suffix = stderr ? `\n\nServer stderr:\n${stderr}` : '';
-      throw new Error(`open-zk-kb: ${formatError(error)}${suffix}`, { cause: error });
+      throw new Error(`open-zk-kb: ${formatError(error)}${suffix}`, {
+        cause: error,
+      });
     }
 
     // Tool-level error — throw outside try/catch so the bridge is NOT reset
@@ -162,10 +205,11 @@ class OpenZkKbMcpBridge {
 
   private async connect(): Promise<Client> {
     if (this.options.httpUrl && !this.httpDisabled) {
-      const client = new Client({ name: this.options.clientName, version: '1.0.0' });
-      const transport = new StreamableHTTPClientTransport(
-        new URL(this.options.httpUrl),
-      );
+      const client = new Client({
+        name: this.options.clientName,
+        version: '1.0.0',
+      });
+      const transport = new StreamableHTTPClientTransport(new URL(this.options.httpUrl));
       this.transport = transport;
       try {
         await client.connect(transport);
@@ -180,7 +224,10 @@ class OpenZkKbMcpBridge {
       }
     }
 
-    const client = new Client({ name: this.options.clientName, version: '1.0.0' });
+    const client = new Client({
+      name: this.options.clientName,
+      version: '1.0.0',
+    });
     const transport = new StdioClientTransport(this.options.server);
     this.transport = transport;
     this.captureStderr(transport);
@@ -238,7 +285,11 @@ function detectHttpServer(): string | undefined {
     }
 
     const content = fs.readFileSync(stateFile, 'utf-8');
-    const state = JSON.parse(content) as { pid: number; host: string; port: number };
+    const state = JSON.parse(content) as {
+      pid: number;
+      host: string;
+      port: number;
+    };
 
     // Validate shape
     if (typeof state.pid !== 'number' || typeof state.host !== 'string' || typeof state.port !== 'number') {
@@ -249,9 +300,7 @@ function detectHttpServer(): string | undefined {
     if (!isLocalHost(state.host)) return undefined;
 
     // Normalize wildcard bind addresses to loopback for probing
-    const probeHost = (state.host === '0.0.0.0' || state.host === '::')
-      ? '127.0.0.1'
-      : state.host;
+    const probeHost = state.host === '0.0.0.0' || state.host === '::' ? '127.0.0.1' : state.host;
 
     // Verify process is alive
     process.kill(state.pid, 0);
@@ -274,6 +323,45 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
       httpUrl: options && 'httpUrl' in options ? options.httpUrl : detectHttpServer(),
     });
 
+    let project: string | undefined;
+    let capsuleRequest: Promise<string | undefined> | undefined;
+    let sessionGeneration = 0;
+
+    pi.registerEntryRenderer<PreferenceEntryData>(PREFERENCE_ENTRY_TYPE, (entry, { expanded }, theme) => {
+      const preferences = entry.data?.preferences ?? [];
+      const box = new Box(1, 0, (text) => theme.bg('customMessageBg', text));
+      const count = `${preferences.length} session preference${preferences.length === 1 ? '' : 's'} loaded automatically`;
+      box.addChild(new Text(theme.bold('knowledge-context'), 0, 0));
+      box.addChild(new Text(theme.fg('success', `✓ ${count}`), 0, 0));
+      if (expanded) {
+        box.addChild(new Text('', 0, 0));
+        for (const preference of preferences) {
+          box.addChild(new Text(`${theme.fg('muted', `[${preference.scope}]`)} ${theme.fg('text', preference.guidance)}`, 0, 0));
+        }
+      }
+      return box;
+    });
+
+    const loadCapsule = (): Promise<string | undefined> => {
+      if (!project) return Promise.resolve(undefined);
+      if (!capsuleRequest) {
+        const request = bridge
+          .callTool('knowledge-context', {
+            project,
+            client: 'pi',
+            includePreferences: true,
+          })
+          .then(preferenceText)
+          .catch(() => {
+            // Do not permanently disable personalization after a transient failure.
+            if (capsuleRequest === request) capsuleRequest = undefined;
+            return undefined;
+          });
+        capsuleRequest = request;
+      }
+      return capsuleRequest;
+    };
+
     for (const definition of TOOL_DEFINITIONS) {
       const parameters = toTypeBoxSchema(definition.params);
       const renderResult = RENDER_RESULTS[definition.name];
@@ -285,19 +373,43 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
         promptGuidelines: 'promptGuidelines' in definition ? [...definition.promptGuidelines] : undefined,
         parameters,
         executionMode: definition.executionMode,
-        execute: (_toolCallId, params, signal) => bridge.callTool(definition.name, params as Record<string, unknown>, signal),
+        execute: async (_toolCallId, params, signal) => {
+          const result = await bridge.callTool(definition.name, params as Record<string, unknown>, signal);
+          if (MUTATING_TOOLS.has(definition.name)) capsuleRequest = undefined;
+          return result;
+        },
         renderResult: renderResult ?? undefined,
       });
     }
 
-    pi.on('before_agent_start', (event) => {
-      // Skip injection if the skill or agent docs already provide KB instructions
-      if (event.systemPrompt.includes('OPEN-ZK-KB:START') || event.systemPrompt.includes('knowledge-search')) {
-        return {};
+    pi.on('session_start', async (_event, ctx) => {
+      const generation = ++sessionGeneration;
+      project = path.basename(ctx.cwd);
+      capsuleRequest = undefined;
+      const capsulePromise = loadCapsule();
+      if (ctx.mode !== 'tui') return;
+      const capsule = await capsulePromise;
+      if (!capsule || generation !== sessionGeneration) return;
+
+      const data = preferenceEntryData(capsule);
+      if (data.preferences.length === 0) return;
+      const alreadyPresent = ctx.sessionManager
+        .getEntries()
+        .some((entry) => entry.type === 'custom' && entry.customType === PREFERENCE_ENTRY_TYPE && (entry.data as Partial<PreferenceEntryData> | undefined)?.fingerprint === data.fingerprint);
+      if (!alreadyPresent) pi.appendEntry(PREFERENCE_ENTRY_TYPE, data);
+    });
+
+    pi.on('before_agent_start', async (event) => {
+      const capsule = await loadCapsule();
+      const hasGuidance = event.systemPrompt.includes('OPEN-ZK-KB:START') || event.systemPrompt.includes('knowledge-search');
+      const additions: string[] = [];
+      if (!hasGuidance) {
+        additions.push(
+          'Open-zk-kb persistent memory is available through the knowledge-* tools. Search first with knowledge-search when prior context may matter, pass client: "pi", and store durable user preferences, decisions, procedures, observations, references, and resources with knowledge-store.',
+        );
       }
-      return {
-        systemPrompt: `${event.systemPrompt}\n\nOpen-zk-kb persistent memory is available through the knowledge-* tools. Search first with knowledge-search when prior context may matter, pass client: "pi", and store durable user preferences, decisions, procedures, observations, references, and resources with knowledge-store.`,
-      };
+      if (capsule) additions.push(`Personalization preferences:\n${capsule}`);
+      return additions.length ? { systemPrompt: `${event.systemPrompt}\n\n${additions.join('\n\n')}` } : {};
     });
 
     pi.on('session_shutdown', () => bridge.close());

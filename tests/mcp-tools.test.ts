@@ -13,7 +13,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
-import { handleStore, handleSearch, handleHealth, handleMaintain, handleContext, handleGet, handleOpen } from '../src/tool-handlers.js';
+import { buildPreferenceCapsule, handleStore, handleSearch, handleHealth, handleMaintain, handleContext, handleContextResult, handleGet, handleOpen } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -2053,6 +2053,87 @@ describe('MCP Tool: knowledge-search (client filtering)', () => {
   });
 });
 
+describe('MCP Tool: knowledge-maintain preference-audit', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('reports deterministic matched evidence without directives', async () => {
+    ctx.engine.store('For now configure /etc/open-zk/config.yaml with #1a2b3c and route gpt-4o for OpenCode.', {
+      title: 'Temporary Harness Setup',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+
+    expect(output).toContain('Preference Audit (Read-only)');
+    expect(output).toContain('"For now"');
+    expect(output).toContain('exact-path: "/etc/open-zk/config.yaml"');
+    expect(output).toContain('hex-color: "#1a2b3c"');
+    expect(output).toContain('model-identifier: "gpt-4o"');
+    expect(output).toContain('model-routing: "route"');
+    expect(output).toContain('configuration-language: "configure"');
+    expect(output).toContain('missing-applicability: "OpenCode"');
+    expect(output).not.toMatch(/should|recommend|reclassify|archive this|edit this/i);
+  });
+
+  it('reports a clean result when active preferences have no signals', async () => {
+    ctx.engine.store('The user prefers concise explanations with examples.', {
+      title: 'Concise Explanations',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('No preference quality signals found');
+  });
+
+  it('excludes archived personalization notes', async () => {
+    ctx.engine.store('Temporarily configure C:\\Users\\teal\\settings.json to #fff.', {
+      title: 'Archived Setup',
+      kind: 'personalization',
+      status: 'archived',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('Active personalization notes scanned: 0');
+    expect(output).not.toContain('Archived Setup');
+  });
+
+  it('never mutates notes even when dryRun is false', async () => {
+    const stored = ctx.engine.store('Currently use claude-sonnet-4 routing in Claude Code.', {
+      title: 'Current Route',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+    const before = ctx.engine.getById(stored.id);
+    if (!before) throw new Error('Stored preference not found before audit');
+
+    const output = await handleMaintain(
+      { action: 'preference-audit', dryRun: false }, ctx.engine, ctx.config,
+    );
+    const after = ctx.engine.getById(stored.id);
+    if (!after) throw new Error('Stored preference not found after audit');
+
+    expect(output).toContain('Mutation: none');
+    expect(after.content).toBe(before.content);
+    expect(after.status).toBe(before.status);
+    expect(after.tags).toEqual(before.tags);
+  });
+});
+
 describe('MCP Tool: knowledge-maintain scope-audit', () => {
   let ctx: TestContext;
 
@@ -3828,6 +3909,174 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
       await client.close();
       if (fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('MCP Tool: compact preference capsule', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  function storePreference(
+    title: string,
+    guidance: string,
+    tags: string[] = [],
+    status: 'fleeting' | 'permanent' | 'archived' = 'permanent',
+  ): void {
+    ctx.engine.store(title, {
+      title,
+      kind: 'personalization',
+      status,
+      tags,
+      summary: `${title} summary`,
+      guidance,
+    });
+  }
+
+  it('matches universal, project, client, and mixed applicability while excluding inactive notes', () => {
+    storePreference('Universal', 'Keep answers concise.');
+    storePreference('Atlas project', 'Use Atlas conventions.', ['project:atlas']);
+    storePreference('Other project', 'Use Other conventions.', ['project:other']);
+    storePreference('Pi client', 'Collapse long Pi output.', ['client:pi']);
+    storePreference('Other client', 'Use another harness style.', ['client:other']);
+    storePreference('Atlas Pi mixed', 'Use Atlas conventions in Pi.', ['project:atlas', 'client:pi']);
+    storePreference('Atlas other mixed', 'Use Atlas conventions elsewhere.', ['project:atlas', 'client:other']);
+    storePreference('Fleeting', 'Temporarily do this.', [], 'fleeting');
+    storePreference('Archived', 'No longer do this.', [], 'archived');
+
+    const both = buildPreferenceCapsule(ctx.engine, { project: 'atlas', client: 'pi' });
+    expect(both.eligible).toBe(4);
+    expect(both.selected).toBe(4);
+    expect(both.omitted).toBe(0);
+    expect(both.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Use Atlas conventions.',
+      'Collapse long Pi output.',
+      'Use Atlas conventions in Pi.',
+    ]));
+    expect(both.text).not.toContain('Other conventions');
+    expect(both.text).not.toContain('Temporarily');
+    expect(both.text).not.toContain('No longer');
+
+    const projectOnly = buildPreferenceCapsule(ctx.engine, { project: 'atlas' });
+    expect(projectOnly.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Use Atlas conventions.',
+    ]));
+    expect(projectOnly.selected).toBe(2);
+
+    const clientOnly = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(clientOnly.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Collapse long Pi output.',
+    ]));
+    expect(clientOnly.selected).toBe(2);
+  });
+
+  it('orders same-day rebuilt preferences by newest ID', () => {
+    const older = ctx.engine.store({
+      title: 'Older rebuilt preference',
+      kind: 'personalization',
+      status: 'permanent',
+      summary: 'Older rebuilt preference summary',
+      guidance: 'Use the older rebuilt preference.',
+    });
+    const newer = ctx.engine.store({
+      title: 'Newer rebuilt preference',
+      kind: 'personalization',
+      status: 'permanent',
+      summary: 'Newer rebuilt preference summary',
+      guidance: 'Use the newer rebuilt preference.',
+    });
+
+    ctx.engine.rebuildFromFiles();
+    const capsule = buildPreferenceCapsule(ctx.engine, {});
+    expect(capsule.lines.map(line => line.id)).toEqual([newer.id, older.id]);
+  });
+
+  it('interleaves universal and scoped preferences by recency', async () => {
+    storePreference('Universal older', 'Use the older universal preference.');
+    await Bun.sleep(2);
+    storePreference('Scoped older', 'Use the older scoped preference.', ['client:pi']);
+    await Bun.sleep(2);
+    storePreference('Universal newer', 'Use the newer universal preference.');
+    await Bun.sleep(2);
+    storePreference('Scoped newer', 'Use the newer scoped preference.', ['client:pi']);
+
+    const capsule = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(capsule.lines.map(line => line.guidance)).toEqual([
+      'Use the newer universal preference.',
+      'Use the newer scoped preference.',
+      'Use the older universal preference.',
+      'Use the older scoped preference.',
+    ]);
+  });
+
+  it('enforces the 12-note and estimated 800-token budgets and reports omitted notes', () => {
+    for (let index = 0; index < 20; index++) {
+      storePreference(`Short ${index}`, `Apply short preference ${index}.`, index % 2 === 0 ? [] : ['client:pi']);
+    }
+    const noteLimited = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(noteLimited.eligible).toBe(20);
+    expect(noteLimited.selected).toBe(12);
+    expect(noteLimited.omitted).toBe(8);
+    expect(noteLimited.estimatedTokens).toBeLessThanOrEqual(800);
+
+    const longContext = createTestHarness();
+    try {
+      for (let index = 0; index < 10; index++) {
+        longContext.engine.store(`Long ${index}`, {
+          title: `Long ${index}`,
+          kind: 'personalization',
+          status: 'permanent',
+          summary: `Long ${index} summary`,
+          guidance: `Apply ${String(index).padStart(2, '0')} ${'carefully '.repeat(55)}`,
+        });
+      }
+      const tokenLimited = buildPreferenceCapsule(longContext.engine, {});
+      expect(tokenLimited.eligible).toBe(10);
+      expect(tokenLimited.selected).toBeGreaterThan(0);
+      expect(tokenLimited.selected).toBeLessThan(10);
+      expect(tokenLimited.omitted).toBe(10 - tokenLimited.selected);
+      expect(tokenLimited.estimatedTokens).toBeLessThanOrEqual(800);
+    } finally {
+      cleanupTestHarness(longContext);
+    }
+  });
+
+  it('skips an individually oversized preference and still selects later concise guidance', async () => {
+    storePreference('Concise older', 'Keep the concise preference.');
+    await Bun.sleep(2);
+    storePreference('Oversized newer', `Apply ${'extremely carefully '.repeat(200)}`);
+
+    const capsule = buildPreferenceCapsule(ctx.engine, {});
+    expect(capsule.eligible).toBe(2);
+    expect(capsule.selected).toBe(1);
+    expect(capsule.omitted).toBe(1);
+    expect(capsule.text).toContain('Keep the concise preference.');
+    expect(capsule.text).not.toContain('extremely carefully');
+    expect(capsule.estimatedTokens).toBeLessThanOrEqual(800);
+  });
+
+  it('normalizes multiline guidance into one capsule record', () => {
+    storePreference('Multiline preference', 'Keep answers\nconcise across\tPi sessions.');
+
+    const capsule = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(capsule.lines).toHaveLength(1);
+    expect(capsule.lines[0].guidance).toBe('Keep answers concise across Pi sessions.');
+    expect(capsule.text).toMatch(/^- \[universal\] Keep answers concise across Pi sessions\. \[\d{16}\]$/);
+  });
+
+  it('returns structured capsule data without changing context text and supplies imperative legacy fallback', () => {
+    storePreference('Legacy preference', '');
+    const plain = handleContext({ project: 'unknown-project' }, ctx.engine, ctx.config);
+    const result = handleContextResult({ project: 'unknown-project', client: 'pi', includePreferences: true }, ctx.engine, ctx.config);
+
+    expect(result.text).toBe(plain);
+    expect(result.preferenceCapsule?.selected).toBe(1);
+    expect(result.preferenceCapsule?.lines[0].guidance).toBe('Honor this preference: Legacy preference summary');
+    expect(result.preferenceCapsule?.lines[0].line).toMatch(/^- \[universal\] Honor this preference: .+ \[\d{16}\]$/);
   });
 });
 
