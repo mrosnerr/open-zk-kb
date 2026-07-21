@@ -120,16 +120,22 @@ PRs are reviewed by automated tools (CodeRabbit, Cubic) and maintainers. Here's 
 
 All PRs run: build, lint, unit tests, and **smoke tests** (install/uninstall for all 7 clients, MCP protocol verification, and a full KB round-trip).
 
-You can run smoke tests locally:
+Run smoke tests locally only inside a clean Docker container with no host home
+or vault mount:
+
 ```bash
-bash tests/docker/smoke-test.sh
+docker build --target smoke -t open-zk-kb-smoke -f tests/docker/Dockerfile .
 ```
 
-Or in a clean Docker container:
-```bash
-docker build -t open-zk-kb-smoke -f tests/docker/Dockerfile .
-docker run --rm open-zk-kb-smoke bash tests/docker/smoke-test.sh
-```
+The script refuses destructive execution on an unmarked host. On disposable CI
+and container runners it also creates a private temporary `HOME` and XDG
+environment before executing any test, routes recursive deletion through a
+canonical-path guard, and refuses smoke-mode vault deletion outside its
+sentinel-marked sandbox.
+
+Never weaken or bypass either the disposable-runner gate or smoke sandbox to
+debug a failing test. Inspect the sandboxed paths or reproduce the failing
+operation in a separate temporary directory instead.
 
 ## Submitting Changes
 

@@ -92,6 +92,8 @@ jobs:
 
       - name: Smoke tests (install, MCP protocol, KB round-trip)
         run: bash tests/docker/smoke-test.sh
+        env:
+          OPEN_ZK_KB_EPHEMERAL_SMOKE: "1"
 
       # Non-blocking: these tests spawn dist/cli.js subprocesses and are timing-sensitive on shared hosted runners; failures are surfaced in the job log but do not fail the build.
       - name: Stdio bridge integration tests
@@ -128,4 +130,5 @@ jobs:
         run: LOCAL_MODELS=1 bash tests/docker/smoke-test.sh
         env:
           NODE_TLS_REJECT_UNAUTHORIZED: "0"
+          OPEN_ZK_KB_EPHEMERAL_SMOKE: "1"
         timeout-minutes: 10
