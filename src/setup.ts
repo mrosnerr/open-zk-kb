@@ -119,6 +119,7 @@ export interface ClientConfig {
 }
 
 const PI_PACKAGE_NAME = 'open-zk-kb';
+export const TELEMETRY_PROMPT_INITIAL_VALUE = true;
 export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
   'opencode': {
     name: 'OpenCode',
@@ -2231,10 +2232,10 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
       const answer = await p.confirm({
         message: 'Help improve open-zk-kb with anonymous usage analytics?\n' +
-          color.dim('    Session metadata: client, models, version, platform, vault size, tool usage counts.\n') +
-          color.dim('    Never any note contents, search queries, or personal data.\n') +
+          color.dim('    Sends session metadata and a random installation ID to PostHog EU Cloud.\n') +
+          color.dim('    Never note contents, search queries, names, email addresses, or file paths.\n') +
           color.dim('    Open source and auditable: https://github.com/mrosnerr/open-zk-kb/blob/main/docs/telemetry.md'),
-        initialValue: false,
+        initialValue: TELEMETRY_PROMPT_INITIAL_VALUE,
       });
       if (p.isCancel(answer)) return null; // Don't block install on cancel
       // Only write config when opting in — the defaults are already disabled,

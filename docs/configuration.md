@@ -35,7 +35,8 @@ embeddings:
 | lifecycle.reviewAfterDays | number | 14 | Days until a note is surfaced for review |
 | lifecycle.promotionThreshold | number | 2 | Accesses needed to recommend promotion to permanent |
 | lifecycle.exemptKinds | string[] | ["personalization", "decision"] | Note kinds exempt from the review queue |
-| telemetry.enabled | boolean | false | Enable local-only tool invocation counters and access timestamps (opt-in) |
+| telemetry.enabled | boolean | false | Enable local-only tool invocation counters and access timestamps |
+| telemetry.share | boolean | false | Share anonymous session analytics when local telemetry is also enabled |
 | obsidian.scaffold | boolean | true | Create and maintain the opinionated `.obsidian/` scaffold used by `knowledge-open` |
 | obsidian.autoUpgrade | boolean | true | Refresh pinned theme/plugin/snippet assets when the server starts |
 | obsidian.readOnly | boolean | true | Default Obsidian to Reading View and enable read-only helpers |
@@ -55,11 +56,11 @@ Embeddings work **out of the box** with zero configuration using a local model (
 
 ## Telemetry
 
-Telemetry has two layers, both **disabled by default**:
+Telemetry has two layers. Both runtime configuration defaults are `false`; during interactive installation, the consent prompt has **Yes** preselected and writes both settings as `true` only after confirmation. Choosing No, cancelling, using `--no-telemetry`, or installing non-interactively leaves the runtime defaults unchanged.
 
 **Local counters** (`telemetry.enabled`) — Records tool invocation counters and note access timestamps to the local SQLite database. Never leaves your machine. Used by `knowledge-health` for usage breakdowns.
 
-**Anonymous sharing** (`telemetry.share`) — When also enabled, anonymous session metadata (client, models, version, platform, vault size, tool usage counts) is sent to PostHog (EU Cloud) on the next server startup. No note content, search queries, or personal data is ever shared. See [Telemetry](telemetry.md) for the full event schema.
+**Anonymous sharing** (`telemetry.share`) — When also enabled, anonymous session metadata (client, models, version, platform, vault size, tool usage counts) is sent to PostHog (EU Cloud) on the next server startup. No note content, search queries, file paths, names, or email addresses are shared. See [Telemetry](telemetry.md) for the full event schema.
 
 ```yaml
 telemetry:
@@ -67,7 +68,7 @@ telemetry:
   share: true      # also send anonymous session data to PostHog
 ```
 
-When disabled (the default), open-zk-kb records no telemetry rows, skips note access tracking (`last_accessed_at` and `access_count`), and sends nothing externally.
+When disabled, open-zk-kb records no telemetry rows, skips note access tracking (`last_accessed_at` and `access_count`), and sends nothing externally.
 
 ## Obsidian Vault Scaffold
 

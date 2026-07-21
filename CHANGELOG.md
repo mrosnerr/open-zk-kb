@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Telemetry consent prompt** — interactive installations now preselect Yes when asking to share anonymous usage analytics. Sharing is still enabled only after confirmation; No, cancellation, `--no-telemetry`, and non-interactive installs remain disabled
+
 ## 1.4.1
 
 ### Changed

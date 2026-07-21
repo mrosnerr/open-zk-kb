@@ -17,6 +17,16 @@ This presents a multi-select prompt — use Space to select clients, Enter to co
 
 > **Note**: The installer automatically copies `config.example.yaml` to `~/.config/open-zk-kb/config.yaml` if no config file exists yet. Local embeddings (MiniLM, 23MB) are enabled by default and require no API key.
 
+### Telemetry choice
+
+Interactive installation asks whether to share anonymous session analytics, with **Yes** preselected. Sharing is enabled only after the user confirms; choosing No or cancelling leaves the disabled runtime defaults unchanged. Use `--no-telemetry` to skip the prompt and keep telemetry disabled:
+
+```bash
+bunx open-zk-kb@latest --no-telemetry
+```
+
+Non-interactive installs, including `--yes`, do not assume consent and remain disabled unless telemetry was already configured. Direct package-manager installs that bypass this installer also do not enable telemetry.
+
 ### Pi Installation
 
 Pi does not include native MCP support, so open-zk-kb ships as a Pi package extension that bridges the existing MCP server into Pi-native `knowledge-*` tools:
@@ -31,7 +41,7 @@ The open-zk-kb installer can also wire Pi settings and managed `AGENTS.md` instr
 bunx open-zk-kb@latest install --client pi
 ```
 
-Restart Pi after either install path so it can load the package extension.
+Restart Pi after either install path so it can load the package extension. The direct `pi install` path does not run open-zk-kb's telemetry consent prompt; use the `bunx` installer or configure telemetry explicitly if you want to share anonymous analytics.
 
 Pi loads ten native `knowledge-*` tools. Search, store, context, and health results use compact Pi TUI summaries with expandable details; the remaining tools use concise status renderers. Pi's native tool shell remains visible around each result.
 
