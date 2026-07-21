@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+
+### Changed
+
+- **Streamlined Pi presentation** — replaced the static README header with the complete animated preference workflow, reframed the Pi package preview for legibility, and removed redundant walkthrough and Obsidian sections from the main README
+
 ## 1.4.0
 
 ### Added

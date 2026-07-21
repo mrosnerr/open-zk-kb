@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
   "description": "Persistent memory for agents. Corrections stick, context compounds, every session starts smarter.",
   "type": "module",
@@ -52,6 +52,7 @@
     "skill-templates/",
     "templates/",
     "assets/obsidian-home.png",
+    "assets/pi-demo.gif",
     "assets/pi-demo.mp4",
     "assets/pi-demo.png",
     "assets/pi-preference-application.png",
