@@ -60,7 +60,7 @@ See the [Pi experience guide](docs/pi.md) for the complete preference workflow a
 
 Zero configuration required. Local embeddings work out of the box with no API key.
 
-See the [Configuration Guide](docs/configuration.md) for embeddings, vault path, lifecycle tuning, and client-specific settings.
+See the [Configuration Guide](docs/configuration.md) for embeddings, vault path, lifecycle tuning, and server settings.
 
 ## Under the hood
 
@@ -78,7 +78,7 @@ When opted in (`telemetry.enabled: true` and `telemetry.share: true`), open-zk-k
 - [Pi Experience](docs/pi.md) — native tools, automatic preferences, and renderer gallery
 - [Tools Reference](docs/tools-reference.md) — all 10 MCP tools with parameters and examples
 - [Note Lifecycle](docs/note-lifecycle.md) — note kinds, statuses, review system
-- [Configuration](docs/configuration.md) — embeddings, vault, lifecycle, and client settings
+- [Configuration](docs/configuration.md) — embeddings, vault, lifecycle, and server settings
 - [Architecture](docs/architecture.md) — dual storage, ownership model, design decisions
 - [Development](docs/development.md) — local dev, testing, debugging
 - [Contributing](.github/CONTRIBUTING.md) — guidelines for contributors
