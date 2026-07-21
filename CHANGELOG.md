@@ -4,7 +4,7 @@
 
 ### Changed
 
-- **Streamlined README experience** — replaced the static Pi header with the complete animated preference workflow and removed redundant walkthrough and Obsidian sections from the main README
+- **Streamlined Pi presentation** — replaced the static README header with the complete animated preference workflow, reframed the Pi package preview for legibility, and removed redundant walkthrough and Obsidian sections from the main README
 
 ## 1.4.0
 
