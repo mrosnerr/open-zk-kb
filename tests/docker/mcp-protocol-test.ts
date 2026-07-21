@@ -1,7 +1,7 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
-const totalExpected = 20;
+const totalExpected = 22;
 
 async function run() {
   let passed = 0;
@@ -31,15 +31,17 @@ async function run() {
   try {
     const tools = await client.listTools();
     const toolNames = tools.tools.map(t => t.name);
-    check('lists all 10 tools', toolNames.length === 10);
+    check('lists 10 core tools plus 2 compatibility aliases', toolNames.length === 12);
     check('has knowledge-store', toolNames.includes('knowledge-store'));
     check('has knowledge-search', toolNames.includes('knowledge-search'));
     check('has knowledge-get', toolNames.includes('knowledge-get'));
     check('has knowledge-mine', toolNames.includes('knowledge-mine'));
-    check('has knowledge-stats', toolNames.includes('knowledge-stats'));
+    check('has knowledge-health', toolNames.includes('knowledge-health'));
+    check('has deprecated knowledge-stats alias', toolNames.includes('knowledge-stats'));
     check('has knowledge-maintain', toolNames.includes('knowledge-maintain'));
     check('has knowledge-ingest', toolNames.includes('knowledge-ingest'));
-    check('has knowledge-overview', toolNames.includes('knowledge-overview'));
+    check('has knowledge-context', toolNames.includes('knowledge-context'));
+    check('has deprecated knowledge-overview alias', toolNames.includes('knowledge-overview'));
     check('has knowledge-open', toolNames.includes('knowledge-open'));
     check('has knowledge-template', toolNames.includes('knowledge-template'));
   } catch (err) {
@@ -90,13 +92,13 @@ async function run() {
 
   try {
     const statsResult = await client.callTool({
-      name: 'knowledge-stats',
+      name: 'knowledge-health',
       arguments: {},
     });
     const statsText = JSON.stringify(statsResult);
-    check('knowledge-stats returns health info', statsText.includes('Health'));
+    check('knowledge-health returns health info', statsText.includes('Health'));
   } catch (err) {
-    check('knowledge-stats returns health info', false, String(err));
+    check('knowledge-health returns health info', false, String(err));
   }
 
   try {

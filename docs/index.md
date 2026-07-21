@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | `configuration.md` | MCP server settings, vault location, lifecycle defaults, Obsidian scaffold, embeddings, and HTTP server options. | When changing install-time or runtime configuration. |
 | `setup-guide.md` | Installation for supported clients, prerequisites, manual setup, and first-run verification. | When installing or onboarding a new client. |
+| `pi.md` | Native Pi tools, automatic preference injection, and renderer screenshots. | When installing Pi or reviewing its knowledge workflow. |
 | `architecture.md` | System overview, storage model, MCP flow, Obsidian role, and major subsystems. | When you need the big-picture design. |
 | `performance.md` | Tool latency, memory footprint, cold/hot start, resilience model, embedding benchmarks. | When optimizing or debugging performance, or understanding failure recovery. |
 | `tools-reference.md` | MCP tool catalog, inputs, outputs, and common usage patterns. | When wiring agents to the API. |
@@ -16,6 +17,7 @@
 ## Conventions
 
 - `setup-guide.md` is the user-facing entry point for installation.
+- `pi.md` documents the Pi-specific runtime and visual experience.
 - `configuration.md` is the canonical reference for settings and defaults.
 - `tools-reference.md` documents the MCP surface area.
 - `architecture.md` explains how the parts fit together.
@@ -25,6 +27,7 @@
 ## How to add docs
 
 - Put installation and onboarding steps in `setup-guide.md`.
+- Put Pi-specific behavior and screenshots in `pi.md`.
 - Put configuration keys and defaults in `configuration.md`.
 - Put API or MCP tool behavior in `tools-reference.md`.
 - Put design changes and subsystem explanations in `architecture.md`.

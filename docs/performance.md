@@ -11,7 +11,7 @@ Measured against the shared HTTP server (`open-zk-kb serve`) at steady state.
 | `knowledge-get` | 9ms | Single note by ID. File read + frontmatter parse. |
 | `knowledge-search` | 14ms | FTS5 query + embedding cosine similarity + re-rank. |
 | `knowledge-store` | 20ms | Write markdown file + SQLite insert + FTS5 update + embedding generation. |
-| `knowledge-overview` | 10ms | Read project index + recent log entries. |
+| `knowledge-context` | 10ms | Read project index + recent log entries. |
 | `knowledge-template` | 10ms | Return template for a note kind. |
 | `tools/list` | 11ms | MCP tool registration (no DB). Useful as a health baseline. |
 

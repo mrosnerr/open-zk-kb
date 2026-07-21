@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.4.0
+
+### Added
+
+- **Shared tool metadata** — single source of truth for all 10 tools in `src/tool-meta.ts` with framework-agnostic `ParamDef` and generators for Zod (MCP) and TypeBox (Pi) schemas
+- **Pi extension improvements** — MCP bridge with HTTP-first transport, all 10 tools registered natively with `promptSnippet`, `promptGuidelines`, and `executionMode`
+- **Structure hints in knowledge-store** — per-kind content structure hints embedded in tool description (decision, procedure, observation, reference, domain)
+- **kb-session-review skill** — Pi skill for self-reviewing KB usage quality
+- **Pi package discoverability** — `pi.skills`, `pi.image` in package manifest, expanded keywords
+- **Obsidian vault defaults** — new vaults default to dark mode with sidebar open (#181)
+
+### Changed
+
+- Renamed `skills/` → `skill-templates/` for Claude Code templates (Pi skills now in `skills/`)
+- `knowledge-template` restricted to kinds with actual template files (`TEMPLATE_KINDS`)
+- Pi SDK types moved to optional peer dependencies
+
+### Fixed
+
+- Pi extension bridge no longer resets transport on tool-level MCP errors — only transport/protocol failures trigger reset
+- Version-check CI workflow updated for `skill-templates/` path
+- `actions/setup-node` SHA comment updated to v7
+
 ## 1.3.0
 
 ### Added

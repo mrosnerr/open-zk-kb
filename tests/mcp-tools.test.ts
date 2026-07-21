@@ -13,7 +13,7 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
-import { handleStore, handleSearch, handleStats, handleMaintain, handleOverview, handleGet, handleOpen } from '../src/tool-handlers.js';
+import { buildPreferenceCapsule, handleStore, handleSearch, handleHealth, handleMaintain, handleContext, handleContextResult, handleGet, handleOpen } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
 
@@ -1164,7 +1164,7 @@ describe('MCP Tool: knowledge-maintain', () => {
     const result = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
 
     expect(result).toContain('permanent - protected');
-    expect(result).toContain('⚠️ Permanent notes (🔒) are never auto-archived');
+    expect(result).toContain('⚠ Permanent notes (⦸) are never auto-archived');
     expect(result).toContain(`Archive ${duplicate.id}`);
     expect(result).not.toContain(`Archive ${permanent.id}`);
   });
@@ -1762,7 +1762,7 @@ describe('isNewerVersion', () => {
 
 // ---- Version check in stats output ----
 
-describe('MCP Tool: knowledge-stats version check', () => {
+describe('MCP Tool: knowledge-health version check', () => {
   let ctx: TestContext;
   const originalFetch = globalThis.fetch;
 
@@ -1779,7 +1779,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).toContain('## Version');
@@ -1794,7 +1794,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).not.toContain('Update Available');
@@ -1803,7 +1803,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
   it('should not show update notice when registry check fails', async () => {
     globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).not.toContain('Update Available');
@@ -1815,7 +1815,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config, null, '0.2.0',
     );
     expect(output).not.toContain('Update Available');
@@ -1827,7 +1827,7 @@ describe('MCP Tool: knowledge-stats version check', () => {
       { status: 200 },
     )) as any;
 
-    const output = await handleStats(
+    const output = await handleHealth(
       {}, ctx.engine, ctx.config,
     );
     expect(output).not.toContain('Update Available');
@@ -2053,6 +2053,127 @@ describe('MCP Tool: knowledge-search (client filtering)', () => {
   });
 });
 
+describe('MCP Tool: knowledge-maintain preference-audit', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('reports deterministic matched evidence without directives', async () => {
+    ctx.engine.store('For now configure /etc/open-zk/config.yaml with #1a2b3c and route gpt-4o for OpenCode.', {
+      title: 'Temporary Harness Setup',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit', dryRun: true }, ctx.engine, ctx.config,
+    );
+
+    expect(output).toContain('Preference Audit (Read-only)');
+    expect(output).toContain('"For now"');
+    expect(output).toContain('exact-path: "/etc/open-zk/config.yaml"');
+    expect(output).toContain('hex-color: "#1a2b3c"');
+    expect(output).toContain('model-identifier: "gpt-4o"');
+    expect(output).toContain('model-routing: "route"');
+    expect(output).toContain('configuration-language: "configure"');
+    expect(output).toContain('missing-applicability: "OpenCode"');
+    expect(output).not.toMatch(/should|recommend|reclassify|archive this|edit this/i);
+  });
+
+  it('reports supported filesystem path forms at valid boundaries', async () => {
+    ctx.engine.store('/opt/open-zk/config.yaml C:\\Users\\person\\settings.json ~/.config/open-zk ./local/config.json ../shared/config.json .cursor/rules.json', {
+      title: 'Path Forms',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+
+    for (const path of [
+      '/opt/open-zk/config.yaml',
+      'C:\\Users\\person\\settings.json',
+      '~/.config/open-zk',
+      './local/config.json',
+      '../shared/config.json',
+      '.cursor/rules.json',
+    ]) {
+      expect(output).toContain(JSON.stringify(path));
+    }
+  });
+
+  it('does not report URL hosts or URL paths as filesystem paths', async () => {
+    ctx.engine.store('See https://example.com/docs/file.md and https://example.com/.config/settings.json.', {
+      title: 'Documentation Links',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+
+    expect(output).not.toContain('exact-path:');
+    expect(output).toContain('No preference quality signals found');
+  });
+
+  it('reports a clean result when active preferences have no signals', async () => {
+    ctx.engine.store('The user prefers concise explanations with examples.', {
+      title: 'Concise Explanations',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('No preference quality signals found');
+  });
+
+  it('excludes archived personalization notes', async () => {
+    ctx.engine.store('Temporarily configure C:\\Users\\teal\\settings.json to #fff.', {
+      title: 'Archived Setup',
+      kind: 'personalization',
+      status: 'archived',
+      tags: [],
+    });
+
+    const output = await handleMaintain(
+      { action: 'preference-audit' }, ctx.engine, ctx.config,
+    );
+    expect(output).toContain('Active personalization notes scanned: 0');
+    expect(output).not.toContain('Archived Setup');
+  });
+
+  it('never mutates notes even when dryRun is false', async () => {
+    const stored = ctx.engine.store('Currently use claude-sonnet-4 routing in Claude Code.', {
+      title: 'Current Route',
+      kind: 'personalization',
+      status: 'permanent',
+      tags: [],
+    });
+    const before = ctx.engine.getById(stored.id);
+    if (!before) throw new Error('Stored preference not found before audit');
+
+    const output = await handleMaintain(
+      { action: 'preference-audit', dryRun: false }, ctx.engine, ctx.config,
+    );
+    const after = ctx.engine.getById(stored.id);
+    if (!after) throw new Error('Stored preference not found after audit');
+
+    expect(output).toContain('Mutation: none');
+    expect(after.content).toBe(before.content);
+    expect(after.status).toBe(before.status);
+    expect(after.tags).toEqual(before.tags);
+  });
+});
+
 describe('MCP Tool: knowledge-maintain scope-audit', () => {
   let ctx: TestContext;
 
@@ -2202,7 +2323,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
       guidance: 'Test',
     }, ctx.engine);
 
-    expect(output).toContain('💡');
+    expect(output).toContain('ⓘ');
     expect(output).toContain('model');
   });
 
@@ -2216,7 +2337,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
       model: 'claude-sonnet-4',
     }, ctx.engine);
 
-    expect(output).not.toContain('💡');
+    expect(output).not.toContain('ⓘ');
   });
 
   it('should show capability tier for high-tier models', async () => {
@@ -3662,7 +3783,7 @@ describe('Index and log note kinds', () => {
     await storeProjectNote('MyApp Domain', 'myapp', makeConfig(), 'domain');
     await storeProjectNote('Overview Note');
 
-    const output = handleOverview({ project: 'myapp' }, ctx.engine, makeConfig());
+    const output = handleContext({ project: 'myapp' }, ctx.engine, makeConfig());
     expect(output).toContain('## Project Overview: myapp');
     expect(output).toContain('### Domain');
     expect(output).toContain('### Inventory');
@@ -3671,7 +3792,7 @@ describe('Index and log note kinds', () => {
   });
 
   it('should return a not-found message for unknown projects', () => {
-    const output = handleOverview({ project: 'unknown-project' }, ctx.engine, makeConfig());
+    const output = handleContext({ project: 'unknown-project' }, ctx.engine, makeConfig());
     expect(output).toContain('No notes found for project "unknown-project"');
   });
 
@@ -3680,7 +3801,7 @@ describe('Index and log note kinds', () => {
     await storeProjectNote('Overview Entry Two');
     await storeProjectNote('Overview Entry Three');
 
-    const output = handleOverview({ project: 'myapp', logEntries: 2 }, ctx.engine, makeConfig());
+    const output = handleContext({ project: 'myapp', logEntries: 2 }, ctx.engine, makeConfig());
     const recentActivity = output.split('### Recent Activity\n')[1] || '';
     expect(recentActivity).not.toContain('Overview Entry One');
     expect(recentActivity).toContain('Overview Entry Two');
@@ -3692,7 +3813,7 @@ describe('Index and log note kinds', () => {
     const config = makeConfig({ navigation: { enableProjectIndex: false, enableProjectLog: false } });
     await storeProjectNote('Partial Domain', 'partial', config, 'domain');
 
-    const output = handleOverview({ project: 'partial' }, ctx.engine, config);
+    const output = handleContext({ project: 'partial' }, ctx.engine, config);
     expect(output).toContain('### Domain');
     expect(output).toContain('Partial Domain');
   });
@@ -3818,7 +3939,7 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
       expect(mineContent[0].text).not.toContain('domain notes require a project parameter');
 
       const overviewResult = await client.callTool({
-        name: 'knowledge-overview',
+        name: 'knowledge-context',
         arguments: { project: 'candidate-only' },
       });
       const overviewContent = overviewResult.content as Array<{ type: string; text: string }>;
@@ -3831,7 +3952,175 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
   });
 });
 
-describe('MCP Tool: knowledge-stats', () => {
+describe('MCP Tool: compact preference capsule', () => {
+  let ctx: TestContext;
+
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  function storePreference(
+    title: string,
+    guidance: string,
+    tags: string[] = [],
+    status: 'fleeting' | 'permanent' | 'archived' = 'permanent',
+  ): void {
+    ctx.engine.store(title, {
+      title,
+      kind: 'personalization',
+      status,
+      tags,
+      summary: `${title} summary`,
+      guidance,
+    });
+  }
+
+  it('matches universal, project, client, and mixed applicability while excluding inactive notes', () => {
+    storePreference('Universal', 'Keep answers concise.');
+    storePreference('Atlas project', 'Use Atlas conventions.', ['project:atlas']);
+    storePreference('Other project', 'Use Other conventions.', ['project:other']);
+    storePreference('Pi client', 'Collapse long Pi output.', ['client:pi']);
+    storePreference('Other client', 'Use another harness style.', ['client:other']);
+    storePreference('Atlas Pi mixed', 'Use Atlas conventions in Pi.', ['project:atlas', 'client:pi']);
+    storePreference('Atlas other mixed', 'Use Atlas conventions elsewhere.', ['project:atlas', 'client:other']);
+    storePreference('Fleeting', 'Temporarily do this.', [], 'fleeting');
+    storePreference('Archived', 'No longer do this.', [], 'archived');
+
+    const both = buildPreferenceCapsule(ctx.engine, { project: 'atlas', client: 'pi' });
+    expect(both.eligible).toBe(4);
+    expect(both.selected).toBe(4);
+    expect(both.omitted).toBe(0);
+    expect(both.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Use Atlas conventions.',
+      'Collapse long Pi output.',
+      'Use Atlas conventions in Pi.',
+    ]));
+    expect(both.text).not.toContain('Other conventions');
+    expect(both.text).not.toContain('Temporarily');
+    expect(both.text).not.toContain('No longer');
+
+    const projectOnly = buildPreferenceCapsule(ctx.engine, { project: 'atlas' });
+    expect(projectOnly.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Use Atlas conventions.',
+    ]));
+    expect(projectOnly.selected).toBe(2);
+
+    const clientOnly = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(clientOnly.lines.map(line => line.guidance)).toEqual(expect.arrayContaining([
+      'Keep answers concise.',
+      'Collapse long Pi output.',
+    ]));
+    expect(clientOnly.selected).toBe(2);
+  });
+
+  it('orders same-day rebuilt preferences by newest ID', () => {
+    const older = ctx.engine.store({
+      title: 'Older rebuilt preference',
+      kind: 'personalization',
+      status: 'permanent',
+      summary: 'Older rebuilt preference summary',
+      guidance: 'Use the older rebuilt preference.',
+    });
+    const newer = ctx.engine.store({
+      title: 'Newer rebuilt preference',
+      kind: 'personalization',
+      status: 'permanent',
+      summary: 'Newer rebuilt preference summary',
+      guidance: 'Use the newer rebuilt preference.',
+    });
+
+    ctx.engine.rebuildFromFiles();
+    const capsule = buildPreferenceCapsule(ctx.engine, {});
+    expect(capsule.lines.map(line => line.id)).toEqual([newer.id, older.id]);
+  });
+
+  it('interleaves universal and scoped preferences by recency', async () => {
+    storePreference('Universal older', 'Use the older universal preference.');
+    await Bun.sleep(2);
+    storePreference('Scoped older', 'Use the older scoped preference.', ['client:pi']);
+    await Bun.sleep(2);
+    storePreference('Universal newer', 'Use the newer universal preference.');
+    await Bun.sleep(2);
+    storePreference('Scoped newer', 'Use the newer scoped preference.', ['client:pi']);
+
+    const capsule = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(capsule.lines.map(line => line.guidance)).toEqual([
+      'Use the newer universal preference.',
+      'Use the newer scoped preference.',
+      'Use the older universal preference.',
+      'Use the older scoped preference.',
+    ]);
+  });
+
+  it('enforces the 12-note and estimated 800-token budgets and reports omitted notes', () => {
+    for (let index = 0; index < 20; index++) {
+      storePreference(`Short ${index}`, `Apply short preference ${index}.`, index % 2 === 0 ? [] : ['client:pi']);
+    }
+    const noteLimited = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(noteLimited.eligible).toBe(20);
+    expect(noteLimited.selected).toBe(12);
+    expect(noteLimited.omitted).toBe(8);
+    expect(noteLimited.estimatedTokens).toBeLessThanOrEqual(800);
+
+    const longContext = createTestHarness();
+    try {
+      for (let index = 0; index < 10; index++) {
+        longContext.engine.store(`Long ${index}`, {
+          title: `Long ${index}`,
+          kind: 'personalization',
+          status: 'permanent',
+          summary: `Long ${index} summary`,
+          guidance: `Apply ${String(index).padStart(2, '0')} ${'carefully '.repeat(55)}`,
+        });
+      }
+      const tokenLimited = buildPreferenceCapsule(longContext.engine, {});
+      expect(tokenLimited.eligible).toBe(10);
+      expect(tokenLimited.selected).toBeGreaterThan(0);
+      expect(tokenLimited.selected).toBeLessThan(10);
+      expect(tokenLimited.omitted).toBe(10 - tokenLimited.selected);
+      expect(tokenLimited.estimatedTokens).toBeLessThanOrEqual(800);
+    } finally {
+      cleanupTestHarness(longContext);
+    }
+  });
+
+  it('skips an individually oversized preference and still selects later concise guidance', async () => {
+    storePreference('Concise older', 'Keep the concise preference.');
+    await Bun.sleep(2);
+    storePreference('Oversized newer', `Apply ${'extremely carefully '.repeat(200)}`);
+
+    const capsule = buildPreferenceCapsule(ctx.engine, {});
+    expect(capsule.eligible).toBe(2);
+    expect(capsule.selected).toBe(1);
+    expect(capsule.omitted).toBe(1);
+    expect(capsule.text).toContain('Keep the concise preference.');
+    expect(capsule.text).not.toContain('extremely carefully');
+    expect(capsule.estimatedTokens).toBeLessThanOrEqual(800);
+  });
+
+  it('normalizes multiline guidance into one capsule record', () => {
+    storePreference('Multiline preference', 'Keep answers\nconcise across\tPi sessions.');
+
+    const capsule = buildPreferenceCapsule(ctx.engine, { client: 'pi' });
+    expect(capsule.lines).toHaveLength(1);
+    expect(capsule.lines[0].guidance).toBe('Keep answers concise across Pi sessions.');
+    expect(capsule.text).toMatch(/^- \[universal\] Keep answers concise across Pi sessions\. \[\d{16}\]$/);
+  });
+
+  it('returns structured capsule data without changing context text and supplies neutral legacy fallback', () => {
+    storePreference('Legacy preference', '');
+    const plain = handleContext({ project: 'unknown-project' }, ctx.engine, ctx.config);
+    const result = handleContextResult({ project: 'unknown-project', client: 'pi', includePreferences: true }, ctx.engine, ctx.config);
+
+    expect(result.text).toBe(plain);
+    expect(result.preferenceCapsule?.selected).toBe(1);
+    expect(result.preferenceCapsule?.lines[0].guidance).toBe('Legacy preference summary');
+    expect(result.preferenceCapsule?.lines[0].line).toMatch(/^- \[universal\] Legacy preference summary \[\d{16}\]$/);
+  });
+});
+
+describe('MCP Tool: knowledge-health', () => {
   let ctx: TestContext;
 
   beforeEach(() => { ctx = createTestHarness(); });
@@ -3841,7 +4130,7 @@ describe('MCP Tool: knowledge-stats', () => {
     ctx.engine.store('Note A', { title: 'A', kind: 'reference' });
     ctx.engine.store('Note B', { title: 'B', kind: 'decision', status: 'permanent' });
 
-    const output = await handleStats({}, ctx.engine, ctx.config);
+    const output = await handleHealth({}, ctx.engine, ctx.config);
     expect(output).toContain('# Knowledge Base Stats');
     expect(output).toContain('## Health (2 notes)');
     expect(output).toContain('Fleeting: 1');
@@ -3853,21 +4142,21 @@ describe('MCP Tool: knowledge-stats', () => {
   it('should include growth rate section with period', async () => {
     ctx.engine.store('Recent note', { title: 'Recent', kind: 'observation' });
 
-    const output = await handleStats({ period: '7d' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ period: '7d' }, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 7d)');
     expect(output).toContain('Notes created: 1');
     expect(output).toContain('observation: 1');
   });
 
   it('should default period to 30d', async () => {
-    const output = await handleStats({}, ctx.engine, ctx.config);
+    const output = await handleHealth({}, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 30d)');
   });
 
   it('should include link health section', async () => {
     ctx.engine.store('Standalone', { title: 'Orphan', kind: 'reference' });
 
-    const output = await handleStats({}, ctx.engine, ctx.config);
+    const output = await handleHealth({}, ctx.engine, ctx.config);
     expect(output).toContain('## Link Health');
     expect(output).toContain('1 unlinked');
   });
@@ -3876,7 +4165,7 @@ describe('MCP Tool: knowledge-stats', () => {
     ctx.engine.store('Alpha note', { title: 'Alpha', kind: 'reference', tags: ['project:alpha'] });
     ctx.engine.store('Beta note', { title: 'Beta', kind: 'reference', tags: ['project:beta'] });
 
-    const output = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'alpha' }, ctx.engine, ctx.config);
     expect(output).toContain('Knowledge Base Stats — alpha');
     expect(output).toContain('## Health (1 notes)');
     expect(output).toContain('## Growth');
@@ -3889,7 +4178,7 @@ describe('MCP Tool: knowledge-stats', () => {
     ctx.engine.store('Alpha index', { title: 'Alpha Index', kind: 'index', tags: ['project:alpha'] });
     ctx.engine.store('Alpha log', { title: 'Alpha Log', kind: 'log', tags: ['project:alpha'] });
 
-    const output = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'alpha' }, ctx.engine, ctx.config);
 
     expect(output).toContain('## Health (1 notes)');
     expect(output).toContain('- Embedded: 1/1 notes');
@@ -3898,7 +4187,7 @@ describe('MCP Tool: knowledge-stats', () => {
   it('should clamp 0d period to 30d default', async () => {
     ctx.engine.store('A note', { title: 'A', kind: 'reference' });
 
-    const output = await handleStats({ period: '0d' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ period: '0d' }, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 30d)');
     expect(output).not.toContain('Infinity');
   });
@@ -3908,17 +4197,17 @@ describe('MCP Tool: knowledge-stats', () => {
     ctx.engine.store('Global standalone', { title: 'Global', kind: 'reference' });
 
     // Alpha has one note with no links — should show 1 unlinked when scoped to alpha
-    const alphaOutput = await handleStats({ project: 'alpha' }, ctx.engine, ctx.config);
+    const alphaOutput = await handleHealth({ project: 'alpha' }, ctx.engine, ctx.config);
     expect(alphaOutput).toContain('## Link Health');
     expect(alphaOutput).toContain('1 unlinked');
 
     // Global stats should show 3 unlinked (alpha + beta + global)
-    const globalOutput = await handleStats({}, ctx.engine, ctx.config);
+    const globalOutput = await handleHealth({}, ctx.engine, ctx.config);
     expect(globalOutput).toContain('3 unlinked');
   });
 });
 
-describe('MCP Tool: knowledge-overview global', () => {
+describe('MCP Tool: knowledge-context global', () => {
   let ctx: TestContext;
 
   beforeEach(() => { ctx = createTestHarness(); });
@@ -3934,7 +4223,7 @@ describe('MCP Tool: knowledge-overview global', () => {
       summary: 'Sum', guidance: 'Guide',
     }, ctx.engine, null, ctx.config);
 
-    const output = handleOverview({}, ctx.engine, ctx.config);
+    const output = handleContext({}, ctx.engine, ctx.config);
     expect(output).toContain('## Knowledge Base Overview');
     expect(output).toContain('### Projects');
     expect(output).toContain('**alpha**');
@@ -3948,7 +4237,7 @@ describe('MCP Tool: knowledge-overview global', () => {
       summary: 'Sum', guidance: 'Guide',
     }, ctx.engine, null, ctx.config);
 
-    const output = handleOverview({}, ctx.engine, ctx.config);
+    const output = handleContext({}, ctx.engine, ctx.config);
     expect(output).toContain('Unscoped notes:');
   });
 });

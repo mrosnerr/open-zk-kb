@@ -142,7 +142,7 @@ function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
   expect(block).toContain('useful URL → resource (`knowledge-ingest` first).');
   expect(block).toContain('**Each note:** one concept only.');
   expect(block).toContain('Include a `summary` and imperative `guidance`.');
-  expect(block).toContain('**Project session start:** `knowledge-overview`.');
+  expect(block).toContain('**Project session start:** `knowledge-context`.');
   expect(block).toContain(
     usesOmpSkill
       ? '`skill://open-zk-kb`.'

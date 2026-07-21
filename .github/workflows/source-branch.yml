@@ -9,8 +9,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Verify source branch
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
         run: |
-          HEAD="${{ github.head_ref }}"
+          HEAD="$HEAD_BRANCH"
           if [[ "$HEAD" == "dev" || "$HEAD" == hotfix/* ]]; then
             echo "Allowed source branch: $HEAD"
           else

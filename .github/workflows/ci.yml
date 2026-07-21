@@ -46,6 +46,8 @@ jobs:
           # Verify the patched markers exist in both source and dist bundle.
           # If this fails, the patch needs regenerating for the current
           # @huggingface/transformers version.
+          # JavaScript template literals are intentionally protected from shell expansion.
+          # shellcheck disable=SC2016
           node -e '
             const fs = require("fs");
             const checks = [

@@ -20,7 +20,7 @@ jobs:
           persist-credentials: false
 
       - name: Setup Node
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
@@ -35,7 +35,7 @@ jobs:
           echo "Changed files:"
           echo "$CHANGED"
 
-          if echo "$CHANGED" | grep -Eq '^(src/|plugin/|package\.json|bun\.lock(b)?|config\.example\.yaml|agent-instructions-(full|compact)\.md)'; then
+          if echo "$CHANGED" | grep -Eq '^(src/|plugin/|skill-templates/|package\.json|bun\.lock(b)?|config\.example\.yaml|agent-instructions-(full|compact)\.md)'; then
             echo "needs_bump=true" >> "$GITHUB_OUTPUT"
           else
             echo "needs_bump=false" >> "$GITHUB_OUTPUT"
@@ -62,6 +62,8 @@ jobs:
           HEAD_VERSION: ${{ steps.versions.outputs.head }}
           BASE_VERSION: ${{ steps.versions.outputs.base }}
         run: |
+          # JavaScript template literals are intentionally protected from shell expansion.
+          # shellcheck disable=SC2016
           node --input-type=module -e '
             function parseSemver(v) {
               const match = v.match(/^(\d+)\.(\d+)\.(\d+)(?:-(.+))?$/);
@@ -152,9 +154,9 @@ jobs:
           fi
           
           # Check SKILL.md frontmatter version
-          SKILL_VERSION=$(grep -m1 '^version:' skills/open-zk-kb/SKILL.md | sed 's/version: //')
+          SKILL_VERSION=$(grep -m1 '^version:' skill-templates/open-zk-kb/SKILL.md | sed 's/version: //')
           if [ "$SKILL_VERSION" != "$PKG_VERSION" ]; then
-            echo "::error::skills/open-zk-kb/SKILL.md version ($SKILL_VERSION) does not match package.json ($PKG_VERSION)"
+            echo "::error::skill-templates/open-zk-kb/SKILL.md version ($SKILL_VERSION) does not match package.json ($PKG_VERSION)"
             exit 1
           fi
           

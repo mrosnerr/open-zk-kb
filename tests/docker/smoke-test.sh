@@ -450,7 +450,7 @@ EXISTING_OUTPUT=$(timeout 15 bun -e "
   const search = await client.callTool({ name: 'knowledge-search', arguments: { query: 'PostgreSQL database' } });
   const searchText = JSON.stringify(search);
 
-  const stats = await client.callTool({ name: 'knowledge-stats', arguments: {} });
+  const stats = await client.callTool({ name: 'knowledge-health', arguments: {} });
   const statsText = JSON.stringify(stats);
 
   await client.close();

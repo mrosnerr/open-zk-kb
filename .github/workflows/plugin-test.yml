@@ -3,6 +3,17 @@ name: Plugin Build Test
 on:
   push:
     branches: ['feat/plugin-*']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'plugin/**'
+      - 'skill-templates/**'
+      - 'scripts/build-plugin.ts'
+      - 'patches/**'
+      - 'package.json'
+      - 'bun.lock'
+      - 'bun.lockb'
   workflow_dispatch:
 
 jobs:

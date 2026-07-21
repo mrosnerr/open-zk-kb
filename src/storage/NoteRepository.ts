@@ -1563,7 +1563,7 @@ export class NoteRepository {
 
   /**
    * Get notes created within a time window, grouped by kind.
-   * Used by knowledge-stats for growth rate reporting.
+   * Used by knowledge-health for growth rate reporting.
    */
   getGrowthByKind(sinceMs: number, project?: string): Record<string, number> {
     const projectClause = project ? ` AND kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
@@ -2317,6 +2317,20 @@ export class NoteRepository {
       guidance: fields.guidance ?? note.guidance,
       updated_at: Date.now(),
     });
+  }
+
+  getPermanentPersonalizations(): NoteMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE kind = 'personalization' AND status = 'permanent'
+      ORDER BY updated_at DESC, id DESC
+    `);
+    const results = stmt.all() as NoteMetadata[];
+    return results.map(r => ({
+      ...r,
+      kind: 'personalization',
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
   }
 
   getRecentNotes(limit: number = 5): NoteMetadata[] {

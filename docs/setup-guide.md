@@ -33,6 +33,18 @@ bunx open-zk-kb@latest install --client pi
 
 Restart Pi after either install path so it can load the package extension.
 
+Pi loads ten native `knowledge-*` tools. Search, store, context, and health results use compact Pi TUI summaries with expandable details; the remaining tools use concise status renderers. Pi's native tool shell remains visible around each result.
+
+Permanent project preferences load automatically when a Pi session starts. The preference capsule enters the model's system prompt, while a separate, deduplicated `knowledge-context` entry makes the extension activity visible in the TUI without fabricating a model tool call.
+
+<p align="center">
+  <a href="../assets/pi-preference-store.png"><img src="../assets/pi-preference-store.png" alt="A native knowledge-store result in Pi" width="720"></a>
+</p>
+
+See the [Pi Experience](pi.md) for the complete preference workflow, health view, and renderer gallery.
+
+The package can be installed by Pi's Node.js-based package manager, but open-zk-kb's server requires **Bun >= 1.0** for `bun:sqlite`. Keep `bun` on your `PATH`; do not substitute `npm exec` or `npx` for the documented `bunx` server commands. To verify both layers after restarting Pi, ask Pi to run `knowledge-health`.
+
 ### Manual Installation (for any MCP client)
 
 Add to your client's MCP configuration — no cloning required:
@@ -143,16 +155,16 @@ server:
 ## Verify Installation
 1. Restart your editor/client.
 2. Optionally run `bunx open-zk-kb@latest doctor --client <name>` to verify the local install. Add `--fix` to repair safe issues automatically.
-3. Ask your agent: **"Run `knowledge-stats`"**
+3. Ask your agent: **"Run `knowledge-health`"**
 4. You should see vault statistics (0 notes on fresh install). This confirms the knowledge tools are available:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
    - `knowledge-template` -- canonical note template for a kind
    - `knowledge-mine` -- bulk-screen candidates for duplicates and store
-   - `knowledge-stats` -- vault health metrics, staleness, growth rate
+   - `knowledge-health` -- vault health metrics, staleness, growth rate
    - `knowledge-maintain` -- review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML
-   - `knowledge-overview` -- project entry point with auto-generated index and recent log
+   - `knowledge-context` -- project entry point with auto-generated index and recent log
    - `knowledge-get` -- fetch a specific note by id
    - `knowledge-open` -- open the vault in Obsidian for visual browsing (see [Obsidian Guide](obsidian.md))
 
@@ -235,7 +247,7 @@ bunx open-zk-kb@latest install --client <name> --force
 
 ### Checking for Updates
 
-Run `knowledge-stats` to see version information:
+Run `knowledge-health` to see version information:
 
 ```
 ## Version
@@ -313,5 +325,5 @@ This section is specifically for agents setting up open-zk-kb:
 1. Run `bun --version` -- confirm >= 1.0.0 (if missing: `curl -fsSL https://bun.sh/install | bash`)
 2. Run `bunx open-zk-kb@latest install --client <detected-client>`
 3. Instruct user to restart their editor
-4. Verify by calling `knowledge-stats`
+4. Verify by calling `knowledge-health`
 5. Knowledge capture is driven by agent instructions (skill for Claude Code and OMP, managed block for OpenCode/Windsurf/Pi, package extension for Pi) provided during setup. Calling models use MCP tools directly, primarily querying the SQLite-backed server layer rather than browsing raw vault files.

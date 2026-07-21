@@ -111,7 +111,9 @@ async function forwardToHttp(
 export const READ_ONLY_TOOLS: Record<string, true> = {
   'knowledge-search': true,
   'knowledge-get': true,
+  'knowledge-health': true,
   'knowledge-stats': true,
+  'knowledge-context': true,
   'knowledge-overview': true,
   'knowledge-template': true,
 };

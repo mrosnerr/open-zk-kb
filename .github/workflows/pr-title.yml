@@ -22,8 +22,8 @@ jobs:
               if (/^Bump (to |version )?\d+\.\d+\.\d+/i.test(title.trim())) {
                 errors.push('Release PR title must describe changes, not just "Bump to X.Y.Z" — this becomes the commit message on main');
               }
-              if (/^Release:/i.test(title.trim())) {
-                errors.push('Release PR title must describe changes, not just "Release: ..." — this becomes the commit message on main');
+              if (/^Release:/i.test(title.trim()) || /^Release\s+v?\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/i.test(title.trim())) {
+                errors.push('Release PR title must describe changes without a generic "Release" prefix — this becomes the commit message on main');
               }
               if (/^Merge \w+ into (main|dev)$/i.test(title.trim())) {
                 errors.push('Release PR title must describe changes, not just "Merge X into Y" — this becomes the commit message on main');

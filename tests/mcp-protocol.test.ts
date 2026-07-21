@@ -57,24 +57,25 @@ describe('MCP Protocol E2E', () => {
   it('responds to tools/list with expected tools', async () => {
     const tools = await client!.listTools();
 
-    expect(tools.tools.length).toBeGreaterThanOrEqual(3);
+    const toolNames = tools.tools.map((t) => t.name).sort();
+    expect(toolNames).toEqual([
+      'knowledge-context', 'knowledge-get', 'knowledge-health', 'knowledge-ingest',
+      'knowledge-maintain', 'knowledge-mine', 'knowledge-open', 'knowledge-overview',
+      'knowledge-search', 'knowledge-stats', 'knowledge-store', 'knowledge-template',
+    ]);
 
-    const toolNames = tools.tools.map((t) => t.name);
-    expect(toolNames).toContain('knowledge-store');
-    expect(toolNames).toContain('knowledge-search');
-    expect(toolNames).toContain('knowledge-maintain');
+    expect(tools.tools.find(tool => tool.name === 'knowledge-overview')?.description).toContain('Deprecated alias');
+    expect(tools.tools.find(tool => tool.name === 'knowledge-stats')?.description).toContain('Deprecated alias');
   });
 
-  it('knowledge-stats returns valid response', async () => {
-    const result = await client!.callTool({
-      name: 'knowledge-stats',
-      arguments: {},
-    });
-
-    const content = result.content as Array<{ type: string; text: string }>;
-    expect(content).toHaveLength(1);
-    expect(content[0].type).toBe('text');
-    expect(content[0].text).toContain('Knowledge Base Stats');
+  it('knowledge-health and its deprecated alias return valid responses', async () => {
+    for (const name of ['knowledge-health', 'knowledge-stats']) {
+      const result = await client!.callTool({ name, arguments: {} });
+      const content = result.content as Array<{ type: string; text: string }>;
+      expect(content).toHaveLength(1);
+      expect(content[0].type).toBe('text');
+      expect(content[0].text).toContain('Knowledge Base Stats');
+    }
   });
 
   it('knowledge-store creates a note', async () => {
@@ -182,6 +183,48 @@ describe('MCP Protocol E2E', () => {
     });
     const allText = (allResult.content as Array<{ type: string; text: string }>)[0].text;
     expect(allText).toContain('This is only for Claude Code');
+  });
+
+  it('knowledge-context returns a structured matching preference capsule on request', async () => {
+    const tools = await client!.listTools();
+    const contextTool = tools.tools.find(tool => tool.name === 'knowledge-context');
+    const schema = contextTool?.inputSchema as { properties?: Record<string, unknown> } | undefined;
+    expect(schema?.properties).toHaveProperty('includePreferences');
+
+    await client!.callTool({
+      name: 'knowledge-store',
+      arguments: {
+        title: 'Pi Protocol Preference',
+        content: 'Keep Pi protocol output concise.',
+        kind: 'personalization',
+        status: 'permanent',
+        client: 'pi',
+        summary: 'Pi protocol output stays concise',
+        guidance: 'Keep Pi protocol output concise.',
+      },
+    });
+
+    const result = await client!.callTool({
+      name: 'knowledge-context',
+      arguments: { client: 'pi', includePreferences: true },
+    });
+    const structured = result.structuredContent as {
+      preferenceCapsule?: {
+        selected?: number;
+        omitted?: number;
+        text?: string;
+      };
+    } | undefined;
+
+    expect(structured?.preferenceCapsule?.selected).toBeGreaterThanOrEqual(1);
+    expect(structured?.preferenceCapsule?.omitted).toBeGreaterThanOrEqual(0);
+    expect(structured?.preferenceCapsule?.text).toContain('[client:pi] Keep Pi protocol output concise.');
+
+    const aliasResult = await client!.callTool({
+      name: 'knowledge-overview',
+      arguments: { client: 'pi', includePreferences: true },
+    });
+    expect(aliasResult.structuredContent).toEqual(result.structuredContent);
   });
 
   it('handles unknown tool gracefully', async () => {

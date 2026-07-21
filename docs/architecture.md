@@ -29,7 +29,7 @@ Obsidian plays a separate role: it is the primary human browsing and interaction
 ┌──────────▼──────────┐
 │   MCP Server        │
 │   (mcp-server.ts)   │
-│   - 9 MCP tools     │
+│   - 10 MCP tools    │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
@@ -40,7 +40,7 @@ Obsidian plays a separate role: it is the primary human browsing and interaction
 │   handleGet()       │
 │   handleMaintain()  │
 │   handleIngest()    │
-│   handleOverview()  │
+│   handleContext()   │
 └──────────┬──────────┘
            │
 ┌──────────▼──────────┐
@@ -71,7 +71,7 @@ The system employs a hybrid storage strategy to balance portability with perform
 
 The vault has two distinct consumers:
 
-* **Agents** query MCP tools such as `knowledge-search`, `knowledge-store`, and `knowledge-overview`. Their primary path is the SQLite-backed repository and server-owned rendering logic.
+* **Agents** query MCP tools such as `knowledge-search`, `knowledge-store`, and `knowledge-context`. Their primary path is the SQLite-backed repository and server-owned rendering logic.
 * **Humans** browse the vault in Obsidian using generated shell pages, activity logs, graph view, templates, scaffolded plugins, and Dataview-rendered sections.
 
 This distinction is intentional. Core knowledge notes (`decision`, `procedure`, `reference`, `resource`, `observation`, `personalization`, `domain`) remain markdown-native and portable. Navigation notes (`index`, `log`) are allowed to carry richer Obsidian-specific UX because they are primarily human-facing surfaces. In the current design, the server creates and maintains the shell files, while Dataview increasingly owns the rendered lists and tables inside those shells.
@@ -87,7 +87,7 @@ The MCP server provides a reactive interface to the knowledge base:
     * **Streamable HTTP** (`open-zk-kb serve`): Single shared process for all clients. Uses `Bun.serve()` with `WebStandardStreamableHTTPServerTransport` in stateless mode. Recommended for multi-session environments (OMP, multiple terminals).
 * **Shared Server Discovery**: When running in stdio mode, the server first checks if a shared HTTP server is available (via `$XDG_RUNTIME_DIR/open-zk-kb/server.json`). If found and healthy, it transparently bridges stdio→HTTP, avoiding resource duplication.
 * **Resilience**: Bridges recover transparently from server crashes or restarts through an internal retry chain (retry → re-probe → process locally). See [Performance and Resilience](performance.md) for latency benchmarks, memory profiles, and failure mode analysis.
-* **Tools**: Registers [nine core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-template`, `knowledge-mine`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-overview`, and `knowledge-open`.
+* **Tools**: Registers [ten core tools](tools-reference.md): `knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-template`, `knowledge-mine`, `knowledge-health`, `knowledge-maintain`, `knowledge-ingest`, `knowledge-context`, and `knowledge-open`.
 * **Initialization**: Uses a lazy singleton pattern where the `NoteRepository` is initialized only upon the first tool call.
 * **Embeddings**: Generated locally by default via `@huggingface/transformers` (WASM backend, no native deps).
     * **Model**: `Xenova/all-MiniLM-L6-v2` (quantized q8, ~23MB).
@@ -104,7 +104,7 @@ During setup, open-zk-kb delivers knowledge base instructions to guide the AI to
 * **Pi** does not support MCP natively. open-zk-kb ships as a Pi package extension (`src/pi/extension.ts`) that bridges the MCP server into Pi-native tools. Managed instructions are injected into `~/.pi/agent/AGENTS.md`.
 * **OMP** uses standard MCP config at `~/.omp/agent/mcp.json`, a skill at `~/.omp/agent/skills/open-zk-kb/`, and a compact managed rule file at `~/.omp/agent/rules/open-zk-kb.md` (with YAML frontmatter for `alwaysApply`).
 * **Cursor and Zed** currently receive MCP config only.
-* **Instruction templates**: `templates/agent-instructions-full.md` (~420 tokens) and `templates/agent-instructions-compact.md` (~140 tokens) ship with the package for OpenCode/Windsurf/Pi/OMP. The skill uses its own `SKILL.md` + supporting files in `skills/open-zk-kb/`.
+* **Instruction templates**: `templates/agent-instructions-full.md` (~420 tokens) and `templates/agent-instructions-compact.md` (~140 tokens) ship with the package for OpenCode/Windsurf/Pi/OMP. The skill uses its own `SKILL.md` + supporting files in `skill-templates/open-zk-kb/`.
 
 ## Configuration Architecture
 
