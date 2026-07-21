@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.1
+
+### Changed
+
+- **Streamlined README experience** — replaced the static Pi header with the complete animated preference workflow and removed redundant walkthrough and Obsidian sections from the main README
+
 ## 1.4.0
 
 ### Added

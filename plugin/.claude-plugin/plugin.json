@@ -1,7 +1,7 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "open-zk-kb",
-  "version": "1.4.0",
+  "version": "1.4.1",
   "description": "Persistent agent memory across sessions. Corrections stick, context compounds, every session starts smarter. Cross-session knowledge base built on Zettelkasten.",
   "author": {
     "name": "mrosnerr",
