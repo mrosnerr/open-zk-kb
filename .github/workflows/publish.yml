@@ -71,28 +71,50 @@ jobs:
             echo "Version $VERSION not yet published — will publish."
           fi
 
+      - name: Determine stable release completion
+        if: steps.release.outputs.type == 'stable'
+        id: stable
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          COMMIT_SHA: ${{ github.sha }}
+          VERSION: ${{ steps.release.outputs.version }}
+          NPM_PUBLISHED: ${{ steps.check.outputs.skip }}
+        run: |
+          TAG="v$VERSION"
+          TAG_SHA=$(gh api "repos/$GH_REPO/git/ref/tags/$TAG" --jq '.object.sha' 2>/dev/null || true)
+          if [ "$NPM_PUBLISHED" = "true" ] && [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$COMMIT_SHA" ]; then
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION was already released from $TAG_SHA; no stable release work is needed for $COMMIT_SHA."
+          elif [ "$NPM_PUBLISHED" = "false" ] && [ -n "$TAG_SHA" ] && [ "$TAG_SHA" != "$COMMIT_SHA" ]; then
+            echo "::error::Tag $TAG already points to $TAG_SHA before npm publication; expected $COMMIT_SHA"
+            exit 1
+          else
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install dependencies
-        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
+        if: steps.check.outputs.skip == 'false' || steps.stable.outputs.run == 'true'
         run: bun install
 
       - name: Build
-        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
+        if: steps.check.outputs.skip == 'false' || steps.stable.outputs.run == 'true'
         run: bun run build
 
       - name: Lint
-        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
+        if: steps.check.outputs.skip == 'false' || steps.stable.outputs.run == 'true'
         run: bun run lint
 
       - name: Test
-        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
+        if: steps.check.outputs.skip == 'false' || steps.stable.outputs.run == 'true'
         run: bun test
 
       - name: Build plugin binaries
-        if: steps.release.outputs.type == 'stable'
+        if: steps.stable.outputs.run == 'true'
         run: bun run build:plugin
 
       - name: Install mcp-publisher
-        if: steps.release.outputs.type == 'stable'
+        if: steps.stable.outputs.run == 'true'
         run: |
           curl -fsSL -o mcp-publisher.tar.gz "https://github.com/modelcontextprotocol/registry/releases/download/v1.7.9/mcp-publisher_linux_amd64.tar.gz"
           echo "ab128162b0616090b47cf245afe0a23f3ef08936fdce19074f5ba0a4469281ac  mcp-publisher.tar.gz" | sha256sum -c -
@@ -100,7 +122,7 @@ jobs:
           rm mcp-publisher.tar.gz
 
       - name: Prepare bin scripts
-        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
+        if: steps.check.outputs.skip == 'false' || steps.stable.outputs.run == 'true'
         run: chmod +x dist/cli.js dist/setup.js dist/mcp-server.js
 
       - name: Set dev version in package.json
@@ -108,7 +130,7 @@ jobs:
         run: npm version "${{ steps.release.outputs.version }}" --no-git-tag-version
 
       - name: Strip patchedDependencies from package.json
-        if: steps.check.outputs.skip == 'false' || steps.release.outputs.type == 'stable'
+        if: steps.check.outputs.skip == 'false' || steps.stable.outputs.run == 'true'
         run: |
           node -e "
             const p = JSON.parse(require('fs').readFileSync('package.json','utf8'));
@@ -118,7 +140,7 @@ jobs:
           echo 'Stripped patchedDependencies for publish'
 
       - name: Publish (stable)
-        if: steps.check.outputs.skip == 'false' && steps.release.outputs.type == 'stable'
+        if: steps.check.outputs.skip == 'false' && steps.stable.outputs.run == 'true'
         run: npm publish --provenance --access public --tag latest
 
       - name: Publish (dev)
@@ -126,7 +148,7 @@ jobs:
         run: npm publish --provenance --access public --tag dev --ignore-scripts
 
       - name: Create or update GitHub Release
-        if: steps.release.outputs.type == 'stable'
+        if: steps.stable.outputs.run == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
@@ -171,7 +193,7 @@ jobs:
           fi
 
       - name: Publish to MCP Registry
-        if: steps.release.outputs.type == 'stable'
+        if: steps.stable.outputs.run == 'true'
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
