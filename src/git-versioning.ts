@@ -3,7 +3,7 @@ import * as path from 'path';
 import { logToFile } from './logger.js';
 import type { NoteKind, VersioningConfig } from './types.js';
 
-export type OpType = 'store' | 'update' | 'archive' | 'delete' | 'promote' | 'format';
+export type OpType = 'store' | 'update' | 'archive' | 'delete' | 'promote' | 'publish-global' | 'assign-project' | 'format';
 
 export interface PendingOp {
   op: OpType;

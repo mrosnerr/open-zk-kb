@@ -28,7 +28,7 @@ describe('knowledge-mine: validation', () => {
   });
 
   it('empty candidates array', async () => {
-    const output = await handleMine({ candidates: [] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('No mining candidates provided');
     expect(output).toContain('at least one candidate');
@@ -38,54 +38,53 @@ describe('knowledge-mine: validation', () => {
   it('over 50 candidates', async () => {
     const candidates = Array.from({ length: 51 }, (_, index) => makeCandidate({ title: `Candidate ${index}` }));
 
-    const output = await handleMine({ candidates }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('Error: knowledge-mine accepts at most 50 candidates per batch');
     expect(output).toContain('received 51');
   });
 
   it('missing required field (title)', async () => {
-    const output = await handleMine({ candidates: [makeCandidate({ title: '' })] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate({ title: '' })] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('Error: Candidate 1');
     expect(output).toContain('missing required field "title"');
   });
 
   it('missing required field (summary)', async () => {
-    const output = await handleMine({ candidates: [makeCandidate({ summary: '   ' })] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate({ summary: '   ' })] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('Error: Candidate 1');
     expect(output).toContain('missing required field "summary"');
   });
 
   it('structural kind (index)', async () => {
-    const output = await handleMine({ candidates: [makeCandidate({ kind: 'index' })] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate({ kind: 'index' })] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('Error: Candidate 1');
     expect(output).toContain('index notes are structural and auto-generated');
   });
 
   it('structural kind (log)', async () => {
-    const output = await handleMine({ candidates: [makeCandidate({ kind: 'log' })] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate({ kind: 'log' })] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('Error: Candidate 1');
     expect(output).toContain('log notes are structural and auto-generated');
   });
 
-  it('domain kind without project', async () => {
-    const output = await handleMine({ candidates: [makeCandidate({ kind: 'domain' })] }, ctx.engine, null, ctx.config);
-
-    expect(output).toContain('Error: Candidate 1');
-    expect(output).toContain('domain notes require a project parameter');
-  });
-
-  it('domain kind accepts per-candidate project', async () => {
-    const output = await handleMine({
-      candidates: [makeCandidate({ kind: 'domain', project: 'alpha' })],
-    }, ctx.engine, null, ctx.config);
+  it('domain kind uses the current project', async () => {
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate({ kind: 'domain' })] }, ctx.engine, null, ctx.config);
 
     expect(output).not.toContain('Error:');
     expect(output).toContain('⮕ STORE');
+  });
+
+  it('domain kind rejects a conflicting candidate project', async () => {
+    const output = await handleMine({ project: 'test-project',
+      candidates: [makeCandidate({ kind: 'domain', project: 'alpha' })],
+    }, ctx.engine, null, ctx.config);
+
+    expect(output).toContain('candidate project conflicts with project:test-project');
   });
 });
 
@@ -101,7 +100,7 @@ describe('knowledge-mine: dry-run classification', () => {
   });
 
   it('single candidate, empty KB', async () => {
-    const output = await handleMine({ candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('⮕ STORE — No similar notes found');
     expect(output).not.toContain('↳ [');
@@ -109,7 +108,7 @@ describe('knowledge-mine: dry-run classification', () => {
   });
 
   it('dry_run defaults to true', async () => {
-    await handleMine({ candidates: [makeCandidate({ title: 'Default Dry Run Note' })] }, ctx.engine, null, ctx.config);
+    await handleMine({ project: 'test-project', candidates: [makeCandidate({ title: 'Default Dry Run Note' })] }, ctx.engine, null, ctx.config);
 
     const stats = ctx.engine.getStats();
     const results = ctx.engine.search('Default Dry Run Note', { limit: 10 });
@@ -119,7 +118,7 @@ describe('knowledge-mine: dry-run classification', () => {
   });
 
   it('candidate matching existing note', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Session Context Capture',
       content: 'Capture durable session context before ending work.',
       kind: 'observation',
@@ -127,7 +126,7 @@ describe('knowledge-mine: dry-run classification', () => {
       guidance: 'Store durable session context before handoff.',
     }, ctx.engine, null, ctx.config);
 
-    const output = await handleMine({
+    const output = await handleMine({ project: 'test-project',
       candidates: [makeCandidate({
         title: 'Session Context Capture',
         content: 'Capture durable session context before ending work with a concise handoff.',
@@ -143,7 +142,7 @@ describe('knowledge-mine: dry-run classification', () => {
   });
 
   it('candidate partially matching existing note', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Release Checklist',
       content: 'Run build, tests, and changelog checks before release.',
       kind: 'procedure',
@@ -151,7 +150,7 @@ describe('knowledge-mine: dry-run classification', () => {
       guidance: 'Use this before publishing releases.',
     }, ctx.engine, null, ctx.config);
 
-    const output = await handleMine({
+    const output = await handleMine({ project: 'test-project',
       candidates: [makeCandidate({
         title: 'Release Checklist Followup',
         content: 'Document deployment rollback ownership after a production incident.',
@@ -167,7 +166,7 @@ describe('knowledge-mine: dry-run classification', () => {
   });
 
   it('intra-batch duplicate', async () => {
-    const output = await handleMine({
+    const output = await handleMine({ project: 'test-project',
       candidates: [
         makeCandidate({
           title: 'Duplicate Candidate A',
@@ -200,7 +199,7 @@ describe('knowledge-mine: store mode', () => {
   });
 
   it('dry_run=false stores STORE candidates', async () => {
-    const output = await handleMine({
+    const output = await handleMine({ project: 'test-project',
       dry_run: false,
       candidates: [makeCandidate({ title: 'Stored Mining Candidate', summary: 'Unique stored mining candidate summary' })],
     }, ctx.engine, null, ctx.config);
@@ -213,7 +212,7 @@ describe('knowledge-mine: store mode', () => {
   });
 
   it('extracts the real stored id when a mined title contains an arrow', async () => {
-    const output = await handleMine({
+    const output = await handleMine({ project: 'test-project',
       dry_run: false,
       candidates: [makeCandidate({ title: 'Cause → Effect Mapping', summary: 'Unique arrow-title mining candidate summary' })],
     }, ctx.engine, null, ctx.config);
@@ -229,7 +228,7 @@ describe('knowledge-mine: store mode', () => {
   });
 
   it('dry_run=false skips SKIP candidates', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Existing Duplicate Seed',
       content: 'Do not duplicate this already captured note.',
       kind: 'observation',
@@ -237,7 +236,7 @@ describe('knowledge-mine: store mode', () => {
       guidance: 'Prefer the existing duplicate seed.',
     }, ctx.engine, null, ctx.config);
 
-    await handleMine({
+    await handleMine({ project: 'test-project',
       dry_run: false,
       candidates: [makeCandidate({
         title: 'New Duplicate Candidate',
@@ -253,7 +252,7 @@ describe('knowledge-mine: store mode', () => {
   });
 
   it('source tag stored as mined:{source}', async () => {
-    await handleMine({
+    await handleMine({ project: 'test-project',
       dry_run: false,
       candidates: [makeCandidate({
         title: 'Mined Source Candidate',
@@ -288,44 +287,18 @@ describe('knowledge-mine: store mode', () => {
     expect(second?.tags).toContain('project:myapp');
   });
 
-  it('per-candidate project overrides support mixed-project batches', async () => {
-    await handleMine({
-      dry_run: false,
+  it('fails closed for mixed-project batches', async () => {
+    const output = await handleMine({
       project: 'fallback',
+      dry_run: false,
       candidates: [
-        makeCandidate({
-          title: 'Alpha Mixed Candidate',
-          summary: 'Unique alpha mixed candidate summary',
-          project: 'alpha',
-        }),
-        makeCandidate({
-          title: 'Beta Mixed Candidate',
-          summary: 'Unique beta mixed candidate summary',
-          project: 'beta',
-        }),
-        makeCandidate({
-          title: 'Gamma Mixed Domain',
-          kind: 'domain',
-          content: 'Gamma project operating context',
-          summary: 'Unique gamma mixed domain summary',
-          guidance: 'Use for gamma project context',
-          project: 'gamma',
-        }),
+        makeCandidate({ title: 'Alpha Mixed Candidate', project: 'alpha' }),
+        makeCandidate({ title: 'Beta Mixed Candidate', project: 'beta' }),
       ],
     }, ctx.engine, null, ctx.config);
 
-    const alpha = ctx.engine.search('Alpha Mixed Candidate', { limit: 10 })
-      .find(result => result.title === 'Alpha Mixed Candidate');
-    const beta = ctx.engine.search('Beta Mixed Candidate', { limit: 10 })
-      .find(result => result.title === 'Beta Mixed Candidate');
-    const gamma = ctx.engine.getDomainNote('gamma');
-
-    expect(alpha?.tags).toContain('project:alpha');
-    expect(alpha?.tags).not.toContain('project:fallback');
-    expect(beta?.tags).toContain('project:beta');
-    expect(beta?.tags).not.toContain('project:fallback');
-    expect(gamma?.tags).toContain('project:gamma');
-    expect(gamma?.tags).not.toContain('project:fallback');
+    expect(output).toContain('candidate project conflicts with project:fallback');
+    expect(ctx.engine.search('Mixed Candidate', { limit: 10 })).toHaveLength(0);
   });
 
   it('commits mined stores through the path-scoped versioning flow', async () => {
@@ -334,7 +307,7 @@ describe('knowledge-mine: store mode', () => {
     await versioning.init();
 
     try {
-      const output = await handleMine({
+      const output = await handleMine({ project: 'test-project',
         dry_run: false,
         candidates: [makeCandidate({
           title: 'Versioned Mining Candidate',
@@ -378,19 +351,19 @@ describe('knowledge-mine: output format', () => {
   });
 
   it('includes summary line with counts', async () => {
-    const output = await handleMine({ candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('Summary: 1 STORE, 0 SKIP, 0 REVIEW');
   });
 
   it('dry-run shows store instruction', async () => {
-    const output = await handleMine({ candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('call again with dry_run=false');
   });
 
   it('store mode omits dry-run instruction', async () => {
-    const output = await handleMine({
+    const output = await handleMine({ project: 'test-project',
       dry_run: false,
       candidates: [makeCandidate({ title: 'Instruction Omitted Candidate', summary: 'Instruction omitted candidate summary' })],
     }, ctx.engine, null, ctx.config);
@@ -399,7 +372,7 @@ describe('knowledge-mine: output format', () => {
   });
 
   it('shows embeddings disabled warning when no embedding config', async () => {
-    const output = await handleMine({ candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
+    const output = await handleMine({ project: 'test-project', candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
 
     expect(output).toContain('Embeddings disabled');
     expect(output).toContain('SimHash + FTS5 only');
@@ -407,7 +380,7 @@ describe('knowledge-mine: output format', () => {
 
   it('word count warning for oversized notes', async () => {
     const content = Array.from({ length: 401 }, (_, index) => `word${index}`).join(' ');
-    const output = await handleMine({
+    const output = await handleMine({ project: 'test-project',
       candidates: [makeCandidate({
         title: 'Oversized Mining Candidate',
         content,

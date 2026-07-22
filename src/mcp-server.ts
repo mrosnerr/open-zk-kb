@@ -345,6 +345,8 @@ export function createMcpServer(): McpServer {
       try {
         const result = handleGet({
           noteId: args.noteId,
+          project: args.project,
+          client: args.client,
           model: args.model,
         }, await getOrCreateRepo());
         return { content: [{ type: 'text' as const, text: result }] };
@@ -414,6 +416,9 @@ export function createMcpServer(): McpServer {
           days: args.days,
           limit: args.limit,
           dryRun: args.dryRun,
+          candidate: args.candidate,
+          confirm: args.confirm,
+          token: args.token,
           model: args.model,
         }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION, gitVersioning);
         return { content: [{ type: 'text' as const, text: result }] };

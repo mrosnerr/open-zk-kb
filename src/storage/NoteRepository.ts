@@ -22,6 +22,7 @@ import {
   getPreferencesFolderNoteBasename,
 } from './path-resolver.js';
 import type { ConformanceRecord, ConformanceAggregates } from '../template-handler.js';
+import type { VisibilityOptions } from '../knowledge-scope.js';
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -614,6 +615,13 @@ export class NoteRepository {
     const noteKindForPath = options.kind || 'observation';
     const project = extractProjectFromTags(options.tags || []);
     const isUpdate = !!options.existingId;
+    // Timestamps are the optimistic-concurrency version used by publication
+    // confirmation tokens. Ensure an immediate update cannot reuse the same
+    // millisecond and accidentally validate an old token.
+    const existingForVersion = isUpdate ? this.getById(id) : null;
+    const versionedNow = existingForVersion
+      ? Math.max(now, existingForVersion.updated_at + 1)
+      : now;
 
     let filePath: string;
     if (isUpdate) {
@@ -685,7 +693,7 @@ export class NoteRepository {
       summary: summaryStr || undefined,
       extraFrontmatter: options.extraFrontmatter,
       created_at: createdAt,
-      updated_at: now,
+      updated_at: versionedNow,
     });
 
     const noteBody = this.buildNoteBody({
@@ -720,7 +728,7 @@ export class NoteRepository {
     `).run(
       id, filePath, title, content, noteKind,
       options.status || 'fleeting', noteLifecycle, noteType,
-      tagsJson, summaryStr, guidanceStr, contextStr, now, createdAt, wordCount
+      tagsJson, summaryStr, guidanceStr, contextStr, versionedNow, createdAt, wordCount
     );
 
     // Insert into FTS
@@ -736,12 +744,36 @@ export class NoteRepository {
     };
   }
 
+  private visibilityPredicate(alias: string, visibility?: VisibilityOptions): { sql: string; params: string[] } {
+    if (!visibility) return { sql: '', params: [] };
+
+    let sql = ` AND (
+      (EXISTS (SELECT 1 FROM json_each(${alias}.tags) WHERE value = ?)
+        AND NOT EXISTS (SELECT 1 FROM json_each(${alias}.tags) WHERE value = 'scope:global')
+        AND (SELECT COUNT(*) FROM json_each(${alias}.tags) WHERE value LIKE 'project:%') = 1)
+      OR (EXISTS (SELECT 1 FROM json_each(${alias}.tags) WHERE value = 'scope:global')
+        AND (SELECT COUNT(*) FROM json_each(${alias}.tags) WHERE value LIKE 'project:%') = 0)
+    )`;
+    const params = [`project:${visibility.project}`];
+
+    if (visibility.client) {
+      sql += ` AND (
+        (SELECT COUNT(*) FROM json_each(${alias}.tags) WHERE value LIKE 'client:%') = 0
+        OR EXISTS (SELECT 1 FROM json_each(${alias}.tags) WHERE value = 'client:all')
+        OR EXISTS (SELECT 1 FROM json_each(${alias}.tags) WHERE value = ?)
+      )`;
+      params.push(`client:${visibility.client}`);
+    }
+    return { sql, params };
+  }
+
   search(query: string, options: {
     status?: NoteStatus;
     kind?: NoteKind;
     tags?: string[];
     context?: string;
     limit?: number;
+    visibility?: VisibilityOptions;
   } = {}): NoteMetadata[] {
     const sanitizedQuery = this.sanitizeFTS5Query(query);
 
@@ -752,6 +784,9 @@ export class NoteRepository {
       WHERE notes_fts MATCH ?
     `;
     const params: (string | number)[] = [sanitizedQuery];
+    const visibility = this.visibilityPredicate('n', options.visibility);
+    sql += visibility.sql;
+    params.push(...visibility.params);
 
     if (options.status) {
       sql += ' AND n.status = ?';
@@ -797,12 +832,16 @@ export class NoteRepository {
     status?: NoteStatus;
     kind?: NoteKind;
     limit?: number;
+    visibility?: VisibilityOptions;
   } = {}): Array<NoteMetadata & { similarity: number }> {
     let sql = `
       SELECT * FROM notes
       WHERE embedding IS NOT NULL
     `;
     const params: (string | number)[] = [];
+    const visibility = this.visibilityPredicate('notes', options.visibility);
+    sql += visibility.sql;
+    params.push(...visibility.params);
 
     if (options.status) {
       sql += ' AND status = ?';
@@ -844,6 +883,7 @@ export class NoteRepository {
       tags?: string[];
       context?: string;
       limit?: number;
+      visibility?: VisibilityOptions;
     } = {}
   ): NoteMetadata[] {
     const limit = options.limit || 10;
@@ -856,6 +896,7 @@ export class NoteRepository {
       status: options.status,
       kind: options.kind,
       limit: limit * 2,
+      visibility: options.visibility,
     });
 
     let filteredVecResults = vecResults;
@@ -923,12 +964,13 @@ export class NoteRepository {
     }));
   }
 
-  findNearDuplicates(hash: string, threshold: number = 3): NoteMetadata[] {
+  findNearDuplicates(hash: string, threshold: number = 3, visibility?: VisibilityOptions): NoteMetadata[] {
     type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string; content_hash: string };
 
+    const scope = this.visibilityPredicate('notes', visibility);
     const rows = this.db.prepare(
-      "SELECT * FROM notes WHERE content_hash IS NOT NULL AND status != 'archived'"
-    ).all() as NoteRow[];
+      `SELECT * FROM notes WHERE content_hash IS NOT NULL AND status != 'archived'${scope.sql}`
+    ).all(...scope.params) as NoteRow[];
 
     const targetBigInt = BigInt(`0x${hash}`);
     const matches = rows.filter((row) => {
@@ -1026,8 +1068,9 @@ export class NoteRepository {
    * Get embedding stats for maintenance reporting.
    */
   getEmbeddingStats(project?: string): { total: number; withEmbedding: number; withoutEmbedding: number; models: Record<string, number> } {
-    const projectClause = project ? ` AND kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
-    const projectParam = project ? [`%"project:${project}"%`] : [];
+    const visibility = project ? this.visibilityPredicate('notes', { project }) : { sql: '', params: [] as string[] };
+    const projectClause = project ? ` AND kind NOT IN ('index', 'log')${visibility.sql}` : '';
+    const projectParam = visibility.params;
     const counts = this.db.prepare(`
       SELECT
         COUNT(*) as total,
@@ -1055,17 +1098,18 @@ export class NoteRepository {
    * Look up notes by exact tag match using SQL LIKE on the JSON tags column.
    * More reliable than FTS5 search + post-filter for tag-based lookups.
    */
-  getByTag(tag: string, limit: number = 10): NoteMetadata[] {
+  getByTag(tag: string, limit: number = 10, visibility?: VisibilityOptions): NoteMetadata[] {
     // Tags are stored as JSON arrays, e.g. '["project:myapp","typescript"]'
     const pattern = `%"${tag}"%`;
+    const scope = this.visibilityPredicate('notes', visibility);
     const stmt = this.db.prepare(`
       SELECT * FROM notes
-      WHERE tags LIKE ? AND status != 'archived'
+      WHERE tags LIKE ? AND status != 'archived'${scope.sql}
       ORDER BY updated_at DESC
       LIMIT ?
     `);
 
-    const results = stmt.all(pattern, limit) as NoteMetadata[];
+    const results = stmt.all(pattern, ...scope.params, limit) as NoteMetadata[];
     return results.map(r => ({
       ...r,
       kind: (r.kind || 'observation') as NoteKind,
@@ -1204,7 +1248,8 @@ export class NoteRepository {
   getUnscopedNotes(): NoteMetadata[] {
     const stmt = this.db.prepare(`
       SELECT * FROM notes
-      WHERE tags NOT LIKE '%"project:%'
+      WHERE EXISTS (SELECT 1 FROM json_each(notes.tags) WHERE value = 'scope:global')
+        AND NOT EXISTS (SELECT 1 FROM json_each(notes.tags) WHERE value LIKE 'project:%')
         AND status != 'archived'
         AND kind NOT IN ('index', 'log')
         AND kind != 'personalization'
@@ -1285,6 +1330,19 @@ export class NoteRepository {
 
     if (!result) return null;
 
+    return {
+      ...result,
+      kind: (result.kind || 'observation') as NoteKind,
+      tags: JSON.parse(result.tags as unknown as string),
+    };
+  }
+
+  getByIdVisible(id: string, visibility: VisibilityOptions): NoteMetadata | null {
+    const scope = this.visibilityPredicate('notes', visibility);
+    const result = this.db.prepare(
+      `SELECT * FROM notes WHERE id = ? AND status != 'archived'${scope.sql}`
+    ).get(id, ...scope.params) as NoteMetadata | undefined;
+    if (!result) return null;
     return {
       ...result,
       kind: (result.kind || 'observation') as NoteKind,
@@ -1381,17 +1439,18 @@ export class NoteRepository {
    * Get notes accessed within the last N days.
    * Captures "hot" notes from recent sessions.
    */
-  getRecentlyAccessedNotes(days: number = 7, limit: number = 10): NoteMetadata[] {
+  getRecentlyAccessedNotes(days: number = 7, limit: number = 10, visibility?: VisibilityOptions): NoteMetadata[] {
     const cutoff = Date.now() - (days * 24 * 60 * 60 * 1000);
+    const scope = this.visibilityPredicate('notes', visibility);
     const stmt = this.db.prepare(`
       SELECT * FROM notes
       WHERE status != 'archived' 
         AND last_accessed_at > ?
-        AND access_count > 0
+        AND access_count > 0${scope.sql}
       ORDER BY last_accessed_at DESC
       LIMIT ?
     `);
-    const results = stmt.all(cutoff, limit) as NoteMetadata[];
+    const results = stmt.all(cutoff, ...scope.params, limit) as NoteMetadata[];
     return results.map(r => ({
       ...r,
       kind: (r.kind || 'observation') as NoteKind,
@@ -1491,18 +1550,65 @@ export class NoteRepository {
 
     const now = Date.now();
     const tagsJson = JSON.stringify(tags);
+    const oldTagsJson = JSON.stringify(note.tags);
     this.db.prepare('UPDATE notes SET tags = ?, updated_at = ? WHERE id = ?').run(tagsJson, now, id);
     this.ftsUpdate(id, note.title, note.content, tagsJson, note.context || '');
-    this.rewriteNoteFile(note, { tags, updated_at: now });
+    if (this.rewriteNoteFile(note, { tags, updated_at: now })) return true;
 
-    return true;
+    this.db.prepare('UPDATE notes SET tags = ?, updated_at = ? WHERE id = ?').run(oldTagsJson, note.updated_at, id);
+    this.ftsUpdate(id, note.title, note.content, oldTagsJson, note.context || '');
+    return false;
+  }
+
+  assignProject(id: string, project: string, tags: string[]): { oldPath: string; newPath: string } | null {
+    const note = this.getById(id);
+    if (!note) return null;
+    const newPath = resolveNotePath(this.docsPath, note.kind, project, note.id, this.slugify(note.title));
+    // Validate filesystem preconditions before rewriting tags/DB so a failed move
+    // cannot leave a partially applied assignment. Never overwrite another note.
+    if (!fs.existsSync(note.path)) return null;
+    if (newPath !== note.path && fs.existsSync(newPath)) return null;
+    // Move first: metadata updates must not make a note claim a path that was
+    // never successfully created. Restore exact source bytes and indexed state
+    // if any subsequent update fails.
+    const oldPath = note.path;
+    const oldFile = fs.readFileSync(oldPath, 'utf-8');
+    const oldTagsJson = JSON.stringify(note.tags);
+    let moved = false;
+    try {
+      if (newPath !== oldPath) {
+        fs.mkdirSync(path.dirname(newPath), { recursive: true });
+        fs.renameSync(oldPath, newPath);
+        moved = true;
+        if (!this.updatePath(id, newPath)) throw new Error('Failed to update note path');
+      }
+      if (!this.updateTags(id, tags)) throw new Error('Failed to update note tags');
+      return { oldPath, newPath };
+    } catch (error) {
+      // A failed initial rename has not changed note bytes or indexed metadata.
+      // A same-path assignment may already have attempted a tag rewrite and
+      // must still restore the original file and index state.
+      if (!moved && newPath !== oldPath) return null;
+      try {
+        if (moved) fs.renameSync(newPath, oldPath);
+        fs.writeFileSync(oldPath, oldFile, 'utf-8');
+        this.db.prepare('UPDATE notes SET path = ?, tags = ?, updated_at = ? WHERE id = ?')
+          .run(oldPath, oldTagsJson, note.updated_at, id);
+        this.ftsUpdate(id, note.title, note.content, oldTagsJson, note.context || '');
+      } catch (rollbackError) {
+        logToFile('ERROR', 'Failed to roll back project assignment', {
+          noteId: id, error: String(rollbackError), originalError: String(error),
+        });
+      }
+      return null;
+    }
   }
 
   private updateFrontmatterStatus(note: NoteMetadata, newStatus: NoteStatus): void {
     this.rewriteNoteFile(note, { status: newStatus, updated_at: Date.now() });
   }
 
-  private rewriteNoteFile(note: NoteMetadata, overrides: Partial<NoteMetadata>): void {
+  private rewriteNoteFile(note: NoteMetadata, overrides: Partial<NoteMetadata>): boolean {
     try {
       const fileContent = fs.readFileSync(note.path, 'utf-8');
       const { frontmatter: oldFm, body: rawBody } = this.parseFrontmatter(fileContent);
@@ -1521,14 +1627,17 @@ export class NoteRepository {
       const userContent = bodySections.content;
       const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
       fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
+      return true;
     } catch (err) {
       logToFile('WARN', 'Failed to rewrite note file', { noteId: note.id, error: String(err) });
+      return false;
     }
   }
 
   getStats(project?: string): { total: number; fleeting: number; permanent: number; archived: number; other: number } {
-    const filter = project ? `WHERE kind NOT IN ('index', 'log') AND tags LIKE ?` : `WHERE kind NOT IN ('index', 'log')`;
-    const params = project ? [`%"project:${project}"%`] : [];
+    const visibility = project ? this.visibilityPredicate('notes', { project }) : { sql: '', params: [] as string[] };
+    const filter = `WHERE kind NOT IN ('index', 'log')${visibility.sql}`;
+    const params = visibility.params;
     const stmt = this.db.prepare(`
       SELECT
         COUNT(*) as total,
@@ -1566,9 +1675,9 @@ export class NoteRepository {
    * Used by knowledge-health for growth rate reporting.
    */
   getGrowthByKind(sinceMs: number, project?: string): Record<string, number> {
-    const projectClause = project ? ` AND kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
-    const params: (number | string)[] = [sinceMs];
-    if (project) params.push(`%"project:${project}"%`);
+    const visibility = project ? this.visibilityPredicate('notes', { project }) : { sql: '', params: [] as string[] };
+    const projectClause = project ? ` AND kind NOT IN ('index', 'log')${visibility.sql}` : '';
+    const params: (number | string)[] = [sinceMs, ...visibility.params];
     const rows = this.db.prepare(`
       SELECT kind, COUNT(*) as count
       FROM notes
@@ -1591,9 +1700,9 @@ export class NoteRepository {
     const d7 = now - 7 * 86400000;
     const d30 = now - 30 * 86400000;
     const d90 = now - 90 * 86400000;
-    const projectClause = project ? ` AND kind NOT IN ('index', 'log') AND tags LIKE ?` : '';
-    const params: (number | string)[] = [d7, d7, d30, d30, d90, d90];
-    if (project) params.push(`%"project:${project}"%`);
+    const visibility = project ? this.visibilityPredicate('notes', { project }) : { sql: '', params: [] as string[] };
+    const projectClause = project ? ` AND kind NOT IN ('index', 'log')${visibility.sql}` : '';
+    const params: (number | string)[] = [d7, d7, d30, d30, d90, d90, ...visibility.params];
     const row = this.db.prepare(`
       SELECT
         COALESCE(SUM(CASE WHEN COALESCE(last_accessed_at, created_at) >= ? THEN 1 ELSE 0 END), 0) as fresh,
@@ -2091,7 +2200,7 @@ export class NoteRepository {
     return parseAllWikiLinks(content).map(link => link.slug);
   }
 
-  private resolveLink(linkText: string): string | null {
+  public resolveLink(linkText: string): string | null {
     const parsed = parseWikiLink(linkText);
 
     const byPath = this.db.prepare('SELECT id FROM notes WHERE path LIKE ?').get(`%/${parsed.slug}.md`) as { id: string } | undefined;
@@ -2127,16 +2236,16 @@ export class NoteRepository {
     }
   }
 
-  getBacklinks(noteId: string): Array<{ note: NoteMetadata; link_text: string }> {
+  getBacklinks(noteId: string, visibility?: VisibilityOptions): Array<{ note: NoteMetadata; link_text: string }> {
     const stmt = this.db.prepare(`
       SELECT n.*, l.link_text
       FROM note_links l
       JOIN notes n ON l.source_id = n.id
-      WHERE l.target_id = ?
+      WHERE l.target_id = ?${this.visibilityPredicate('n', visibility).sql}
       ORDER BY l.created_at DESC
     `);
-
-    const results = stmt.all(noteId) as Array<NoteMetadata & { link_text: string }>;
+    const scope = this.visibilityPredicate('n', visibility);
+    const results = stmt.all(noteId, ...scope.params) as Array<NoteMetadata & { link_text: string }>;
 
     return results.map(r => ({
       note: {
@@ -2148,16 +2257,17 @@ export class NoteRepository {
     }));
   }
 
-  getOutgoingLinks(noteId: string): Array<{ note: NoteMetadata; link_text: string }> {
+  getOutgoingLinks(noteId: string, visibility?: VisibilityOptions): Array<{ note: NoteMetadata; link_text: string }> {
+    const scope = this.visibilityPredicate('n', visibility);
     const stmt = this.db.prepare(`
       SELECT n.*, l.link_text
       FROM note_links l
       JOIN notes n ON l.target_id = n.id
-      WHERE l.source_id = ?
+      WHERE l.source_id = ?${scope.sql}
       ORDER BY l.created_at DESC
     `);
 
-    const results = stmt.all(noteId) as Array<NoteMetadata & { link_text: string }>;
+    const results = stmt.all(noteId, ...scope.params) as Array<NoteMetadata & { link_text: string }>;
 
     return results.map(r => ({
       note: {
@@ -2236,9 +2346,8 @@ export class NoteRepository {
       const content = note.content || '';
       const lines = content.split('\n');
       for (let i = 0; i < lines.length; i++) {
-        let match;
         linkPattern.lastIndex = 0;
-        while ((match = linkPattern.exec(lines[i])) !== null) {
+        for (let match = linkPattern.exec(lines[i]); match !== null; match = linkPattern.exec(lines[i])) {
           const slug = parseWikiLink(match[1]).slug;
           const resolved = this.resolveLink(slug);
           if (!resolved) {
@@ -2333,15 +2442,16 @@ export class NoteRepository {
     }));
   }
 
-  getRecentNotes(limit: number = 5): NoteMetadata[] {
+  getRecentNotes(limit: number = 5, visibility?: VisibilityOptions): NoteMetadata[] {
+    const scope = this.visibilityPredicate('notes', visibility);
     const stmt = this.db.prepare(`
       SELECT * FROM notes 
       WHERE status != 'archived'
-        AND kind NOT IN ('index', 'log')
+        AND kind NOT IN ('index', 'log')${scope.sql}
       ORDER BY updated_at DESC 
       LIMIT ?
     `);
-    const results = stmt.all(limit) as NoteMetadata[];
+    const results = stmt.all(...scope.params, limit) as NoteMetadata[];
     return results.map(r => ({
       ...r,
       kind: (r.kind || 'observation') as NoteKind,
@@ -2512,6 +2622,94 @@ export class NoteRepository {
     if (this._closed) return;
     this._closed = true;
     this.db.close();
+  }
+
+  // ---- Global scope helpers ----
+
+  getAllGlobalNotes(limit: number = 100): NoteMetadata[] {
+    const stmt = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE EXISTS (SELECT 1 FROM json_each(notes.tags) WHERE value = ?)
+        AND NOT EXISTS (SELECT 1 FROM json_each(notes.tags) WHERE substr(value, 1, 8) = ?)
+        AND status != ?
+      ORDER BY updated_at DESC, id ASC
+      LIMIT ?
+    `);
+    const results = stmt.all('scope:global', 'project:', 'archived', limit) as NoteMetadata[];
+    return results.map(r => ({
+      ...r,
+      kind: (r.kind || 'observation') as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
+  getAllActiveNotes(): NoteMetadata[] {
+    const results = this.db.prepare("SELECT * FROM notes WHERE status != 'archived' ORDER BY id ASC").all() as NoteMetadata[];
+    return results.map(r => ({ ...r, kind: (r.kind || 'observation') as NoteKind, tags: JSON.parse(r.tags as unknown as string) }));
+  }
+
+  /** Backlinks safe for display on a global note: global sources only. */
+  getGlobalBacklinks(noteId: string): Array<{ note: NoteMetadata; link_text: string }> {
+    const target = this.getById(noteId);
+    if (!target || !target.tags.includes('scope:global')) return [];
+    return this.getBacklinks(noteId).filter(({ note }) =>
+      note.tags.includes('scope:global') && !note.tags.some(tag => tag.startsWith('project:')),
+    );
+  }
+
+  validateGlobalEdge(sourceId: string, targetId: string): void {
+    const source = this.getById(sourceId);
+    const target = this.getById(targetId);
+    if (!source || !target) throw new Error('Link endpoint not found');
+    if (!source.tags.includes('scope:global') || source.tags.some(tag => tag.startsWith('project:')))
+      throw new Error('Source note must be global');
+    if (!target.tags.includes('scope:global') || target.tags.some(tag => tag.startsWith('project:')))
+      throw new Error('Global notes may link only to global notes');
+  }
+
+  addLocalToGlobalRelation(sourceId: string, globalId: string): void {
+    const sourceNote = this.getById(sourceId);
+    if (!sourceNote) throw new Error('Source note not found');
+    const globalNote = this.getById(globalId);
+    if (!globalNote) throw new Error('Global note not found');
+    const sourceProjects = sourceNote.tags.filter(tag => tag.startsWith('project:'));
+    if (sourceProjects.length !== 1 || sourceNote.tags.includes('scope:global')) {
+      throw new Error('Source note must have exactly one project scope');
+    }
+    if (!globalNote.tags.includes('scope:global') || globalNote.tags.some(tag => tag.startsWith('project:'))) {
+      throw new Error('Global note must have scope:global and no project tag');
+    }
+
+    const originalContent = fs.readFileSync(sourceNote.path, 'utf-8');
+    const globalRelativePath = path.relative(this.docsPath, globalNote.path).replace(/\.md$/, '');
+    if (originalContent.includes(`[[${globalRelativePath}|`) || originalContent.includes(`[[${globalNote.id}`)) return;
+
+    const globalLink = `- [[${globalRelativePath}|${globalNote.title}]]`;
+    const relatedHeading = /^## Related\s*$/m.exec(originalContent);
+    let updatedContent: string;
+    if (relatedHeading?.index !== undefined) {
+      const sectionStart = relatedHeading.index + relatedHeading[0].length;
+      const nextHeadingOffset = originalContent.slice(sectionStart).search(/\n## /);
+      const insertAt = nextHeadingOffset >= 0 ? sectionStart + nextHeadingOffset : originalContent.length;
+      const before = originalContent.slice(0, insertAt);
+      const after = originalContent.slice(insertAt);
+      updatedContent = `${before}${before.endsWith('\n') ? '' : '\n'}${globalLink}\n${after}`;
+    } else {
+      const separator = originalContent.endsWith('\n\n') ? '' : originalContent.endsWith('\n') ? '\n' : '\n\n';
+      updatedContent = `${originalContent}${separator}## Related\n\n${globalLink}\n`;
+    }
+
+    const updatedAt = Math.max(Date.now(), sourceNote.updated_at + 1);
+    try {
+      fs.writeFileSync(sourceNote.path, updatedContent, 'utf-8');
+      this.db.prepare('UPDATE notes SET updated_at = ? WHERE id = ?').run(updatedAt, sourceId);
+      this.syncLinks(sourceId, updatedContent);
+    } catch (error) {
+      fs.writeFileSync(sourceNote.path, originalContent, 'utf-8');
+      this.db.prepare('UPDATE notes SET updated_at = ? WHERE id = ?').run(sourceNote.updated_at, sourceId);
+      this.syncLinks(sourceId, originalContent);
+      throw error;
+    }
   }
 }
 

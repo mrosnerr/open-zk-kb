@@ -14,14 +14,14 @@ describe('local tool telemetry', () => {
   });
 
   it('records counter rows with arg_kind and result_count for tool calls', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Alpha Observation',
       content: 'alpha telemetry content',
       kind: 'observation',
       summary: 'Alpha telemetry note',
       guidance: 'Use as telemetry fixture',
     }, ctx.engine, null, ctx.config);
-    handleSearch({ query: 'alpha' }, ctx.engine, null, ctx.config);
+    handleSearch({ project: 'test-project', query: 'alpha' }, ctx.engine, null, ctx.config);
     await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
     await sleep(0);
 
@@ -37,10 +37,10 @@ describe('local tool telemetry', () => {
   });
 
   it('updates last_accessed_at only for returned search results', async () => {
-    const alpha = ctx.engine.store('alpha returned content', { title: 'Returned', kind: 'reference' });
-    const beta = ctx.engine.store('beta unrelated content', { title: 'Unrelated', kind: 'reference' });
+    const alpha = ctx.engine.store('alpha returned content', { title: 'Returned', kind: 'reference', tags: ['project:test-project'] });
+    const beta = ctx.engine.store('beta unrelated content', { title: 'Unrelated', kind: 'reference', tags: ['project:test-project'] });
 
-    handleSearch({ query: 'alpha' }, ctx.engine, null, ctx.config);
+    handleSearch({ project: 'test-project', query: 'alpha' }, ctx.engine, null, ctx.config);
     await sleep(0);
 
     const accessed = ctx.engine.getById(alpha.id);
@@ -54,9 +54,9 @@ describe('local tool telemetry', () => {
   it('disables telemetry rows and access tracking when opted out', () => {
     cleanupTestHarness(ctx);
     ctx = createTestHarness({ telemetryEnabled: false });
-    const stored = ctx.engine.store('private alpha content', { title: 'Private Alpha', kind: 'reference' });
+    const stored = ctx.engine.store('private alpha content', { title: 'Private Alpha', kind: 'reference', tags: ['project:test-project'] });
 
-    handleSearch({ query: 'private alpha' }, ctx.engine, null, ctx.config);
+    handleSearch({ project: 'test-project', query: 'private alpha' }, ctx.engine, null, ctx.config);
     ctx.engine.recordToolInvocation('store', 'reference', 1);
     ctx.engine.updateLastAccessed([stored.id]);
 
@@ -107,7 +107,7 @@ describe('local tool telemetry', () => {
     ctx.engine.recordToolInvocation('store', 'observation', 1);
     ctx.engine.recordToolInvocation('maintain', 'review');
 
-    const output = await handleHealth({ telemetry: true }, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'test-project', telemetry: true }, ctx.engine, ctx.config);
 
     expect(output).toContain('Last 30 days (1 sessions):');
     expect(output).toContain('  Searches: 1 (avg 1 per session)');

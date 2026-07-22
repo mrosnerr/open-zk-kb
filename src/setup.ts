@@ -420,7 +420,14 @@ function isOpenZkKbPiPackageSource(source: string): boolean {
 
 function isOpenZkKbLocalPackagePath(source: string): boolean {
   const normalized = path.normalize(source);
-  return path.basename(normalized) === PI_PACKAGE_NAME;
+  if (path.basename(normalized) === PI_PACKAGE_NAME) return true;
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(normalized, 'package.json'), 'utf-8')) as unknown;
+    return isJsonObject(manifest) && manifest.name === PI_PACKAGE_NAME;
+  } catch {
+    return false;
+  }
 }
 
 function normalizePiPackages(config: JsonObject, desiredSource: string): void {

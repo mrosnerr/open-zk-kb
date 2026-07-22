@@ -58,6 +58,8 @@ export const MAINTAIN_ACTIONS = [
 	"embed",
 	"agent-docs",
 	"scope-audit",
+	"scope-inventory",
+	"assign-project",
 	"preference-audit",
 	"unlinked",
 	"broken-links",
@@ -65,7 +67,44 @@ export const MAINTAIN_ACTIONS = [
 	"migrate-layout",
 	"upgrade-vault",
 	"full",
+	"publish-global",
+	"global-reference-audit",
 ] as const;
+
+export const PUBLISH_GLOBAL_CANDIDATE_PROPERTIES: Record<string, ParamDef> = {
+	title: {
+		type: "string",
+		required: true,
+		description: "Distilled global note title — 3-6 word scannable label (max 10 words / 80 chars).",
+	},
+	content: {
+		type: "string",
+		required: true,
+		description: "Distilled global note content — project-agnostic knowledge",
+	},
+	kind: {
+		type: "string",
+		required: true,
+		description: "Global note kind — must be storable, non-domain, non-structural",
+		enum: STORABLE_KINDS,
+	},
+	summary: {
+		type: "string",
+		required: true,
+		description: "One-line present-tense key takeaway for global context",
+	},
+	guidance: {
+		type: "string",
+		required: true,
+		description: "Imperative actionable instruction for global agent use",
+	},
+	tags: {
+		type: "array",
+		required: false,
+		description: "Additional topical tags (must not contain project:* or scope:global — added automatically)",
+		items: { type: "string", required: true },
+	},
+};
 
 // ─── Content Structure Hints ──────────────────────────────────────────────────
 
@@ -193,8 +232,8 @@ export const TOOL_DEFINITIONS = [
 			},
 			project: {
 				type: "string",
-				required: false,
-				description: "Project scope — auto-adds project:<name> tag",
+				required: true,
+				description: "Current project scope — adds exactly one project:<name> tag",
 			},
 			client: {
 				type: "string",
@@ -296,8 +335,8 @@ export const TOOL_DEFINITIONS = [
 			},
 			project: {
 				type: "string",
-				required: false,
-				description: "Filter by project tag",
+				required: true,
+				description: "Current project; searches this project plus explicit global knowledge",
 			},
 			client: {
 				type: "string",
@@ -343,9 +382,8 @@ export const TOOL_DEFINITIONS = [
 		params: {
 			project: {
 				type: "string",
-				required: false,
-				description:
-					"Project name to get context for. Omit for global context.",
+				required: true,
+				description: "Current project whose visible context is requested",
 			},
 			logEntries: {
 				type: "number",
@@ -376,8 +414,8 @@ export const TOOL_DEFINITIONS = [
 		name: "knowledge-open",
 		label: "Open in Obsidian",
 		description:
-			"Open the knowledge base vault in Obsidian for visual browsing. " +
-			"Detects Obsidian installation and launches it pointed at the vault.",
+			"Open the knowledge base vault in Obsidian for full-vault human browsing. " +
+			"A project focuses its index but does not isolate the vault.",
 		promptSnippet:
 			"Open open-zk-kb notes in Obsidian for human review when requested.",
 		executionMode: "sequential",
@@ -404,6 +442,16 @@ export const TOOL_DEFINITIONS = [
 				required: true,
 				description: "Exact note ID to retrieve",
 			},
+			project: {
+				type: "string",
+				required: true,
+				description: "Current project used to validate note visibility",
+			},
+			client: {
+				type: "string",
+				required: false,
+				description: "Optional client applicability filter",
+			},
 			model: {
 				type: "string",
 				required: false,
@@ -426,8 +474,8 @@ export const TOOL_DEFINITIONS = [
 		params: {
 			project: {
 				type: "string",
-				required: false,
-				description: "Scope all metrics to a project",
+				required: true,
+				description: "Current project for scoped note metrics",
 			},
 			period: {
 				type: "string",
@@ -467,10 +515,12 @@ export const TOOL_DEFINITIONS = [
 					"Maintenance action: review (pending notes), dedupe (duplicates), promote, archive, delete, rebuild, " +
 					"format (re-serialize all note files with canonical frontmatter and navigation), upgrade, " +
 					"embed (backfill embeddings), agent-docs (audit/repair managed agent instruction files), " +
-					"scope-audit (detect mis-scoped client tags), preference-audit (read-only deterministic evidence for active personalization notes; never changes notes), unlinked (notes with no wikilinks), " +
+					"scope-audit (detect mis-scoped client tags), scope-inventory (read-only legacy applicability/readiness report), assign-project (confirmed legacy note classification), preference-audit (read-only deterministic evidence for active personalization notes; never changes notes), unlinked (notes with no wikilinks), " +
 					"broken-links (wikilinks to non-existent notes), link-health (combined report: unlinked notes + broken links + one-way links), " +
 					"migrate-layout (move flat vault to kind-based directory structure), " +
-					"upgrade-vault (refresh Obsidian scaffold assets), or " +
+					"upgrade-vault (refresh Obsidian scaffold assets), " +
+					"publish-global (project-local → global confirmed publication with preview + token), " +
+					"global-reference-audit (read-only explicit-global reference evidence), or " +
 					"full (composite: rebuild → migrate-layout → format → dedupe → embed → link-health, in dependency order).",
 				enum: MAINTAIN_ACTIONS,
 			},
@@ -478,7 +528,12 @@ export const TOOL_DEFINITIONS = [
 				type: "string",
 				required: false,
 				description:
-					"Note ID (required for promote/archive/delete; migration ID for upgrade-read)",
+					"Note ID (required for promote/archive/delete/assign-project; source note ID for publish-global; migration ID for upgrade-read)",
+			},
+			project: {
+				type: "string",
+				required: false,
+				description: "Target project (required for assign-project)",
 			},
 			filter: {
 				type: "string",
@@ -501,6 +556,22 @@ export const TOOL_DEFINITIONS = [
 				type: "boolean",
 				required: false,
 				description: "Preview changes without applying",
+			},
+			candidate: {
+				type: "object",
+				required: false,
+				description: "Distilled global candidate for publish-global action (required when action is publish-global)",
+				properties: PUBLISH_GLOBAL_CANDIDATE_PROPERTIES,
+			},
+			confirm: {
+				type: "boolean",
+				required: false,
+				description: "Explicit confirmation required for publish-global or assign-project apply",
+			},
+			token: {
+				type: "string",
+				required: false,
+				description: "Confirmation token from publish-global or assign-project preview (required for apply)",
 			},
 			model: {
 				type: "string",
@@ -534,9 +605,8 @@ export const TOOL_DEFINITIONS = [
 			},
 			project: {
 				type: "string",
-				required: false,
-				description:
-					"Project scope — auto-adds project:<name> tag to all candidates",
+				required: true,
+				description: "Current project for duplicate screening and stored candidates",
 			},
 			dry_run: {
 				type: "boolean",

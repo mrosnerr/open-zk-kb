@@ -52,6 +52,7 @@ async function run() {
     const storeResult = await client.callTool({
       name: 'knowledge-store',
       arguments: {
+        project: 'docker-test',
         title: 'Docker smoke test note',
         content: 'This is a test note created during Docker smoke testing.',
         kind: 'observation',
@@ -68,7 +69,7 @@ async function run() {
   try {
     const searchResult = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'Docker smoke test' },
+      arguments: { project: 'docker-test', query: 'Docker smoke test' },
     });
     const searchText = JSON.stringify(searchResult);
     check('knowledge-search finds note', searchText.includes('Docker smoke test'));
@@ -79,7 +80,7 @@ async function run() {
   try {
     const emptySearch = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'xyznonexistent999' },
+      arguments: { project: 'docker-test', query: 'xyznonexistent999' },
     });
     const emptyText = JSON.stringify(emptySearch);
     const isEmptyResult = emptyText.includes('No matching notes');
@@ -93,7 +94,7 @@ async function run() {
   try {
     const statsResult = await client.callTool({
       name: 'knowledge-health',
-      arguments: {},
+      arguments: { project: 'docker-test' },
     });
     const statsText = JSON.stringify(statsResult);
     check('knowledge-health returns health info', statsText.includes('Health'));
@@ -117,6 +118,7 @@ async function run() {
     await client.callTool({
       name: 'knowledge-store',
       arguments: {
+        project: 'docker-test',
         title: 'Claude Exclusive Smoke Note',
         content: 'This note is scoped to claude code only for verification.',
         kind: 'reference',
@@ -129,7 +131,7 @@ async function run() {
     // Search as claude-code — should find it
     const claudeSearch = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'claude exclusive smoke verification', client: 'claude-code' },
+      arguments: { project: 'docker-test', query: 'claude exclusive smoke verification', client: 'claude-code' },
     });
     const claudeText = JSON.stringify(claudeSearch);
     check('client-scoped note visible to matching client', claudeText.includes('Claude only smoke test note'));
@@ -137,7 +139,7 @@ async function run() {
     // Search as opencode — should NOT find it
     const openCodeSearch = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'claude exclusive smoke verification', client: 'opencode' },
+      arguments: { project: 'docker-test', query: 'claude exclusive smoke verification', client: 'opencode' },
     });
     const openCodeText = JSON.stringify(openCodeSearch);
     const hidden = !openCodeText.includes('Claude only smoke test note');
@@ -147,7 +149,7 @@ async function run() {
     // Search without client — should find it (backward compat)
     const allSearch = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'claude exclusive smoke verification' },
+      arguments: { project: 'docker-test', query: 'claude exclusive smoke verification' },
     });
     const allText = JSON.stringify(allSearch);
     check('client-scoped note visible without client filter (backward compat)', allText.includes('Claude only smoke test note'));

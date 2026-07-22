@@ -70,7 +70,7 @@ describe('MCP Protocol E2E', () => {
 
   it('knowledge-health and its deprecated alias return valid responses', async () => {
     for (const name of ['knowledge-health', 'knowledge-stats']) {
-      const result = await client!.callTool({ name, arguments: {} });
+      const result = await client!.callTool({ name, arguments: { project: 'protocol' } });
       const content = result.content as Array<{ type: string; text: string }>;
       expect(content).toHaveLength(1);
       expect(content[0].type).toBe('text');
@@ -82,6 +82,7 @@ describe('MCP Protocol E2E', () => {
     const result = await client!.callTool({
       name: 'knowledge-store',
       arguments: {
+        project: 'protocol',
         title: 'E2E Test Note',
         content: 'This is a test note from E2E tests.',
         kind: 'observation',
@@ -99,6 +100,7 @@ describe('MCP Protocol E2E', () => {
     const result = await client!.callTool({
       name: 'knowledge-search',
       arguments: {
+        project: 'protocol',
         query: 'E2E test',
       },
     });
@@ -123,6 +125,7 @@ describe('MCP Protocol E2E', () => {
     const result = await client!.callTool({
       name: 'knowledge-store',
       arguments: {
+        project: 'protocol',
         title: 'Client Param E2E Note',
         content: 'Configure .claude/skills directory for Claude Code.',
         kind: 'procedure',
@@ -151,6 +154,7 @@ describe('MCP Protocol E2E', () => {
     await client!.callTool({
       name: 'knowledge-store',
       arguments: {
+        project: 'protocol',
         title: 'Claude Filtered E2E Note',
         content: 'This is only for Claude Code clients to see.',
         kind: 'reference',
@@ -163,7 +167,7 @@ describe('MCP Protocol E2E', () => {
     // Search as opencode — should NOT see it
     const openCodeResult = await client!.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'Claude Filtered E2E', client: 'opencode' },
+      arguments: { project: 'protocol', query: 'Claude Filtered E2E', client: 'opencode' },
     });
     const openCodeText = (openCodeResult.content as Array<{ type: string; text: string }>)[0].text;
     expect(openCodeText).not.toContain('This is only for Claude Code');
@@ -171,7 +175,7 @@ describe('MCP Protocol E2E', () => {
     // Search as claude-code — SHOULD see it
     const claudeResult = await client!.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'Claude Filtered E2E', client: 'claude-code' },
+      arguments: { project: 'protocol', query: 'Claude Filtered E2E', client: 'claude-code' },
     });
     const claudeText = (claudeResult.content as Array<{ type: string; text: string }>)[0].text;
     expect(claudeText).toContain('This is only for Claude Code');
@@ -179,7 +183,7 @@ describe('MCP Protocol E2E', () => {
     // Search without client — SHOULD see it (backward compat)
     const allResult = await client!.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'Claude Filtered E2E' },
+      arguments: { project: 'protocol', query: 'Claude Filtered E2E' },
     });
     const allText = (allResult.content as Array<{ type: string; text: string }>)[0].text;
     expect(allText).toContain('This is only for Claude Code');
@@ -194,6 +198,7 @@ describe('MCP Protocol E2E', () => {
     await client!.callTool({
       name: 'knowledge-store',
       arguments: {
+        project: 'protocol',
         title: 'Pi Protocol Preference',
         content: 'Keep Pi protocol output concise.',
         kind: 'personalization',
@@ -206,7 +211,7 @@ describe('MCP Protocol E2E', () => {
 
     const result = await client!.callTool({
       name: 'knowledge-context',
-      arguments: { client: 'pi', includePreferences: true },
+      arguments: { project: 'protocol', client: 'pi', includePreferences: true },
     });
     const structured = result.structuredContent as {
       preferenceCapsule?: {
@@ -218,13 +223,125 @@ describe('MCP Protocol E2E', () => {
 
     expect(structured?.preferenceCapsule?.selected).toBeGreaterThanOrEqual(1);
     expect(structured?.preferenceCapsule?.omitted).toBeGreaterThanOrEqual(0);
-    expect(structured?.preferenceCapsule?.text).toContain('[client:pi] Keep Pi protocol output concise.');
+    expect(structured?.preferenceCapsule?.text).toContain('[project:protocol, client:pi] Keep Pi protocol output concise.');
 
     const aliasResult = await client!.callTool({
       name: 'knowledge-overview',
-      arguments: { client: 'pi', includePreferences: true },
+      arguments: { project: 'protocol', client: 'pi', includePreferences: true },
     });
     expect(aliasResult.structuredContent).toEqual(result.structuredContent);
+  });
+
+  it('isolates project knowledge while sharing confirmed global derivatives', async () => {
+    const store = async (project: string, title: string, content: string) => {
+      const result = await client!.callTool({
+        name: 'knowledge-store',
+        arguments: {
+          project,
+          title,
+          content,
+          kind: 'reference',
+          summary: `${title} summary`,
+          guidance: `Use ${title.toLowerCase()} guidance.`,
+        },
+      });
+      const text = (result.content as Array<{ type: string; text: string }>)[0].text;
+      const id = /→\s*(\d{12,16})\b/.exec(text)?.[1];
+      expect(id).toBeDefined();
+      return id as string;
+    };
+
+    const alphaId = await store('protocol-alpha', 'Alpha Boundary Note', 'isolationtoken alpha private detail');
+    const betaId = await store('protocol-beta', 'Beta Boundary Note', 'isolationtoken beta private detail');
+    const candidate = {
+      title: 'Shared Boundary Guidance',
+      content: 'isolationtoken shared reusable guidance',
+      kind: 'reference',
+      summary: 'Reusable isolation guidance applies broadly.',
+      guidance: 'Apply the reusable isolation guidance.',
+    };
+
+    const previewResult = await client!.callTool({
+      name: 'knowledge-maintain',
+      arguments: { action: 'publish-global', noteId: alphaId, candidate, dryRun: true },
+    });
+    const previewText = (previewResult.content as Array<{ type: string; text: string }>)[0].text;
+    const preview = JSON.parse(previewText) as { valid: boolean; confirmationToken: string };
+    expect(preview.valid).toBe(true);
+
+    const applyResult = await client!.callTool({
+      name: 'knowledge-maintain',
+      arguments: {
+        action: 'publish-global', noteId: alphaId, candidate,
+        dryRun: false, confirm: true, token: preview.confirmationToken,
+      },
+    });
+    expect((applyResult.content as Array<{ type: string; text: string }>)[0].text).toContain('"created"');
+
+    const search = async (project: string) => {
+      const result = await client!.callTool({
+        name: 'knowledge-search',
+        arguments: { project, query: 'isolationtoken' },
+      });
+      return (result.content as Array<{ type: string; text: string }>)[0].text;
+    };
+    const alphaSearch = await search('protocol-alpha');
+    expect(alphaSearch).toContain('Alpha Boundary Note');
+    expect(alphaSearch).toContain('Reusable isolation guidance applies broadly.');
+    expect(alphaSearch).not.toContain('Beta Boundary Note');
+
+    const betaSearch = await search('protocol-beta');
+    expect(betaSearch).toContain('Beta Boundary Note');
+    expect(betaSearch).toContain('Reusable isolation guidance applies broadly.');
+    expect(betaSearch).not.toContain('Alpha Boundary Note');
+
+    const deniedGet = await client!.callTool({
+      name: 'knowledge-get',
+      arguments: { project: 'protocol-alpha', noteId: betaId },
+    });
+    expect((deniedGet.content as Array<{ type: string; text: string }>)[0].text).toContain('Note not found');
+
+    const alphaContext = await client!.callTool({
+      name: 'knowledge-context',
+      arguments: { project: 'protocol-alpha' },
+    });
+    const alphaContextText = (alphaContext.content as Array<{ type: string; text: string }>)[0].text;
+    expect(alphaContextText).toContain('Alpha Boundary Note');
+    expect(alphaContextText).toContain('Shared Boundary Guidance');
+    expect(alphaContextText).not.toContain('Beta Boundary Note');
+
+    const relatedStore = await client!.callTool({
+      name: 'knowledge-store',
+      arguments: {
+        project: 'protocol-alpha',
+        title: 'Shared Boundary Guidance',
+        content: 'isolationtoken shared reusable guidance',
+        kind: 'reference',
+        summary: 'Reusable isolation guidance applies broadly.',
+        guidance: 'Keep related-note discovery within the visibility boundary.',
+        model: 'claude-opus-4',
+      },
+    });
+    const relatedStoreText = (relatedStore.content as Array<{ type: string; text: string }>)[0].text;
+    expect(relatedStoreText).toContain('Shared Boundary Guidance');
+    expect(relatedStoreText).not.toContain('Beta Boundary Note');
+
+    const mined = await client!.callTool({
+      name: 'knowledge-mine',
+      arguments: {
+        project: 'protocol-alpha', dry_run: true,
+        candidates: [{
+          title: 'Beta Private Candidate',
+          content: 'beta private detail unique candidate',
+          kind: 'reference',
+          summary: 'Beta private detail unique candidate.',
+          guidance: 'Use beta private detail only when visible.',
+        }],
+      },
+    });
+    const minedText = (mined.content as Array<{ type: string; text: string }>)[0].text;
+    expect(minedText).toContain('STORE');
+    expect(minedText).not.toContain('Beta Boundary Note');
   });
 
   it('handles unknown tool gracefully', async () => {
@@ -235,5 +352,56 @@ describe('MCP Protocol E2E', () => {
 
     // MCP SDK returns a result with isError flag for unknown tools
     expect(result.isError).toBe(true);
+  });
+
+  it('rejects knowledge-store without project', async () => {
+    const result = await client!.callTool({
+      name: 'knowledge-store',
+      arguments: {
+        title: 'Missing Project',
+        content: 'This should fail.',
+        kind: 'observation',
+        summary: 'Missing project test',
+        guidance: 'Test missing project rejection',
+      },
+    });
+    expect(result.isError).toBe(true);
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0].text).toContain('project');
+  });
+
+  it('knowledge-maintain scope-inventory returns a read-only report', async () => {
+    const result = await client!.callTool({
+      name: 'knowledge-maintain',
+      arguments: { action: 'scope-inventory' },
+    });
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0].text).toContain('scope-inventory');
+    expect(content[0].text).toContain('mutated');
+  });
+
+  it('knowledge-maintain publish-global requires noteId', async () => {
+    const result = await client!.callTool({
+      name: 'knowledge-maintain',
+      arguments: { action: 'publish-global', dryRun: true },
+    });
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0].text).toContain('noteId is required');
+  });
+
+  it('knowledge-maintain assign-project requires noteId and project', async () => {
+    const missingNoteId = await client!.callTool({
+      name: 'knowledge-maintain',
+      arguments: { action: 'assign-project', project: 'protocol' },
+    });
+    const missingNoteIdText = (missingNoteId.content as Array<{ type: string; text: string }>)[0].text;
+    expect(missingNoteIdText).toContain('noteId is required');
+
+    const missingProject = await client!.callTool({
+      name: 'knowledge-maintain',
+      arguments: { action: 'assign-project', noteId: 'nonexistent-note' },
+    });
+    const missingProjectText = (missingProject.content as Array<{ type: string; text: string }>)[0].text;
+    expect(missingProjectText).toContain('a valid project is required');
   });
 });

@@ -513,7 +513,7 @@ describe('NoteRepository — Coverage Boost', () => {
   describe('getAll', () => {
     it('should return all notes up to limit', () => {
       for (let i = 0; i < 5; i++) {
-        ctx.engine.store(`Note ${i}`, { title: `Note ${i}`, kind: 'reference' });
+        ctx.engine.store(`Note ${i}`, { title: `Note ${i}`, kind: 'reference', tags: ['project:test-project'] });
       }
       const all = ctx.engine.getAll(3);
       expect(all.length).toBe(3);
@@ -668,7 +668,7 @@ describe('Tool Handlers — Coverage Boost', () => {
 
   describe('handleStore edge cases', () => {
     it('should handle related IDs that do not exist', async () => {
-      const output = await handleStore({
+      const output = await handleStore({ project: 'test-project',
         title: 'With missing related',
         content: 'Content',
         kind: 'reference',
@@ -677,14 +677,14 @@ describe('Tool Handlers — Coverage Boost', () => {
         guidance: 'Test',
       }, ctx.engine);
 
-      expect(output).toContain('Stored ');
+      expect(output).toContain('Related note not found or not visible');
     });
   });
 
   describe('handleHealth — coverage', () => {
     it('should show embedding provider when config passed', async () => {
       const output = await handleHealth(
-        {},
+        { project: 'test-project' },
         ctx.engine,
         ctx.config,
         { provider: 'local', model: 'test-model', dimensions: 384 }
@@ -694,10 +694,10 @@ describe('Tool Handlers — Coverage Boost', () => {
 
     it('should include growth rate for recently created notes', async () => {
       for (let i = 0; i < 6; i++) {
-        ctx.engine.store(`Note ${i}`, { title: `Note ${i}`, kind: 'reference' });
+        ctx.engine.store(`Note ${i}`, { title: `Note ${i}`, kind: 'reference', tags: ['project:test-project'] });
       }
 
-      const output = await handleHealth({}, ctx.engine, ctx.config);
+      const output = await handleHealth({ project: 'test-project',}, ctx.engine, ctx.config);
       expect(output).toContain('Notes created: 6');
     });
   });
@@ -723,7 +723,7 @@ describe('Tool Handlers — Coverage Boost', () => {
 
   describe('handleMaintain — upgrade', () => {
     it('should return "no upgrade needed" when all notes are complete', async () => {
-      await handleStore({
+      await handleStore({ project: 'test-project',
         title: 'Complete',
         content: 'Content',
         kind: 'reference',
@@ -749,8 +749,8 @@ describe('Tool Handlers — Coverage Boost', () => {
 
   describe('handleMaintain — dedupe', () => {
     it('should report no duplicates for unique notes', async () => {
-      await handleStore({ title: 'Unique A', content: 'AAA', kind: 'reference', summary: 'A', guidance: 'A' }, ctx.engine);
-      await handleStore({ title: 'Unique B', content: 'BBB', kind: 'reference', summary: 'B', guidance: 'B' }, ctx.engine);
+      await handleStore({ project: 'test-project', title: 'Unique A', content: 'AAA', kind: 'reference', summary: 'A', guidance: 'A' }, ctx.engine);
+      await handleStore({ project: 'test-project', title: 'Unique B', content: 'BBB', kind: 'reference', summary: 'B', guidance: 'B' }, ctx.engine);
 
       const output = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
       expect(output).toContain('No duplicate notes found');
@@ -759,15 +759,14 @@ describe('Tool Handlers — Coverage Boost', () => {
 
   describe('handleMaintain — embed', () => {
     it('should error when no embeddingConfig', async () => {
-      await handleStore({ title: 'Note', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
+      await handleStore({ project: 'test-project', title: 'Note', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
       const output = await handleMaintain({ action: 'embed' }, ctx.engine, ctx.config);
       expect(output).toContain('Embedding not configured');
     });
 
     it('should report nothing to backfill when all embedded', async () => {
-      const r = await handleStore({ title: 'Note', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
-      const id = r.match(/→ (\S+)/)?.[1];
-      if (id) ctx.engine.storeEmbedding(id, [0.1, 0.2], 'test');
+      await handleStore({ project: 'test-project', title: 'Note', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
+      for (const note of ctx.engine.getAll()) ctx.engine.storeEmbedding(note.id, [0.1, 0.2], 'test');
 
       const output = await handleMaintain(
         { action: 'embed' },
@@ -779,7 +778,7 @@ describe('Tool Handlers — Coverage Boost', () => {
     });
 
     it('should support dry run for embed', async () => {
-      await handleStore({ title: 'Note', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
+      await handleStore({ project: 'test-project', title: 'Note', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
       const output = await handleMaintain(
         { action: 'embed', dryRun: true },
         ctx.engine,
@@ -791,7 +790,7 @@ describe('Tool Handlers — Coverage Boost', () => {
 
     it('should actually embed notes via batch API', async () => {
       const originalFetch = globalThis.fetch;
-      await handleStore({ title: 'Embed Me', content: 'Content to embed', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
+      await handleStore({ project: 'test-project', title: 'Embed Me', content: 'Content to embed', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
 
       // Mock fetch to return embedding
       globalThis.fetch = (async () => new Response(JSON.stringify({
@@ -816,8 +815,8 @@ describe('Tool Handlers — Coverage Boost', () => {
 
   describe('handleMaintain — dedupe with duplicates', () => {
     it('should detect title-based duplicates', async () => {
-      await handleStore({ title: 'Same Title', content: 'First version', kind: 'reference', summary: 'A', guidance: 'A' }, ctx.engine);
-      await handleStore({ title: 'Same Title', content: 'Second version', kind: 'reference', summary: 'B', guidance: 'B' }, ctx.engine);
+      await handleStore({ project: 'test-project', title: 'Same Title', content: 'First version', kind: 'reference', summary: 'A', guidance: 'A' }, ctx.engine);
+      await handleStore({ project: 'test-project', title: 'Same Title', content: 'Second version', kind: 'reference', summary: 'B', guidance: 'B' }, ctx.engine);
 
       const output = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
       expect(output).toContain('Title-Based Duplicates');
@@ -854,14 +853,14 @@ describe('Tool Handlers — Coverage Boost', () => {
 
   describe('handleSearch', () => {
     it('should find notes by keyword', () => {
-      ctx.engine.store('TypeScript best practices for beginners', { title: 'TS Guide', kind: 'reference' });
-      const output = handleSearch({ query: 'TypeScript' }, ctx.engine);
+      ctx.engine.store('TypeScript best practices for beginners', { title: 'TS Guide', kind: 'reference', tags: ['project:test-project'] });
+      const output = handleSearch({ project: 'test-project', query: 'TypeScript' }, ctx.engine);
       expect(output).toContain('TS Guide');
       expect(output).toContain('Found');
     });
 
     it('should return no results message for missing keywords', () => {
-      const output = handleSearch({ query: 'xyznonexistent123' }, ctx.engine);
+      const output = handleSearch({ project: 'test-project', query: 'xyznonexistent123' }, ctx.engine);
       expect(output).toContain('No matching notes found');
     });
 
@@ -891,13 +890,13 @@ describe('Tool Handlers — Coverage Boost', () => {
 
   describe('handleMaintain — stats with other status', () => {
     it('should show "other" count when unknown status exists', async () => {
-      await handleStore({ title: 'Normal', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
+      await handleStore({ project: 'test-project', title: 'Normal', content: 'C', kind: 'reference', summary: 'S', guidance: 'G' }, ctx.engine);
       // Inject a note with an invalid status directly
       ctx.engine['db'].prepare(
         "UPDATE notes SET status = 'unknown' WHERE id = (SELECT id FROM notes LIMIT 1)"
       ).run();
 
-      const output = await handleHealth({}, ctx.engine, ctx.config);
+      const output = await handleHealth({ project: 'test-project',}, ctx.engine, ctx.config);
       // Stats should still work, may or may not show "Other" depending on getStats impl
       expect(output).toContain('Knowledge Base Stats');
     });

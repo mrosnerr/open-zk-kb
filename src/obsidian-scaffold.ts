@@ -636,50 +636,6 @@ function expectedDigest(fileDigests: Record<string, string>, fileName: string): 
   return digest;
 }
 
-function buildQuickAddChoices(): Array<Record<string, unknown>> {
-  const kinds = [
-    { id: 'decision', kind: 'decision', template: 'decision.md', label: 'Decision — choices & tradeoffs' },
-    { id: 'observation', kind: 'observation', template: 'observation.md', label: 'Observation — things you noticed' },
-    { id: 'procedure', kind: 'procedure', template: 'procedure.md', label: 'Procedure — step-by-step workflows' },
-    { id: 'reference', kind: 'reference', template: 'reference.md', label: 'Reference — sources & excerpts' },
-    { id: 'resource', kind: 'resource', template: 'resource.md', label: 'Resource — tools & URLs' },
-    { id: 'preference', kind: 'personalization', template: 'personalization.md', label: 'Preference — personal habits' },
-    { id: 'domain', kind: 'domain', template: 'domain.md', label: 'Domain — project manual for AI' },
-  ];
-
-  const kindDirMap: Record<string, string> = {
-    decision: 'decisions', observation: 'observations', procedure: 'procedures',
-    reference: 'references', resource: 'resources', personalization: 'preferences',
-    domain: '',
-  };
-
-  return kinds.map(({ id, kind, template, label }) => ({
-    name: label,
-    id: deterministicId(`quickadd-${id}`),
-    type: 'Template',
-    command: true,
-    templatePath: `templates/obsidian/${template}`,
-    fileNameFormat: {
-      enabled: true,
-      format: kind === 'domain'
-        ? 'domain'
-        : '{{DATE:YYYYMMDDHHmmss}}00-new-note',
-    },
-    folder: {
-      enabled: true,
-      folders: [kind === 'domain' ? 'general' : `general/${kindDirMap[kind] || `${kind}s`}`],
-      chooseWhenCreatingNote: false,
-    },
-    openFile: true,
-    fileOpening: {
-      location: 'tab',
-      direction: 'vertical',
-      mode: 'source',
-      focus: true,
-    },
-  }));
-}
-
 function buildProjectQuickAddChoices(): Array<Record<string, unknown>> {
   const kinds = [
     { id: 'project-decision', template: 'decision-project.md', label: 'Project Decision' },
@@ -805,21 +761,10 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
           },
         },
       };
-    case 'quickadd': {
-      const multiChoiceId = deterministicId('quickadd-new-note');
+    case 'quickadd':
       return {
-        choices: [
-          {
-            name: 'New Note',
-            id: multiChoiceId,
-            type: 'Multi',
-            command: true,
-            choices: buildQuickAddChoices(),
-          },
-          ...buildProjectQuickAddChoices(),
-        ],
+        choices: buildProjectQuickAddChoices(),
       };
-    }
     case 'cmdr': {
       const pageHeaderButtons: Array<Record<string, unknown>> = [];
       if (!config.readOnly) {

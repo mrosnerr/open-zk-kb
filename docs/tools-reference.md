@@ -9,7 +9,7 @@ open-zk-kb exposes ten MCP tools. Your agent calls these automatically based on 
 | [`knowledge-search`](#knowledge-search) | Search the knowledge base before starting work |
 | [`knowledge-maintain`](#knowledge-maintain) | Review, promote, archive, and rebuild notes |
 | [`knowledge-health`](#knowledge-health) | Vault health metrics, staleness distribution, growth rates, and infrastructure status |
-| [`knowledge-context`](#knowledge-context) | Get a global or project overview with computed inventory and recent activity |
+| [`knowledge-context`](#knowledge-context) | Get a project overview of local and explicitly global knowledge |
 | `knowledge-template` | Get the canonical note template for a specific kind |
 | `knowledge-mine` | Bulk-screen candidates from session history for duplicates and store |
 | `knowledge-open` | Open the vault in [Obsidian](obsidian.md) with a scaffolded theme, plugins, and homepage |
@@ -35,7 +35,7 @@ Store knowledge in the persistent knowledge base. One concept per note.
 | `status` | enum | No | Override default: `fleeting`, `permanent`, or `archived`. Defaults based on kind (see [Note Lifecycle](note-lifecycle.md)) |
 | `lifecycle` | enum | No | `living` (mutable), `snapshot` (immutable), or `append-only`. Defaults based on kind |
 | `tags` | string[] | No | Tags for categorization |
-| `project` | string | No | Project scope — auto-adds `project:<name>` tag |
+| `project` | string | Yes | Current project; storage adds exactly one `project:<name>` tag |
 | `client` | string | No | Client identifier (e.g. `claude-code`, `opencode`). Auto-detected from content when omitted |
 | `related` | string[] | No | IDs of related notes to link via `[[wikilinks]]` |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
@@ -167,7 +167,7 @@ Search the knowledge base using full-text search and semantic similarity. Return
 | `kind` | enum | No | Filter by note kind |
 | `status` | enum | No | Filter by status: `fleeting`, `permanent`, or `archived` |
 | `lifecycle` | enum | No | Filter by lifecycle: `living`, `snapshot`, or `append-only` |
-| `project` | string | No | Filter by project tag |
+| `project` | string | Yes | Current project visibility boundary |
 | `client` | string | No | Your client name — excludes notes scoped to other clients |
 | `tags` | string[] | No | Filter by tags (all must match) |
 | `limit` | number | No | Max results (default 10) |
@@ -365,3 +365,12 @@ Retrieve a single note by its exact ID. Faster and more precise than knowledge-s
 ```json
 { "noteId": "2026030919130100" }
 ```
+
+
+## Project visibility and authority
+
+Routine stored-knowledge tools (`knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-context`, `knowledge-health`, and `knowledge-mine`) require an explicit current project. They can see that project's notes plus notes tagged `scope:global`, further restricted by compatible `client:*` tags. Notes belonging to other projects and unclassified notes are excluded before ranking, limiting, duplicate checks, links, counts, and exact-ID retrieval. Missing project context fails closed; there is no routine full-vault override. Ingest, template retrieval, and human-requested `knowledge-open` remain exceptions; Obsidian is a full-vault human browsing surface.
+
+Routine storage and mining create only project-local notes with exactly one `project:*` tag. They cannot create `scope:global` notes. Global creation uses maintenance `publish-global`: the agent authors a complete project-agnostic candidate from a local source, previews scope/link/duplicate evidence and a confirmation token, shows that evidence to the user, then applies only after explicit confirmation. The source remains local and points one way to the new derivative; the global note contains no reverse project provenance. The server computes evidence; the agent judges it.
+
+Maintenance actions—including review, dedupe, rebuild, format, embedding repair, audits, link health, migration, and publication—remain explicitly full-vault and label project ownership. Legacy notes with neither exactly one project tag nor `scope:global` are unclassified and invisible to routine calls. Use maintenance's legacy scope inventory and confirmed assignment to classify them; never silently treat them as global.

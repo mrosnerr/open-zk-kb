@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { TOOL_DEFINITIONS, type ParamDef } from '../src/tool-meta.js';
+import { TOOL_DEFINITIONS, PUBLISH_GLOBAL_CANDIDATE_PROPERTIES, type ParamDef } from '../src/tool-meta.js';
 import { toZodSchema } from '../src/tool-schemas.js';
 import { toTypeBoxSchema } from '../src/pi/tool-schemas.js';
 
@@ -50,5 +50,41 @@ describe('shared tool schemas', () => {
     const mine = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-mine')!;
     const schema = toZodSchema(mine.params);
     expect(schema.safeParse({ candidates: [undefined] }).success).toBe(false);
+  });
+
+  it('requires project on knowledge-store', () => {
+    const store = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-store')!;
+    const schema = toZodSchema(store.params);
+    expect(schema.safeParse({ title: 't', content: 'c', kind: 'observation', summary: 's', guidance: 'g' }).success).toBe(false);
+    expect(schema.safeParse({ project: 'p', title: 't', content: 'c', kind: 'observation', summary: 's', guidance: 'g' }).success).toBe(true);
+  });
+
+  it('includes publish-global, scope-inventory, and assign-project in maintain actions', () => {
+    const maintain = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-maintain')!;
+    const schema = toZodSchema(maintain.params);
+    expect(schema.safeParse({ action: 'publish-global' }).success).toBe(true);
+    expect(schema.safeParse({ action: 'scope-inventory' }).success).toBe(true);
+    expect(schema.safeParse({ action: 'assign-project' }).success).toBe(true);
+    expect(schema.safeParse({ action: 'invalid-action' }).success).toBe(false);
+  });
+
+  it('validates publish-global candidate schema', () => {
+    const candidate = toZodSchema(PUBLISH_GLOBAL_CANDIDATE_PROPERTIES);
+    const valid = candidate.safeParse({
+      title: 'Global Note',
+      content: 'Global content',
+      kind: 'observation',
+      summary: 'Summary',
+      guidance: 'Guidance',
+    });
+    expect(valid.success).toBe(true);
+    const invalid = candidate.safeParse({
+      title: 'Global Note',
+      content: 'Global content',
+      kind: 'invalid-kind',
+      summary: 'Summary',
+      guidance: 'Guidance',
+    });
+    expect(invalid.success).toBe(false);
   });
 });

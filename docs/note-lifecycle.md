@@ -42,7 +42,7 @@ When a note is created, its `kind` determines its initial `status`. Some kinds a
 Because personalization notes default to permanent and may be exempt from review, apply the **durability test within the declared scope**: a project- or client-scoped preference must remain useful in future work within that scope after the current task and transient implementation, configuration, or subscription changes. A universal preference must also remain broadly useful across projects and clients.
 
 Applicability uses existing tags:
-- No `project:*` or `client:*` tags means universal.
+- `scope:global` means explicitly global; absence of a project scope is unclassified, not universal.
 - `project:<name>` means the preference applies to that project.
 - `client:<name>` means it applies to that client or harness.
 - Both tag families may be present when both constraints apply.
@@ -103,3 +103,10 @@ lifecycle:
 ```
 
 For a full list of configuration options, see the [Configuration Reference](configuration.md). The review system is exposed through the [`knowledge-maintain` tool](tools-reference.md#knowledge-maintain).
+
+
+## Applicability and publication lifecycle
+
+Every active content note is either project-local (exactly one `project:<name>` and no `scope:global`) or explicitly global (`scope:global` and no project tag). Conflicting or missing scope is unclassified and excluded from routine agent operations. Client tags remain an additional applicability filter. Routine capture always starts project-local.
+
+Global knowledge is a new, one-way derivative rather than a promotion or re-scope of its source. Through full-vault maintenance, an agent authors project-agnostic prose, previews `publish-global`, presents the server-computed evidence for human judgment, and applies it only after confirmation. The local source and its semantic fields remain intact and gain the outgoing relationship; the global derivative records no source project or reverse provenance. Legacy unclassified notes enter maintenance inventory for explicit project assignment or a separately distilled publication—never automatic global classification.

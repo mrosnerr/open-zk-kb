@@ -28,7 +28,7 @@ The vault opens to a **Home** page showing:
 
 - Total note and project counts
 - Project table with note counts and last-active dates
-- Links to General Knowledge, Preferences, Review queue, and Operations Log
+- Links to confirmed Global Knowledge, Preferences, Review queue, and Operations Log
 
 ### Breadcrumb Navigation
 
@@ -69,7 +69,7 @@ Dataview tables on navigation pages include action buttons for each note:
 | pencil | Edit via QuickAdd |
 | trash | Delete (with confirmation) |
 | check-circle | Promote to permanent (review page only) |
-| + | Add new note of that kind (section headers) |
+| + | Add a project-local note of that kind (project section headers only) |
 
 ### Review Queue
 
@@ -84,7 +84,7 @@ The scaffold installs and configures 14 community plugins, plus the Border theme
 | [Dataview](https://github.com/blacksmithgu/obsidian-dataview) | Dynamic tables and lists on navigation pages |
 | [Breadcrumbs](https://github.com/SkepticMystic/breadcrumbs) | Hierarchical breadcrumb trails |
 | [Homepage](https://github.com/mirnovov/obsidian-homepage) | Opens Home on launch |
-| [QuickAdd](https://github.com/chhoumann/quickadd) | Templated note creation and editing |
+| [QuickAdd](https://github.com/chhoumann/quickadd) | Templated project-local note creation and editing |
 | [Templater](https://github.com/SilentVoid13/Templater) | Template engine for QuickAdd |
 | [Commander](https://github.com/phibr0/obsidian-commander) | Ribbon and page-header button management |
 | [Style Settings](https://github.com/mgmeyers/obsidian-style-settings) | Theme configuration (card layout) |

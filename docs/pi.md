@@ -12,7 +12,7 @@ Bun remains required for the local MCP server and SQLite storage. Restart Pi aft
 
 ## Automatic Project Preferences
 
-When a Pi session starts, the extension loads permanent preferences for the current project through `knowledge-context`. The preference capsule enters model context through the system prompt, so it is available before the model responds and does not require a model-initiated `knowledge-search` call.
+When a Pi session starts, the extension derives the canonical project from the current working-directory basename and loads permanent preferences through `knowledge-context`. It supplies that project and `client: "pi"` on every routine stored-knowledge call it initiates; caller-supplied values cannot widen the boundary. The preference capsule enters model context through the system prompt, so it is available before the model responds and does not require a model-initiated `knowledge-search` call.
 
 Pi separately displays an honest, deduplicated session entry:
 
@@ -66,3 +66,8 @@ The package registers all ten `knowledge-*` tools directly in Pi:
 Pi retains its native tool header and interaction shell. open-zk-kb supplies only knowledge-specific result content, with compact collapsed states and expanded detail where useful. Malformed responses and server errors fall back to complete raw output instead of hiding diagnostic information.
 
 For installation and troubleshooting, see the [Setup Guide](setup-guide.md#pi-installation). For tool parameters and response behavior, see the [Tools Reference](tools-reference.md).
+
+
+## Project boundaries
+
+Pi routine searches, exact-ID retrieval, context, health note metrics, stores, and mining operate on the current project plus explicitly global notes. Stores and mined notes remain project-local; normal calls cannot create global or unclassified notes. Maintenance remains full-vault and does not receive an implicit project restriction from the extension. Use maintenance to inventory legacy unclassified notes and to preview `publish-global`; show the evidence and obtain explicit confirmation before creating a project-agnostic derivative.

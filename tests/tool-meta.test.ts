@@ -150,6 +150,7 @@ describe('toZodSchema', () => {
       content: 'Some content',
       summary: 'A test',
       guidance: 'Do this',
+      project: 'example-project',
     })).not.toThrow();
     // Missing required field
     expect(() => schema.parse({
