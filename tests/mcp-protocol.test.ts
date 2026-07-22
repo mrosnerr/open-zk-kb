@@ -66,6 +66,8 @@ describe('MCP Protocol E2E', () => {
 
     expect(tools.tools.find(tool => tool.name === 'knowledge-overview')?.description).toContain('Deprecated alias');
     expect(tools.tools.find(tool => tool.name === 'knowledge-stats')?.description).toContain('Deprecated alias');
+    const healthSchema = tools.tools.find(tool => tool.name === 'knowledge-health')?.inputSchema as { properties?: Record<string, unknown> } | undefined;
+    expect(healthSchema?.properties).toHaveProperty('client');
   });
 
   it('knowledge-health and its deprecated alias return valid responses', async () => {
@@ -187,6 +189,19 @@ describe('MCP Protocol E2E', () => {
     });
     const allText = (allResult.content as Array<{ type: string; text: string }>)[0].text;
     expect(allText).toContain('This is only for Claude Code');
+  });
+
+  it('knowledge-health forwards client visibility through MCP', async () => {
+    const callHealth = async (clientName: string) => {
+      const result = await client!.callTool({
+        name: 'knowledge-health',
+        arguments: { project: 'protocol', client: clientName },
+      });
+      return (result.content as Array<{ type: string; text: string }>)[0].text;
+    };
+
+    expect(await callHealth('claude-code')).toContain('## Health (3 notes)');
+    expect(await callHealth('opencode')).toContain('## Health (1 notes)');
   });
 
   it('knowledge-context returns a structured matching preference capsule on request', async () => {

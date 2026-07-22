@@ -271,7 +271,8 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `project` | string | No | Scope metrics to a specific project |
+| `project` | string | Yes | Current project whose visible note metrics are requested |
+| `client` | string | No | Client applicability filter for note counts, links, embeddings, staleness, and growth |
 | `period` | string | No | Time window for growth rates: `"7d"`, `"30d"`, or `"90d"` (default: `"30d"`) |
 | `telemetry` | boolean | No | Include 30-day local-only tool invocation aggregates |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
@@ -290,14 +291,14 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 ### Example
 
 ```json
-{ "project": "my-app", "period": "7d", "telemetry": true }
+{ "project": "my-app", "client": "pi", "period": "7d", "telemetry": true }
 ```
 
 ---
 
 ## knowledge-context
 
-Get the context visible to a required current project: project-local notes plus automatically visible explicit global knowledge, restricted by compatible client scope. Use at the start of a session to orient yourself.
+Get the context visible to a required current project: project-local notes plus automatically visible explicit global knowledge, restricted by compatible client scope. Use at the start of a session to orient yourself. When `client` is supplied, the shared project log is omitted because historical log entries do not carry enough scope metadata to filter safely.
 
 The Pi extension also requests a compact project preference capsule from this tool when a session starts. It injects the capsule through the system prompt and displays a separate, deduplicated TUI entry; the model does not need to initiate a search. See the [Pi Experience](pi.md#automatic-project-preferences).
 

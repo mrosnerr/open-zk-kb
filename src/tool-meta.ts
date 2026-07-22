@@ -478,6 +478,11 @@ export const TOOL_DEFINITIONS = [
 				required: true,
 				description: "Current project for scoped note metrics",
 			},
+			client: {
+				type: "string",
+				required: false,
+				description: "Optional client applicability filter for scoped note metrics",
+			},
 			period: {
 				type: "string",
 				required: false,

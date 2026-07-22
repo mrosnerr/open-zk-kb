@@ -1071,8 +1071,8 @@ export class NoteRepository {
   /**
    * Get embedding stats for maintenance reporting.
    */
-  getEmbeddingStats(project?: string): { total: number; withEmbedding: number; withoutEmbedding: number; models: Record<string, number> } {
-    const visibility = project ? this.visibilityPredicate('notes', { project }) : { sql: '', params: [] as string[] };
+  getEmbeddingStats(project?: string, client?: string): { total: number; withEmbedding: number; withoutEmbedding: number; models: Record<string, number> } {
+    const visibility = project ? this.visibilityPredicate('notes', { project, client }) : { sql: '', params: [] as string[] };
     const projectClause = project ? ` AND kind NOT IN ('index', 'log')${visibility.sql}` : '';
     const projectParam = visibility.params;
     const counts = this.db.prepare(`
@@ -1640,8 +1640,8 @@ export class NoteRepository {
     }
   }
 
-  getStats(project?: string): { total: number; fleeting: number; permanent: number; archived: number; other: number } {
-    const visibility = project ? this.visibilityPredicate('notes', { project }) : { sql: '', params: [] as string[] };
+  getStats(project?: string, client?: string): { total: number; fleeting: number; permanent: number; archived: number; other: number } {
+    const visibility = project ? this.visibilityPredicate('notes', { project, client }) : { sql: '', params: [] as string[] };
     const filter = `WHERE kind NOT IN ('index', 'log')${visibility.sql}`;
     const params = visibility.params;
     const stmt = this.db.prepare(`
@@ -1680,8 +1680,8 @@ export class NoteRepository {
    * Get notes created within a time window, grouped by kind.
    * Used by knowledge-health for growth rate reporting.
    */
-  getGrowthByKind(sinceMs: number, project?: string): Record<string, number> {
-    const visibility = project ? this.visibilityPredicate('notes', { project }) : { sql: '', params: [] as string[] };
+  getGrowthByKind(sinceMs: number, project?: string, client?: string): Record<string, number> {
+    const visibility = project ? this.visibilityPredicate('notes', { project, client }) : { sql: '', params: [] as string[] };
     const projectClause = project ? ` AND kind NOT IN ('index', 'log')${visibility.sql}` : '';
     const params: (number | string)[] = [sinceMs, ...visibility.params];
     const rows = this.db.prepare(`
@@ -1701,12 +1701,12 @@ export class NoteRepository {
    * Get staleness distribution across buckets: 0-7d, 7-30d, 30-90d, 90d+.
    * Staleness = days since last access (or creation if never accessed).
    */
-  getStalenessDistribution(project?: string): { fresh: number; recent: number; aging: number; stale: number } {
+  getStalenessDistribution(project?: string, client?: string): { fresh: number; recent: number; aging: number; stale: number } {
     const now = Date.now();
     const d7 = now - 7 * 86400000;
     const d30 = now - 30 * 86400000;
     const d90 = now - 90 * 86400000;
-    const visibility = project ? this.visibilityPredicate('notes', { project }) : { sql: '', params: [] as string[] };
+    const visibility = project ? this.visibilityPredicate('notes', { project, client }) : { sql: '', params: [] as string[] };
     const projectClause = project ? ` AND kind NOT IN ('index', 'log')${visibility.sql}` : '';
     const params: (number | string)[] = [d7, d7, d30, d30, d90, d90, ...visibility.params];
     const row = this.db.prepare(`
@@ -2299,25 +2299,29 @@ export class NoteRepository {
     }));
   }
 
-  getUnlinkedNotes(project?: string): NoteMetadata[] {
-    // Only count links where the neighbor is also non-archived (live links)
-    const projectClause = project ? ` AND tags LIKE ?` : '';
-    const projectParam = project ? [`%"project:${project}"%`] : [];
+  getUnlinkedNotes(project?: string, client?: string): NoteMetadata[] {
+    // Only count links where the neighbor is also active and visible.
+    const visibility = project ? { project, client } : undefined;
+    const noteScope = this.visibilityPredicate('n', visibility);
+    const targetScope = this.visibilityPredicate('target', visibility);
+    const sourceScope = this.visibilityPredicate('source', visibility);
     const stmt = this.db.prepare(`
-      SELECT * FROM notes
-      WHERE status != 'archived'
-        AND kind NOT IN ('index', 'log')${projectClause}
-        AND id NOT IN (
+      SELECT n.* FROM notes n
+      WHERE n.status != 'archived'
+        AND n.kind NOT IN ('index', 'log')${noteScope.sql}
+        AND n.id NOT IN (
           SELECT l.source_id FROM note_links l
-          JOIN notes n ON l.target_id = n.id WHERE n.status != 'archived'
+          JOIN notes target ON l.target_id = target.id
+          WHERE target.status != 'archived'${targetScope.sql}
         )
-        AND id NOT IN (
+        AND n.id NOT IN (
           SELECT l.target_id FROM note_links l
-          JOIN notes n ON l.source_id = n.id WHERE n.status != 'archived'
+          JOIN notes source ON l.source_id = source.id
+          WHERE source.status != 'archived'${sourceScope.sql}
         )
-      ORDER BY created_at DESC
+      ORDER BY n.created_at DESC
     `);
-    const results = stmt.all(...projectParam) as NoteMetadata[];
+    const results = stmt.all(...noteScope.params, ...targetScope.params, ...sourceScope.params) as NoteMetadata[];
     const parsed = results.map(r => ({
       ...r,
       kind: (r.kind || 'observation') as NoteKind,
@@ -2330,9 +2334,10 @@ export class NoteRepository {
   }
 
 
-  getOneWayLinks(project?: string): Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }> {
-    const projectClause = project ? ` AND s.tags LIKE ? AND t.tags LIKE ?` : '';
-    const projectParam = project ? [`%"project:${project}"%`, `%"project:${project}"%`] : [];
+  getOneWayLinks(project?: string, client?: string): Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }> {
+    const visibility = project ? { project, client } : undefined;
+    const sourceScope = this.visibilityPredicate('s', visibility);
+    const targetScope = this.visibilityPredicate('t', visibility);
     const stmt = this.db.prepare(`
       SELECT l.source_id AS sourceId, s.title AS sourceTitle,
              l.target_id AS targetId, t.title AS targetTitle
@@ -2342,23 +2347,22 @@ export class NoteRepository {
       WHERE s.status != 'archived'
         AND t.status != 'archived'
         AND s.kind NOT IN ('index', 'log')
-        AND t.kind NOT IN ('index', 'log')${projectClause}
+        AND t.kind NOT IN ('index', 'log')${sourceScope.sql}${targetScope.sql}
         AND NOT EXISTS (
           SELECT 1 FROM note_links r
           WHERE r.source_id = l.target_id AND r.target_id = l.source_id
         )
       ORDER BY s.title, t.title
     `);
-    return stmt.all(...projectParam) as Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }>;
+    return stmt.all(...sourceScope.params, ...targetScope.params) as Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }>;
   }
 
 
-  getBrokenLinks(project?: string): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> {
-    let allNotes = this.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
-    if (project) {
-      const tag = `project:${project}`;
-      allNotes = allNotes.filter(n => Array.isArray(n.tags) && n.tags.includes(tag));
-    }
+  getBrokenLinks(project?: string, client?: string): Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> {
+    const visibility = project ? { project, client } : undefined;
+    const allNotes = visibility
+      ? this.getRecentNotes(Number.MAX_SAFE_INTEGER, visibility)
+      : this.getAll(Number.MAX_SAFE_INTEGER).filter(n => n.status !== 'archived');
     const broken: Array<{ sourceId: string; sourceTitle: string; brokenTarget: string; line: number }> = [];
     const linkPattern = /\[\[([^\]]+)\]\]/g;
 
@@ -2370,7 +2374,8 @@ export class NoteRepository {
         for (let match = linkPattern.exec(lines[i]); match !== null; match = linkPattern.exec(lines[i])) {
           const slug = parseWikiLink(match[1]).slug;
           const resolved = this.resolveLink(slug);
-          if (!resolved) {
+          const visibleTarget = resolved && visibility ? this.getByIdVisible(resolved, visibility) : resolved;
+          if (!visibleTarget) {
             broken.push({
               sourceId: note.id,
               sourceTitle: note.title,

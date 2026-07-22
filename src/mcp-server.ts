@@ -371,6 +371,7 @@ export function createMcpServer(): McpServer {
     try {
       const result = await handleHealth({
         project: args.project,
+        client: args.client,
         period: args.period,
         telemetry: args.telemetry,
         model: args.model,

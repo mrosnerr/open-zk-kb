@@ -292,6 +292,7 @@ export interface ContextResult {
 
 export interface HealthArgs {
   project: string;
+  client?: string;
   period?: string;
   telemetry?: boolean;
   model?: string;
@@ -397,9 +398,9 @@ export async function handleHealth(args: HealthArgs, repo: NoteRepository, confi
   if (!project) return 'Error: A valid project is required for knowledge health metrics.';
   const days = parsePeriodToDays(args.period);
   const periodLabel = `${days}d`;
-  const stats = repo.getStats(project);
-  const embeddingStats = repo.getEmbeddingStats(project);
-  const staleness = repo.getStalenessDistribution(project);
+  const stats = repo.getStats(project, args.client);
+  const embeddingStats = repo.getEmbeddingStats(project, args.client);
+  const staleness = repo.getStalenessDistribution(project, args.client);
 
   let output = project ? `# Knowledge Base Stats — ${project}\n\n` : '# Knowledge Base Stats\n\n';
 
@@ -425,9 +426,9 @@ export async function handleHealth(args: HealthArgs, repo: NoteRepository, confi
   }
 
   {
-    const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(project), config?.vault);
-    const oneWayLinks = repo.getOneWayLinks(project);
-    const unlinkedNotes = repo.getUnlinkedNotes(project);
+    const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(project, args.client), config?.vault);
+    const oneWayLinks = repo.getOneWayLinks(project, args.client);
+    const unlinkedNotes = repo.getUnlinkedNotes(project, args.client);
     const linkIssueCount = brokenLinks.length + oneWayLinks.length + unlinkedNotes.length;
     output += '\n## Link Health\n';
     if (linkIssueCount > 0) {
@@ -449,7 +450,7 @@ export async function handleHealth(args: HealthArgs, repo: NoteRepository, confi
 
   // --- Growth & activity ---
   const sinceMs = Date.now() - days * 86400000;
-  const growth = repo.getGrowthByKind(sinceMs, project);
+  const growth = repo.getGrowthByKind(sinceMs, project, args.client);
   const totalCreated = Object.values(growth).reduce((s, n) => s + n, 0);
   output += `\n## Growth (last ${periodLabel})\n`;
   output += `- Notes created: ${totalCreated}\n`;
@@ -1290,7 +1291,10 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   const requestedStatus = args.status ? toNoteStatus(args.status, 'fleeting') : undefined;
   if (args.project && config?.search?.alwaysIncludeDomainNote !== false &&
       (!requestedStatus || requestedStatus === 'permanent')) {
-    domainNote = repo.getDomainNote(project);
+    const domainCandidate = repo.getDomainNote(project);
+    domainNote = domainCandidate
+      ? repo.getByIdVisible(domainCandidate.id, { project, client: args.client })
+      : null;
     if (domainNote) {
       const domainId = domainNote.id;
       results = results.filter(r => r.id !== domainId);
@@ -1421,8 +1425,12 @@ function globalReferenceEvidence(candidate: PublishGlobalCandidate, repo: NoteRe
   const projectReferences: string[] = [];
   const outboundLinks: string[] = [];
   const fields = ['title', 'content', 'summary', 'guidance'] as const;
-  const active = repo.getAllActiveNotes();
-  const localNotes = active.filter(note => parseKnowledgeApplicability(note.tags).type === 'project-local');
+  const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
+  const scopedNotes = allNotes.map(note => ({ note, applicability: parseKnowledgeApplicability(note.tags) }));
+  const localNotes = scopedNotes
+    .filter(item => item.applicability.type === 'project-local')
+    .map(item => item.note);
+  const nonGlobalNotes = scopedNotes.filter(item => item.applicability.type !== 'global');
   const registeredNames = new Set(repo.getAllProjects());
   for (const note of localNotes) {
     if (note.kind === 'index') registeredNames.add(note.title);
@@ -1436,11 +1444,15 @@ function globalReferenceEvidence(candidate: PublishGlobalCandidate, repo: NoteRe
     }
     const projectPath = value.match(/(?:^|\b|[\\/])projects[\\/][^\s\]|)]+/iu);
     if (projectPath) projectReferences.push(`${field}:project-path:${projectPath[0].trim().replace(/^[/\\]/, '')}`);
-    for (const note of localNotes) {
-      const slug = path.basename(note.path, '.md').replace(`${note.id}-`, '');
-      if (new RegExp(`(^|[^\\p{L}\\p{N}])${escapeReferenceRegex(note.id)}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(value)) projectReferences.push(`${field}:local-id:${note.id}`);
-      if (slug && new RegExp(`\\[\\[[^\\]]*${escapeReferenceRegex(slug)}(?:\\||\\]\\])`, 'iu').test(value)) {
-        projectReferences.push(`${field}:local-wikilink:${slug}`);
+    for (const { note, applicability } of nonGlobalNotes) {
+      if (new RegExp(`(^|[^\\p{L}\\p{N}])${escapeReferenceRegex(note.id)}(?=$|[^\\p{L}\\p{N}])`, 'iu').test(value)) {
+        projectReferences.push(`${field}:${applicability.type === 'project-local' ? 'local' : 'unclassified'}-id:${note.id}`);
+      }
+      if (applicability.type === 'project-local') {
+        const slug = path.basename(note.path, '.md').replace(`${note.id}-`, '');
+        if (slug && new RegExp(`\\[\\[[^\\]]*${escapeReferenceRegex(slug)}(?:\\||\\]\\])`, 'iu').test(value)) {
+          projectReferences.push(`${field}:local-wikilink:${slug}`);
+        }
       }
     }
   }
@@ -1598,7 +1610,8 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const token = publicationToken(source, args.candidate);
       const valid = evidence.errors.length === 0 && evidence.duplicates.length === 0;
       if (isPreview) {
-        return JSON.stringify({ action: 'publish-global', mode: 'preview', valid, source: { id: source.id, updated_at: source.updated_at }, targetScope: 'global', candidateHash: createHash('sha256').update(canonicalPublishCandidate(args.candidate)).digest('hex'), confirmationToken: token, ...evidence }, null, 2);
+        const preview = { action: 'publish-global', mode: 'preview', valid, source: { id: source.id, updated_at: source.updated_at }, targetScope: 'global', candidateHash: createHash('sha256').update(canonicalPublishCandidate(args.candidate)).digest('hex'), ...evidence };
+        return JSON.stringify(valid ? { ...preview, confirmationToken: token } : preview, null, 2);
       }
       if (!args.confirm) return 'Error: confirm=true is required to apply publish-global.';
       if (!args.token) return 'Error: confirmation token is required to apply publish-global.';
@@ -2574,7 +2587,9 @@ function formatProjectOverview(project: string, logLimit: number, repo: NoteRepo
   const domainCandidate = repo.getDomainNote(project);
   const domainNote = domainCandidate ? repo.getByIdVisible(domainCandidate.id, visibility) : null;
   const projectNotes = repo.getRecentNotes(Number.MAX_SAFE_INTEGER, visibility);
-  const logNote = repo.getLogNote(project);
+  // Project logs contain titles for every client-scoped event and cannot be
+  // losslessly filtered because historical entries do not carry note IDs.
+  const logNote = client ? null : repo.getLogNote(project);
 
   if (projectNotes.length === 0 && !domainNote && !logNote) {
     return `No notes found for project "${project}". Store a project-scoped note first (include project parameter).`;

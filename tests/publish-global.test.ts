@@ -95,6 +95,50 @@ describe('publish-global maintenance', () => {
     expect(rejected.outboundLinks).toContain('unresolved:[[missing-note]]');
   });
 
+  it('rejects raw unclassified IDs and withholds tokens from invalid previews', async () => {
+    const local = source();
+    const unclassified = ctx.engine.store('Legacy unclassified target.', {
+      title: 'Legacy Unclassified Target', kind: 'reference', status: 'permanent', tags: [],
+      summary: 'Legacy target.', guidance: 'Classify before use.',
+    });
+    const rawIdPreview = JSON.parse(await handleMaintain({
+      action: 'publish-global', noteId: local.id,
+      candidate: { ...candidate, content: `Internal reference ${unclassified.id} must not escape.` },
+      dryRun: true,
+    }, ctx.engine, ctx.config));
+    expect(rawIdPreview.valid).toBe(false);
+    expect(rawIdPreview.projectReferences).toContain(`content:unclassified-id:${unclassified.id}`);
+    expect(rawIdPreview).not.toHaveProperty('confirmationToken');
+
+    const archivedUnclassified = ctx.engine.store('Archived unclassified target.', {
+      title: 'Archived Unclassified Target', kind: 'reference', status: 'permanent', tags: [],
+      summary: 'Archived legacy target.', guidance: 'Classify before use.',
+    });
+    ctx.engine.archive(archivedUnclassified.id);
+    const archivedRawIdPreview = JSON.parse(await handleMaintain({
+      action: 'publish-global', noteId: local.id,
+      candidate: { ...candidate, content: `Archived internal reference ${archivedUnclassified.id} must not escape.` },
+      dryRun: true,
+    }, ctx.engine, ctx.config));
+    expect(archivedRawIdPreview.valid).toBe(false);
+    expect(archivedRawIdPreview.projectReferences).toContain(`content:unclassified-id:${archivedUnclassified.id}`);
+    expect(archivedRawIdPreview).not.toHaveProperty('confirmationToken');
+
+    const archived = source();
+    ctx.engine.archive(archived.id);
+    const globalSource = ctx.engine.store('Already global.', {
+      title: 'Already Global Source', kind: 'reference', status: 'permanent', tags: ['scope:global'],
+      summary: 'Global.', guidance: 'Keep global.',
+    });
+    for (const noteId of [archived.id, globalSource.id, unclassified.id]) {
+      const preview = JSON.parse(await handleMaintain({
+        action: 'publish-global', noteId, candidate, dryRun: true,
+      }, ctx.engine, ctx.config));
+      expect(preview.valid).toBe(false);
+      expect(preview).not.toHaveProperty('confirmationToken');
+    }
+  });
+
   it('validates links in every rendered field and rejects archived global targets', async () => {
     const local = source();
     const privateTarget = ctx.engine.store('Private target.', {

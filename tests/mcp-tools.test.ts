@@ -3509,6 +3509,25 @@ describe('Domain note kind', () => {
     expect(domainIndex).toBeLessThan(regularIndex);
   });
 
+  it('should not always-include a domain note hidden by client scope', async () => {
+    await handleStore({
+      title: 'Cursor Domain',
+      content: 'Canonical operating manual for .cursor/rules.',
+      kind: 'domain',
+      project: 'myapp',
+      client: 'cursor',
+      summary: 'Cursor-only operating manual',
+      guidance: 'Read only from Cursor.',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const piOutput = handleSearch({ query: 'totally-unrelated-query', project: 'myapp', client: 'pi' }, ctx.engine, null, config);
+    const cursorOutput = handleSearch({ query: 'totally-unrelated-query', project: 'myapp', client: 'cursor' }, ctx.engine, null, config);
+
+    expect(piOutput).not.toContain('Cursor-only operating manual');
+    expect(cursorOutput).toContain('Cursor-only operating manual');
+  });
+
   it('should not inject the domain note into archived-only searches', async () => {
     await handleStore({
       title: 'MyApp Domain',
@@ -3903,6 +3922,25 @@ describe('Index and log note kinds', () => {
     expect(output).toContain('(showing 2 of 3 entries)');
   });
 
+  it('should omit unfilterable project logs from client-scoped context', async () => {
+    const config = makeConfig();
+    await handleStore({
+      project: 'myapp', client: 'cursor', title: 'Cursor Private Event',
+      content: 'Cursor-only context.', kind: 'reference',
+      summary: 'Cursor-only context', guidance: 'Use only in Cursor.',
+    }, ctx.engine, null, config);
+    await handleStore({
+      project: 'myapp', client: 'pi', title: 'Pi Visible Event',
+      content: 'Pi-visible context.', kind: 'reference',
+      summary: 'Pi-visible context', guidance: 'Use only in Pi.',
+    }, ctx.engine, null, config);
+
+    const output = handleContext({ project: 'myapp', client: 'pi' }, ctx.engine, config);
+    expect(output).toContain('Pi Visible Event');
+    expect(output).not.toContain('Cursor Private Event');
+    expect(output).not.toContain('### Recent Activity');
+  });
+
   it('should work when only domain note exists', async () => {
     const config = makeConfig({ navigation: { enableProjectIndex: false, enableProjectLog: false } });
     await storeProjectNote('Partial Domain', 'partial', config, 'domain');
@@ -4267,6 +4305,32 @@ describe('MCP Tool: knowledge-health', () => {
     expect(output).toContain('## Health (1 notes)');
     expect(output).toContain('## Growth');
     expect(output).toContain('Notes created: 1');
+  });
+
+  it('should apply client visibility to all scoped note metrics', async () => {
+    const fixtures = [
+      { title: 'Alpha Universal', tags: ['project:alpha'] },
+      { title: 'Alpha Pi', tags: ['project:alpha', 'client:pi'] },
+      { title: 'Alpha Cursor', tags: ['project:alpha', 'client:cursor'] },
+      { title: 'Global Universal', tags: ['scope:global'] },
+      { title: 'Global Pi', tags: ['scope:global', 'client:pi'] },
+      { title: 'Global Cursor', tags: ['scope:global', 'client:cursor'] },
+      { title: 'Beta Pi', tags: ['project:beta', 'client:pi'] },
+    ];
+    for (const fixture of fixtures) {
+      const note = ctx.engine.store(fixture.title, {
+        title: fixture.title, kind: 'reference', tags: fixture.tags,
+      });
+      ctx.engine.storeEmbedding(note.id, [0.1], 'test-model');
+    }
+
+    const output = await handleHealth({ project: 'alpha', client: 'pi', period: '7d' }, ctx.engine, ctx.config);
+
+    expect(output).toContain('## Health (4 notes)');
+    expect(output).toContain('- Embedded: 4/4 notes');
+    expect(output).toContain('- 0–7d: 4');
+    expect(output).toContain('- Notes created: 4');
+    expect(output).toContain('- Issues: 4 unlinked');
   });
 
   it('should exclude generated navigation notes from scoped embedding stats', async () => {
