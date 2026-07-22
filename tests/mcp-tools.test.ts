@@ -1889,6 +1889,37 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).toContain('client:opencode');
   });
 
+  it('should use an auto-detected client for explicit and suggested related-note visibility', async () => {
+    const cursor = ctx.engine.store('Private routing details.', {
+      title: 'Cursor Private Routing', kind: 'reference', status: 'permanent',
+      tags: ['project:test-project', 'client:cursor'],
+      summary: 'Private routing configuration', guidance: 'Keep private to Cursor.',
+    });
+
+    const explicit = await handleStore({
+      project: 'test-project',
+      title: 'Pi Explicit Relation',
+      content: 'Configure .pi/settings.json for this workflow.',
+      kind: 'reference',
+      summary: 'Pi explicit relation test',
+      guidance: 'Use .pi/settings.json.',
+      related: [cursor.id],
+    }, ctx.engine, null, ctx.config);
+    expect(explicit).toContain('not found or not visible');
+
+    const suggested = await handleStore({
+      project: 'test-project',
+      title: 'Private Routing Probe',
+      content: 'Configure .pi/settings.json with private routing.',
+      kind: 'reference',
+      summary: 'Private routing configuration',
+      guidance: 'Use .pi/settings.json.',
+    }, ctx.engine, null, ctx.config);
+    expect(suggested).not.toContain('Cursor Private Routing');
+    expect(ctx.engine.getByKind('reference').find(note => note.title === 'Private Routing Probe')?.tags)
+      .toContain('client:pi');
+  });
+
   it('should auto-detect client from .claude/ in guidance', async () => {
     await handleStore({
       project: 'test-project',

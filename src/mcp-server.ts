@@ -460,6 +460,7 @@ export function createMcpServer(): McpServer {
             project: candidate.project as string | undefined,
           })),
           project: args.project,
+          client: args.client,
           dry_run: args.dry_run,
           model: args.model,
         }, await getOrCreateRepo(), getEmbeddingConfig(), config, gitVersioning);

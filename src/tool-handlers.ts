@@ -1057,7 +1057,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 
   let content = args.content;
   if (args.related && args.related.length > 0) {
-    const relatedNotes = args.related.map(id => repo.getByIdVisible(id, { project, client: args.client }));
+    const relatedNotes = args.related.map(id => repo.getByIdVisible(id, { project, client: resolvedClient || undefined }));
     const hiddenIndex = relatedNotes.findIndex(note => note === null);
     if (hiddenIndex >= 0) {
       return `Error: Related note not found or not visible: ${args.related[hiddenIndex]}`;
@@ -1145,7 +1145,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     try {
       if (noteEmbedding) {
         // Embedding-based similarity search
-        const vecResults = repo.searchVector(noteEmbedding, { limit: fetchLimit, visibility: { project, client: args.client } });
+        const vecResults = repo.searchVector(noteEmbedding, { limit: fetchLimit, visibility: { project, client: resolvedClient || undefined } });
         relatedNotes = vecResults
           .filter(n => isCandidate(n) && n.similarity >= minSimilarity)
           .slice(0, maxResults)
@@ -1154,7 +1154,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         // FTS5 fallback — use title + summary as query
         const queryText = [args.title, args.summary].filter(Boolean).join(' ');
         if (queryText.trim()) {
-          const ftsResults = repo.search(queryText, { limit: fetchLimit, visibility: { project, client: args.client } });
+          const ftsResults = repo.search(queryText, { limit: fetchLimit, visibility: { project, client: resolvedClient || undefined } });
           relatedNotes = ftsResults
             .filter(n => isCandidate(n))
             .slice(0, maxResults)

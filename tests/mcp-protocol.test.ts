@@ -342,6 +342,50 @@ describe('MCP Protocol E2E', () => {
     const minedText = (mined.content as Array<{ type: string; text: string }>)[0].text;
     expect(minedText).toContain('STORE');
     expect(minedText).not.toContain('Beta Boundary Note');
+  }, 15_000);
+
+  it('forwards knowledge-mine client scope through MCP', async () => {
+    // Seed an equivalent note in another client scope. If knowledge-mine fails
+    // to forward client to duplicate screening, this candidate is misclassified.
+    const cursorSeed = await client!.callTool({
+      name: 'knowledge-store',
+      arguments: {
+        project: 'protocol', client: 'cursor',
+        title: 'Cursor-only mining duplicate',
+        content: 'mcpclientisolationtoken duplicate screening content',
+        kind: 'reference',
+        summary: 'MCP client isolation duplicate screening content.',
+        guidance: 'Keep this note visible only to Cursor.',
+      },
+    });
+    expect((cursorSeed.content as Array<{ type: string; text: string }>)[0].text).toContain('Cursor-only mining duplicate');
+
+    const mined = await client!.callTool({
+      name: 'knowledge-mine',
+      arguments: {
+        project: 'protocol', client: 'pi', dry_run: false,
+        candidates: [{
+          title: 'Pi-only mining duplicate',
+          content: 'mcpclientisolationtoken duplicate screening content',
+          kind: 'reference',
+          summary: 'MCP client isolation duplicate screening content.',
+          guidance: 'Keep this candidate visible only to Pi.',
+        }],
+      },
+    });
+    expect((mined.content as Array<{ type: string; text: string }>)[0].text).toContain('Stored as');
+
+    const search = async (clientName: string) => {
+      const result = await client!.callTool({
+        name: 'knowledge-search',
+        arguments: { project: 'protocol', client: clientName, query: 'mcpclientisolationtoken' },
+      });
+      return (result.content as Array<{ type: string; text: string }>)[0].text;
+    };
+    expect(await search('pi')).toContain('Keep this candidate visible only to Pi.');
+    const cursorResults = await search('cursor');
+    expect(cursorResults).toContain('Keep this note visible only to Cursor.');
+    expect(cursorResults).not.toContain('Keep this candidate visible only to Pi.');
   });
 
   it('handles unknown tool gracefully', async () => {
