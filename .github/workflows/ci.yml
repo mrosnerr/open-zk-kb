@@ -131,13 +131,11 @@ jobs:
         if: steps.embedding-cache.outputs.cache-hit != 'true'
         run: bun -e "import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './dist/embeddings.js'; const result = await generateEmbedding('cache prime', DEFAULT_EMBEDDING_CONFIG); if (!result) process.exit(1);"
         env:
-          NODE_TLS_REJECT_UNAUTHORIZED: "0"
           XDG_CACHE_HOME: ${{ runner.temp }}/open-zk-kb-model-cache
 
       - name: Local model smoke tests
         run: LOCAL_MODELS=1 bash tests/docker/smoke-test.sh
         env:
-          NODE_TLS_REJECT_UNAUTHORIZED: "0"
           OPEN_ZK_KB_EPHEMERAL_SMOKE: "1"
           OPEN_ZK_KB_MODEL_CACHE_SEED: ${{ runner.temp }}/open-zk-kb-model-cache/open-zk-kb/models/Xenova/all-MiniLM-L6-v2
         timeout-minutes: 10

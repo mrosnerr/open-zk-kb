@@ -753,7 +753,7 @@ echo ""
 if [ "${LOCAL_MODELS:-}" = "1" ]; then
   echo "▸ Local Model Quality Tests"
 
-  MODEL_OUTPUT=$(NODE_TLS_REJECT_UNAUTHORIZED=0 timeout 300 bun run tests/docker/model-smoke-test.ts 2>/dev/null || true)
+  MODEL_OUTPUT=$(timeout 300 bun run tests/docker/model-smoke-test.ts 2>/dev/null || true)
   echo "$MODEL_OUTPUT" | grep -E "^  [✅❌⏱]" || true
 
   MODEL_RESULT=$(echo "$MODEL_OUTPUT" | grep "MODEL_SMOKE_RESULT" || echo "MODEL_SMOKE_RESULT:0:12")

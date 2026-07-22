@@ -193,6 +193,17 @@ describe('destructive smoke-test safety', () => {
     expect(modelSmokeScript).toContain('process.env.TMPDIR || os.tmpdir()');
   });
 
+  it('requires TLS verification for model downloads', () => {
+    for (const relativePath of [
+      '../.github/workflows/ci.yml',
+      'docker/Dockerfile',
+      'docker/smoke-test.sh',
+    ]) {
+      const source = fs.readFileSync(path.resolve(import.meta.dir, relativePath), 'utf8');
+      expect(source).not.toContain('NODE_TLS_REJECT_UNAUTHORIZED');
+    }
+  });
+
   it('makes setup refuse smoke-test deletion outside the marked sandbox', async () => {
     const fixtureRoot = createTempDir('kb-smoke-setup-refusal-');
     const sandboxRoot = path.join(fixtureRoot, 'sandbox');
