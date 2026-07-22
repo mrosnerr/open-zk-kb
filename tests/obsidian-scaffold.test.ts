@@ -161,15 +161,29 @@ describe('Obsidian scaffold', () => {
     });
 
     const quickAddData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'quickadd', 'data.json'), 'utf-8'));
-    const nestedChoices = quickAddData.choices[0].choices;
     const projectChoices = quickAddData.choices.filter((choice: { name: string }) => choice.name.startsWith('Project '));
     expect(quickAddData.macros).toBeUndefined();
-    expect(nestedChoices.every((choice: { folder: { folders: string[] } }) => !choice.folder.folders[0].includes('_staging'))).toBe(true);
-    expect(nestedChoices.some((choice: { fileNameFormat: { format: string } }) => choice.fileNameFormat.format === '{{DATE:YYYYMMDDHHmmss}}00-new-note')).toBe(true);
-    expect(nestedChoices.some((choice: { fileNameFormat: { format: string } }) => choice.fileNameFormat.format === 'domain')).toBe(true);
+    expect(quickAddData.choices).toHaveLength(6);
     expect(projectChoices).toHaveLength(6);
     expect(projectChoices.every((choice: { command: boolean; templatePath: string }) => choice.command === false && choice.templatePath.endsWith('-project.md'))).toBe(true);
+    expect(quickAddData.choices.some((choice: { name: string }) => choice.name === 'New Note')).toBe(false);
     expect(quickAddData.choices.filter((choice: { type: string }) => choice.type === 'Macro')).toHaveLength(0);
+    expect(projectChoices.map((choice: { folder: { folders: string[] } }) => choice.folder.folders[0])).toEqual([
+      'projects/{{VALUE:project}}/decisions',
+      'projects/{{VALUE:project}}/observations',
+      'projects/{{VALUE:project}}/procedures',
+      'projects/{{VALUE:project}}/references',
+      'projects/{{VALUE:project}}/resources',
+      'projects/{{VALUE:project}}/preferences',
+    ]);
+
+    const commanderData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'cmdr', 'data.json'), 'utf-8'));
+    const quickAddChoiceIds = new Set(quickAddData.choices.map((choice: { id: string }) => `quickadd:choice:${choice.id}`));
+    const commanderQuickAddIds = commanderData.leftRibbon
+      .map((button: { id: string }) => button.id)
+      .filter((id: string) => id.startsWith('quickadd:choice:'));
+    expect(commanderQuickAddIds.every((id: string) => quickAddChoiceIds.has(id))).toBe(true);
+    expect(commanderData.leftRibbon).toEqual([]);
 
     const templaterData = JSON.parse(fs.readFileSync(path.join(obsidianDir, 'plugins', 'templater-obsidian', 'data.json'), 'utf-8'));
     expect(templaterData.auto_jump_to_cursor).toBe(true);

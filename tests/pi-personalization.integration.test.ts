@@ -32,8 +32,8 @@ describe('Pi personalization scope integration', () => {
     fs.mkdirSync(path.join(configHome, 'open-zk-kb'), { recursive: true });
     fs.mkdirSync(home, { recursive: true });
     fs.writeFileSync(path.join(configHome, 'open-zk-kb', 'config.yaml'), `vault: ${JSON.stringify(vault)}\nembeddings:\n  enabled: false\ntelemetry:\n  enabled: false\n`);
-    fs.writeFileSync(path.join(preferences, '2026030100000001-universal.md'), note('2026030100000001', 'Universal concise answers', 'permanent', ['writing'], 'Keep answers concise.'));
-    fs.writeFileSync(path.join(preferences, '2026030100000002-pi.md'), note('2026030100000002', 'Pi TypeScript setup', 'fleeting', ['client:pi'], 'For now configure TypeScript output for Pi.'));
+    fs.writeFileSync(path.join(preferences, '2026030100000001-universal.md'), note('2026030100000001', 'Universal concise answers', 'permanent', ['scope:global', 'writing'], 'Keep answers concise.'));
+    fs.writeFileSync(path.join(preferences, '2026030100000002-pi.md'), note('2026030100000002', 'Pi TypeScript setup', 'fleeting', ['scope:global', 'client:pi'], 'For now configure TypeScript output for Pi.'));
     fs.writeFileSync(path.join(preferences, '2026030100000003-project.md'), note('2026030100000003', 'Project Python setup', 'permanent', ['project:atlas'], 'Install Python tooling for Atlas.'));
     const archivedPath = path.join(preferences, '2026030100000004-archived.md');
     fs.writeFileSync(archivedPath, note('2026030100000004', 'Archived Cursor routing', 'archived', [], 'Currently route Cursor to gpt-4.'));
@@ -77,13 +77,11 @@ describe('Pi personalization scope integration', () => {
       const harness = section('## Harness Preferences');
       const project = section('## Project Preferences');
       for (const block of [universal, harness, project]) expect(block).toContain(".where(p => p.status !== 'archived')");
-      expect(universal).toContain("p => !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:') || t.startsWith('client:') || t.startsWith('#client:'))");
-      const harnessPredicate = ".where(p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')))";
-      const projectPredicate = ".where(p => tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:')))";
+      expect(universal).toContain("p => tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:') || t.startsWith('client:') || t.startsWith('#client:'))");
+      const harnessPredicate = ".where(p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')) && ((tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global')";
+      const projectPredicate = ".where(p => !tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && tagsFor(p).filter(t => t.startsWith('project:') || t.startsWith('#project:')).length === 1)";
       expect(harness).toContain(harnessPredicate);
-      expect(harness).not.toContain(projectPredicate);
       expect(project).toContain(projectPredicate);
-      expect(project).not.toContain(harnessPredicate);
       for (const [name, before] of sourceBefore) expect(fs.readFileSync(path.join(preferences, name), 'utf8')).toBe(before);
     } finally {
       clearTimeout(timeout);

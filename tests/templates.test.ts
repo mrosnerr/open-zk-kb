@@ -178,6 +178,7 @@ describe('conformance check in handleStore', () => {
       kind: 'decision',
       summary: 'Chose X',
       guidance: 'Use X',
+      project: 'example-project',
     }, ctx.engine, null, ctx.config);
 
     expect(result).toContain('no headings found');
@@ -191,6 +192,7 @@ describe('conformance check in handleStore', () => {
       kind: 'decision',
       summary: 'Picked A',
       guidance: 'Use A',
+      project: 'example-project',
     }, ctx.engine, null, ctx.config);
 
     expect(result).toContain('Missing:');
@@ -204,6 +206,7 @@ describe('conformance check in handleStore', () => {
       kind: 'decision',
       summary: 'Picked A over B',
       guidance: 'Use A',
+      project: 'example-project',
     }, ctx.engine, null, ctx.config);
 
     expect(result).not.toContain('Conformance:');
@@ -217,6 +220,7 @@ describe('conformance check in handleStore', () => {
       kind: 'personalization',
       summary: 'Prefers dark mode',
       guidance: 'Use dark mode',
+      project: 'example-project',
     }, ctx.engine, null, ctx.config);
 
     expect(result).not.toContain('knowledge-template');
@@ -272,10 +276,11 @@ describe('conformance telemetry', () => {
       kind: 'decision',
       summary: 'Test',
       guidance: 'Test',
+      project: 'example-project',
     }, ctx.engine, null, ctx.config);
     await sleep(0);
 
-    const stats = await handleHealth({ telemetry: true }, ctx.engine, ctx.config);
+    const stats = await handleHealth({ project: 'example-project', telemetry: true }, ctx.engine, ctx.config);
     expect(stats).toContain('Template Conformance');
     expect(stats).toContain('Stores checked:');
   });

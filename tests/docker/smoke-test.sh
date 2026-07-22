@@ -220,6 +220,7 @@ if TEST_OUTPUT=$(bun test 2>&1); then
 else
   FAIL_LINE=$(echo "$TEST_OUTPUT" | grep -oE "[0-9]+ fail" | head -1 || true)
   fail "unit tests" "${FAIL_LINE:-bun test exited non-zero without a matching summary line}"
+  echo "$TEST_OUTPUT"
 fi
 echo ""
 
@@ -588,6 +589,7 @@ kind: decision
 status: permanent
 tags:
   - architecture
+  - project:smoke-test-project
 created: 2025-01-01T12:00:00.000Z
 ---
 
@@ -601,6 +603,7 @@ kind: personalization
 status: permanent
 tags:
   - ui
+  - project:smoke-test-project
 created: 2025-01-02T12:00:00.000Z
 ---
 
@@ -634,10 +637,16 @@ EXISTING_OUTPUT=$(timeout 15 bun -e "
   const rebuild = await client.callTool({ name: 'knowledge-maintain', arguments: { action: 'rebuild' } });
   const rebuildText = JSON.stringify(rebuild);
 
-  const search = await client.callTool({ name: 'knowledge-search', arguments: { query: 'PostgreSQL database' } });
+  const search = await client.callTool({
+    name: 'knowledge-search',
+    arguments: { query: 'PostgreSQL database', project: 'smoke-test-project' },
+  });
   const searchText = JSON.stringify(search);
 
-  const stats = await client.callTool({ name: 'knowledge-health', arguments: {} });
+  const stats = await client.callTool({
+    name: 'knowledge-health',
+    arguments: { project: 'smoke-test-project' },
+  });
   const statsText = JSON.stringify(stats);
 
   await client.close();

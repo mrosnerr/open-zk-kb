@@ -345,6 +345,8 @@ export function createMcpServer(): McpServer {
       try {
         const result = handleGet({
           noteId: args.noteId,
+          project: args.project,
+          client: args.client,
           model: args.model,
         }, await getOrCreateRepo());
         return { content: [{ type: 'text' as const, text: result }] };
@@ -369,6 +371,7 @@ export function createMcpServer(): McpServer {
     try {
       const result = await handleHealth({
         project: args.project,
+        client: args.client,
         period: args.period,
         telemetry: args.telemetry,
         model: args.model,
@@ -410,10 +413,14 @@ export function createMcpServer(): McpServer {
         const result = await handleMaintain({
           action: args.action,
           noteId: args.noteId,
+          project: args.project,
           filter: args.filter as 'fleeting' | 'permanent' | undefined,
           days: args.days,
           limit: args.limit,
           dryRun: args.dryRun,
+          candidate: args.candidate,
+          confirm: args.confirm,
+          token: args.token,
           model: args.model,
         }, await getOrCreateRepo(), config, getEmbeddingConfig(), PKG_VERSION, gitVersioning);
         return { content: [{ type: 'text' as const, text: result }] };
@@ -454,6 +461,7 @@ export function createMcpServer(): McpServer {
             project: candidate.project as string | undefined,
           })),
           project: args.project,
+          client: args.client,
           dry_run: args.dry_run,
           model: args.model,
         }, await getOrCreateRepo(), getEmbeddingConfig(), config, gitVersioning);

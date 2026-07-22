@@ -183,6 +183,25 @@ describe('destructive smoke-test safety', () => {
     expect(script).not.toContain('VAULT_PATH="$HOME/.local/share/open-zk-kb"');
   });
 
+  it('keeps pre-existing vault checks scoped to their explicit project', () => {
+    const script = fs.readFileSync(smokeScript, 'utf8');
+
+    expect(script.split('- project:smoke-test-project')).toHaveLength(3);
+    expect(script).toContain("arguments: { query: 'PostgreSQL database', project: 'smoke-test-project' }");
+    expect(script).toContain("arguments: { project: 'smoke-test-project' }");
+    expect(script).not.toContain("name: 'knowledge-health', arguments: {} });");
+  });
+
+  it('prints captured unit-test output when bun test fails', () => {
+    const script = fs.readFileSync(smokeScript, 'utf8');
+    const failureStart = script.indexOf('FAIL_LINE=$(echo "$TEST_OUTPUT"');
+    const failureEnd = script.indexOf('\nfi', failureStart);
+    const failureBranch = script.slice(failureStart, failureEnd);
+
+    expect(failureStart).toBeGreaterThan(-1);
+    expect(failureBranch).toContain('echo "$TEST_OUTPUT"');
+  });
+
   it('uses the isolated temporary directory for all smoke-suite fixtures', () => {
     for (const relativePath of [
       'docker/model-smoke-test.ts',

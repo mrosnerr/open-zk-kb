@@ -171,3 +171,10 @@ Agents should treat `index` and `log` as secondary orientation surfaces, not as 
 
 ---
 For implementation details, see [src/AGENTS.md](../src/AGENTS.md) and [tests/AGENTS.md](../tests/AGENTS.md).
+
+
+## Knowledge scope boundary
+
+The repository enforces one routine visibility predicate before retrieval and ranking: current-project notes plus explicit `scope:global` notes, filtered by client applicability. Routine stored-knowledge handlers require project context and cannot escalate to full-vault access by omission. Exact IDs and related links use the same boundary. Routine writes are project-local.
+
+Maintenance is the administrative, full-vault boundary for cross-project review, dedupe, rebuild, formatting, embedding repair, scope and link audits, migration, and global publication. Publication creates a project-agnostic global derivative after preview and confirmation while preserving one-way provenance on the local source. This keeps the ownership model intact: **Server Computes, Agent Judges**—the server calculates deterministic scope and duplicate evidence; the agent interprets it and obtains confirmation.

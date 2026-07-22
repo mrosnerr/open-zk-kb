@@ -147,6 +147,14 @@ describe('Pi extension', () => {
       expect(promptHandler).toBeDefined();
 
       expect(preferenceRenderer).toBeDefined();
+      const preSessionSearch = registered.find((candidate) => candidate.name === 'knowledge-search');
+      const preSessionResult = await preSessionSearch?.execute('pre-session', {
+        query: 'runtime', project: 'model-project', client: 'model-client',
+      });
+      expect(preSessionResult?.content[0]?.text).toContain('called knowledge-search with {"query":"runtime","client":"pi"}');
+      expect(preSessionResult?.content[0]?.text).not.toContain('model-project');
+      expect(preSessionResult?.content[0]?.text).not.toContain('model-client');
+
       const sessionManager = { getEntries: () => sessionEntries };
       await sessionStartHandler?.({}, { cwd: '/work/example-project', mode: 'tui', sessionManager });
       expect(appendedEntries).toHaveLength(1);
@@ -190,6 +198,16 @@ describe('Pi extension', () => {
       });
       await promptHandler?.({ systemPrompt: 'Base prompt' });
       expect(fs.readFileSync(callsPath, 'utf8').match(/knowledge-context/g)).toHaveLength(5);
+
+      const search = registered.find((candidate) => candidate.name === 'knowledge-search');
+      const searchResult = await search?.execute('search', { query: 'runtime', project: 'wrong-project', client: 'wrong-client' });
+      expect(searchResult?.content[0]?.text).toContain(
+        'called knowledge-search with {"query":"runtime","project":"example-project","client":"pi"}',
+      );
+
+      const maintenance = registered.find((candidate) => candidate.name === 'knowledge-maintain');
+      const maintenanceResult = await maintenance?.execute('maintenance', { action: 'review' });
+      expect(maintenanceResult?.content[0]?.text).toContain('called knowledge-maintain with {"action":"review"}');
 
       const tool = registered.find((candidate) => candidate.name === 'knowledge-template');
       expect(tool).toBeDefined();

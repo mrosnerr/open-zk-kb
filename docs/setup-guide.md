@@ -178,6 +178,12 @@ server:
    - `knowledge-get` -- fetch a specific note by id
    - `knowledge-open` -- open the vault in Obsidian for visual browsing (see [Obsidian Guide](obsidian.md))
 
+## Initialize project-scoped use
+
+Configure each client or its agent instructions to pass the canonical current working-directory basename as `project` on every routine stored-knowledge call and its client identifier as `client`. Routine searches then see only that project's notes and explicitly global notes; routine capture always creates project-local notes. Do not configure normal global stores or omit project to request vault-wide behavior. Pi supplies its canonical project and `client: "pi"` automatically.
+
+When upgrading an existing vault, run the full-vault maintenance legacy-scope inventory first. Notes without exactly one project tag or `scope:global` are unclassified and hidden from routine calls. Explicitly assign local notes to a project. For reusable knowledge, first establish a local source, author a project-agnostic derivative, preview `publish-global`, inspect the server-computed evidence, and confirm before applying. Maintenance—not routine calls—owns full-vault review, migration, and publication.
+
 ## Agent Instructions
 
 During installation, open-zk-kb delivers knowledge base instructions to clients that support it. These instructions teach your agent when to search, what to store, and how to keep memory useful across sessions. The delivery mechanism varies by client:

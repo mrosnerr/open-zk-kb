@@ -25,6 +25,7 @@ describe('MCP Tool: knowledge-store', () => {
 
   it('should store a note with kind-based default status', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Test Preference',
       content: 'I prefer dark mode',
       kind: 'personalization',
@@ -40,6 +41,7 @@ describe('MCP Tool: knowledge-store', () => {
 
   it('should store with explicit status override', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Fleeting Pref',
       content: 'Maybe I like light mode',
       kind: 'personalization',
@@ -62,7 +64,7 @@ describe('MCP Tool: knowledge-store', () => {
       guidance: 'Use PostgreSQL for all database needs in myapp',
     }, ctx.engine);
 
-    const notes = ctx.engine.getByKind('decision');
+    const notes = ctx.engine.getByKind('decision').filter(note => !note.tags.includes('generated'));
     expect(notes.length).toBe(1);
     expect(notes[0].tags).toContain('project:myapp');
   });
@@ -72,7 +74,7 @@ describe('MCP Tool: knowledge-store', () => {
       content: 'This decision belongs to the replacement project.',
       kind: 'decision',
       project: 'replacement-project',
-      tags: ['project:original-project', 'client:cursor'],
+      tags: ['client:cursor'],
       summary: 'Decision moved to replacement project',
       guidance: 'Use for replacement project work',
     }, ctx.engine);
@@ -85,13 +87,14 @@ describe('MCP Tool: knowledge-store', () => {
 
   it('should append related notes as wikilinks', async () => {
     // Store a first note
-    const _result1 = ctx.engine.store('Base concept', {
+    const _result1 = ctx.engine.store('Base concept', { tags: ['project:test-project'],
       title: 'Base Note',
       kind: 'reference',
       existingId: '202602081000',
     });
 
     const output = await handleStore({
+      project: 'test-project',
       title: 'Follow-up',
       content: 'This builds on the base',
       kind: 'reference',
@@ -108,6 +111,7 @@ describe('MCP Tool: knowledge-store', () => {
 
   it('should store with summary and guidance', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Prefers Tailwind',
       content: 'The user prefers Tailwind CSS utility classes over Bootstrap for styling.',
       kind: 'personalization',
@@ -118,7 +122,7 @@ describe('MCP Tool: knowledge-store', () => {
     expect(output).toContain('Stored ');
 
     // Verify summary/guidance persisted in DB
-    const notes = ctx.engine.search('Tailwind');
+    const notes = ctx.engine.getByKind('personalization');
     expect(notes.length).toBe(1);
     expect(notes[0].summary).toBe('User prefers Tailwind CSS over Bootstrap for styling');
     expect(notes[0].guidance).toBe('Use Tailwind when suggesting CSS frameworks or reviewing CSS code');
@@ -127,6 +131,7 @@ describe('MCP Tool: knowledge-store', () => {
   it('should warn when note exceeds kind word threshold', async () => {
     const longContent = Array(100).fill('word').join(' '); // 100 words
     const output = await handleStore({
+      project: 'test-project',
       title: 'Oversized Personalization',
       content: longContent,
       kind: 'personalization', // warn threshold: 80
@@ -143,6 +148,7 @@ describe('MCP Tool: knowledge-store', () => {
   it('should warn when note exceeds absolute threshold', async () => {
     const hugeContent = Array(350).fill('word').join(' '); // 350 words
     const output = await handleStore({
+      project: 'test-project',
       title: 'Huge Decision',
       content: hugeContent,
       kind: 'decision', // warn threshold: 250, absolute: 300
@@ -158,6 +164,7 @@ describe('MCP Tool: knowledge-store', () => {
   it('should not warn when note is within target', async () => {
     const shortContent = 'This is a concise observation about a specific behavior.';
     const output = await handleStore({
+      project: 'test-project',
       title: 'Good Note',
       content: shortContent,
       kind: 'observation',
@@ -173,6 +180,7 @@ describe('MCP Tool: knowledge-store', () => {
     // personalization warn threshold is 80 words — exactly 80 should NOT warn
     const exactContent = Array(80).fill('word').join(' ');
     const output = await handleStore({
+      project: 'test-project',
       title: 'Boundary Personalization',
       content: exactContent,
       kind: 'personalization',
@@ -187,6 +195,7 @@ describe('MCP Tool: knowledge-store', () => {
     // 210 words for reference (warn: 200, absolute: 300) — kind-level warning
     const content = Array(210).fill('word').join(' ');
     const output = await handleStore({
+      project: 'test-project',
       title: 'Long Reference',
       content,
       kind: 'reference',
@@ -203,6 +212,7 @@ describe('MCP Tool: knowledge-store', () => {
     // 310 words for reference — absolute-level warning
     const content = Array(310).fill('word').join(' ');
     const output = await handleStore({
+      project: 'test-project',
       title: 'Huge Reference',
       content,
       kind: 'reference',
@@ -218,6 +228,7 @@ describe('MCP Tool: knowledge-store', () => {
     // resource warn threshold: 100
     const content = Array(110).fill('word').join(' ');
     const output = await handleStore({
+      project: 'test-project',
       title: 'Long Resource',
       content,
       kind: 'resource',
@@ -237,7 +248,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should surface FTS5-matched related notes in response', async () => {
-    ctx.engine.store('React hooks provide a way to use state in functional components', {
+    ctx.engine.store('React hooks provide a way to use state in functional components', { tags: ['project:test-project'],
       title: 'React Hooks Guide',
       kind: 'reference',
       status: 'permanent',
@@ -246,6 +257,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
     });
 
     const output = await handleStore({
+      project: 'test-project',
       title: 'React State Management',
       content: 'React hooks are the preferred way to manage state',
       kind: 'reference',
@@ -296,7 +308,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
       guidance: 'Read first',
     }, ctx.engine, null, ctx.config);
 
-    ctx.engine.store('Task management workflows and sprint planning', {
+    ctx.engine.store('Task management workflows and sprint planning', { tags: ['project:myapp'],
       title: 'Task Workflows',
       kind: 'reference',
       status: 'permanent',
@@ -319,7 +331,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
   });
 
   it('should exclude archived notes from related notes', async () => {
-    const storeResult = ctx.engine.store('Archived note about PostgreSQL databases', {
+    const storeResult = ctx.engine.store('Archived note about PostgreSQL databases', { tags: ['project:test-project'],
       title: 'Old DB Reference',
       kind: 'reference',
       status: 'permanent',
@@ -328,7 +340,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
     });
     ctx.engine.archive(storeResult.id);
 
-    ctx.engine.store('Current guide to PostgreSQL databases', {
+    ctx.engine.store('Current guide to PostgreSQL databases', { tags: ['project:test-project'],
       title: 'Current DB Guide',
       kind: 'reference',
       status: 'permanent',
@@ -337,6 +349,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
     });
 
     const output = await handleStore({
+      project: 'test-project',
       title: 'PostgreSQL Best Practices',
       content: 'PostgreSQL database best practices and patterns',
       kind: 'reference',
@@ -350,7 +363,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
   });
 
   it('should not show related notes when disabled', async () => {
-    ctx.engine.store('Existing note about testing', {
+    ctx.engine.store('Existing note about testing', { tags: ['project:test-project'],
       title: 'Testing Guide',
       kind: 'reference',
       status: 'permanent',
@@ -364,6 +377,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
     };
 
     const output = await handleStore({
+      project: 'test-project',
       title: 'Testing Best Practices',
       content: 'Testing is essential for code quality',
       kind: 'reference',
@@ -376,6 +390,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
 
   it('should not show related notes when no matches exist', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'First Note Ever',
       content: 'This is the very first note in an empty vault',
       kind: 'observation',
@@ -388,7 +403,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
 
   it('should respect maxResults config', async () => {
     for (let i = 0; i < 8; i++) {
-      ctx.engine.store(`TypeScript pattern number ${i} for advanced usage`, {
+      ctx.engine.store(`TypeScript pattern number ${i} for advanced usage`, { tags: ['project:test-project'],
         title: `TypeScript Pattern ${i}`,
         kind: 'reference',
         status: 'permanent',
@@ -403,6 +418,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
     };
 
     const output = await handleStore({
+      project: 'test-project',
       title: 'TypeScript Advanced Patterns',
       content: 'Advanced TypeScript patterns for type-safe development',
       kind: 'reference',
@@ -416,7 +432,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
   });
 
   it('should not include the stored note itself in related notes', async () => {
-    ctx.engine.store('Existing reference about databases', {
+    ctx.engine.store('Existing reference about databases', { tags: ['project:test-project'],
       title: 'Database Reference',
       kind: 'reference',
       status: 'permanent',
@@ -425,6 +441,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
     });
 
     const output = await handleStore({
+      project: 'test-project',
       title: 'Database Patterns',
       content: 'Common database patterns and references',
       kind: 'reference',
@@ -438,14 +455,14 @@ describe('MCP Tool: knowledge-store — related notes', () => {
   });
 
   it('should apply minSimilarity threshold and render similarity scores via vector path', () => {
-    const r1 = ctx.engine.store('Very similar content about React hooks', {
+    const r1 = ctx.engine.store('Very similar content about React hooks', { tags: ['project:test-project'],
       title: 'React Hooks Deep Dive',
       kind: 'reference',
       status: 'permanent',
       summary: 'Deep dive into React hooks',
       guidance: 'Use hooks',
     });
-    const r2 = ctx.engine.store('Completely unrelated cooking content', {
+    const r2 = ctx.engine.store('Completely unrelated cooking content', { tags: ['project:test-project'],
       title: 'Pasta Recipes',
       kind: 'reference',
       status: 'permanent',
@@ -460,7 +477,7 @@ describe('MCP Tool: knowledge-store — related notes', () => {
       guidance: 'Read first',
       tags: ['project:myapp'],
     });
-    const r4 = ctx.engine.store('Archived old hooks guide', {
+    const r4 = ctx.engine.store('Archived old hooks guide', { tags: ['project:test-project'],
       title: 'Old Hooks Guide',
       kind: 'reference',
       status: 'permanent',
@@ -500,21 +517,21 @@ describe('MCP Tool: knowledge-search', () => {
 
   beforeEach(() => {
     ctx = createTestHarness();
-    ctx.engine.store('I prefer TypeScript', { title: 'TS Pref', kind: 'personalization', status: 'permanent' });
-    ctx.engine.store('API endpoint is /api/v2', { title: 'API Ref', kind: 'reference', status: 'fleeting' });
+    ctx.engine.store('I prefer TypeScript', { tags: ['project:test-project'], title: 'TS Pref', kind: 'personalization', status: 'permanent' });
+    ctx.engine.store('API endpoint is /api/v2', { tags: ['project:test-project'], title: 'API Ref', kind: 'reference', status: 'fleeting' });
     ctx.engine.store('Use PostgreSQL', { title: 'DB Decision', kind: 'decision', status: 'permanent', tags: ['project:myapp'] });
   });
 
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should find notes by text query', () => {
-    const output = handleSearch({ query: 'TypeScript' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'TypeScript' }, ctx.engine);
     expect(output).toContain('TS Pref');
     expect(output).not.toContain('No matching notes');
   });
 
   it('should render notes as XML with summary and guidance', () => {
-    const output = handleSearch({ query: 'TypeScript' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'TypeScript' }, ctx.engine);
     expect(output).toContain('<note ');
     expect(output).toContain('<summary>');
     expect(output).toContain('<guidance>');
@@ -522,7 +539,7 @@ describe('MCP Tool: knowledge-search', () => {
   });
 
   it('should filter by kind', () => {
-    const output = handleSearch({ query: 'TypeScript API PostgreSQL', kind: 'personalization' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'TypeScript API PostgreSQL', kind: 'personalization' }, ctx.engine);
     expect(output).toContain('personalization');
     expect(output).not.toContain('kind="decision"');
   });
@@ -553,13 +570,13 @@ describe('MCP Tool: knowledge-search', () => {
     const output = handleSearch({ query: 'Scoped', project: 'app' }, ctx.engine);
 
     expect(output).toContain('App Exact');
-    expect(output).toContain('App Feature');
+    expect(output).not.toContain('App Feature');
     expect(output).not.toContain('Apple Sibling');
   });
 
   it('should overfetch before applying project filter', () => {
     for (let i = 0; i < 12; i++) {
-      ctx.engine.store('Shared scoped overfetch keyword', {
+      ctx.engine.store('Shared scoped overfetch keyword', { tags: ['project:test-project'],
         title: `Non Project Overfetch ${i}`,
         kind: 'reference',
       });
@@ -592,19 +609,19 @@ describe('MCP Tool: knowledge-search', () => {
         tags: [`project:generated-${i}`],
       });
     }
-    ctx.engine.store(query, { title: 'Real Search Result', kind: 'reference' });
+    ctx.engine.store(query, { tags: ['project:test-project'], title: 'Real Search Result', kind: 'reference' });
 
     const ranked = ctx.engine.search(query, { limit: 10 });
     expect(ranked).toHaveLength(10);
     expect(ranked.every(note => note.kind === 'index' || note.kind === 'log')).toBe(true);
 
-    const output = handleSearch({ query, limit: 10 }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query, limit: 10 }, ctx.engine);
     expect(output).toContain('Real Search Result');
     expect(output).not.toContain('Generated Crowding');
   });
 
   it('should return no results message with hint', () => {
-    const output = handleSearch({ query: 'xyznonexistent' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'xyznonexistent' }, ctx.engine);
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
   });
 });
@@ -614,14 +631,14 @@ describe('MCP Tool: knowledge-get', () => {
 
   beforeEach(() => {
     ctx = createTestHarness();
-    ctx.engine.store('API endpoint is /api/v2', { title: 'API Ref', kind: 'reference', status: 'permanent' });
+    ctx.engine.store('API endpoint is /api/v2', { tags: ['project:test-project'], title: 'API Ref', kind: 'reference', status: 'permanent' });
   });
 
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should retrieve a note by exact ID', () => {
-    const result = ctx.engine.store('Full API docs here', { title: 'Full API Ref', kind: 'reference', status: 'permanent' });
-    const output = handleGet({ noteId: result.id }, ctx.engine);
+    const result = ctx.engine.store('Full API docs here', { tags: ['project:test-project'], title: 'Full API Ref', kind: 'reference', status: 'permanent' });
+    const output = handleGet({ project: 'test-project', noteId: result.id }, ctx.engine);
     expect(output).toContain('Full API Ref');
     expect(output).toContain('kind="reference"');
     expect(output).toContain('<content>');
@@ -629,7 +646,7 @@ describe('MCP Tool: knowledge-get', () => {
   });
 
   it('should return error for nonexistent ID', () => {
-    const output = handleGet({ noteId: '9999999999999999' }, ctx.engine);
+    const output = handleGet({ project: 'test-project', noteId: '9999999999999999' }, ctx.engine);
     expect(output).toBe('Note not found: 9999999999999999');
   });
 });
@@ -644,9 +661,9 @@ describe('MCP Tool: knowledge-maintain', () => {
 
   beforeEach(() => {
     ctx = createTestHarness({ telemetryEnabled: true });
-    ctx.engine.store('Pref 1', { title: 'P1', kind: 'personalization', status: 'permanent' });
-    ctx.engine.store('Ref 1', { title: 'R1', kind: 'reference', status: 'fleeting' });
-    ctx.engine.store('Dec 1', { title: 'D1', kind: 'decision', status: 'permanent' });
+    ctx.engine.store('Pref 1', { tags: ['project:test-project'], title: 'P1', kind: 'personalization', status: 'permanent' });
+    ctx.engine.store('Ref 1', { tags: ['project:test-project'], title: 'R1', kind: 'reference', status: 'fleeting' });
+    ctx.engine.store('Dec 1', { tags: ['project:test-project'], title: 'D1', kind: 'decision', status: 'permanent' });
   });
 
   afterEach(() => { cleanupTestHarness(ctx); });
@@ -683,11 +700,11 @@ describe('MCP Tool: knowledge-maintain', () => {
   });
 
   it('should preserve Related sections when formatting notes', async () => {
-    const related = ctx.engine.store('Related note content', {
+    const related = ctx.engine.store('Related note content', { tags: ['project:test-project'],
       title: 'Related Format Target',
       kind: 'reference',
     });
-    const source = ctx.engine.store('Source note content', {
+    const source = ctx.engine.store('Source note content', { tags: ['project:test-project'],
       title: 'Related Format Source',
       kind: 'reference',
     });
@@ -709,7 +726,7 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('should backfill embeddings in bounded batches', async () => {
     ctx.engine.clearAll();
     for (let i = 0; i < 51; i++) {
-      ctx.engine.store(`Batch content ${i}`, {
+      ctx.engine.store(`Batch content ${i}`, { tags: ['project:test-project'],
         title: `Batch Note ${i}`,
         kind: 'reference',
         summary: `Batch summary ${i}`,
@@ -747,7 +764,7 @@ describe('MCP Tool: knowledge-maintain', () => {
     ctx.engine.clearAll();
     // Create 60 notes — more than the old default of 50
     for (let i = 0; i < 60; i++) {
-      ctx.engine.store(`Content ${i}`, {
+      ctx.engine.store(`Content ${i}`, { tags: ['project:test-project'],
         title: `Note ${i}`,
         kind: 'reference',
         summary: `Summary ${i}`,
@@ -781,7 +798,7 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('should include remaining count in embed response when partial', async () => {
     ctx.engine.clearAll();
     for (let i = 0; i < 10; i++) {
-      ctx.engine.store(`Content ${i}`, {
+      ctx.engine.store(`Content ${i}`, { tags: ['project:test-project'],
         title: `Note ${i}`,
         kind: 'reference',
         summary: `Summary ${i}`,
@@ -818,7 +835,7 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('should not show remaining count when all notes are embedded', async () => {
     ctx.engine.clearAll();
     for (let i = 0; i < 3; i++) {
-      ctx.engine.store(`Content ${i}`, {
+      ctx.engine.store(`Content ${i}`, { tags: ['project:test-project'],
         title: `Note ${i}`,
         kind: 'reference',
         summary: `Summary ${i}`,
@@ -987,7 +1004,7 @@ describe('MCP Tool: knowledge-maintain', () => {
 
   it('should report all upgraded when fields are present', async () => {
     ctx.engine.clearAll();
-    ctx.engine.store('Content', {
+    ctx.engine.store('Content', { tags: ['project:test-project'],
       title: 'Complete Note',
       kind: 'personalization',
       status: 'permanent',
@@ -1002,12 +1019,12 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('should return review output with proper formatting and counts', async () => {
     ctx.engine.clearAll();
 
-    const fleeting = ctx.engine.store('Old fleeting item', {
+    const fleeting = ctx.engine.store('Old fleeting item', { tags: ['project:test-project'],
       title: 'Review Fleeting',
       kind: 'observation',
       status: 'fleeting',
     });
-    const permanent = ctx.engine.store('Old permanent item', {
+    const permanent = ctx.engine.store('Old permanent item', { tags: ['project:test-project'],
       title: 'Review Permanent',
       kind: 'reference',
       status: 'permanent',
@@ -1031,17 +1048,17 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('should include archive/review/promote recommendations', async () => {
     ctx.engine.clearAll();
 
-    const promoteCandidate = ctx.engine.store('Promote candidate', {
+    const promoteCandidate = ctx.engine.store('Promote candidate', { tags: ['project:test-project'],
       title: 'Promote Candidate',
       kind: 'observation',
       status: 'fleeting',
     });
-    const archiveCandidate = ctx.engine.store('Archive candidate', {
+    const archiveCandidate = ctx.engine.store('Archive candidate', { tags: ['project:test-project'],
       title: 'Archive Candidate',
       kind: 'observation',
       status: 'fleeting',
     });
-    const reviewCandidate = ctx.engine.store('Review candidate', {
+    const reviewCandidate = ctx.engine.store('Review candidate', { tags: ['project:test-project'],
       title: 'Review Candidate',
       kind: 'observation',
       status: 'fleeting',
@@ -1074,12 +1091,12 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('should respect review filter in handleMaintain review action', async () => {
     ctx.engine.clearAll();
 
-    const fleeting = ctx.engine.store('Filter fleeting', {
+    const fleeting = ctx.engine.store('Filter fleeting', { tags: ['project:test-project'],
       title: 'Filter Fleeting',
       kind: 'observation',
       status: 'fleeting',
     });
-    const permanent = ctx.engine.store('Filter permanent', {
+    const permanent = ctx.engine.store('Filter permanent', { tags: ['project:test-project'],
       title: 'Filter Permanent',
       kind: 'reference',
       status: 'permanent',
@@ -1112,14 +1129,14 @@ describe('MCP Tool: knowledge-maintain', () => {
 
     // Store a note that exceeds the personalization warn threshold (80 words)
     const longContent = Array(120).fill('word').join(' ');
-    ctx.engine.store(longContent, {
+    ctx.engine.store(longContent, { tags: ['project:test-project'],
       title: 'Bloated Personalization',
       kind: 'personalization',
       status: 'fleeting',
     });
 
     // Store a small note that should NOT appear in oversized
-    ctx.engine.store('Short content', {
+    ctx.engine.store('Short content', { tags: ['project:test-project'],
       title: 'Good Note',
       kind: 'observation',
       status: 'fleeting',
@@ -1147,12 +1164,12 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('dedupe shows permanent notes as protected and never recommends archiving them', async () => {
     ctx.engine.clearAll();
 
-    const permanent = ctx.engine.store('Canonical decision content', {
+    const permanent = ctx.engine.store('Canonical decision content', { tags: ['project:test-project'],
       title: 'Test Decision',
       kind: 'decision',
       status: 'permanent',
     });
-    const duplicate = ctx.engine.store('Older duplicate decision content', {
+    const duplicate = ctx.engine.store('Older duplicate decision content', { tags: ['project:test-project'],
       title: 'Test Decision',
       kind: 'decision',
       status: 'fleeting',
@@ -1172,12 +1189,12 @@ describe('MCP Tool: knowledge-maintain', () => {
   it('dedupe backfills missing hashes and reports SimHash near-duplicates', async () => {
     ctx.engine.clearAll();
 
-    ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', {
+    ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', { tags: ['project:test-project'],
       title: 'Database Decision A',
       kind: 'decision',
       status: 'fleeting',
     });
-    ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', {
+    ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', { tags: ['project:test-project'],
       title: 'Database Decision B',
       kind: 'decision',
       status: 'fleeting',
@@ -1444,8 +1461,8 @@ describe('Data Migrations: upgrade action', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should list pending migrations with correct counts', () => {
-    ctx.engine.store('Content A', { title: 'Note A', kind: 'reference', status: 'fleeting' });
-    ctx.engine.store('Content B', { title: 'Note B', kind: 'observation', status: 'fleeting' });
+    ctx.engine.store('Content A', { tags: ['project:test-project'], title: 'Note A', kind: 'reference', status: 'fleeting' });
+    ctx.engine.store('Content B', { tags: ['project:test-project'], title: 'Note B', kind: 'observation', status: 'fleeting' });
 
     const pending = getPendingMigrations(ctx.engine);
     expect(pending.length).toBe(1);
@@ -1455,7 +1472,7 @@ describe('Data Migrations: upgrade action', () => {
   });
 
   it('should report no pending when all notes have summary and guidance', () => {
-    ctx.engine.store('Content', {
+    ctx.engine.store('Content', { tags: ['project:test-project'],
       title: 'Complete Note',
       kind: 'personalization',
       status: 'permanent',
@@ -1477,7 +1494,7 @@ describe('Data Migrations: upgrade-read', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should return full content in XML with instructions', () => {
-    ctx.engine.store('This is my preference content', {
+    ctx.engine.store('This is my preference content', { tags: ['project:test-project'],
       title: 'Dark Mode Pref',
       kind: 'personalization',
       status: 'permanent',
@@ -1499,7 +1516,7 @@ describe('Data Migrations: upgrade-read', () => {
   it('should support pagination via detect + slice', () => {
     // Store 5 notes without summary/guidance
     for (let i = 0; i < 5; i++) {
-      ctx.engine.store(`Content ${i}`, { title: `Note ${i}`, kind: 'reference', status: 'fleeting' });
+      ctx.engine.store(`Content ${i}`, { tags: ['project:test-project'], title: `Note ${i}`, kind: 'reference', status: 'fleeting' });
     }
 
     const migration = getMigrationById('v3-summary-guidance')!;
@@ -1517,9 +1534,9 @@ describe('Data Migrations: upgrade-read', () => {
   });
 
   it('should support fetching specific noteIds via getByIds', () => {
-    const r1 = ctx.engine.store('Content A', { title: 'Note A', kind: 'reference', status: 'fleeting' });
-    const r2 = ctx.engine.store('Content B', { title: 'Note B', kind: 'reference', status: 'fleeting' });
-    ctx.engine.store('Content C', { title: 'Note C', kind: 'reference', status: 'fleeting' });
+    const r1 = ctx.engine.store('Content A', { tags: ['project:test-project'], title: 'Note A', kind: 'reference', status: 'fleeting' });
+    const r2 = ctx.engine.store('Content B', { tags: ['project:test-project'], title: 'Note B', kind: 'reference', status: 'fleeting' });
+    ctx.engine.store('Content C', { tags: ['project:test-project'], title: 'Note C', kind: 'reference', status: 'fleeting' });
 
     const fetched = ctx.engine.getByIds([r1.id, r2.id]);
     expect(fetched.length).toBe(2);
@@ -1538,7 +1555,7 @@ describe('Data Migrations: upgrade-apply', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should update summary and guidance correctly', () => {
-    const result = ctx.engine.store('I prefer dark mode in all editors', {
+    const result = ctx.engine.store('I prefer dark mode in all editors', { tags: ['project:test-project'],
       title: 'Dark Mode Pref',
       kind: 'personalization',
       status: 'permanent',
@@ -1566,8 +1583,8 @@ describe('Data Migrations: upgrade-apply', () => {
   });
 
   it('should remove migration from pending after all notes are upgraded', () => {
-    const r1 = ctx.engine.store('Content A', { title: 'Note A', kind: 'reference', status: 'fleeting' });
-    const r2 = ctx.engine.store('Content B', { title: 'Note B', kind: 'observation', status: 'fleeting' });
+    const r1 = ctx.engine.store('Content A', { tags: ['project:test-project'], title: 'Note A', kind: 'reference', status: 'fleeting' });
+    const r2 = ctx.engine.store('Content B', { tags: ['project:test-project'], title: 'Note B', kind: 'observation', status: 'fleeting' });
 
     let pending = getPendingMigrations(ctx.engine);
     expect(pending.length).toBe(1);
@@ -1582,7 +1599,7 @@ describe('Data Migrations: upgrade-apply', () => {
   });
 
   it('should update markdown frontmatter when applying', () => {
-    const result = ctx.engine.store('Some content here', {
+    const result = ctx.engine.store('Some content here', { tags: ['project:test-project'],
       title: 'Frontmatter Test',
       kind: 'reference',
       status: 'fleeting',
@@ -1614,7 +1631,7 @@ describe('Data Migrations: NoteRepository.getByIds', () => {
   });
 
   it('should return only existing notes', () => {
-    const r1 = ctx.engine.store('Content', { title: 'Exists', kind: 'reference', status: 'fleeting' });
+    const r1 = ctx.engine.store('Content', { tags: ['project:test-project'], title: 'Exists', kind: 'reference', status: 'fleeting' });
     const results = ctx.engine.getByIds([r1.id, 'nonexistent']);
     expect(results.length).toBe(1);
     expect(results[0].id).toBe(r1.id);
@@ -1780,7 +1797,7 @@ describe('MCP Tool: knowledge-health version check', () => {
     )) as any;
 
     const output = await handleHealth(
-      {}, ctx.engine, ctx.config, null, '0.1.0',
+      { project: 'test-project' }, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).toContain('## Version');
     expect(output).toContain('Server: 0.1.0');
@@ -1795,7 +1812,7 @@ describe('MCP Tool: knowledge-health version check', () => {
     )) as any;
 
     const output = await handleHealth(
-      {}, ctx.engine, ctx.config, null, '0.1.0',
+      { project: 'test-project' }, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).not.toContain('Update Available');
   });
@@ -1804,7 +1821,7 @@ describe('MCP Tool: knowledge-health version check', () => {
     globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
 
     const output = await handleHealth(
-      {}, ctx.engine, ctx.config, null, '0.1.0',
+      { project: 'test-project' }, ctx.engine, ctx.config, null, '0.1.0',
     );
     expect(output).not.toContain('Update Available');
   });
@@ -1816,7 +1833,7 @@ describe('MCP Tool: knowledge-health version check', () => {
     )) as any;
 
     const output = await handleHealth(
-      {}, ctx.engine, ctx.config, null, '0.2.0',
+      { project: 'test-project' }, ctx.engine, ctx.config, null, '0.2.0',
     );
     expect(output).not.toContain('Update Available');
   });
@@ -1828,7 +1845,7 @@ describe('MCP Tool: knowledge-health version check', () => {
     )) as any;
 
     const output = await handleHealth(
-      {}, ctx.engine, ctx.config,
+      { project: 'test-project' }, ctx.engine, ctx.config,
     );
     expect(output).not.toContain('Update Available');
   });
@@ -1844,6 +1861,7 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
 
   it('should add client tag when client param provided', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Claude Code Workflow',
       content: 'Use skills directory for prompts',
       kind: 'procedure',
@@ -1859,6 +1877,7 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
 
   it('should auto-detect client from .opencode/ in content', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'OpenCode Config',
       content: 'Edit .opencode/config.json to change settings',
       kind: 'reference',
@@ -1870,8 +1889,40 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
     expect(notes[0].tags).toContain('client:opencode');
   });
 
+  it('should use an auto-detected client for explicit and suggested related-note visibility', async () => {
+    const cursor = ctx.engine.store('Private routing details.', {
+      title: 'Cursor Private Routing', kind: 'reference', status: 'permanent',
+      tags: ['project:test-project', 'client:cursor'],
+      summary: 'Private routing configuration', guidance: 'Keep private to Cursor.',
+    });
+
+    const explicit = await handleStore({
+      project: 'test-project',
+      title: 'Pi Explicit Relation',
+      content: 'Configure .pi/settings.json for this workflow.',
+      kind: 'reference',
+      summary: 'Pi explicit relation test',
+      guidance: 'Use .pi/settings.json.',
+      related: [cursor.id],
+    }, ctx.engine, null, ctx.config);
+    expect(explicit).toContain('not found or not visible');
+
+    const suggested = await handleStore({
+      project: 'test-project',
+      title: 'Private Routing Probe',
+      content: 'Configure .pi/settings.json with private routing.',
+      kind: 'reference',
+      summary: 'Private routing configuration',
+      guidance: 'Use .pi/settings.json.',
+    }, ctx.engine, null, ctx.config);
+    expect(suggested).not.toContain('Cursor Private Routing');
+    expect(ctx.engine.getByKind('reference').find(note => note.title === 'Private Routing Probe')?.tags)
+      .toContain('client:pi');
+  });
+
   it('should auto-detect client from .claude/ in guidance', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Claude Instructions',
       content: 'Project instructions go in the root',
       kind: 'reference',
@@ -1885,6 +1936,7 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
 
   it('should NOT auto-tag universal content', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'General Preference',
       content: 'User prefers TypeScript',
       kind: 'personalization',
@@ -1899,6 +1951,7 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
 
   it('should warn on unrecognized client name', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Unknown Client Note',
       content: 'Some content',
       kind: 'reference',
@@ -1913,6 +1966,7 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
 
   it('should NOT warn on recognized client name', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Known Client Note',
       content: 'Some content',
       kind: 'reference',
@@ -1926,6 +1980,7 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
 
   it('should use explicit client over auto-detection', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Cross-Client Note',
       content: 'Edit .opencode/config for opencode',
       kind: 'reference',
@@ -1941,6 +1996,7 @@ describe('MCP Tool: knowledge-store (client filtering)', () => {
 
   it('should not auto-tag when multiple clients detected (ambiguous)', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Client Comparison',
       content: 'Compare .opencode/config.json vs .claude/settings.json',
       kind: 'reference',
@@ -1978,29 +2034,29 @@ describe('MCP Tool: knowledge-search (client filtering)', () => {
     ctx.engine.store('Universal knowledge about TypeScript', {
       title: 'Universal Note',
       kind: 'reference',
-      tags: [],
+      tags: ['scope:global'],
     });
     ctx.engine.store('Claude-specific knowledge about skills', {
       title: 'Claude Only',
       kind: 'reference',
-      tags: ['client:claude-code'],
+      tags: ['scope:global', 'client:claude-code'],
     });
     ctx.engine.store('OpenCode-specific knowledge about agents', {
       title: 'OpenCode Only',
       kind: 'reference',
-      tags: ['client:opencode'],
+      tags: ['scope:global', 'client:opencode'],
     });
     ctx.engine.store('Explicitly universal knowledge for all clients', {
       title: 'All Clients',
       kind: 'reference',
-      tags: ['client:all'],
+      tags: ['scope:global', 'client:all'],
     });
   });
 
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should return all notes when no client param (backward compat)', () => {
-    const output = handleSearch({ query: 'knowledge' }, ctx.engine);
+  it('should search global client fixtures within the current project contract', () => {
+    const output = handleSearch({ project: 'test-project', query: 'knowledge' }, ctx.engine);
     expect(output).toContain('Universal Note');
     expect(output).toContain('Claude Only');
     expect(output).toContain('OpenCode Only');
@@ -2008,7 +2064,7 @@ describe('MCP Tool: knowledge-search (client filtering)', () => {
   });
 
   it('should exclude other-client notes when client param set', () => {
-    const output = handleSearch({ query: 'knowledge', client: 'claude-code' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'knowledge', client: 'claude-code' }, ctx.engine);
     expect(output).toContain('Universal Note');
     expect(output).toContain('Claude Only');
     expect(output).toContain('All Clients');
@@ -2016,7 +2072,7 @@ describe('MCP Tool: knowledge-search (client filtering)', () => {
   });
 
   it('should show only universal notes to a client with no scoped notes', () => {
-    const output = handleSearch({ query: 'knowledge', client: 'cursor' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'knowledge', client: 'cursor' }, ctx.engine);
     expect(output).toContain('Universal Note');
     expect(output).toContain('All Clients');
     expect(output).not.toContain('Claude Only');
@@ -2038,17 +2094,17 @@ describe('MCP Tool: knowledge-search (client filtering)', () => {
     const output = handleSearch({ query: 'knowledge', client: 'claude-code', project: 'myapp' }, ctx.engine);
     expect(output).toContain('Claude Project Note');
     expect(output).not.toContain('OpenCode Project Note');
-    // Universal notes without project tag are excluded by project filter
-    expect(output).not.toContain('Universal Note');
+    // Explicitly global notes remain visible within a project search.
+    expect(output).toContain('Universal Note');
   });
 
   it('should warn on unrecognized client name in search', () => {
-    const output = handleSearch({ query: 'knowledge', client: 'vscode' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'knowledge', client: 'vscode' }, ctx.engine);
     expect(output).toContain('⚠ Unrecognized client "vscode"');
   });
 
   it('should NOT warn on recognized client name in search', () => {
-    const output = handleSearch({ query: 'knowledge', client: 'opencode' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'knowledge', client: 'opencode' }, ctx.engine);
     expect(output).not.toContain('Unrecognized client');
   });
 });
@@ -2230,7 +2286,7 @@ describe('MCP Tool: knowledge-maintain scope-audit', () => {
     const _result = ctx.engine.store('Edit .opencode/config.json for settings', {
       title: 'Already Tagged',
       kind: 'reference',
-      tags: ['client:opencode'],
+      tags: ['scope:global', 'client:opencode'],
       guidance: 'Configure settings',
     });
 
@@ -2258,12 +2314,12 @@ describe('MCP Tool: knowledge-maintain scope-audit', () => {
     ctx.engine.store('Claude knowledge', {
       title: 'Claude Note',
       kind: 'reference',
-      tags: ['client:claude-code'],
+      tags: ['scope:global', 'client:claude-code'],
     });
     ctx.engine.store('OpenCode knowledge', {
       title: 'OpenCode Note',
       kind: 'reference',
-      tags: ['client:opencode'],
+      tags: ['scope:global', 'client:opencode'],
     });
 
     const output = await handleMaintain(
@@ -2277,7 +2333,7 @@ describe('MCP Tool: knowledge-maintain scope-audit', () => {
     ctx.engine.store('Unknown client knowledge', {
       title: 'Unknown Client Note',
       kind: 'reference',
-      tags: ['client:vscode'],
+      tags: ['scope:global', 'client:vscode'],
     });
 
     const output = await handleMaintain(
@@ -2292,12 +2348,12 @@ describe('MCP Tool: knowledge-maintain scope-audit', () => {
     ctx.engine.store('Unknown client knowledge', {
       title: 'Unknown Client Note',
       kind: 'reference',
-      tags: ['client:vscode'],
+      tags: ['scope:global', 'client:vscode'],
     });
     ctx.engine.store('Known client knowledge', {
       title: 'Known Client Note',
       kind: 'reference',
-      tags: ['client:opencode'],
+      tags: ['scope:global', 'client:opencode'],
     });
 
     const output = await handleMaintain(
@@ -2316,6 +2372,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
 
   it('should append model hint when model param is absent', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'No Model',
       content: 'Test content',
       kind: 'observation',
@@ -2329,6 +2386,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
 
   it('should not append model hint when model param is provided', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'With Model',
       content: 'Test content',
       kind: 'observation',
@@ -2342,6 +2400,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
 
   it('should show capability tier for high-tier models', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'High Tier',
       content: 'Test content',
       kind: 'observation',
@@ -2355,6 +2414,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
 
   it('should not show capability tier for medium-tier models', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Medium Tier',
       content: 'Test content',
       kind: 'observation',
@@ -2368,6 +2428,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
 
   it('should not show capability tier for low-tier models', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Low Tier',
       content: 'Test content',
       kind: 'observation',
@@ -2381,6 +2442,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
 
   it('should still store the note correctly regardless of model param', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Model Store Test',
       content: 'Important knowledge',
       kind: 'reference',
@@ -2392,7 +2454,7 @@ describe('MCP Tool: knowledge-store (model capability)', () => {
     expect(output).toContain('Stored ');
     expect(output).toContain('reference:');
 
-    const notes = ctx.engine.search('Important knowledge');
+    const notes = ctx.engine.search('Important knowledge').filter(note => note.title === 'Model Store Test');
     expect(notes.length).toBe(1);
     expect(notes[0].title).toBe('Model Store Test');
   });
@@ -2405,8 +2467,8 @@ describe('MCP Tool: knowledge-maintain unlinked', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should detect unlinked notes with no links', async () => {
-    ctx.engine.store('Standalone note', { title: 'Unlinked A', kind: 'reference' });
-    ctx.engine.store('Another standalone', { title: 'Unlinked B', kind: 'observation' });
+    ctx.engine.store('Standalone note', { tags: ['project:test-project'], title: 'Unlinked A', kind: 'reference' });
+    ctx.engine.store('Another standalone', { tags: ['project:test-project'], title: 'Unlinked B', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).toContain('Unlinked Notes (2)');
@@ -2415,8 +2477,8 @@ describe('MCP Tool: knowledge-maintain unlinked', () => {
   });
 
   it('should exclude archived notes from unlinked detection', async () => {
-    ctx.engine.store('Archived note', { title: 'Old Note', kind: 'reference', status: 'archived' });
-    ctx.engine.store('Active unlinked', { title: 'Active Note', kind: 'observation' });
+    ctx.engine.store('Archived note', { tags: ['project:test-project'], title: 'Old Note', kind: 'reference', status: 'archived' });
+    ctx.engine.store('Active unlinked', { tags: ['project:test-project'], title: 'Active Note', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).toContain('Active Note');
@@ -2424,8 +2486,8 @@ describe('MCP Tool: knowledge-maintain unlinked', () => {
   });
 
   it('should exclude generated index and log notes from unlinked detection', async () => {
-    ctx.engine.store('Generated navigation', { title: 'Project Index', kind: 'index' });
-    ctx.engine.store('Generated activity', { title: 'Project Log', kind: 'log' });
+    ctx.engine.store('Generated navigation', { tags: ['project:test-project'], title: 'Project Index', kind: 'index' });
+    ctx.engine.store('Generated activity', { tags: ['project:test-project'], title: 'Project Log', kind: 'log' });
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).toContain('No unlinked notes found');
@@ -2434,39 +2496,39 @@ describe('MCP Tool: knowledge-maintain unlinked', () => {
   });
 
   it('should not list notes that have outgoing links', async () => {
-    const target = ctx.engine.store('Target note', { title: 'Target', kind: 'reference' });
-    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Linker', kind: 'observation' });
+    const target = ctx.engine.store('Target note', { tags: ['project:test-project'], title: 'Target', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { tags: ['project:test-project'], title: 'Linker', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Linker');
   });
 
   it('should not list notes that have incoming links', async () => {
-    const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
-    ctx.engine.store(`See also [[${target.id}]]`, { title: 'Source', kind: 'observation' });
+    const target = ctx.engine.store('Target content', { tags: ['project:test-project'], title: 'Target', kind: 'reference' });
+    ctx.engine.store(`See also [[${target.id}]]`, { tags: ['project:test-project'], title: 'Source', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Target');
   });
 
   it('should return clean message when no unlinked notes', async () => {
-    const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
-    ctx.engine.store(`References [[${noteA.id}]]`, { title: 'Note B', kind: 'observation' });
+    const noteA = ctx.engine.store('Note A content', { tags: ['project:test-project'], title: 'Note A', kind: 'reference' });
+    ctx.engine.store(`References [[${noteA.id}]]`, { tags: ['project:test-project'], title: 'Note B', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).toContain('No unlinked notes found');
   });
 
   it('should not flag notes with broken wikilinks as unlinked', async () => {
-    ctx.engine.store('See [[9999999999999999-nonexistent]]', { title: 'Has Broken Link', kind: 'reference' });
+    ctx.engine.store('See [[9999999999999999-nonexistent]]', { tags: ['project:test-project'], title: 'Has Broken Link', kind: 'reference' });
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).not.toContain('Has Broken Link');
   });
 
   it('should not flag as unlinked when note has wikilink syntax to archived target', async () => {
-    const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
-    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Linker To Archived', kind: 'observation' });
+    const target = ctx.engine.store('Target content', { tags: ['project:test-project'], title: 'Target', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { tags: ['project:test-project'], title: 'Linker To Archived', kind: 'observation' });
     ctx.engine.archive(target.id);
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
@@ -2477,12 +2539,11 @@ describe('MCP Tool: knowledge-maintain unlinked', () => {
     ctx.engine.store('Alpha content', { title: 'Alpha', kind: 'reference', tags: ['project:proj-a'] });
     ctx.engine.store('Beta content', { title: 'Beta', kind: 'decision', tags: ['project:proj-a'] });
     ctx.engine.store('Gamma content', { title: 'Gamma', kind: 'observation', tags: ['project:proj-b'] });
-    ctx.engine.store('Delta content', { title: 'Delta', kind: 'reference' }); // no project
+    ctx.engine.store('Delta content', { tags: ['scope:global'], title: 'Delta', kind: 'reference' }); // no project
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
     expect(output).toContain('Unlinked Notes (4)');
-    expect(output).toContain('3 in 2 projects');
-    expect(output).toContain('1 unscoped');
+    expect(output).toContain('3 in 2 projects, 1 unscoped');
     expect(output).toContain('### proj-a (2)');
     expect(output).toContain('### proj-b (1)');
     expect(output).toContain('### (no project) (1)');
@@ -2492,7 +2553,7 @@ describe('MCP Tool: knowledge-maintain unlinked', () => {
 
   it('should cap unlinked display at 20 with overflow message', async () => {
     for (let i = 0; i < 25; i++) {
-      ctx.engine.store(`Content ${i}`, { title: `Note ${i}`, kind: 'reference' });
+      ctx.engine.store(`Content ${i}`, { tags: ['project:test-project'], title: `Note ${i}`, kind: 'reference' });
     }
 
     const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
@@ -2508,7 +2569,7 @@ describe('MCP Tool: knowledge-maintain broken-links', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should detect broken wikilinks with line numbers', async () => {
-    ctx.engine.store('See [[9999999999999999-nonexistent]]', { title: 'Has Broken Link', kind: 'reference' });
+    ctx.engine.store('See [[9999999999999999-nonexistent]]', { tags: ['project:test-project'], title: 'Has Broken Link', kind: 'reference' });
 
     const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
     expect(output).toContain('Broken Wikilinks');
@@ -2518,15 +2579,15 @@ describe('MCP Tool: knowledge-maintain broken-links', () => {
   });
 
   it('should not flag valid wikilinks', async () => {
-    const target = ctx.engine.store('Valid target', { title: 'Target Note', kind: 'reference' });
-    ctx.engine.store(`See [[${target.id}]]`, { title: 'Linker', kind: 'observation' });
+    const target = ctx.engine.store('Valid target', { tags: ['project:test-project'], title: 'Target Note', kind: 'reference' });
+    ctx.engine.store(`See [[${target.id}]]`, { tags: ['project:test-project'], title: 'Linker', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
     expect(output).toContain('No broken wikilinks found');
   });
 
   it('should exclude archived notes from broken link check', async () => {
-    ctx.engine.store('See [[9999999999999999-fake]]', {
+    ctx.engine.store('See [[9999999999999999-fake]]', { tags: ['project:test-project'],
       title: 'Archived With Broken',
       kind: 'reference',
       status: 'archived',
@@ -2537,7 +2598,7 @@ describe('MCP Tool: knowledge-maintain broken-links', () => {
   });
 
   it('should return clean message when no broken links', async () => {
-    ctx.engine.store('No links here', { title: 'Plain Note', kind: 'observation' });
+    ctx.engine.store('No links here', { tags: ['project:test-project'], title: 'Plain Note', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
     expect(output).toContain('No broken wikilinks found');
@@ -2551,18 +2612,18 @@ describe('MCP Tool: knowledge-maintain link-health', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should return clean message when no issues', async () => {
-    const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
-    const noteB = ctx.engine.store(`References [[${noteA.id}]]`, { title: 'Note B', kind: 'reference' });
+    const noteA = ctx.engine.store('Note A content', { tags: ['project:test-project'], title: 'Note A', kind: 'reference' });
+    const noteB = ctx.engine.store(`References [[${noteA.id}]]`, { tags: ['project:test-project'], title: 'Note B', kind: 'reference' });
     // Make bidirectional
-    ctx.engine.store(`Links back to [[${noteB.id}]]`, { title: 'Note A', kind: 'reference', existingId: noteA.id });
+    ctx.engine.store(`Links back to [[${noteB.id}]]`, { tags: ['project:test-project'], title: 'Note A', kind: 'reference', existingId: noteA.id });
 
     const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
     expect(output).toContain('all clear');
   });
 
   it('should detect one-way links', async () => {
-    const target = ctx.engine.store('Target content', { title: 'Target Note', kind: 'reference' });
-    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Source Note', kind: 'observation' });
+    const target = ctx.engine.store('Target content', { tags: ['project:test-project'], title: 'Target Note', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { tags: ['project:test-project'], title: 'Source Note', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
     expect(output).toContain('One-Way Links (1)');
@@ -2572,10 +2633,10 @@ describe('MCP Tool: knowledge-maintain link-health', () => {
   });
 
   it('should not flag bidirectional links as one-way', async () => {
-    const noteA = ctx.engine.store('Note A content', { title: 'Note A', kind: 'reference' });
-    const noteB = ctx.engine.store(`Links to [[${noteA.id}]]`, { title: 'Note B', kind: 'reference' });
+    const noteA = ctx.engine.store('Note A content', { tags: ['project:test-project'], title: 'Note A', kind: 'reference' });
+    const noteB = ctx.engine.store(`Links to [[${noteA.id}]]`, { tags: ['project:test-project'], title: 'Note B', kind: 'reference' });
     // Update A to link back to B
-    ctx.engine.store(`Updated to link back [[${noteB.id}]]`, { title: 'Note A', kind: 'reference', existingId: noteA.id });
+    ctx.engine.store(`Updated to link back [[${noteB.id}]]`, { tags: ['project:test-project'], title: 'Note A', kind: 'reference', existingId: noteA.id });
 
     const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
     expect(output).not.toContain('One-Way Links');
@@ -2583,12 +2644,12 @@ describe('MCP Tool: knowledge-maintain link-health', () => {
 
   it('should combine unlinked notes, broken links, and one-way links', async () => {
     // Unlinked
-    ctx.engine.store('Standalone note', { title: 'Lonely Note', kind: 'reference' });
+    ctx.engine.store('Standalone note', { tags: ['project:test-project'], title: 'Lonely Note', kind: 'reference' });
     // Broken link
-    ctx.engine.store('See [[9999999999999999-nonexistent]]', { title: 'Broken Linker', kind: 'reference' });
+    ctx.engine.store('See [[9999999999999999-nonexistent]]', { tags: ['project:test-project'], title: 'Broken Linker', kind: 'reference' });
     // One-way link
-    const target = ctx.engine.store('Target only', { title: 'One Way Target', kind: 'reference' });
-    ctx.engine.store(`See [[${target.id}]]`, { title: 'One Way Source', kind: 'observation' });
+    const target = ctx.engine.store('Target only', { tags: ['project:test-project'], title: 'One Way Target', kind: 'reference' });
+    ctx.engine.store(`See [[${target.id}]]`, { tags: ['project:test-project'], title: 'One Way Source', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
     expect(output).toContain('Link Health Report');
@@ -2602,8 +2663,8 @@ describe('MCP Tool: knowledge-maintain link-health', () => {
   });
 
   it('should exclude archived notes from one-way link detection', async () => {
-    const target = ctx.engine.store('Target content', { title: 'Archived Target', kind: 'reference' });
-    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Active Source', kind: 'observation' });
+    const target = ctx.engine.store('Target content', { tags: ['project:test-project'], title: 'Archived Target', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { tags: ['project:test-project'], title: 'Active Source', kind: 'observation' });
     ctx.engine.archive(target.id);
 
     const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
@@ -2611,8 +2672,8 @@ describe('MCP Tool: knowledge-maintain link-health', () => {
   });
 
   it('should show summary counts', async () => {
-    const target = ctx.engine.store('Target content', { title: 'Target', kind: 'reference' });
-    ctx.engine.store(`Links to [[${target.id}]]`, { title: 'Source', kind: 'observation' });
+    const target = ctx.engine.store('Target content', { tags: ['project:test-project'], title: 'Target', kind: 'reference' });
+    ctx.engine.store(`Links to [[${target.id}]]`, { tags: ['project:test-project'], title: 'Source', kind: 'observation' });
 
     const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
     expect(output).toContain('Unlinked: 0');
@@ -2646,7 +2707,7 @@ describe('MCP Tool: knowledge-maintain full with link-health', () => {
 
   it('should run link-health step in full composite', async () => {
     // Create an unlinked note — survives rebuild regardless of file ordering
-    ctx.engine.store('Standalone content', { title: 'Standalone', kind: 'reference' });
+    ctx.engine.store('Standalone content', { tags: ['project:test-project'], title: 'Standalone', kind: 'reference' });
 
     globalThis.fetch = (async () => { throw new Error('offline'); }) as any;
     const output = await handleMaintain({ action: 'full' }, ctx.engine, ctx.config);
@@ -2668,7 +2729,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should surface stale fleeting notes older than autoArchiveFleetingDays', async () => {
-    const result = ctx.engine.store('Old fleeting', { title: 'Ancient Note', kind: 'observation' });
+    const result = ctx.engine.store('Old fleeting', { tags: ['project:test-project'], title: 'Ancient Note', kind: 'observation' });
     setCreatedAt(result.id, daysAgo(100));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
@@ -2678,7 +2739,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should not surface fleeting notes younger than threshold', async () => {
-    const result = ctx.engine.store('Recent fleeting', { title: 'Fresh Note', kind: 'observation' });
+    const result = ctx.engine.store('Recent fleeting', { tags: ['project:test-project'], title: 'Fresh Note', kind: 'observation' });
     setCreatedAt(result.id, daysAgo(30));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
@@ -2686,7 +2747,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should not duplicate stale notes in the fleeting review section', async () => {
-    const result = ctx.engine.store('Very old note', { title: 'Stale Duplicate Check', kind: 'observation' });
+    const result = ctx.engine.store('Very old note', { tags: ['project:test-project'], title: 'Stale Duplicate Check', kind: 'observation' });
     setCreatedAt(result.id, daysAgo(100));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
@@ -2702,7 +2763,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should surface old unaccessed permanent notes as review candidates', async () => {
-    const result = ctx.engine.store('Old permanent', { title: 'Old Perm', kind: 'reference', status: 'permanent' });
+    const result = ctx.engine.store('Old permanent', { tags: ['project:test-project'], title: 'Old Perm', kind: 'reference', status: 'permanent' });
     setCreatedAt(result.id, daysAgo(200));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
@@ -2711,7 +2772,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should not surface archived notes', async () => {
-    const result = ctx.engine.store('Old archived', { title: 'Already Archived', kind: 'observation', status: 'archived' });
+    const result = ctx.engine.store('Old archived', { tags: ['project:test-project'], title: 'Already Archived', kind: 'observation', status: 'archived' });
     setCreatedAt(result.id, daysAgo(200));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
@@ -2719,7 +2780,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should not flag recently accessed notes as stale even if created long ago', async () => {
-    const result = ctx.engine.store('Old but active', { title: 'Recently Accessed', kind: 'observation' });
+    const result = ctx.engine.store('Old but active', { tags: ['project:test-project'], title: 'Recently Accessed', kind: 'observation' });
     setCreatedAt(result.id, daysAgo(200));
     const recentAccess = Date.now() - (2 * 24 * 60 * 60 * 1000);
     (ctx.engine as any).db.prepare('UPDATE notes SET last_accessed_at = ? WHERE id = ?').run(recentAccess, result.id);
@@ -2729,7 +2790,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should respect custom autoArchiveFleetingDays config', async () => {
-    const result = ctx.engine.store('Borderline fleeting', { title: 'Borderline', kind: 'observation' });
+    const result = ctx.engine.store('Borderline fleeting', { tags: ['project:test-project'], title: 'Borderline', kind: 'observation' });
     setCreatedAt(result.id, daysAgo(45));
 
     const customConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: 30 } };
@@ -2739,7 +2800,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should not flag note just under the threshold', async () => {
-    const result = ctx.engine.store('Boundary note', { title: 'Just Under 90', kind: 'observation' });
+    const result = ctx.engine.store('Boundary note', { tags: ['project:test-project'], title: 'Just Under 90', kind: 'observation' });
     setCreatedAt(result.id, daysAgo(89));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
@@ -2747,7 +2808,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should flag note just over the threshold', async () => {
-    const result = ctx.engine.store('Over boundary', { title: 'Just Over 90', kind: 'observation' });
+    const result = ctx.engine.store('Over boundary', { tags: ['project:test-project'], title: 'Just Over 90', kind: 'observation' });
     setCreatedAt(result.id, daysAgo(91));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
@@ -2756,7 +2817,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should guard against zero autoArchiveFleetingDays config', async () => {
-    ctx.engine.store('Fresh note', { title: 'Should Not Be Stale', kind: 'observation' });
+    ctx.engine.store('Fresh note', { tags: ['project:test-project'], title: 'Should Not Be Stale', kind: 'observation' });
 
     const zeroConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: 0 } };
     const output = await handleMaintain({ action: 'review' }, ctx.engine, zeroConfig);
@@ -2764,7 +2825,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should guard against negative autoArchiveFleetingDays config', async () => {
-    ctx.engine.store('Fresh note', { title: 'Not Stale Either', kind: 'observation' });
+    ctx.engine.store('Fresh note', { tags: ['project:test-project'], title: 'Not Stale Either', kind: 'observation' });
 
     const negConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, autoArchiveFleetingDays: -10 } };
     const output = await handleMaintain({ action: 'review' }, ctx.engine, negConfig);
@@ -2772,8 +2833,8 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should handle all fleeting notes being stale', async () => {
-    const r1 = ctx.engine.store('Old one', { title: 'All Stale A', kind: 'observation' });
-    const r2 = ctx.engine.store('Old two', { title: 'All Stale B', kind: 'reference' });
+    const r1 = ctx.engine.store('Old one', { tags: ['project:test-project'], title: 'All Stale A', kind: 'observation' });
+    const r2 = ctx.engine.store('Old two', { tags: ['project:test-project'], title: 'All Stale B', kind: 'reference' });
     setCreatedAt(r1.id, daysAgo(120));
     setCreatedAt(r2.id, daysAgo(100));
 
@@ -2786,8 +2847,8 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
   });
 
   it('should separate stale notes from review candidates when mixed ages', async () => {
-    const old = ctx.engine.store('Old note', { title: 'Stale One', kind: 'observation' });
-    const recent = ctx.engine.store('Recent note', { title: 'Review One', kind: 'observation' });
+    const old = ctx.engine.store('Old note', { tags: ['project:test-project'], title: 'Stale One', kind: 'observation' });
+    const recent = ctx.engine.store('Recent note', { tags: ['project:test-project'], title: 'Review One', kind: 'observation' });
     setCreatedAt(old.id, daysAgo(100));
     setCreatedAt(recent.id, daysAgo(20));
 
@@ -2827,8 +2888,8 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should show backlink signals in review output', async () => {
-    const noteA = ctx.engine.store('Links to another note', { title: 'Source Note', kind: 'observation' });
-    const noteB = ctx.engine.store('Linked note', { title: 'Target Note', kind: 'observation' });
+    const noteA = ctx.engine.store('Links to another note', { tags: ['project:test-project'], title: 'Source Note', kind: 'observation' });
+    const noteB = ctx.engine.store('Linked note', { tags: ['project:test-project'], title: 'Target Note', kind: 'observation' });
     ctx.engine.syncLinks(noteA.id, `[[${noteB.id}|test]]`);
     setCreatedAt(noteA.id, daysAgo(20));
     setCreatedAt(noteB.id, daysAgo(20));
@@ -2840,7 +2901,7 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
   });
 
   it('should recommend promote when accesses meet the threshold', async () => {
-    const note = ctx.engine.store('Accessed note', { title: 'Promotion Candidate', kind: 'observation' });
+    const note = ctx.engine.store('Accessed note', { tags: ['project:test-project'], title: 'Promotion Candidate', kind: 'observation' });
     setCreatedAt(note.id, daysAgo(50));
     for (let i = 0; i < ctx.config.lifecycle.promotionThreshold; i++) {
       ctx.engine.recordAccess(note.id);
@@ -2853,7 +2914,7 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
   });
 
   it('should recommend archive for zero-access old unlinked notes', async () => {
-    const note = ctx.engine.store('Stale note', { title: 'Unlinked Archive Candidate', kind: 'observation' });
+    const note = ctx.engine.store('Stale note', { tags: ['project:test-project'], title: 'Unlinked Archive Candidate', kind: 'observation' });
     setCreatedAt(note.id, daysAgo(50));
 
     const output = await handleMaintain({ action: 'review', limit: 10 }, ctx.engine, ctx.config);
@@ -2863,8 +2924,8 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
   });
 
   it('should recommend review (not archive) when backlinks exist', async () => {
-    const noteA = ctx.engine.store('Source content', { title: 'Backlink Source', kind: 'observation' });
-    const noteB = ctx.engine.store('Target content', { title: 'Backlinked Review Candidate', kind: 'observation' });
+    const noteA = ctx.engine.store('Source content', { tags: ['project:test-project'], title: 'Backlink Source', kind: 'observation' });
+    const noteB = ctx.engine.store('Target content', { tags: ['project:test-project'], title: 'Backlinked Review Candidate', kind: 'observation' });
     ctx.engine.syncLinks(noteA.id, `[[${noteB.id}|test]]`);
     setCreatedAt(noteA.id, daysAgo(10));
     setCreatedAt(noteB.id, daysAgo(50));
@@ -2879,7 +2940,7 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
   });
 
   it('should recommend review for young notes', async () => {
-    const note = ctx.engine.store('Needs judgment', { title: 'Manual Review Candidate', kind: 'observation' });
+    const note = ctx.engine.store('Needs judgment', { tags: ['project:test-project'], title: 'Manual Review Candidate', kind: 'observation' });
     setCreatedAt(note.id, daysAgo(16));
     ctx.engine.recordAccess(note.id);
 
@@ -2890,8 +2951,8 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
   });
 
   it('should use numbered candidate format', async () => {
-    const first = ctx.engine.store('First note', { title: 'Numbered One', kind: 'observation' });
-    const second = ctx.engine.store('Second note', { title: 'Numbered Two', kind: 'reference' });
+    const first = ctx.engine.store('First note', { tags: ['project:test-project'], title: 'Numbered One', kind: 'observation' });
+    const second = ctx.engine.store('Second note', { tags: ['project:test-project'], title: 'Numbered Two', kind: 'reference' });
     setCreatedAt(first.id, daysAgo(20));
     setCreatedAt(second.id, daysAgo(20));
 
@@ -2904,7 +2965,7 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
 
   it('should show oversized signal inline', async () => {
     const content = Array(120).fill('word').join(' ');
-    const note = ctx.engine.store(content, { title: 'Inline Oversized', kind: 'personalization' });
+    const note = ctx.engine.store(content, { tags: ['project:test-project'], title: 'Inline Oversized', kind: 'personalization' });
     setCreatedAt(note.id, daysAgo(20));
 
     const customConfig = { ...ctx.config, lifecycle: { ...ctx.config.lifecycle, exemptKinds: [] } };
@@ -2915,8 +2976,8 @@ describe('MCP Tool: knowledge-maintain review (enhanced curation)', () => {
   });
 
   it('should combine fleeting and permanent candidates in one numbered list', async () => {
-    const fleeting = ctx.engine.store('Fleeting content', { title: 'Combined Fleeting', kind: 'observation' });
-    const permanent = ctx.engine.store('Permanent content', { title: 'Combined Permanent', kind: 'reference', status: 'permanent' });
+    const fleeting = ctx.engine.store('Fleeting content', { tags: ['project:test-project'], title: 'Combined Fleeting', kind: 'observation' });
+    const permanent = ctx.engine.store('Permanent content', { tags: ['project:test-project'], title: 'Combined Permanent', kind: 'reference', status: 'permanent' });
     setCreatedAt(fleeting.id, daysAgo(20));
     setCreatedAt(permanent.id, daysAgo(20));
 
@@ -2936,6 +2997,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should default lifecycle based on kind', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'A Decision',
       content: 'We chose X',
       kind: 'decision',
@@ -2949,6 +3011,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should default to living for personalization', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Dark Mode',
       content: 'I prefer dark mode',
       kind: 'personalization',
@@ -2962,6 +3025,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should accept explicit lifecycle override', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Living Decision',
       content: 'An evolving decision',
       kind: 'decision',
@@ -2976,6 +3040,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should auto-detect snapshot from date in title', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Analysis 2025-04-25',
       content: 'Point-in-time analysis',
       kind: 'observation',
@@ -2989,6 +3054,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should not auto-detect snapshot when explicit lifecycle given', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Log 2025-04-25',
       content: 'Append-only log',
       kind: 'observation',
@@ -3002,7 +3068,7 @@ describe('MCP Tool: lifecycle field', () => {
   });
 
   it('should reject updates to snapshot notes', () => {
-    const result = ctx.engine.store('Immutable content', {
+    const result = ctx.engine.store('Immutable content', { tags: ['project:test-project'],
       title: 'Frozen Decision',
       kind: 'decision',
       lifecycle: 'snapshot',
@@ -3011,7 +3077,7 @@ describe('MCP Tool: lifecycle field', () => {
     });
 
     expect(() => {
-      ctx.engine.store('Changed content', {
+      ctx.engine.store('Changed content', { tags: ['project:test-project'],
         title: 'Frozen Decision',
         kind: 'decision',
         existingId: result.id,
@@ -3020,7 +3086,7 @@ describe('MCP Tool: lifecycle field', () => {
   });
 
   it('should reject non-extending updates to append-only notes', () => {
-    const result = ctx.engine.store('Entry 1: started project', {
+    const result = ctx.engine.store('Entry 1: started project', { tags: ['project:test-project'],
       title: 'Ops Log',
       kind: 'observation',
       lifecycle: 'append-only',
@@ -3029,7 +3095,7 @@ describe('MCP Tool: lifecycle field', () => {
     });
 
     expect(() => {
-      ctx.engine.store('Completely different content', {
+      ctx.engine.store('Completely different content', { tags: ['project:test-project'],
         title: 'Ops Log',
         kind: 'observation',
         existingId: result.id,
@@ -3038,7 +3104,7 @@ describe('MCP Tool: lifecycle field', () => {
   });
 
   it('should allow extending append-only notes', () => {
-    const result = ctx.engine.store('Entry 1: started', {
+    const result = ctx.engine.store('Entry 1: started', { tags: ['project:test-project'],
       title: 'Ops Log',
       kind: 'observation',
       lifecycle: 'append-only',
@@ -3046,7 +3112,7 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Append only',
     });
 
-    const updated = ctx.engine.store('Entry 1: started\nEntry 2: continued', {
+    const updated = ctx.engine.store('Entry 1: started\nEntry 2: continued', { tags: ['project:test-project'],
       title: 'Ops Log',
       kind: 'observation',
       existingId: result.id,
@@ -3057,6 +3123,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should persist lifecycle in frontmatter', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Snapshot Note',
       content: 'Frozen content',
       kind: 'decision',
@@ -3076,6 +3143,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should persist lifecycle in DB and read back', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Append Log',
       content: 'Log entry',
       kind: 'observation',
@@ -3095,6 +3163,7 @@ describe('MCP Tool: lifecycle field', () => {
       lifecycleDefaults: { ...ctx.config.lifecycleDefaults, detectSnapshotFromSlug: false },
     };
     const output = await handleStore({
+      project: 'test-project',
       title: 'Procedure 2025-04-25',
       content: 'Dated procedure',
       kind: 'procedure',
@@ -3108,6 +3177,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should slug-detect snapshot for kind that defaults to living', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Procedure 2025-04-25',
       content: 'Dated procedure',
       kind: 'procedure',
@@ -3121,6 +3191,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should fall back to kind default for invalid lifecycle value', async () => {
     const output = await handleStore({
+      project: 'test-project',
       title: 'Bad Lifecycle',
       content: 'Invalid lifecycle value',
       kind: 'decision',
@@ -3135,6 +3206,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should filter search results by lifecycle', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Living Reference',
       content: 'A living reference note about search',
       kind: 'reference',
@@ -3144,6 +3216,7 @@ describe('MCP Tool: lifecycle field', () => {
     }, ctx.engine, null, ctx.config);
 
     await handleStore({
+      project: 'test-project',
       title: 'Snapshot Reference',
       content: 'A snapshot reference note about search',
       kind: 'reference',
@@ -3152,8 +3225,8 @@ describe('MCP Tool: lifecycle field', () => {
       guidance: 'Frozen',
     }, ctx.engine, null, ctx.config);
 
-    const living = handleSearch({ query: 'reference note search', lifecycle: 'living' }, ctx.engine);
-    const snapshot = handleSearch({ query: 'reference note search', lifecycle: 'snapshot' }, ctx.engine);
+    const living = handleSearch({ project: 'test-project', query: 'reference note search', lifecycle: 'living' }, ctx.engine);
+    const snapshot = handleSearch({ project: 'test-project', query: 'reference note search', lifecycle: 'snapshot' }, ctx.engine);
 
     expect(living).toContain('Living ref');
     expect(living).not.toContain('Snapshot ref');
@@ -3162,13 +3235,13 @@ describe('MCP Tool: lifecycle field', () => {
   });
 
   it('should allow updating living notes freely', () => {
-    const result = ctx.engine.store('Original content', {
+    const result = ctx.engine.store('Original content', { tags: ['project:test-project'],
       title: 'Mutable Note',
       kind: 'procedure',
       lifecycle: 'living',
     });
 
-    const updated = ctx.engine.store('Completely rewritten content', {
+    const updated = ctx.engine.store('Completely rewritten content', { tags: ['project:test-project'],
       title: 'Mutable Note',
       kind: 'procedure',
       existingId: result.id,
@@ -3178,13 +3251,13 @@ describe('MCP Tool: lifecycle field', () => {
   });
 
   it('should normalize trailing whitespace in append-only validation', () => {
-    const result = ctx.engine.store('Entry 1\n', {
+    const result = ctx.engine.store('Entry 1\n', { tags: ['project:test-project'],
       title: 'Whitespace Log',
       kind: 'observation',
       lifecycle: 'append-only',
     });
 
-    const updated = ctx.engine.store('Entry 1\nEntry 2', {
+    const updated = ctx.engine.store('Entry 1\nEntry 2', { tags: ['project:test-project'],
       title: 'Whitespace Log',
       kind: 'observation',
       existingId: result.id,
@@ -3194,27 +3267,28 @@ describe('MCP Tool: lifecycle field', () => {
   });
 
   it('should include note title and ID in LifecycleViolationError', () => {
-    const result = ctx.engine.store('Frozen', {
+    const result = ctx.engine.store('Frozen', { tags: ['project:test-project'],
       title: 'My Snapshot',
       kind: 'decision',
       lifecycle: 'snapshot',
     });
 
     expect(() =>
-      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+      ctx.engine.store('Changed', { tags: ['project:test-project'], title: 'My Snapshot', kind: 'decision', existingId: result.id }),
     ).toThrow(LifecycleViolationError);
 
     expect(() =>
-      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+      ctx.engine.store('Changed', { tags: ['project:test-project'], title: 'My Snapshot', kind: 'decision', existingId: result.id }),
     ).toThrow(/My Snapshot/);
 
     expect(() =>
-      ctx.engine.store('Changed', { title: 'My Snapshot', kind: 'decision', existingId: result.id }),
+      ctx.engine.store('Changed', { tags: ['project:test-project'], title: 'My Snapshot', kind: 'decision', existingId: result.id }),
     ).toThrow(new RegExp(result.id));
   });
 
   it('should render lifecycle attribute in XML only for non-living notes', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Snapshot for Render',
       content: 'Frozen for rendering test',
       kind: 'decision',
@@ -3224,6 +3298,7 @@ describe('MCP Tool: lifecycle field', () => {
     }, ctx.engine, null, ctx.config);
 
     await handleStore({
+      project: 'test-project',
       title: 'Living for Render',
       content: 'Living for rendering test',
       kind: 'procedure',
@@ -3246,13 +3321,13 @@ describe('MCP Tool: lifecycle field', () => {
   });
 
   it('should preserve append-only lifecycle on update without explicit lifecycle param', () => {
-    const result = ctx.engine.store('Entry 1', {
+    const result = ctx.engine.store('Entry 1', { tags: ['project:test-project'],
       title: 'Preserved Log',
       kind: 'observation',
       lifecycle: 'append-only',
     });
 
-    ctx.engine.store('Entry 1\nEntry 2', {
+    ctx.engine.store('Entry 1\nEntry 2', { tags: ['project:test-project'],
       title: 'Preserved Log',
       kind: 'observation',
       existingId: result.id,
@@ -3263,7 +3338,7 @@ describe('MCP Tool: lifecycle field', () => {
     expect(note!.lifecycle).toBe('append-only');
 
     expect(() =>
-      ctx.engine.store('Completely rewritten', {
+      ctx.engine.store('Completely rewritten', { tags: ['project:test-project'],
         title: 'Preserved Log',
         kind: 'observation',
         existingId: result.id,
@@ -3273,6 +3348,7 @@ describe('MCP Tool: lifecycle field', () => {
 
   it('should preserve lifecycle through rebuildFromFiles', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Rebuild Test Note',
       content: 'Content for rebuild lifecycle test',
       kind: 'observation',
@@ -3336,7 +3412,7 @@ describe('Domain note kind', () => {
       guidance: 'Always provide a project',
     }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('require a project');
+    expect(output).toContain('A valid project is required');
   });
 
   it('should reject duplicate domain note for same project', async () => {
@@ -3433,6 +3509,41 @@ describe('Domain note kind', () => {
     expect(domainIndex).toBeLessThan(regularIndex);
   });
 
+  it('should not always-include a domain note hidden by client scope', async () => {
+    await handleStore({
+      title: 'Cursor Domain',
+      content: 'Canonical operating manual for .cursor/rules.',
+      kind: 'domain',
+      project: 'myapp',
+      client: 'cursor',
+      summary: 'Cursor-only operating manual',
+      guidance: 'Read only from Cursor.',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const piOutput = handleSearch({ query: 'totally-unrelated-query', project: 'myapp', client: 'pi' }, ctx.engine, null, config);
+    const cursorOutput = handleSearch({ query: 'totally-unrelated-query', project: 'myapp', client: 'cursor' }, ctx.engine, null, config);
+
+    expect(piOutput).not.toContain('Cursor-only operating manual');
+    expect(cursorOutput).toContain('Cursor-only operating manual');
+  });
+
+  it('should not inject the domain note into archived-only searches', async () => {
+    await handleStore({
+      title: 'MyApp Domain',
+      content: 'Canonical operating manual for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp operating manual',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const output = handleSearch({ query: 'totally-unrelated-query', project: 'myapp', status: 'archived' }, ctx.engine, null, config);
+
+    expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
+  });
+
   it('should return domain note even with zero FTS matches', async () => {
     await handleStore({
       title: 'MyApp Domain',
@@ -3478,7 +3589,7 @@ describe('Domain note kind', () => {
     }, ctx.engine, null, ctx.config);
 
     const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
-    const output = handleSearch({ query: 'totally-unrelated-query' }, ctx.engine, null, config);
+    const output = handleSearch({ project: 'test-project', query: 'totally-unrelated-query' }, ctx.engine, null, config);
 
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
   });
@@ -3577,7 +3688,7 @@ describe('Index and log note kinds', () => {
     project: string = 'myapp',
     config = makeConfig(),
     kind: 'observation' | 'domain' = 'observation',
-   ) => await handleStore({
+  ) => await handleStore({
     title,
     content: `${title} content for ${project}`,
     kind,
@@ -3600,7 +3711,7 @@ describe('Index and log note kinds', () => {
     expect(indexNote!.kind).toBe('index');
   });
 
-  it('should reject traversal in a raw project argument before navigation', async () => {
+  it('should fail closed for traversal in a raw project argument', async () => {
     const project = '../../etc';
     const outsidePath = path.resolve(ctx.tempDir, 'projects', project);
 
@@ -3613,7 +3724,7 @@ describe('Index and log note kinds', () => {
       guidance: 'Reject invalid project paths.',
     }, ctx.engine, null, makeConfig());
 
-    expect(output).toBe(`Error: Invalid project name: "${project}"`);
+    expect(output).toBe('Error: A valid project is required for routine knowledge storage.');
     expect(ctx.engine.getByKind('observation')).toHaveLength(0);
     expect(fs.existsSync(outsidePath)).toBe(false);
   });
@@ -3630,14 +3741,14 @@ describe('Index and log note kinds', () => {
   it('should exclude index notes from default search results', async () => {
     await storeProjectNote('Index Search Hidden');
 
-    const output = handleSearch({ query: 'Index Search Hidden' }, ctx.engine, null, makeConfig());
+    const output = handleSearch({ project: 'test-project', query: 'Index Search Hidden' }, ctx.engine, null, makeConfig());
     expect(output).not.toContain('myapp Index');
   });
 
   it('should return index notes when explicitly filtered by kind', async () => {
     await storeProjectNote('Index Search Visible');
 
-    const output = handleSearch({ query: 'myapp', kind: 'index' }, ctx.engine, null, makeConfig());
+    const output = handleSearch({ project: 'myapp', query: 'myapp', kind: 'index' }, ctx.engine, null, makeConfig());
     expect(output).toContain('# Myapp');
   });
 
@@ -3696,14 +3807,14 @@ describe('Index and log note kinds', () => {
   it('should exclude log notes from default search results', async () => {
     await storeProjectNote('Log Search Hidden');
 
-    const output = handleSearch({ query: 'Log Search Hidden' }, ctx.engine, null, makeConfig());
+    const output = handleSearch({ project: 'test-project', query: 'Log Search Hidden' }, ctx.engine, null, makeConfig());
     expect(output).not.toContain('Operations Log');
   });
 
   it('should return log notes when explicitly filtered by kind', async () => {
     await storeProjectNote('Log Search Visible');
 
-    const output = handleSearch({ query: 'Log Search Visible', kind: 'log' }, ctx.engine, null, makeConfig());
+    const output = handleSearch({ project: 'myapp', query: 'Log Search Visible', kind: 'log' }, ctx.engine, null, makeConfig());
     expect(output).toContain('# Myapp Operations Log');
   });
 
@@ -3760,6 +3871,7 @@ describe('Index and log note kinds', () => {
 
   it('should reject manual creation of structural kinds', async () => {
     const indexOutput = await handleStore({
+      project: 'test-project',
       title: 'Manual Index',
       content: 'Should fail',
       kind: 'index',
@@ -3768,6 +3880,7 @@ describe('Index and log note kinds', () => {
     }, ctx.engine, null, makeConfig());
 
     const logOutput = await handleStore({
+      project: 'test-project',
       title: 'Manual Log',
       content: 'Should fail',
       kind: 'log',
@@ -3809,6 +3922,25 @@ describe('Index and log note kinds', () => {
     expect(output).toContain('(showing 2 of 3 entries)');
   });
 
+  it('should omit unfilterable project logs from client-scoped context', async () => {
+    const config = makeConfig();
+    await handleStore({
+      project: 'myapp', client: 'cursor', title: 'Cursor Private Event',
+      content: 'Cursor-only context.', kind: 'reference',
+      summary: 'Cursor-only context', guidance: 'Use only in Cursor.',
+    }, ctx.engine, null, config);
+    await handleStore({
+      project: 'myapp', client: 'pi', title: 'Pi Visible Event',
+      content: 'Pi-visible context.', kind: 'reference',
+      summary: 'Pi-visible context', guidance: 'Use only in Pi.',
+    }, ctx.engine, null, config);
+
+    const output = handleContext({ project: 'myapp', client: 'pi' }, ctx.engine, config);
+    expect(output).toContain('Pi Visible Event');
+    expect(output).not.toContain('Cursor Private Event');
+    expect(output).not.toContain('### Recent Activity');
+  });
+
   it('should work when only domain note exists', async () => {
     const config = makeConfig({ navigation: { enableProjectIndex: false, enableProjectLog: false } });
     await storeProjectNote('Partial Domain', 'partial', config, 'domain');
@@ -3836,7 +3968,7 @@ describe('Index and log note kinds', () => {
     const config = makeConfig({ search: { excludeLogFromSearch: false } });
     await storeProjectNote('Structural Search Visible', 'myapp', config);
 
-    const output = handleSearch({ query: 'Structural Search Visible' }, ctx.engine, null, config);
+    const output = handleSearch({ project: 'myapp', query: 'Structural Search Visible' }, ctx.engine, null, config);
     expect(output).toContain('Structural Search Visible');
     expect(output).toContain('Myapp Operations Log');
   });
@@ -3923,6 +4055,7 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
       const mineResult = await client.callTool({
         name: 'knowledge-mine',
         arguments: {
+          project: 'candidate-only',
           dry_run: false,
           candidates: [{
             title: 'Candidate Scoped Domain',
@@ -3968,7 +4101,7 @@ describe('MCP Tool: compact preference capsule', () => {
       title,
       kind: 'personalization',
       status,
-      tags,
+      tags: tags.some(tag => tag.startsWith('project:')) ? tags : ['scope:global', ...tags],
       summary: `${title} summary`,
       guidance,
     });
@@ -4016,13 +4149,14 @@ describe('MCP Tool: compact preference capsule', () => {
 
   it('orders same-day rebuilt preferences by newest ID', () => {
     const older = ctx.engine.store({
+      tags: ['scope:global'],
       title: 'Older rebuilt preference',
       kind: 'personalization',
       status: 'permanent',
       summary: 'Older rebuilt preference summary',
       guidance: 'Use the older rebuilt preference.',
     });
-    const newer = ctx.engine.store({
+    const newer = ctx.engine.store({ tags: ['scope:global'],
       title: 'Newer rebuilt preference',
       kind: 'personalization',
       status: 'permanent',
@@ -4067,6 +4201,7 @@ describe('MCP Tool: compact preference capsule', () => {
     try {
       for (let index = 0; index < 10; index++) {
         longContext.engine.store(`Long ${index}`, {
+          tags: ['scope:global'],
           title: `Long ${index}`,
           kind: 'personalization',
           status: 'permanent',
@@ -4127,10 +4262,10 @@ describe('MCP Tool: knowledge-health', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should return health indicators and staleness', async () => {
-    ctx.engine.store('Note A', { title: 'A', kind: 'reference' });
-    ctx.engine.store('Note B', { title: 'B', kind: 'decision', status: 'permanent' });
+    ctx.engine.store('Note A', { tags: ['project:test-project'], title: 'A', kind: 'reference' });
+    ctx.engine.store('Note B', { tags: ['project:test-project'], title: 'B', kind: 'decision', status: 'permanent' });
 
-    const output = await handleHealth({}, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'test-project',}, ctx.engine, ctx.config);
     expect(output).toContain('# Knowledge Base Stats');
     expect(output).toContain('## Health (2 notes)');
     expect(output).toContain('Fleeting: 1');
@@ -4140,23 +4275,23 @@ describe('MCP Tool: knowledge-health', () => {
   });
 
   it('should include growth rate section with period', async () => {
-    ctx.engine.store('Recent note', { title: 'Recent', kind: 'observation' });
+    ctx.engine.store('Recent note', { tags: ['project:test-project'], title: 'Recent', kind: 'observation' });
 
-    const output = await handleHealth({ period: '7d' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'test-project', period: '7d' }, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 7d)');
     expect(output).toContain('Notes created: 1');
     expect(output).toContain('observation: 1');
   });
 
   it('should default period to 30d', async () => {
-    const output = await handleHealth({}, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'test-project',}, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 30d)');
   });
 
   it('should include link health section', async () => {
-    ctx.engine.store('Standalone', { title: 'Orphan', kind: 'reference' });
+    ctx.engine.store('Standalone', { tags: ['project:test-project'], title: 'Orphan', kind: 'reference' });
 
-    const output = await handleHealth({}, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'test-project',}, ctx.engine, ctx.config);
     expect(output).toContain('## Link Health');
     expect(output).toContain('1 unlinked');
   });
@@ -4172,6 +4307,32 @@ describe('MCP Tool: knowledge-health', () => {
     expect(output).toContain('Notes created: 1');
   });
 
+  it('should apply client visibility to all scoped note metrics', async () => {
+    const fixtures = [
+      { title: 'Alpha Universal', tags: ['project:alpha'] },
+      { title: 'Alpha Pi', tags: ['project:alpha', 'client:pi'] },
+      { title: 'Alpha Cursor', tags: ['project:alpha', 'client:cursor'] },
+      { title: 'Global Universal', tags: ['scope:global'] },
+      { title: 'Global Pi', tags: ['scope:global', 'client:pi'] },
+      { title: 'Global Cursor', tags: ['scope:global', 'client:cursor'] },
+      { title: 'Beta Pi', tags: ['project:beta', 'client:pi'] },
+    ];
+    for (const fixture of fixtures) {
+      const note = ctx.engine.store(fixture.title, {
+        title: fixture.title, kind: 'reference', tags: fixture.tags,
+      });
+      ctx.engine.storeEmbedding(note.id, [0.1], 'test-model');
+    }
+
+    const output = await handleHealth({ project: 'alpha', client: 'pi', period: '7d' }, ctx.engine, ctx.config);
+
+    expect(output).toContain('## Health (4 notes)');
+    expect(output).toContain('- Embedded: 4/4 notes');
+    expect(output).toContain('- 0–7d: 4');
+    expect(output).toContain('- Notes created: 4');
+    expect(output).toContain('- Issues: 4 unlinked');
+  });
+
   it('should exclude generated navigation notes from scoped embedding stats', async () => {
     const note = ctx.engine.store('Alpha note', { title: 'Alpha', kind: 'reference', tags: ['project:alpha'] });
     ctx.engine.storeEmbedding(note.id, [0.1], 'test-model');
@@ -4185,59 +4346,57 @@ describe('MCP Tool: knowledge-health', () => {
   });
 
   it('should clamp 0d period to 30d default', async () => {
-    ctx.engine.store('A note', { title: 'A', kind: 'reference' });
+    ctx.engine.store('A note', { tags: ['project:test-project'], title: 'A', kind: 'reference' });
 
-    const output = await handleHealth({ period: '0d' }, ctx.engine, ctx.config);
+    const output = await handleHealth({ project: 'test-project', period: '0d' }, ctx.engine, ctx.config);
     expect(output).toContain('## Growth (last 30d)');
     expect(output).not.toContain('Infinity');
   });
   it('should scope link health to project when project specified', async () => {
     ctx.engine.store('Alpha note', { title: 'Alpha', kind: 'reference', tags: ['project:alpha'] });
     ctx.engine.store('Beta standalone', { title: 'Beta', kind: 'reference', tags: ['project:beta'] });
-    ctx.engine.store('Global standalone', { title: 'Global', kind: 'reference' });
+    ctx.engine.store('Global standalone', { tags: ['project:test-project'], title: 'Global', kind: 'reference' });
 
     // Alpha has one note with no links — should show 1 unlinked when scoped to alpha
     const alphaOutput = await handleHealth({ project: 'alpha' }, ctx.engine, ctx.config);
     expect(alphaOutput).toContain('## Link Health');
     expect(alphaOutput).toContain('1 unlinked');
 
-    // Global stats should show 3 unlinked (alpha + beta + global)
+    // Calls without a current project fail closed.
     const globalOutput = await handleHealth({}, ctx.engine, ctx.config);
-    expect(globalOutput).toContain('3 unlinked');
+    expect(globalOutput).toBe('Error: A valid project is required for knowledge health metrics.');
   });
 });
 
-describe('MCP Tool: knowledge-context global', () => {
+describe('MCP Tool: knowledge-context without project', () => {
   let ctx: TestContext;
 
   beforeEach(() => { ctx = createTestHarness(); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
-  it('should return global overview when no project specified', async () => {
+  it('should fail closed when no project is specified', async () => {
     await handleStore({
       title: 'Proj Note', content: 'Stuff', kind: 'reference',
       summary: 'Sum', guidance: 'Guide', tags: ['project:alpha'],
     }, ctx.engine, null, ctx.config);
     await handleStore({
+      project: 'test-project',
       title: 'Loose Note', content: 'Unscoped stuff', kind: 'observation',
       summary: 'Sum', guidance: 'Guide',
     }, ctx.engine, null, ctx.config);
 
     const output = handleContext({}, ctx.engine, ctx.config);
-    expect(output).toContain('## Knowledge Base Overview');
-    expect(output).toContain('### Projects');
-    expect(output).toContain('**alpha**');
-    expect(output).toContain('### Inventory');
-    expect(output).toContain('### Recent Notes');
+    expect(output).toBe('Error: A valid project is required for knowledge context.');
   });
 
-  it('should show unscoped note count', async () => {
+  it('should not expose unscoped note counts without a project', async () => {
     await handleStore({
+      project: 'test-project',
       title: 'Unscoped', content: 'Content', kind: 'reference',
       summary: 'Sum', guidance: 'Guide',
     }, ctx.engine, null, ctx.config);
 
     const output = handleContext({}, ctx.engine, ctx.config);
-    expect(output).toContain('Unscoped notes:');
+    expect(output).toBe('Error: A valid project is required for knowledge context.');
   });
 });
