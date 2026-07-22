@@ -183,14 +183,36 @@ describe('destructive smoke-test safety', () => {
     expect(script).not.toContain('VAULT_PATH="$HOME/.local/share/open-zk-kb"');
   });
 
-  it('uses the isolated temporary directory for model smoke fixtures', () => {
-    const modelSmokeScript = fs.readFileSync(
-      path.resolve(import.meta.dir, 'docker/model-smoke-test.ts'),
-      'utf8',
-    );
+  it('uses the isolated temporary directory for all smoke-suite fixtures', () => {
+    for (const relativePath of [
+      'docker/model-smoke-test.ts',
+      'injection-quality-test.ts',
+      'templates.test.ts',
+    ]) {
+      const source = fs.readFileSync(path.resolve(import.meta.dir, relativePath), 'utf8');
+      expect(source).toContain('process.env.TMPDIR || os.tmpdir()');
+    }
 
-    expect(modelSmokeScript).not.toContain("mkdtempSync('/tmp/");
-    expect(modelSmokeScript).toContain('process.env.TMPDIR || os.tmpdir()');
+    const pendingDirs = [import.meta.dir];
+    const hardcodedTempPrefix = /mkdtempSync\(\s*['"]\/tmp\//;
+    const violations: string[] = [];
+    while (pendingDirs.length > 0) {
+      const currentDir = pendingDirs.pop();
+      if (!currentDir) break;
+      for (const entry of fs.readdirSync(currentDir, { withFileTypes: true })) {
+        const entryPath = path.join(currentDir, entry.name);
+        if (entry.isDirectory()) {
+          pendingDirs.push(entryPath);
+        } else if (entry.name.endsWith('.ts')) {
+          const source = fs.readFileSync(entryPath, 'utf8');
+          if (hardcodedTempPrefix.test(source)) {
+            violations.push(path.relative(import.meta.dir, entryPath));
+          }
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
   });
 
   it('requires TLS verification for model downloads', () => {

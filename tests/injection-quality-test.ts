@@ -11,6 +11,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 function text(result: unknown): string {
   const r = result as { content?: Array<{ type: string; text: string }> };
@@ -18,7 +19,7 @@ function text(result: unknown): string {
 }
 
 async function run() {
-  const tmpDir = fs.mkdtempSync('/tmp/injection-test-');
+  const tmpDir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'injection-test-'));
 
   const transport = new StdioClientTransport({
     command: 'bun',
