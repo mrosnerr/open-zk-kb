@@ -188,6 +188,18 @@ describe('publish-global maintenance', () => {
     expect(replay).toContain('stale or does not match');
   });
 
+  it('does not report the server-managed global tag as project evidence', async () => {
+    const global = ctx.engine.store('Reusable global guidance.', {
+      title: 'Clean Global', kind: 'reference', status: 'permanent', tags: ['scope:global'],
+      summary: 'Reusable guidance.', guidance: 'Reuse it.',
+    });
+
+    const result = JSON.parse(await handleMaintain({ action: 'global-reference-audit' }, ctx.engine, ctx.config));
+    expect(result).toMatchObject({ mutated: false, scanned: 1, findings: [] });
+    expect(JSON.stringify(result)).not.toContain(`tag:scope:global`);
+    expect(ctx.engine.getById(global.id)?.tags).toEqual(['scope:global']);
+  });
+
   it('audits global violations deterministically without mutation', async () => {
     const local = source();
     const global = ctx.engine.store(`References [[${local.id}|Local Source]].`, {

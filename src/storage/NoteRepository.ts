@@ -22,7 +22,7 @@ import {
   getPreferencesFolderNoteBasename,
 } from './path-resolver.js';
 import type { ConformanceRecord, ConformanceAggregates } from '../template-handler.js';
-import type { VisibilityOptions } from '../knowledge-scope.js';
+import { parseKnowledgeApplicability, type VisibilityOptions } from '../knowledge-scope.js';
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -2339,8 +2339,8 @@ export class NoteRepository {
     const sourceScope = this.visibilityPredicate('s', visibility);
     const targetScope = this.visibilityPredicate('t', visibility);
     const stmt = this.db.prepare(`
-      SELECT l.source_id AS sourceId, s.title AS sourceTitle,
-             l.target_id AS targetId, t.title AS targetTitle
+      SELECT l.source_id AS sourceId, s.title AS sourceTitle, s.tags AS sourceTags,
+             l.target_id AS targetId, t.title AS targetTitle, t.tags AS targetTags
       FROM note_links l
       JOIN notes s ON l.source_id = s.id
       JOIN notes t ON l.target_id = t.id
@@ -2354,7 +2354,21 @@ export class NoteRepository {
         )
       ORDER BY s.title, t.title
     `);
-    return stmt.all(...sourceScope.params, ...targetScope.params) as Array<{ sourceId: string; sourceTitle: string; targetId: string; targetTitle: string }>;
+    const rows = stmt.all(...sourceScope.params, ...targetScope.params) as Array<{
+      sourceId: string;
+      sourceTitle: string;
+      sourceTags: string;
+      targetId: string;
+      targetTitle: string;
+      targetTags: string;
+    }>;
+    return rows
+      .filter(row => {
+        const sourceApplicability = parseKnowledgeApplicability(JSON.parse(row.sourceTags) as string[]);
+        const targetApplicability = parseKnowledgeApplicability(JSON.parse(row.targetTags) as string[]);
+        return sourceApplicability.type !== 'project-local' || targetApplicability.type !== 'global';
+      })
+      .map(({ sourceId, sourceTitle, targetId, targetTitle }) => ({ sourceId, sourceTitle, targetId, targetTitle }));
   }
 
 

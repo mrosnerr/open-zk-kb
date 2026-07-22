@@ -181,9 +181,9 @@ Use `knowledge-mine` to bootstrap the KB from past sessions. Bulk-screens candid
 1. Enumerate sessions: `session_list` (filter by date/project)
 2. Read in batches of 5-10: `session_read` per session
 3. Extract candidates — decisions, observations, procedures, resources, personalizations
-4. `knowledge-mine(candidates: [...], dry_run: true)` → preview
+4. `knowledge-mine(project: "<current-project>", candidates: [...], dry_run: true)` → preview
 5. Review classifications, edit if needed
-6. `knowledge-mine(candidates: [...], dry_run: false)` → store
+6. `knowledge-mine(project: "<current-project>", candidates: [...], dry_run: false)` → store
 
 **Tips**: Batch sessions (5-10) to stay within context. Include `source` for provenance. Pass `project` to scope all candidates. Max 50 per call.
 

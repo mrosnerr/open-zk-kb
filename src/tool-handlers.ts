@@ -1318,11 +1318,11 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   let output = `Found ${totalCount} note(s):\n\n`;
 
   if (domainNote) {
-    output += renderNoteForSearch(domainNote) + '\n';
+    output += renderNoteForSearch(domainNote, project) + '\n';
   }
 
   for (const note of results) {
-    output += renderNoteForSearch(note) + '\n';
+    output += renderNoteForSearch(note, project) + '\n';
   }
   return output + clientWarning;
 }
@@ -1457,7 +1457,8 @@ function globalReferenceEvidence(candidate: PublishGlobalCandidate, repo: NoteRe
     }
   }
   for (const tag of candidate.tags || []) {
-    if ((!allowGlobalTag && tag === 'scope:global') || tag.startsWith('project:') || tag.startsWith('scope:')) {
+    const allowedGlobalTag = allowGlobalTag && tag === 'scope:global';
+    if (!allowedGlobalTag && (tag.startsWith('project:') || tag.startsWith('scope:'))) {
       projectReferences.push(`tag:${tag}`);
     }
   }
@@ -1545,7 +1546,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
   switch (args.action) {
     case 'scope-inventory': {
       const notes = repo.getAll(Number.MAX_SAFE_INTEGER)
-        .filter(note => note.status !== 'archived')
+        .filter(note => note.status !== 'archived' && !STRUCTURAL_KINDS.has(note.kind))
         .map(note => ({ note, applicability: parseKnowledgeApplicability(note.tags || []) }))
         .filter((item): item is typeof item & { applicability: { type: 'unclassified'; reason: 'missing' | 'multiple-projects' | 'conflict' } } => item.applicability.type === 'unclassified')
         .sort((a, b) => a.note.id.localeCompare(b.note.id));
@@ -2600,7 +2601,7 @@ function formatProjectOverview(project: string, logLimit: number, repo: NoteRepo
   // Domain note (operating manual)
   if (domainNote) {
     output += '### Domain\n';
-    output += renderNoteForAgent(domainNote) + '\n\n';
+    output += renderNoteForAgent(domainNote, project) + '\n\n';
     scheduleTelemetryWrite('overview access', () => repo.recordAccess(domainNote.id));
   }
 
@@ -2730,7 +2731,7 @@ export function handleGet(args: GetArgs, repo: NoteRepository): string {
   if (!note) return `Note not found: ${args.noteId}`;
   scheduleTelemetryWrite('get access', () => repo.updateLastAccessed([note.id]));
 
-  return renderNoteForSearch(note);
+  return renderNoteForSearch(note, project);
 }
 
 export function handleTemplate(args: TemplateArgs, repo?: NoteRepository): string {
@@ -2974,7 +2975,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
   output += '---\n';
   output += `Summary: ${storeCount} STORE, ${skipCount} SKIP, ${reviewCount} REVIEW`;
   if (dryRun) {
-    output += '\nTo store confirmed candidates: call again with dry_run=false';
+    output += `\nTo store confirmed candidates: call again with project="${project}" and dry_run=false`;
     if (reviewCount > 0) {
       output += `\n⚠ ${reviewCount} REVIEW candidate(s) have partial matches with existing notes — see matches listed above.`;
     }

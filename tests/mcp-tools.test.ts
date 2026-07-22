@@ -538,6 +538,19 @@ describe('MCP Tool: knowledge-search', () => {
     expect(output).toContain('</note>');
   });
 
+  it('should include the current project in rendered retrieval hints', () => {
+    const target = ctx.engine.store('Target details', {
+      tags: ['project:test-project'], title: 'Hint Target', kind: 'reference',
+    });
+    ctx.engine.store(`Project aware retrieval [[${target.id}|Hint Target]]`, {
+      tags: ['project:test-project'], title: 'Hint Source', kind: 'reference',
+    });
+
+    const output = handleSearch({ project: 'test-project', query: 'Project aware retrieval' }, ctx.engine);
+    expect(output).toContain('Use `knowledge-get` with noteId');
+    expect(output).toContain('project=&quot;test-project&quot;');
+  });
+
   it('should filter by kind', () => {
     const output = handleSearch({ project: 'test-project', query: 'TypeScript API PostgreSQL', kind: 'personalization' }, ctx.engine);
     expect(output).toContain('personalization');
@@ -1271,12 +1284,13 @@ describe('renderNoteForAgent', () => {
       updated_at: Date.now(),
       created_at: Date.now(),
       word_count: 5,
-    });
+    }, 'test-project');
 
     expect(xml).toContain('<related_notes');
     expect(xml).toContain('noteId="2026051500000002"');
     expect(xml).toContain('Related Note');
     expect(xml).toContain('Use `knowledge-get` with noteId');
+    expect(xml).toContain('project=&quot;test-project&quot;');
   });
 
   it('should not include related_notes when no wikilinks exist', () => {
@@ -1421,7 +1435,7 @@ describe('renderNoteForSearch with wikilinks', () => {
       updated_at: Date.now(),
       created_at: Date.now(),
       word_count: 5,
-    });
+    }, 'test-project');
 
     expect(xml).toContain('<related_notes');
     expect(xml).toContain('noteId="2026051500000002"');
@@ -1429,6 +1443,7 @@ describe('renderNoteForSearch with wikilinks', () => {
     expect(xml).toContain('Related Note');
     expect(xml).toContain('Another');
     expect(xml).toContain('Use `knowledge-get` with noteId');
+    expect(xml).toContain('project=&quot;test-project&quot;');
   });
 
   it('should not include related_notes when no wikilinks exist', () => {
@@ -2630,6 +2645,21 @@ describe('MCP Tool: knowledge-maintain link-health', () => {
     expect(output).toContain('Source Note');
     expect(output).toContain('Target Note');
     expect(output).toContain('no reverse link');
+  });
+
+  it('should not flag project-local to global publication relations as one-way', async () => {
+    const local = ctx.engine.store('Project-specific source', {
+      tags: ['project:test-project'], title: 'Local Source', kind: 'reference',
+    });
+    const global = ctx.engine.store('Reusable derivative', {
+      tags: ['scope:global'], title: 'Global Derivative', kind: 'reference',
+    });
+    ctx.engine.addLocalToGlobalRelation(local.id, global.id);
+
+    expect(ctx.engine.getOneWayLinks('test-project')).toEqual([]);
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).toContain('all clear');
+    expect(output).not.toContain('One-Way Links');
   });
 
   it('should not flag bidirectional links as one-way', async () => {

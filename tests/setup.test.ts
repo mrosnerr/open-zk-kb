@@ -1371,6 +1371,8 @@ describe('setup.ts', () => {
     expect(skillContent).toContain('description:');
     expect(skillContent).toContain('knowledge-search');
     expect(skillContent).toContain('knowledge-store');
+    expect(skillContent).toContain('knowledge-mine(project: "<current-project>", candidates: [...], dry_run: true)');
+    expect(skillContent).toContain('knowledge-mine(project: "<current-project>", candidates: [...], dry_run: false)');
   });
 
   it('install creates skill through dangling parent symlink', async () => {

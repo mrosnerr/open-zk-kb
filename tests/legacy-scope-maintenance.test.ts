@@ -18,6 +18,18 @@ describe('legacy scope maintenance', () => {
     expect(ctx.engine.search('Legacy', { visibility: { project: 'alpha' } })).toHaveLength(0);
   });
 
+  it('excludes non-assignable structural notes from migration readiness', async () => {
+    const structural = ctx.engine.store('Generated navigation.', { title: 'Legacy Index', kind: 'index', tags: [] });
+    const legacy = ctx.engine.store('Actionable legacy note.', { title: 'Legacy Reference', kind: 'reference', tags: [] });
+
+    const report = JSON.parse(await handleMaintain({ action: 'scope-inventory' }, ctx.engine, ctx.config));
+    expect(report.counts).toEqual({ activeUnclassified: 1, ready: false });
+    expect(JSON.stringify(report.groups)).toContain(legacy.id);
+    expect(JSON.stringify(report.groups)).not.toContain(structural.id);
+    expect(await handleMaintain({ action: 'assign-project', noteId: structural.id, project: 'alpha' }, ctx.engine, ctx.config))
+      .toContain('non-structural');
+  });
+
   it('requires confirmation then assigns, repairs path, tags, FTS, and visibility', async () => {
     const legacy = ctx.engine.store('Repair keyword.', { title: 'Needs Repair', kind: 'reference', tags: ['project:old', 'project:other', 'scope:global', 'topic'] });
     expect(await handleMaintain({ action: 'assign-project', noteId: legacy.id, project: 'alpha', dryRun: false }, ctx.engine, ctx.config)).toContain('confirm=true');

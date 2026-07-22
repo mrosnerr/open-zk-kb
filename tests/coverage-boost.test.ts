@@ -296,10 +296,12 @@ describe('Prompts', () => {
         guidance: 'Follow these steps',
       } as unknown as NoteMetadata;
 
-      const xml = renderNoteForAgent(note);
+      const xml = renderNoteForAgent(note, 'test-project');
       expect(xml).toContain('<content_preview>');
       expect(xml).toContain('...');
       expect(xml).toContain('<hint>');
+      expect(xml).toContain('noteId=&quot;2026030900000000&quot;');
+      expect(xml).toContain('project=&quot;test-project&quot;');
     });
 
     it('should include short content without hint for short procedure', () => {

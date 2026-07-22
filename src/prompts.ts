@@ -59,11 +59,25 @@ function buildNoteAttrs(note: NoteMetadata): string {
   return attrs.join(' ');
 }
 
-function renderRelatedNotes(content: string): string {
+function escapeXmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function knowledgeGetHint(project?: string, noteId?: string): string {
+  if (!project) return 'Use `knowledge-get` with noteId and the current project to retrieve full content';
+  const noteArg = noteId ? `noteId=&quot;${noteId}&quot;` : 'noteId';
+  return `Use \`knowledge-get\` with ${noteArg} and project=&quot;${escapeXmlAttribute(project)}&quot; to retrieve full content`;
+}
+
+function renderRelatedNotes(content: string, project?: string): string {
   const links = extractWikiLinks(content);
   if (links.length === 0) return '';
 
-  let xml = '  <related_notes hint="Use `knowledge-get` with noteId to retrieve full content">\n';
+  let xml = `  <related_notes hint="${knowledgeGetHint(project)}">\n`;
   for (const link of links) {
     xml += `    <link noteId="${link.id}">${link.display || link.slug}</link>\n`;
   }
@@ -73,7 +87,7 @@ function renderRelatedNotes(content: string): string {
 
 // ---- Compact note rendering (summary + guidance) ----
 
-export function renderNoteForAgent(note: NoteMetadata): string {
+export function renderNoteForAgent(note: NoteMetadata, project?: string): string {
   const summary = note.summary || note.title || note.id;
   const guidance = note.guidance || KIND_GUIDANCE[note.kind || 'observation'] || '';
 
@@ -89,11 +103,11 @@ export function renderNoteForAgent(note: NoteMetadata): string {
       : content;
     xml += `  <content_preview>${preview}</content_preview>\n`;
     if (content.length > CONTENT_PREVIEW_MAX_CHARS) {
-      xml += `  <hint>Use \`knowledge-get\` with noteId="${note.id}" to retrieve full content</hint>\n`;
+      xml += `  <hint>${knowledgeGetHint(project, note.id)}</hint>\n`;
     }
   }
 
-  xml += renderRelatedNotes(content);
+  xml += renderRelatedNotes(content, project);
   xml += `</note>`;
 
   return xml;
@@ -101,7 +115,7 @@ export function renderNoteForAgent(note: NoteMetadata): string {
 
 // ---- Note rendering for search results (full content) ----
 
-export function renderNoteForSearch(note: NoteMetadata): string {
+export function renderNoteForSearch(note: NoteMetadata, project?: string): string {
   const summary = note.summary || note.title || note.id;
   const guidance = note.guidance || KIND_GUIDANCE[note.kind || 'observation'] || '';
 
@@ -114,7 +128,7 @@ export function renderNoteForSearch(note: NoteMetadata): string {
     xml += `  <content>${content}</content>\n`;
   }
 
-  xml += renderRelatedNotes(content);
+  xml += renderRelatedNotes(content, project);
   xml += `</note>`;
 
   return xml;

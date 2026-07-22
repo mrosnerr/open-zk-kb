@@ -400,7 +400,7 @@ describe('knowledge-mine: output format', () => {
   it('dry-run shows store instruction', async () => {
     const output = await handleMine({ project: 'test-project', candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('call again with dry_run=false');
+    expect(output).toContain('call again with project="test-project" and dry_run=false');
   });
 
   it('store mode omits dry-run instruction', async () => {
@@ -409,7 +409,7 @@ describe('knowledge-mine: output format', () => {
       candidates: [makeCandidate({ title: 'Instruction Omitted Candidate', summary: 'Instruction omitted candidate summary' })],
     }, ctx.engine, null, ctx.config);
 
-    expect(output).not.toContain('call again with dry_run=false');
+    expect(output).not.toContain('call again with project="test-project" and dry_run=false');
   });
 
   it('shows embeddings disabled warning when no embedding config', async () => {
