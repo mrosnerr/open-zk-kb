@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 const EMBEDDING_DIMENSIONS = 384;
 const _TOTAL_EXPECTED = 9;
@@ -68,7 +69,7 @@ async function testEmbeddings() {
 async function testKbRoundTripWithEmbeddings() {
   console.log('\n\u25b8 KB Round-Trip with Embeddings');
 
-  const tmpDir = fs.mkdtempSync('/tmp/model-smoke-');
+  const tmpDir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'model-smoke-'));
 
   const transport = new StdioClientTransport({
     command: 'bun',

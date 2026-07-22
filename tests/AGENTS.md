@@ -23,7 +23,7 @@ tests/
 ├── knowledge-quality-assessment.test.ts  # Content quality scoring
 ├── injection-quality-test.ts  # Agent self-search quality via MCP
 ├── docker/                # Docker-based integration tests
-│   ├── smoke-test.sh      # Full install/uninstall + MCP protocol + KB round-trip
+│   ├── smoke-test.sh      # Sandboxed install/uninstall + MCP protocol + KB round-trip
 │   ├── mcp-protocol-test.ts   # MCP protocol compliance
 │   ├── model-smoke-test.ts    # Local embedding model validation
 │   └── Dockerfile
@@ -72,4 +72,21 @@ bun test                          # All tests
 bun test tests/mcp-tools.test.ts  # Single file
 bun test --watch                  # Watch mode
 EVAL=1 bun test tests/eval/eval.test.ts --timeout 120000  # Eval suite
+docker build --target smoke -t open-zk-kb-smoke -f tests/docker/Dockerfile .
 ```
+
+## Destructive Test Safety
+
+- `tests/docker/smoke-test.sh` must refuse unmarked host execution and establish
+  its private, sentinel-marked sandbox before running any test command.
+- Route every recursive deletion in the smoke suite through its canonical-path
+  guard. Never add a direct `rm -rf` test step.
+- Keep all `HOME`, XDG, runtime cache, temporary, package staging, and generated
+  output paths inside the smoke sandbox. CI may copy an explicitly restored,
+  read-only model seed into that cache; model execution must never write back to
+  the seed location. Never disable TLS certificate verification when downloading
+  or caching model artifacts.
+- Keep the independent `src/setup.ts` smoke-mode deletion backstop and its
+  regression tests. Shell isolation alone is not sufficient.
+- Prefer the Docker invocation when practical; do not mount a host home or vault
+  into the container.

@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { handleStore, handleTemplate, handleHealth } from '../src/tool-handlers.js';
 import { cleanupTestHarness, createTestHarness, sleep, type TestContext } from './harness.js';
 import {
@@ -53,7 +54,7 @@ describe('getTemplate', () => {
   });
 
   it('returns project override when path exists', () => {
-    const tmpDir = fs.mkdtempSync('/tmp/tpl-test-');
+    const tmpDir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'tpl-test-'));
     const overridePath = path.join(tmpDir, 'decision.md');
     fs.writeFileSync(overridePath, '## Custom Decision Template\n');
 
