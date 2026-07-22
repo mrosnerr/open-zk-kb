@@ -3478,6 +3478,22 @@ describe('Domain note kind', () => {
     expect(domainIndex).toBeLessThan(regularIndex);
   });
 
+  it('should not inject the domain note into archived-only searches', async () => {
+    await handleStore({
+      title: 'MyApp Domain',
+      content: 'Canonical operating manual for MyApp.',
+      kind: 'domain',
+      project: 'myapp',
+      summary: 'MyApp operating manual',
+      guidance: 'Read first',
+    }, ctx.engine, null, ctx.config);
+
+    const config = { ...getConfig(), search: { alwaysIncludeDomainNote: true } };
+    const output = handleSearch({ query: 'totally-unrelated-query', project: 'myapp', status: 'archived' }, ctx.engine, null, config);
+
+    expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
+  });
+
   it('should return domain note even with zero FTS matches', async () => {
     await handleStore({
       title: 'MyApp Domain',

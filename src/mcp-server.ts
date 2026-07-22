@@ -412,6 +412,7 @@ export function createMcpServer(): McpServer {
         const result = await handleMaintain({
           action: args.action,
           noteId: args.noteId,
+          project: args.project,
           filter: args.filter as 'fleeting' | 'permanent' | undefined,
           days: args.days,
           limit: args.limit,

@@ -297,7 +297,7 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 
 ## knowledge-context
 
-Get a global or project-scoped overview with a computed inventory of notes, recent activity, and resources. Use at the start of a session to orient yourself.
+Get the context visible to a required current project: project-local notes plus automatically visible explicit global knowledge, restricted by compatible client scope. Use at the start of a session to orient yourself.
 
 The Pi extension also requests a compact project preference capsule from this tool when a session starts. It injects the capsule through the system prompt and displays a separate, deduplicated TUI entry; the model does not need to initiate a search. See the [Pi Experience](pi.md#automatic-project-preferences).
 
@@ -305,24 +305,15 @@ The Pi extension also requests a compact project preference capsule from this to
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `project` | string | No | Project name. Omit for a global overview across all projects |
+| `project` | string | Yes | Current project whose visible context is requested |
 | `logEntries` | number | No | Number of recent log entries to include (default: 10) |
 | `includePreferences` | boolean | No | Include a compact capsule of matching permanent personalization notes |
 | `client` | string | No | Client identifier used to include matching client-scoped preferences |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
 
-### Global overview (no `project`)
+### Project context
 
-Returns a high-level view across the entire vault:
-
-- List of all projects
-- Global inventory — note counts by kind
-- Recent notes across all projects
-- Resources
-
-### Project overview (`project` provided)
-
-Returns a focused view of a single project:
+Returns a focused view of the required current project together with explicit global notes that are automatically visible; no separate global request flag is needed:
 
 - **Domain note** — the project's domain note content (if one exists)
 - **Inventory by kind** — note counts broken down by kind for the project
@@ -346,6 +337,8 @@ Retrieve a single note by its exact ID. Faster and more precise than knowledge-s
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `noteId` | string | Yes | Exact note ID to retrieve |
+| `project` | string | Yes | Current project used to validate note visibility |
+| `client` | string | No | Optional client applicability filter |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
 
 ### What happens
@@ -363,7 +356,7 @@ Retrieve a single note by its exact ID. Faster and more precise than knowledge-s
 ### Example
 
 ```json
-{ "noteId": "2026030919130100" }
+{ "noteId": "2026030919130100", "project": "example-project", "client": "pi" }
 ```
 
 

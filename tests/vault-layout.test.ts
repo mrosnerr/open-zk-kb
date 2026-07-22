@@ -10,7 +10,13 @@ import {
 import type { TestContext } from './harness.js';
 import { resolveNotePath, walkMarkdownFiles, extractProjectFromTags } from '../src/storage/path-resolver.js';
 import { handleMaintain, handleStore } from '../src/tool-handlers.js';
-import { buildIndexContent, buildPreferencesIndexContent } from '../src/storage/IndexBuilder.js';
+import {
+  GLOBAL_SCOPE_PREDICATE,
+  buildGeneralIndexContent,
+  buildGeneralKindIndexContent,
+  buildIndexContent,
+  buildPreferencesIndexContent,
+} from '../src/storage/IndexBuilder.js';
 import { buildReviewContent } from '../src/storage/ReviewBuilder.js';
 import type { NoteMetadata } from '../src/storage/NoteRepository.js';
 
@@ -820,6 +826,18 @@ describe('Structured navigation regressions', () => {
  });
 
 describe('Preferences Navigation', () => {
+  it('uses one strict global-scope predicate that excludes conflicted notes', () => {
+    const general = buildGeneralIndexContent([{ kind: 'decision' } as NoteMetadata]);
+    const kind = buildGeneralKindIndexContent('decision', []);
+    const predicate = Function(`return (${GLOBAL_SCOPE_PREDICATE})`)() as (page: unknown) => boolean;
+
+    expect(general).toContain(GLOBAL_SCOPE_PREDICATE);
+    expect(kind).toContain(GLOBAL_SCOPE_PREDICATE);
+    expect(predicate({ file: { tags: ['scope:global'] } })).toBe(true);
+    expect(predicate({ file: { tags: ['#scope:global', '#project:alpha'] } })).toBe(false);
+    expect(predicate({ file: { tags: [{ tag: '#scope:global' }, { name: 'project:alpha' }] } })).toBe(false);
+  });
+
   it('excludes archived notes from all preference sections', () => {
     const content = buildPreferencesIndexContent([]);
     const occurrences = (content.match(/\.where\(p => p\.status !== 'archived'\)/g) || []).length;

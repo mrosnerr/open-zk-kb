@@ -791,6 +791,8 @@ export class NoteRepository {
     if (options.status) {
       sql += ' AND n.status = ?';
       params.push(options.status);
+    } else {
+      sql += " AND n.status != 'archived'";
     }
 
     if (options.kind) {
@@ -846,6 +848,8 @@ export class NoteRepository {
     if (options.status) {
       sql += ' AND status = ?';
       params.push(options.status);
+    } else {
+      sql += " AND status != 'archived'";
     }
     if (options.kind) {
       sql += ' AND kind = ?';
@@ -1245,7 +1249,7 @@ export class NoteRepository {
     return row.count;
   }
 
-  getUnscopedNotes(): NoteMetadata[] {
+  getGeneralGlobalNotes(): NoteMetadata[] {
     const stmt = this.db.prepare(`
       SELECT * FROM notes
       WHERE EXISTS (SELECT 1 FROM json_each(notes.tags) WHERE value = 'scope:global')
@@ -1580,9 +1584,9 @@ export class NoteRepository {
         fs.mkdirSync(path.dirname(newPath), { recursive: true });
         fs.renameSync(oldPath, newPath);
         moved = true;
-        if (!this.updatePath(id, newPath)) throw new Error('Failed to update note path');
+        if (!withBusyRetry(() => this.updatePath(id, newPath))) throw new Error('Failed to update note path');
       }
-      if (!this.updateTags(id, tags)) throw new Error('Failed to update note tags');
+      if (!withBusyRetry(() => this.updateTags(id, tags))) throw new Error('Failed to update note tags');
       return { oldPath, newPath };
     } catch (error) {
       // A failed initial rename has not changed note bytes or indexed metadata.
@@ -1592,9 +1596,11 @@ export class NoteRepository {
       try {
         if (moved) fs.renameSync(newPath, oldPath);
         fs.writeFileSync(oldPath, oldFile, 'utf-8');
-        this.db.prepare('UPDATE notes SET path = ?, tags = ?, updated_at = ? WHERE id = ?')
-          .run(oldPath, oldTagsJson, note.updated_at, id);
-        this.ftsUpdate(id, note.title, note.content, oldTagsJson, note.context || '');
+        withBusyRetry(() => {
+          this.db.prepare('UPDATE notes SET path = ?, tags = ?, updated_at = ? WHERE id = ?')
+            .run(oldPath, oldTagsJson, note.updated_at, id);
+          this.ftsUpdate(id, note.title, note.content, oldTagsJson, note.context || '');
+        });
       } catch (rollbackError) {
         logToFile('ERROR', 'Failed to roll back project assignment', {
           noteId: id, error: String(rollbackError), originalError: String(error),
@@ -2021,6 +2027,7 @@ export class NoteRepository {
     const indexNotes = new Map<string, string>();
     const logNotes = new Map<string, string>();
     const warnings: string[] = [];
+    const rawLinkSources = new Map<string, string>();
     let errors = 0;
 
     // Embeddings live only in SQLite (not in .md files), so save before DELETE.
@@ -2085,7 +2092,7 @@ export class NoteRepository {
 
         this.ftsDelete(id);
         this.ftsInsert(id, title, indexBody, tagsJson, context);
-        this.syncLinks(id, body);
+        rawLinkSources.set(id, rawContent);
         uniqueIds.add(id);
 
         if (kind === 'domain' || kind === 'index' || kind === 'log') {
@@ -2105,6 +2112,11 @@ export class NoteRepository {
         errors++;
       }
     }
+
+    // Resolve links only after every note is loaded. This makes link rebuilding
+    // independent of filesystem traversal order and applies scope validation
+    // against the complete persisted note set.
+    for (const [id, rawContent] of rawLinkSources) this.syncLinks(id, rawContent);
 
     if (savedEmbeddings.length > 0) {
       const restoreStmt = this.db.prepare(
@@ -2222,12 +2234,20 @@ export class NoteRepository {
   syncLinks(noteId: string, content: string): void {
     this.db.prepare('DELETE FROM note_links WHERE source_id = ?').run(noteId);
 
+    const source = this.getById(noteId);
+    const sourceIsGlobal = source?.tags.includes('scope:global') === true
+      && !source.tags.some(tag => tag.startsWith('project:'));
     const links = this.extractWikiLinks(content);
     const now = Date.now();
 
     for (const linkText of links) {
       const targetId = this.resolveLink(linkText);
-      if (targetId) {
+      const target = targetId ? this.getById(targetId) : null;
+      if (targetId && target) {
+        const targetIsActiveGlobal = target.status !== 'archived'
+          && target.tags.includes('scope:global')
+          && !target.tags.some(tag => tag.startsWith('project:'));
+        if (sourceIsGlobal && !targetIsActiveGlobal) continue;
         this.db.prepare(`
           INSERT OR REPLACE INTO note_links (source_id, target_id, link_text, created_at)
           VALUES (?, ?, ?, ?)
@@ -2237,14 +2257,14 @@ export class NoteRepository {
   }
 
   getBacklinks(noteId: string, visibility?: VisibilityOptions): Array<{ note: NoteMetadata; link_text: string }> {
+    const scope = this.visibilityPredicate('n', visibility);
     const stmt = this.db.prepare(`
       SELECT n.*, l.link_text
       FROM note_links l
       JOIN notes n ON l.source_id = n.id
-      WHERE l.target_id = ?${this.visibilityPredicate('n', visibility).sql}
+      WHERE l.target_id = ?${scope.sql}
       ORDER BY l.created_at DESC
     `);
-    const scope = this.visibilityPredicate('n', visibility);
     const results = stmt.all(noteId, ...scope.params) as Array<NoteMetadata & { link_text: string }>;
 
     return results.map(r => ({
@@ -2663,8 +2683,8 @@ export class NoteRepository {
     if (!source || !target) throw new Error('Link endpoint not found');
     if (!source.tags.includes('scope:global') || source.tags.some(tag => tag.startsWith('project:')))
       throw new Error('Source note must be global');
-    if (!target.tags.includes('scope:global') || target.tags.some(tag => tag.startsWith('project:')))
-      throw new Error('Global notes may link only to global notes');
+    if (target.status === 'archived' || !target.tags.includes('scope:global') || target.tags.some(tag => tag.startsWith('project:')))
+      throw new Error('Global notes may link only to active global notes');
   }
 
   addLocalToGlobalRelation(sourceId: string, globalId: string): void {

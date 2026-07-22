@@ -86,5 +86,12 @@ describe('shared tool schemas', () => {
       guidance: 'Guidance',
     });
     expect(invalid.success).toBe(false);
+    expect(candidate.safeParse({
+      title: 'Global Domain',
+      content: 'Project domain content',
+      kind: 'domain',
+      summary: 'Summary',
+      guidance: 'Guidance',
+    }).success).toBe(false);
   });
 });

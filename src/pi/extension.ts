@@ -383,7 +383,13 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
         executionMode: definition.executionMode,
         execute: async (_toolCallId, params, signal) => {
           const args = params as Record<string, unknown>;
-          const routineArgs = ROUTINE_STORED_KNOWLEDGE_TOOLS.has(definition.name) && project ? { ...args, project, client: 'pi' } : args;
+          let routineArgs = args;
+          if (ROUTINE_STORED_KNOWLEDGE_TOOLS.has(definition.name)) {
+            const boundedArgs = { ...args };
+            delete boundedArgs.project;
+            delete boundedArgs.client;
+            routineArgs = { ...boundedArgs, ...(project ? { project } : {}), client: 'pi' };
+          }
           const result = await bridge.callTool(definition.name, routineArgs, signal);
           if (MUTATING_TOOLS.has(definition.name)) capsuleRequest = undefined;
           return result;

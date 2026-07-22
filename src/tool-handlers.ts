@@ -215,6 +215,7 @@ export interface MineCandidate {
 export interface MineArgs {
   candidates: MineCandidate[];
   project: string;
+  client?: string;
   dry_run?: boolean;
   model?: string;
 }
@@ -798,7 +799,7 @@ function updateGlobalNavigation(
   if (!vaultPath) return [];
   const changedPaths: string[] = [];
   let fleetingNotes: NoteMetadata[] | null = null;
-  let unscopedNotes: NoteMetadata[] | null = null;
+  let generalGlobalNotes: NoteMetadata[] | null = null;
   let applicablePersonalizations: NoteMetadata[] | null = null;
 
   const getFleetingNotes = (): NoteMetadata[] => {
@@ -806,9 +807,9 @@ function updateGlobalNavigation(
     return fleetingNotes;
   };
 
-  const getUnscopedNotes = (): NoteMetadata[] => {
-    if (!unscopedNotes) unscopedNotes = repo.getUnscopedNotes();
-    return unscopedNotes;
+  const getGeneralGlobalNotes = (): NoteMetadata[] => {
+    if (!generalGlobalNotes) generalGlobalNotes = repo.getGeneralGlobalNotes();
+    return generalGlobalNotes;
   };
 
   const getApplicablePersonalizations = (): NoteMetadata[] => {
@@ -824,7 +825,7 @@ function updateGlobalNavigation(
       const projectStats = repo.getProjectStats();
       const totalNoteCount = repo.getStats().total;
       const prefsCount = getApplicablePersonalizations().length;
-      const generalCount = getUnscopedNotes().length;
+      const generalCount = getGeneralGlobalNotes().length;
       const fleetingCount = getFleetingNotes().length;
       const content = buildGlobalIndexContent(projectStats, prefsCount, generalCount, fleetingCount, totalNoteCount, {
         includeReviewLink: config?.navigation?.enableReviewMoc !== false,
@@ -889,7 +890,7 @@ function updateGlobalNavigation(
 
   if (config?.navigation?.enableGlobalIndex !== false) {
     try {
-      const unscopedNotes = getUnscopedNotes();
+      const unscopedNotes = getGeneralGlobalNotes();
       const personalizationNotes = getApplicablePersonalizations();
       const generalDir = path.join(vaultPath, 'general');
       if (unscopedNotes.length > 0) {
@@ -1286,7 +1287,9 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
 
   // Always-include domain note for project-scoped searches
   let domainNote: NoteMetadata | null = null;
-  if (args.project && config?.search?.alwaysIncludeDomainNote !== false) {
+  const requestedStatus = args.status ? toNoteStatus(args.status, 'fleeting') : undefined;
+  if (args.project && config?.search?.alwaysIncludeDomainNote !== false &&
+      (!requestedStatus || requestedStatus === 'permanent')) {
     domainNote = repo.getDomainNote(project);
     if (domainNote) {
       const domainId = domainNote.id;
@@ -1395,8 +1398,9 @@ function canonicalPublishCandidate(candidate: PublishGlobalCandidate): string {
 }
 
 function publicationToken(source: NoteMetadata, candidate: PublishGlobalCandidate): string {
+  const persistedSourceHash = createHash('sha256').update(fs.readFileSync(source.path)).digest('hex');
   return createHash('sha256')
-    .update(JSON.stringify({ sourceId: source.id, sourceUpdatedAt: source.updated_at, candidate: canonicalPublishCandidate(candidate), scope: 'global' }))
+    .update(JSON.stringify({ sourceId: source.id, persistedSourceHash, candidate: canonicalPublishCandidate(candidate), scope: 'global' }))
     .digest('hex');
 }
 
@@ -1445,16 +1449,29 @@ function globalReferenceEvidence(candidate: PublishGlobalCandidate, repo: NoteRe
       projectReferences.push(`tag:${tag}`);
     }
   }
-  for (const link of extractWikiLinks(candidate.content)) {
-    const targetId = repo.resolveLink(link.slug);
-    if (!targetId) outboundLinks.push(`unresolved:[[${link.slug}]]`);
-    else {
-      const target = repo.getById(targetId);
-      const targetScope = target ? parseKnowledgeApplicability(target.tags).type : 'missing';
-      outboundLinks.push(`${targetScope === 'global' ? 'global' : targetScope}:[[${link.slug}]]->${targetId}`);
+  for (const field of fields) {
+    for (const link of extractWikiLinks(candidate[field] || '')) {
+      const targetId = repo.resolveLink(link.slug);
+      const prefix = field === 'content' ? '' : `${field}:`;
+      if (!targetId) outboundLinks.push(`${prefix}unresolved:[[${link.slug}]]`);
+      else {
+        const target = repo.getById(targetId);
+        const targetScope = target?.status === 'archived'
+          ? 'archived'
+          : target ? parseKnowledgeApplicability(target.tags).type : 'missing';
+        outboundLinks.push(`${prefix}${targetScope === 'global' ? 'global' : targetScope}:[[${link.slug}]]->${targetId}`);
+      }
     }
   }
   return { projectReferences: [...new Set(projectReferences)].sort(), outboundLinks: [...new Set(outboundLinks)].sort() };
+}
+
+function isGlobalOutboundEvidence(evidence: string): boolean {
+  return /^(?:(?:title|summary|guidance):)?global:/.test(evidence);
+}
+
+function isUnresolvedOutboundEvidence(evidence: string): boolean {
+  return /^(?:(?:title|summary|guidance):)?unresolved:/.test(evidence);
 }
 
 function publicationValidation(source: NoteMetadata | null, candidate: PublishGlobalCandidate | undefined, repo: NoteRepository): {
@@ -1504,8 +1521,8 @@ function publicationValidation(source: NoteMetadata | null, candidate: PublishGl
     }
   }
   for (const evidence of outboundLinks) {
-    if (evidence.startsWith('unresolved:')) errors.push(`candidate.content: ${evidence}`);
-    else if (!evidence.startsWith('global:')) errors.push(`candidate.content: outbound target is not global (${evidence})`);
+    if (isUnresolvedOutboundEvidence(evidence)) errors.push(`candidate: ${evidence}`);
+    else if (!isGlobalOutboundEvidence(evidence)) errors.push(`candidate: outbound target is not active global (${evidence})`);
   }
   return { errors: [...new Set(errors)], duplicates, projectReferences, outboundLinks };
 }
@@ -1567,7 +1584,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           summary: note.summary || '', guidance: note.guidance || '', tags: note.tags,
         }, repo, true);
         return { id: note.id, title: note.title, ...evidence };
-      }).filter(item => item.projectReferences.length > 0 || item.outboundLinks.some(link => !link.startsWith('global:')));
+      }).filter(item => item.projectReferences.length > 0 || item.outboundLinks.some(link => !isGlobalOutboundEvidence(link)));
       return JSON.stringify({ action: 'global-reference-audit', mutated: false, scanned: notes.length, findings }, null, 2);
     }
     case 'publish-global': {
@@ -2845,7 +2862,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     const embedding = embeddings[i]?.embedding;
 
     if (embedding) {
-      const vectorMatches = repo.searchVector(embedding, { limit: 5, visibility: { project } }).filter(note => note.status !== 'archived');
+      const vectorMatches = repo.searchVector(embedding, { limit: 5, visibility: { project, client: args.client } });
       const best = vectorMatches[0];
       matches = vectorMatches.map(note => ({ id: note.id, title: note.title, similarity: note.similarity }));
 
@@ -2857,14 +2874,14 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
         rationale = `Partial match (similarity: ${best.similarity.toFixed(2)})`;
       }
     } else {
-      const simHashMatches = repo.findNearDuplicates(hash, 3, { project });
+      const simHashMatches = repo.findNearDuplicates(hash, 3, { project, client: args.client });
       if (simHashMatches.length > 0) {
         classification = 'SKIP';
         rationale = 'Similar to existing note by SimHash';
         matches = simHashMatches.slice(0, 5).map(note => ({ id: note.id, title: note.title }));
       } else {
         const query = [candidate.title, candidate.summary].filter(Boolean).join(' ');
-        const ftsMatches = query.trim() ? repo.search(query, { limit: 5, visibility: { project } }).filter(note => note.status !== 'archived') : [];
+        const ftsMatches = query.trim() ? repo.search(query, { limit: 5, visibility: { project, client: args.client } }) : [];
         if (ftsMatches.length > 0) {
           classification = 'REVIEW';
           rationale = 'Keyword overlap found (FTS5 fallback)';
@@ -2891,6 +2908,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
           summary: result.candidate.summary,
           guidance: result.candidate.guidance,
           project: candidateProject,
+          client: args.client,
           model: args.model,
         }, repo, embeddingConfig, config, gitVersioning);
         const storedId = extractStoredId(storeResult);

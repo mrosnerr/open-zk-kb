@@ -141,6 +141,31 @@ describe('knowledge-mine: dry-run classification', () => {
     expect(output).toContain('Summary: 0 STORE, 1 SKIP, 0 REVIEW');
   });
 
+  it('does not classify against notes hidden from the mining client', async () => {
+    await handleStore({
+      project: 'test-project', client: 'cursor',
+      title: 'Cursor Private Duplicate',
+      content: 'Capture this exact private duplicate phrase for one client.',
+      kind: 'observation',
+      summary: 'Capture this exact private duplicate phrase',
+      guidance: 'Keep this duplicate private to Cursor.',
+    }, ctx.engine, null, ctx.config);
+
+    const candidate = makeCandidate({
+      title: 'Candidate Duplicate Mirror',
+      content: 'Capture this exact private duplicate phrase for one client.',
+      summary: 'Capture this exact private duplicate phrase',
+      guidance: 'Keep this duplicate private to the matching client.',
+    });
+    const hidden = await handleMine({ project: 'test-project', client: 'pi', candidates: [candidate] }, ctx.engine, null, ctx.config);
+    const visible = await handleMine({ project: 'test-project', client: 'cursor', candidates: [candidate] }, ctx.engine, null, ctx.config);
+
+    expect(hidden).not.toContain('"Cursor Private Duplicate"');
+    expect(hidden).not.toContain('⮕ SKIP');
+    expect(visible).toContain('⮕ SKIP');
+    expect(visible).toContain('"Cursor Private Duplicate"');
+  });
+
   it('candidate partially matching existing note', async () => {
     await handleStore({ project: 'test-project',
       title: 'Release Checklist',
@@ -209,6 +234,22 @@ describe('knowledge-mine: store mode', () => {
     expect(output).toContain('⮕ STORE — No similar notes found');
     expect(output).toContain('✅ Stored as');
     expect(results.some(note => note.title === 'Stored Mining Candidate')).toBe(true);
+  });
+
+  it('stores mined notes with the supplied client applicability', async () => {
+    await handleMine({
+      project: 'test-project', client: 'pi', dry_run: false,
+      candidates: [makeCandidate({ title: 'Pi Scoped Mining Note', summary: 'Unique Pi scoped mining note' })],
+    }, ctx.engine, null, ctx.config);
+
+    const stored = ctx.engine.search('Pi Scoped Mining Note', {
+      kind: 'observation', visibility: { project: 'test-project', client: 'pi' },
+    })[0];
+    expect(stored.tags).toContain('project:test-project');
+    expect(stored.tags).toContain('client:pi');
+    expect(ctx.engine.search('Pi Scoped Mining Note', {
+      kind: 'observation', visibility: { project: 'test-project', client: 'cursor' },
+    })).toEqual([]);
   });
 
   it('extracts the real stored id when a mined title contains an arrow', async () => {

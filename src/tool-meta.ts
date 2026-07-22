@@ -39,6 +39,7 @@ export const STORABLE_KINDS = [
 
 export const ALL_KINDS = [...STORABLE_KINDS, "index", "log"] as const;
 export const TEMPLATE_KINDS = [...STORABLE_KINDS, "log"] as const;
+export const PUBLISHABLE_KINDS = STORABLE_KINDS.filter(kind => kind !== "domain");
 
 export const STATUSES = ["fleeting", "permanent", "archived"] as const;
 
@@ -86,7 +87,7 @@ export const PUBLISH_GLOBAL_CANDIDATE_PROPERTIES: Record<string, ParamDef> = {
 		type: "string",
 		required: true,
 		description: "Global note kind — must be storable, non-domain, non-structural",
-		enum: STORABLE_KINDS,
+		enum: PUBLISHABLE_KINDS,
 	},
 	summary: {
 		type: "string",
@@ -371,8 +372,8 @@ export const TOOL_DEFINITIONS = [
 		name: "knowledge-context",
 		label: "Knowledge Context",
 		description:
-			"Get a context of the knowledge base. With project: domain note, inventory by kind, recent notes, " +
-			"resources, and activity log. Without project: all projects with note counts, global inventory, and recent notes.",
+			"Get context visible to the required current project: its domain note, inventory by kind, recent notes, " +
+			"resources, activity log, and automatically visible explicit global knowledge.",
 		promptSnippet:
 			"Load an open-zk-kb project context at the start of project work.",
 		promptGuidelines: [
@@ -607,6 +608,11 @@ export const TOOL_DEFINITIONS = [
 				type: "string",
 				required: true,
 				description: "Current project for duplicate screening and stored candidates",
+			},
+			client: {
+				type: "string",
+				required: false,
+				description: "Optional client applicability filter for duplicate screening",
 			},
 			dry_run: {
 				type: "boolean",

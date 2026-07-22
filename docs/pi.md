@@ -12,7 +12,7 @@ Bun remains required for the local MCP server and SQLite storage. Restart Pi aft
 
 ## Automatic Project Preferences
 
-When a Pi session starts, the extension derives the canonical project from the current working-directory basename and loads permanent preferences through `knowledge-context`. It supplies that project and `client: "pi"` on every routine stored-knowledge call it initiates; caller-supplied values cannot widen the boundary. The preference capsule enters model context through the system prompt, so it is available before the model responds and does not require a model-initiated `knowledge-search` call.
+When a Pi session starts, the extension derives the canonical project from the current working-directory basename and loads permanent preferences through `knowledge-context`. It supplies that project and `client: "pi"` on every routine stored-knowledge call it initiates; caller-supplied values cannot widen the boundary. Before session initialization establishes a canonical project, it removes any model-provided project and still supplies `client: "pi"`, so project-required calls fail closed at server validation. The preference capsule enters model context through the system prompt, so it is available before the model responds and does not require a model-initiated `knowledge-search` call.
 
 Pi separately displays an honest, deduplicated session entry:
 

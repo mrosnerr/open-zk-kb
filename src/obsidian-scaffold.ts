@@ -4,6 +4,7 @@ import * as crypto from 'crypto';
 import { fileURLToPath } from 'url';
 import type { ObsidianConfig } from './types.js';
 import { logToFile } from './logger.js';
+import { KIND_DIR_MAP } from './storage/path-resolver.js';
 
 export interface PluginRegistryEntry {
   id: string;
@@ -646,11 +647,6 @@ function buildProjectQuickAddChoices(): Array<Record<string, unknown>> {
     { id: 'project-preference', template: 'personalization-project.md', label: 'Project Preference' },
   ];
 
-  const kindDirMap: Record<string, string> = {
-    decision: 'decisions', observation: 'observations', procedure: 'procedures',
-    reference: 'references', resource: 'resources', personalization: 'preferences',
-  };
-
   return kinds.map(({ id, template, label }) => {
     const kind = id.replace('project-', '');
     return {
@@ -665,7 +661,7 @@ function buildProjectQuickAddChoices(): Array<Record<string, unknown>> {
       },
       folder: {
         enabled: true,
-        folders: [`projects/{{VALUE:project}}/${kindDirMap[kind] || `${kind}s`}`],
+        folders: [`projects/{{VALUE:project}}/${KIND_DIR_MAP[kind] || `${kind}s`}`],
         chooseWhenCreatingNote: false,
       },
       openFile: true,
@@ -783,14 +779,7 @@ function buildPluginData(pluginId: string, config: ObsidianConfig): Record<strin
       });
       return {
         showAddCommand: false,
-        leftRibbon: [
-          {
-            id: `quickadd:choice:${deterministicId('quickadd-new-note')}`,
-            icon: 'lucide-plus-circle',
-            name: 'New Note',
-            mode: 'any',
-          },
-        ],
+        leftRibbon: [],
         pageHeader: pageHeaderButtons,
       };
     }
@@ -1234,7 +1223,6 @@ function scaffoldWorkspaceDefaults(vaultPath: string): void {
     'command-palette:Open command palette': true,
     'bases:Create new base': true,
     'homepage:Open homepage': false,
-    'cmdr:New Note': false,
     'templater-obsidian:Templater': true,
     'iconic:Open rulebook': true,
   };

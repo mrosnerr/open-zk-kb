@@ -59,6 +59,23 @@ describe('tool-meta', () => {
     }
   });
 
+  it('publishing excludes domain while mining exposes an optional client', () => {
+    const maintain = TOOL_DEFINITIONS.find(t => t.name === 'knowledge-maintain')!;
+    const candidate = maintain.params.candidate;
+    expect(candidate.properties?.kind.enum).toContain('reference');
+    expect(candidate.properties?.kind.enum).not.toContain('domain');
+
+    const mine = TOOL_DEFINITIONS.find(t => t.name === 'knowledge-mine')!;
+    expect(mine.params.client.required).toBe(false);
+  });
+
+  it('knowledge-context documents required project visibility with automatic globals', () => {
+    const context = TOOL_DEFINITIONS.find(t => t.name === 'knowledge-context')!;
+    expect(context.params.project.required).toBe(true);
+    expect(context.description).toContain('automatically visible explicit global knowledge');
+    expect(context.description).not.toContain('Without project');
+  });
+
   it('knowledge-store description includes structure hints', () => {
     const store = TOOL_DEFINITIONS.find(t => t.name === 'knowledge-store')!;
     expect(store.description).toContain('Content structure by kind');

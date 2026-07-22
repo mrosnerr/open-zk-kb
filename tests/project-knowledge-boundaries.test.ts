@@ -31,6 +31,21 @@ describe('repository project knowledge boundaries', () => {
     expect(context.engine.search('boundary', { limit: 1, visibility: { project: 'alpha' } })).toHaveLength(1);
   });
 
+  it('excludes archived notes before default FTS and vector ranking', () => {
+    const archived = store('Archived Alpha', ['project:alpha'], 'archived boundary keyword');
+    context.engine.storeEmbedding(archived.id, [1, 0], 'test');
+    context.engine.archive(archived.id);
+
+    expect(context.engine.search('archived boundary', { visibility: { project: 'alpha' } })).toEqual([]);
+    expect(context.engine.searchVector([1, 0], { visibility: { project: 'alpha' } })).toEqual([]);
+    expect(context.engine.search('archived boundary', {
+      status: 'archived', visibility: { project: 'alpha' },
+    }).map(note => note.id)).toEqual([archived.id]);
+    expect(context.engine.searchVector([1, 0], {
+      status: 'archived', visibility: { project: 'alpha' },
+    }).map(note => note.id)).toEqual([archived.id]);
+  });
+
   it('prefilters vector candidates and applies client compatibility', () => {
     const alpha = store('Alpha Pi', ['project:alpha', 'client:pi']);
     const beta = store('Beta', ['project:beta']);

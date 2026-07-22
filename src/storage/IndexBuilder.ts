@@ -72,6 +72,11 @@ const SECTION_COLORS: Record<string, string> = {
   personalization: 'var(--color-pink-rgb)',
 };
 
+export const GLOBAL_SCOPE_PREDICATE = `p => {
+  const tags = (p.file.tags || []).map(t => typeof t === "string" ? t : (t && typeof t.tag === "string" ? t.tag : (t && typeof t.name === "string" ? t.name : String(t)))).map(t => t.replace(/^#/, ""));
+  return tags.includes("scope:global") && !tags.some(t => t.startsWith("project:"));
+}`;
+
 const QUICKADD_CHOICE_LABELS: Record<string, string> = {
   decision: 'Project Decision',
   observation: 'Project Observation',
@@ -495,7 +500,7 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
       source,
       kind,
       header,
-      `p => (p.file.tags || []).map(t => typeof t === "string" ? t.replace(/^#/, "") : String(t?.tag || t?.name || t).replace(/^#/, "")).includes("scope:global")`,
+      GLOBAL_SCOPE_PREDICATE,
     ));
     lines.push('');
   }
@@ -621,7 +626,7 @@ export function buildGeneralKindIndexContent(kind: string, _notes: NoteMetadata[
     `general/${KIND_DIR_MAP[kind] || `${kind}s`}`,
     kind,
     header,
-    `p => (p.file.tags || []).map(t => typeof t === "string" ? t.replace(/^#/, "") : String(t?.tag || t?.name || t).replace(/^#/, "")).includes("scope:global")`,
+    GLOBAL_SCOPE_PREDICATE,
   ));
   lines.push('');
   lines.push('---');

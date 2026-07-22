@@ -403,5 +403,13 @@ describe('MCP Protocol E2E', () => {
     });
     const missingProjectText = (missingProject.content as Array<{ type: string; text: string }>)[0].text;
     expect(missingProjectText).toContain('a valid project is required');
+
+    const forwardedProject = await client!.callTool({
+      name: 'knowledge-maintain',
+      arguments: { action: 'assign-project', noteId: 'nonexistent-note', project: 'protocol', dryRun: true },
+    });
+    const forwardedProjectText = (forwardedProject.content as Array<{ type: string; text: string }>)[0].text;
+    expect(forwardedProjectText).toContain('Note not found: nonexistent-note');
+    expect(forwardedProjectText).not.toContain('a valid project is required');
   });
 });

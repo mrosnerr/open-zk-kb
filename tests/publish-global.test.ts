@@ -95,6 +95,55 @@ describe('publish-global maintenance', () => {
     expect(rejected.outboundLinks).toContain('unresolved:[[missing-note]]');
   });
 
+  it('validates links in every rendered field and rejects archived global targets', async () => {
+    const local = source();
+    const privateTarget = ctx.engine.store('Private target.', {
+      title: 'Private Target', kind: 'reference', status: 'permanent', tags: ['project:alpha'],
+      summary: 'Private.', guidance: 'Keep private.',
+    });
+    for (const field of ['title', 'summary', 'guidance'] as const) {
+      const proposed = { ...candidate, [field]: `Use [[${privateTarget.id}|Private Target]].` };
+      const preview = JSON.parse(await handleMaintain({
+        action: 'publish-global', noteId: local.id, candidate: proposed, dryRun: true,
+      }, ctx.engine, ctx.config));
+      expect(preview.valid).toBe(false);
+      expect(preview.outboundLinks.join('\n')).toContain(`${field}:project-local:`);
+    }
+
+    const archivedGlobal = ctx.engine.store('Inactive reusable target.', {
+      title: 'Archived Global Target', kind: 'reference', status: 'permanent', tags: ['scope:global'],
+      summary: 'Inactive.', guidance: 'Do not use.',
+    });
+    ctx.engine.archive(archivedGlobal.id);
+    const archivedPreview = JSON.parse(await handleMaintain({
+      action: 'publish-global', noteId: local.id,
+      candidate: { ...candidate, content: `Use [[${archivedGlobal.id}|Archived Global Target]].` },
+      dryRun: true,
+    }, ctx.engine, ctx.config));
+    expect(archivedPreview.valid).toBe(false);
+    expect(archivedPreview.outboundLinks.join('\n')).toContain('archived:');
+    expect(archivedPreview.errors.join('\n')).toContain('not active global');
+  });
+
+  it('does not revive a used confirmation token after rebuild', async () => {
+    const local = source();
+    ctx.engine.rebuildFromFiles();
+    const preview = JSON.parse(await handleMaintain({
+      action: 'publish-global', noteId: local.id, candidate, dryRun: true,
+    }, ctx.engine, ctx.config));
+    await handleMaintain({
+      action: 'publish-global', noteId: local.id, candidate, dryRun: false,
+      confirm: true, token: preview.confirmationToken,
+    }, ctx.engine, ctx.config);
+    ctx.engine.rebuildFromFiles();
+
+    const replay = await handleMaintain({
+      action: 'publish-global', noteId: local.id, candidate, dryRun: false,
+      confirm: true, token: preview.confirmationToken,
+    }, ctx.engine, ctx.config);
+    expect(replay).toContain('stale or does not match');
+  });
+
   it('audits global violations deterministically without mutation', async () => {
     const local = source();
     const global = ctx.engine.store(`References [[${local.id}|Local Source]].`, {
@@ -107,6 +156,10 @@ describe('publish-global maintenance', () => {
     expect(first).toBe(second);
     expect(JSON.parse(first)).toMatchObject({ mutated: false, scanned: 1, findings: [{ id: global.id }] });
     expect(first).toContain('project-local:');
+    expect(ctx.engine.getOutgoingLinks(global.id)).toEqual([]);
+    ctx.engine.rebuildFromFiles();
+    expect(ctx.engine.getOutgoingLinks(global.id)).toEqual([]);
+    expect(await handleMaintain({ action: 'global-reference-audit' }, ctx.engine, ctx.config)).toContain('project-local:');
     expect(fs.readFileSync(global.path, 'utf8')).toBe(before);
   });
 
