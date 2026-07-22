@@ -1756,6 +1756,12 @@ export function uninstall(args: UninstallArgs): UninstallResult {
   const vaultPath = getVaultPath();
   const docsLabel = clientConfig.agentDocsLabel || 'Agent docs';
 
+  // Smoke mode must reject an unexpected vault before dry-run summaries,
+  // confirmation statistics, or any other read touches that path.
+  if (args.removeVault) {
+    assertSmokeTestVaultDeletionIsSandboxed(vaultPath);
+  }
+
   const disabledServersOnUninstall = clientConfig.disabledServersOnUninstall ?? [];
   const configExists = fs.existsSync(clientConfig.configPath);
   const hasAuxiliaryArtifacts = hasAuxiliaryInstallArtifacts(clientConfig);
@@ -1902,7 +1908,6 @@ export function uninstall(args: UninstallArgs): UninstallResult {
       return { status: 'not-installed', clientName: clientConfig.name, output, details: [], agentDocsSkippedSymlink: null };
     }
 
-    assertSmokeTestVaultDeletionIsSandboxed(vaultPath);
     if (fs.existsSync(vaultPath)) {
       fs.rmSync(vaultPath, { recursive: true });
     }

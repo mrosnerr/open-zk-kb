@@ -81,8 +81,10 @@ docker build --target smoke -t open-zk-kb-smoke -f tests/docker/Dockerfile .
   its private, sentinel-marked sandbox before running any test command.
 - Route every recursive deletion in the smoke suite through its canonical-path
   guard. Never add a direct `rm -rf` test step.
-- Keep all `HOME`, XDG, runtime, cache, temporary, package staging, and generated
-  output paths inside the smoke sandbox.
+- Keep all `HOME`, XDG, runtime cache, temporary, package staging, and generated
+  output paths inside the smoke sandbox. CI may copy an explicitly restored,
+  read-only model seed into that cache; model execution must never write back to
+  the seed location.
 - Keep the independent `src/setup.ts` smoke-mode deletion backstop and its
   regression tests. Shell isolation alone is not sufficient.
 - Prefer the Docker invocation when practical; do not mount a host home or vault

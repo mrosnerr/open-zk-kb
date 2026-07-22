@@ -133,6 +133,32 @@ unset APPDATA LOCALAPPDATA
 export OPEN_ZK_KB_SMOKE_TEST=1
 export OPEN_ZK_KB_SMOKE_SANDBOX_ROOT="$SMOKE_SANDBOX_ROOT"
 
+# CI may restore the immutable model files outside the disposable smoke root.
+# Copy only that explicitly provided model directory into the private cache;
+# model execution continues to read and write exclusively inside the sandbox.
+SMOKE_MODEL_CACHE_TARGET="$XDG_CACHE_HOME/open-zk-kb/models/Xenova/all-MiniLM-L6-v2"
+SMOKE_MODEL_CACHE_SEEDED=false
+if [ -n "${OPEN_ZK_KB_MODEL_CACHE_SEED:-}" ]; then
+  case "$OPEN_ZK_KB_MODEL_CACHE_SEED" in
+    */all-MiniLM-L6-v2) ;;
+    *)
+      echo "REFUSING MODEL CACHE SEED: expected all-MiniLM-L6-v2 directory" >&2
+      exit 1
+      ;;
+  esac
+  if [ ! -d "$OPEN_ZK_KB_MODEL_CACHE_SEED" ] || [ -L "$OPEN_ZK_KB_MODEL_CACHE_SEED" ]; then
+    echo "REFUSING MODEL CACHE SEED: source is missing or symlinked" >&2
+    exit 1
+  fi
+  if find "$OPEN_ZK_KB_MODEL_CACHE_SEED" -type l -print -quit | grep -q .; then
+    echo "REFUSING MODEL CACHE SEED: source contains symlinks" >&2
+    exit 1
+  fi
+  mkdir -p "$SMOKE_MODEL_CACHE_TARGET"
+  cp -R "$OPEN_ZK_KB_MODEL_CACHE_SEED"/. "$SMOKE_MODEL_CACHE_TARGET"/
+  SMOKE_MODEL_CACHE_SEEDED=true
+fi
+
 cd "$SMOKE_REPO_ROOT"
 
 # Lightweight regression-test entry point. It proves inherited HOME/XDG values
@@ -156,6 +182,8 @@ if [ "${1:-}" = "--verify-sandbox" ]; then
   printf 'BUN_INSTALL=%s\n' "$BUN_INSTALL"
   printf 'BUN_INSTALL_CACHE_DIR=%s\n' "$BUN_INSTALL_CACHE_DIR"
   printf 'GIT_CONFIG_GLOBAL=%s\n' "$GIT_CONFIG_GLOBAL"
+  printf 'MODEL_CACHE_DIR=%s\n' "$SMOKE_MODEL_CACHE_TARGET"
+  printf 'MODEL_CACHE_SEEDED=%s\n' "$SMOKE_MODEL_CACHE_SEEDED"
   exit 0
 fi
 

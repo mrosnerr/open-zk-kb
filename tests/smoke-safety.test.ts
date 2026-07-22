@@ -85,6 +85,49 @@ describe('destructive smoke-test safety', () => {
     }
   });
 
+  it('seeds the model cache only inside the private sandbox', () => {
+    const fixtureRoot = createTempDir('kb-smoke-model-cache-');
+    const fakeRealHome = path.join(fixtureRoot, 'real-home');
+    const tempParent = path.join(fixtureRoot, 'temp-parent');
+    const seedDir = path.join(fixtureRoot, 'cache-seed', 'all-MiniLM-L6-v2');
+    const seedMarker = path.join(seedDir, 'model.json');
+    fs.mkdirSync(fakeRealHome, { recursive: true });
+    fs.mkdirSync(tempParent, { recursive: true });
+    fs.mkdirSync(seedDir, { recursive: true });
+    fs.writeFileSync(seedMarker, '{"model":"fixture"}');
+
+    const result = Bun.spawnSync(['bash', smokeScript, '--verify-sandbox'], {
+      env: {
+        ...process.env,
+        HOME: fakeRealHome,
+        TMPDIR: tempParent,
+        OPEN_ZK_KB_MODEL_CACHE_SEED: seedDir,
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(fs.readFileSync(seedMarker, 'utf8')).toBe('{"model":"fixture"}');
+    const values = parseKeyValues(result.stdout.toString());
+    expect(values.MODEL_CACHE_SEEDED).toBe('true');
+    expect(values.MODEL_CACHE_DIR).toStartWith(`${values.SMOKE_SANDBOX_ROOT}${path.sep}`);
+
+    fs.symlinkSync(fakeRealHome, path.join(seedDir, 'outside-link'));
+    const unsafeResult = Bun.spawnSync(['bash', smokeScript, '--verify-sandbox'], {
+      env: {
+        ...process.env,
+        HOME: fakeRealHome,
+        TMPDIR: tempParent,
+        OPEN_ZK_KB_MODEL_CACHE_SEED: seedDir,
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    expect(unsafeResult.exitCode).toBe(1);
+    expect(unsafeResult.stderr.toString()).toContain('source contains symlinks');
+  });
+
   it('refuses to run the destructive suite on an unmarked host', () => {
     const fixtureRoot = createTempDir('kb-smoke-unmarked-host-');
     const fakeRealHome = path.join(fixtureRoot, 'real-home');
@@ -140,6 +183,16 @@ describe('destructive smoke-test safety', () => {
     expect(script).not.toContain('VAULT_PATH="$HOME/.local/share/open-zk-kb"');
   });
 
+  it('uses the isolated temporary directory for model smoke fixtures', () => {
+    const modelSmokeScript = fs.readFileSync(
+      path.resolve(import.meta.dir, 'docker/model-smoke-test.ts'),
+      'utf8',
+    );
+
+    expect(modelSmokeScript).not.toContain("mkdtempSync('/tmp/");
+    expect(modelSmokeScript).toContain('process.env.TMPDIR || os.tmpdir()');
+  });
+
   it('makes setup refuse smoke-test deletion outside the marked sandbox', async () => {
     const fixtureRoot = createTempDir('kb-smoke-setup-refusal-');
     const sandboxRoot = path.join(fixtureRoot, 'sandbox');
@@ -164,8 +217,14 @@ describe('destructive smoke-test safety', () => {
     fs.writeFileSync(cursorConfig, '{"mcpServers":{"open-zk-kb":{"command":"bun"}}}');
 
     const setup = await import(`../src/setup.js?smoke-refusal=${Date.now()}-${Math.random()}`);
-    expect(() => setup.uninstall({ client: 'cursor', removeVault: true, confirm: true }))
-      .toThrow('Refusing vault deletion outside smoke-test sandbox');
+    for (const options of [
+      { client: 'cursor' as const, removeVault: true, confirm: false },
+      { client: 'cursor' as const, removeVault: true, confirm: true, dryRun: true },
+      { client: 'cursor' as const, removeVault: true, confirm: true },
+    ]) {
+      expect(() => setup.uninstall(options))
+        .toThrow('Refusing vault deletion outside smoke-test sandbox');
+    }
     expect(fs.readFileSync(marker, 'utf8')).toBe('production knowledge');
   });
 
