@@ -8,7 +8,7 @@ open-zk-kb ships as a native [Pi package](https://github.com/badlogic/pi-mono). 
 pi install npm:open-zk-kb
 ```
 
-Bun remains required for the local MCP server and SQLite storage. Restart Pi after installation.
+Bun remains required for the local MCP server and SQLite storage. Restart Pi after installation. The direct `pi install` command does not run open-zk-kb's interactive telemetry consent prompt, so sharing remains disabled unless it was configured separately or Pi was installed through `bunx open-zk-kb@latest`.
 
 ## Automatic Project Preferences
 

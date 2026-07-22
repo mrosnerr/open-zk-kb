@@ -198,7 +198,7 @@ For any new feature, ask in order:
 - **Server surfaces, agent acts**: Every computed insight (similarity, dedup, staleness) appears in the tool response. The agent decides what to do with it.
 - **Hints, not directives**: Server responses include computed metrics (word count, similarity score, staleness days). Never phrased as recommendations.
 - **Behavioral guidance is advisory**: Instructions are "a request, not a guarantee" ([Anthropic](https://docs.anthropic.com/en/docs/claude-code/features-overview)). Deterministic enforcement requires hooks/plugins.
-- **Telemetry is local-only and opt-in**: Tool invocation counters are disabled by default; set `telemetry.enabled: true` to enable. Counters stay in SQLite, never include content or query strings. When disabled, both counter rows and access timestamp updates are skipped.
+- **Telemetry runtime defaults remain disabled**: Interactive setup preselects Yes for anonymous analytics but writes `telemetry.enabled: true` and `telemetry.share: true` only after confirmation. Non-interactive installs remain disabled unless already configured. Local counters stay in SQLite and never include content or query strings.
 - **Anonymous analytics sharing**: When both `telemetry.enabled: true` and `telemetry.share: true` are set, anonymous session metadata (client, version, platform, vault size, duration, tool usage counts, model IDs) is persisted to SQLite and sent to PostHog (EU Cloud) on the next server startup. No PII, no note content, no queries, no network calls at shutdown. Set `telemetry.share: false` to opt out. All sharing logic lives in `src/analytics.ts`. See `docs/telemetry.md`.
 
 ## Notes

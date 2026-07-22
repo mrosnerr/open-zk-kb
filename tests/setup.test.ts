@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { installTtsrRule, removeTtsrRule } from '../src/setup.js';
+import { installTtsrRule, removeTtsrRule, TELEMETRY_PROMPT_INITIAL_VALUE } from '../src/setup.js';
 import { OMP_AGENT_DOCS_PREAMBLE } from '../src/agent-docs-targets.js';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
@@ -155,6 +155,10 @@ function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
 
 
 describe('setup.ts', () => {
+  it('preselects Yes for interactive telemetry consent', () => {
+    expect(TELEMETRY_PROMPT_INITIAL_VALUE).toBe(true);
+  });
+
   let ctx: TestContext;
   let envSnapshot: EnvSnapshot;
   const tempDirs: string[] = [];
