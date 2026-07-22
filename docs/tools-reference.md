@@ -55,7 +55,7 @@ When `kind: "domain"`:
 4. Generates a local embedding vector for semantic search (if enabled)
 5. Checks for near-duplicates via SimHash and warns if found
 6. Tracks wikilink relationships in the `note_links` table
-7. If `project` is set: auto-rebuilds the project's `index` note (a catalog of all project notes grouped by kind) and appends an entry to the project's `log` note (a chronological operations log)
+7. Uses the required `project` to auto-rebuild that project's `index` note (a catalog grouped by kind) and append an entry to its `log` note (a chronological operations log)
 
 ### Auto-generated notes
 

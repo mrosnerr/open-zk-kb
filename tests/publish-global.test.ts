@@ -67,6 +67,32 @@ describe('publish-global maintenance', () => {
     expect(fs.existsSync(path.join(ctx.tempDir, 'log.md'))).toBe(false);
   });
 
+  it('auto-scopes client-specific derivatives during preview and publication', async () => {
+    const local = source();
+    const clientCandidate: PublishGlobalCandidate = {
+      ...candidate,
+      title: 'Configure Agent Skills',
+      content: 'Place reusable instructions in .claude/skills/open-zk-kb/SKILL.md.',
+      summary: 'Claude Code loads reusable instructions from its skills directory.',
+      guidance: 'Store Claude Code skill instructions under .claude/skills.',
+    };
+
+    const preview = JSON.parse(await handleMaintain({
+      action: 'publish-global', noteId: local.id, candidate: clientCandidate, dryRun: true,
+    }, ctx.engine, ctx.config));
+    expect(preview.targetTags).toEqual(['security', 'scope:global', 'client:claude-code']);
+
+    await handleMaintain({
+      action: 'publish-global', noteId: local.id, candidate: clientCandidate, dryRun: false,
+      confirm: true, token: preview.confirmationToken,
+    }, ctx.engine, ctx.config);
+    const global = ctx.engine.getAllGlobalNotes()[0];
+    expect(global.tags).toEqual(['security', 'scope:global', 'client:claude-code']);
+    expect(ctx.engine.search('reusable instructions', { visibility: { project: 'alpha', client: 'pi' } })).toHaveLength(0);
+    expect(ctx.engine.search('reusable instructions', { visibility: { project: 'alpha', client: 'claude-code' } }).map(note => note.id))
+      .toContain(global.id);
+  });
+
   it('rejects exact project evidence and non-global links while allowing global links', async () => {
     const local = source();
     const otherLocal = ctx.engine.store('Private target.', {

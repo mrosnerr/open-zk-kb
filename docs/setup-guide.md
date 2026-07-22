@@ -180,9 +180,9 @@ server:
 
 ## Initialize project-scoped use
 
-Configure each client or its agent instructions to pass the canonical current working-directory basename as `project` on every routine stored-knowledge call and its client identifier as `client`. Routine searches then see only that project's notes and explicitly global notes; routine capture always creates project-local notes. Do not configure normal global stores or omit project to request vault-wide behavior. Pi supplies its canonical project and `client: "pi"` automatically.
+Configure each client or its agent instructions to pass the canonical current working-directory basename as `project` on every routine stored-knowledge call and its client identifier as `client`. Routine calls require that canonical project and fail closed when it is missing. Searches see only that project's notes and explicitly global notes; routine capture always creates project-local notes. Pi supplies its canonical project and `client: "pi"` automatically.
 
-When upgrading an existing vault, run the full-vault maintenance legacy-scope inventory first. Notes without exactly one project tag or `scope:global` are unclassified and hidden from routine calls. Explicitly assign local notes to a project. For reusable knowledge, first establish a local source, author a project-agnostic derivative, preview `publish-global`, inspect the server-computed evidence, and confirm before applying. Maintenance—not routine calls—owns full-vault review, migration, and publication.
+When upgrading an existing vault, run the full-vault maintenance legacy-scope inventory first. Notes without exactly one project tag or `scope:global` are unclassified and hidden from routine calls. Explicitly assign local notes to a project. For reusable knowledge, first establish a local source, author a project-agnostic derivative, preview `publish-global`, inspect the server-computed evidence, and confirm before applying. Full-vault access is reserved for maintenance workflows; routine calls never obtain it by omitting `project`.
 
 ## Agent Instructions
 

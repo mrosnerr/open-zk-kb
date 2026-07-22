@@ -59,6 +59,7 @@ import { contractPath } from './utils/path.js';
 import { getTemplate, getExpectedCategories, matchCategories, extractHeaders, stripExamplesBlock, CONFORMANCE_KINDS } from './template-handler.js';
 import type { GitVersioning } from './git-versioning.js';
 import { parseKnowledgeApplicability } from './knowledge-scope.js';
+import { PUBLISHABLE_KINDS } from './tool-meta.js';
 
 // ---- Constants ----
 
@@ -1388,7 +1389,17 @@ function detectPreferenceAuditSignals(note: NoteMetadata): PreferenceAuditSignal
   return signals;
 }
 
-const PUBLISHABLE_KINDS = new Set<NoteKind>(['personalization', 'reference', 'decision', 'procedure', 'resource', 'observation']);
+const PUBLISHABLE_KIND_SET = new Set<NoteKind>(PUBLISHABLE_KINDS);
+
+function resolvedPublishTags(candidate: PublishGlobalCandidate): string[] {
+  const tags = [...new Set([...(candidate.tags || []), 'scope:global'])];
+  const detectedClient = detectClient(candidate.content, candidate.guidance);
+  if (detectedClient) {
+    const detectedTag = clientTag(detectedClient);
+    if (!tags.includes(detectedTag)) tags.push(detectedTag);
+  }
+  return tags;
+}
 
 function canonicalPublishCandidate(candidate: PublishGlobalCandidate): string {
   return JSON.stringify({
@@ -1510,7 +1521,7 @@ function publicationValidation(source: NoteMetadata | null, candidate: PublishGl
   for (const field of ['title', 'content', 'summary', 'guidance'] as const) {
     if (!candidate[field]?.trim()) errors.push(`candidate.${field}: required`);
   }
-  if (!PUBLISHABLE_KINDS.has(candidate.kind)) errors.push('candidate.kind: must be non-domain and non-structural');
+  if (!PUBLISHABLE_KIND_SET.has(candidate.kind)) errors.push('candidate.kind: must be non-domain and non-structural');
   const referenceEvidence = globalReferenceEvidence(candidate, repo);
   projectReferences.push(...referenceEvidence.projectReferences);
   outboundLinks.push(...referenceEvidence.outboundLinks);
@@ -1611,7 +1622,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const token = publicationToken(source, args.candidate);
       const valid = evidence.errors.length === 0 && evidence.duplicates.length === 0;
       if (isPreview) {
-        const preview = { action: 'publish-global', mode: 'preview', valid, source: { id: source.id, updated_at: source.updated_at }, targetScope: 'global', candidateHash: createHash('sha256').update(canonicalPublishCandidate(args.candidate)).digest('hex'), ...evidence };
+        const preview = { action: 'publish-global', mode: 'preview', valid, source: { id: source.id, updated_at: source.updated_at }, targetScope: 'global', targetTags: resolvedPublishTags(args.candidate), candidateHash: createHash('sha256').update(canonicalPublishCandidate(args.candidate)).digest('hex'), ...evidence };
         return JSON.stringify(valid ? { ...preview, confirmationToken: token } : preview, null, 2);
       }
       if (!args.confirm) return 'Error: confirm=true is required to apply publish-global.';
@@ -1621,7 +1632,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         return JSON.stringify({ action: 'publish-global', mode: 'apply', valid: false, ...evidence }, null, 2);
       }
 
-      const candidateTags = [...new Set([...(args.candidate.tags || []), 'scope:global'])];
+      const candidateTags = resolvedPublishTags(args.candidate);
       const derivative = repo.store(args.candidate.content.trim(), {
         title: args.candidate.title.trim(),
         kind: args.candidate.kind,
