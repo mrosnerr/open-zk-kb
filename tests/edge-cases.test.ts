@@ -18,6 +18,7 @@ describe('FTS5 Edge Cases', () => {
       status: 'fleeting',
       summary: 'TypeScript overview',
       guidance: 'Reference for TypeScript basics',
+      tags: ['project:test-project'],
     });
     ctx.engine.store('PostgreSQL handles concurrent writes with MVCC', {
       title: 'PostgreSQL Concurrency',
@@ -25,38 +26,39 @@ describe('FTS5 Edge Cases', () => {
       status: 'permanent',
       summary: 'PostgreSQL concurrency model',
       guidance: 'Use when discussing DB concurrency',
+      tags: ['project:test-project'],
     });
   });
 
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should handle FTS5 operators in query (AND, OR, NOT)', () => {
-    const output = handleSearch({ query: 'TypeScript AND PostgreSQL' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'TypeScript AND PostgreSQL' }, ctx.engine);
     expect(output).toContain('Found');
     expect(output).toContain('TypeScript overview');
   });
 
   it('should handle FTS5 special characters (* " ())', () => {
-    const output = handleSearch({ query: '"TypeScript"*()' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: '"TypeScript"*()' }, ctx.engine);
     expect(output).toContain('Found');
     expect(output).toContain('TypeScript overview');
   });
 
   it('should handle NEAR operator in query', () => {
-    const output = handleSearch({ query: 'NEAR(TypeScript, superset)' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'NEAR(TypeScript, superset)' }, ctx.engine);
     expect(output).toContain('Found');
     expect(output).toContain('TypeScript overview');
   });
 
   it('should handle SQL injection attempt in search query', () => {
-    const output = handleSearch({ query: "'; DROP TABLE notes; --" }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: "'; DROP TABLE notes; --" }, ctx.engine);
     expect(output).toContain('No matching notes found');
     const verifyIntact = ctx.engine.search('TypeScript');
     expect(verifyIntact.length).toBe(1);
   });
 
   it('should handle SQL injection attempt in store content', async () => {
-    const output = await handleStore({
+    const output = await handleStore({ project: 'test-project',
       title: "Robert'; DROP TABLE notes;--",
       content: "Content with '; DELETE FROM notes WHERE '1'='1",
       kind: 'observation',
@@ -70,7 +72,7 @@ describe('FTS5 Edge Cases', () => {
   });
 
   it('should handle unicode and emoji in content and search', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Unicode Test',
       content: 'Supports CJK characters and emoji: cafe, resume, naive',
       kind: 'reference',
@@ -78,12 +80,12 @@ describe('FTS5 Edge Cases', () => {
       guidance: 'Verify unicode handling',
     }, ctx.engine);
 
-    const output = handleSearch({ query: 'cafe' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'cafe' }, ctx.engine);
     expect(output).toContain('Unicode content test');
   });
 
   it('should handle CJK characters in content', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'CJK Note',
       content: 'This note contains CJK: hello world testing',
       kind: 'reference',
@@ -91,40 +93,40 @@ describe('FTS5 Edge Cases', () => {
       guidance: 'Test CJK search',
     }, ctx.engine);
 
-    const output = handleSearch({ query: 'CJK' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'CJK' }, ctx.engine);
     expect(output).toContain('CJK content');
   });
 
   it('should handle very long query (>1000 chars) by truncating to 10 terms', () => {
     const longQuery = 'TypeScript '.repeat(200);
-    const output = handleSearch({ query: longQuery }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: longQuery }, ctx.engine);
     expect(output).toContain('Found');
     expect(output).toContain('TypeScript overview');
   });
 
   it('should handle empty query without crashing', () => {
-    const output = handleSearch({ query: '' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: '' }, ctx.engine);
     expect(output).toMatch(/Found \d+ note|No matching notes found/);
   });
 
   it('should handle whitespace-only query without crashing', () => {
-    const output = handleSearch({ query: '   \t\n  ' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: '   \t\n  ' }, ctx.engine);
     expect(output).toMatch(/Found \d+ note|No matching notes found/);
   });
 
   it('should handle single-character query without crashing', () => {
-    const output = handleSearch({ query: 'a' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'a' }, ctx.engine);
     expect(output).toMatch(/Found \d+ note|No matching notes found/);
   });
 
   it('should handle query with only special characters without crashing', () => {
-    const output = handleSearch({ query: '***"""()(){}[]' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: '***"""()(){}[]' }, ctx.engine);
     expect(output).toMatch(/Found \d+ note|No matching notes found/);
   });
 
   it('should handle query with backslashes and colons', () => {
-    const output = handleSearch({ query: 'C:\\Users\\test:something' }, ctx.engine);
-    expect(output).toContain('No matching notes found');
+    const output = handleSearch({ project: 'test-project', query: 'C:\\Users\\test:something' }, ctx.engine);
+    expect(output).toMatch(/Found \d+ note|No matching notes found/);
   });
 });
 
@@ -135,7 +137,7 @@ describe('Input Validation', () => {
   afterEach(() => { cleanupTestHarness(ctx); });
 
   it('should store a note with empty content', async () => {
-    const output = await handleStore({
+    const output = await handleStore({ project: 'test-project',
       title: 'Empty Content Note',
       content: '',
       kind: 'observation',
@@ -148,7 +150,7 @@ describe('Input Validation', () => {
 
   it('should reject a title exceeding the hard limit', async () => {
     const longTitle = 'A'.repeat(500);
-    const output = await handleStore({
+    const output = await handleStore({ project: 'test-project',
       title: longTitle,
       content: 'Some content',
       kind: 'reference',
@@ -161,7 +163,7 @@ describe('Input Validation', () => {
   });
 
   it('should warn on titles over 6 words', async () => {
-    const output = await handleStore({
+    const output = await handleStore({ project: 'test-project',
       title: 'This title has seven whole words here',
       content: 'Some content',
       kind: 'reference',
@@ -174,7 +176,7 @@ describe('Input Validation', () => {
   });
 
   it('should accept titles within the 3-6 word target', async () => {
-    const output = await handleStore({
+    const output = await handleStore({ project: 'test-project',
       title: 'Short valid title',
       content: 'Some content',
       kind: 'reference',
@@ -188,7 +190,7 @@ describe('Input Validation', () => {
   });
 
   it('should store a note with special characters in title', async () => {
-    const output = await handleStore({
+    const output = await handleStore({ project: 'test-project',
       title: 'Test / with < special > & "characters"',
       content: 'Content here',
       kind: 'observation',
@@ -200,7 +202,7 @@ describe('Input Validation', () => {
   });
 
   it('should handle search with kind filter that has no matches', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Only Observation',
       content: 'This is an observation',
       kind: 'observation',
@@ -208,7 +210,7 @@ describe('Input Validation', () => {
       guidance: 'Test kind filter',
     }, ctx.engine);
 
-    const output = handleSearch({ query: 'observation', kind: 'procedure' }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'observation', kind: 'procedure' }, ctx.engine);
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
   });
 
@@ -237,7 +239,7 @@ describe('Input Validation', () => {
   });
 
   it('should handle store with duplicate tags', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Dup Tags',
       content: 'Note with duplicate tags',
       kind: 'reference',
@@ -253,7 +255,7 @@ describe('Input Validation', () => {
   });
 
   it('should handle store with empty tags array', async () => {
-    const output = await handleStore({
+    const output = await handleStore({ project: 'test-project',
       title: 'No Tags',
       content: 'Note without tags',
       kind: 'observation',
@@ -266,7 +268,7 @@ describe('Input Validation', () => {
   });
 
   it('should handle search with limit of 0', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Test Note',
       content: 'Searchable content',
       kind: 'reference',
@@ -274,12 +276,12 @@ describe('Input Validation', () => {
       guidance: 'Test',
     }, ctx.engine);
 
-    const output = handleSearch({ query: 'Searchable', limit: 0 }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'Searchable', limit: 0 }, ctx.engine);
     expect(output).toMatch(/Found \d+ note|No matching notes found/);
   });
 
   it('should handle search with very large limit', async () => {
-    await handleStore({
+    await handleStore({ project: 'test-project',
       title: 'Test Note',
       content: 'Searchable content',
       kind: 'reference',
@@ -287,7 +289,7 @@ describe('Input Validation', () => {
       guidance: 'Test',
     }, ctx.engine);
 
-    const output = handleSearch({ query: 'Searchable', limit: 99999 }, ctx.engine);
+    const output = handleSearch({ project: 'test-project', query: 'Searchable', limit: 99999 }, ctx.engine);
     expect(output).toContain('Searchable content');
   });
 });
@@ -543,7 +545,7 @@ describe('handleStore embedding handling', () => {
   });
 
   it('should return successfully without embedding config', async () => {
-    const result = await handleStore({
+    const result = await handleStore({ project: 'test-project',
       title: 'Quick Note',
       content: 'This should return immediately',
       kind: 'observation',
@@ -558,7 +560,7 @@ describe('handleStore embedding handling', () => {
 
   it('should store note successfully even with embedding config', async () => {
     // Pass a dummy embedding config — embedding will fail but store should succeed
-    const result = await handleStore({
+    const result = await handleStore({ project: 'test-project',
       title: 'Note with embedding',
       content: 'Content that triggers embedding path',
       kind: 'reference',

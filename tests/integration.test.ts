@@ -138,9 +138,8 @@ describe('Knowledge Capture Integration Tests', () => {
       const stats = context.engine.getStats();
       expect(stats.total - stats.archived - context.engine.getScopedNoteCount()).toBe(1);
 
-      const output = handleContext({}, context.engine, context.config);
-      expect(output).toContain('Unscoped notes: 1');
-      expect(output).not.toContain('Unscoped notes: -');
+      const output = handleContext({ project: 'test-project' }, context.engine, context.config);
+      expect(output).toContain('No notes found for project "test-project"');
     });
 
     it('should exclude generated project index and log notes from global knowledge stats and recent notes', async () => {
@@ -177,9 +176,10 @@ describe('Knowledge Capture Integration Tests', () => {
         title: 'Related Target',
         kind: 'reference',
         status: 'permanent',
+        tags: ['project:test-project'],
       });
 
-      const output = await handleStore({
+      const output = await handleStore({ project: 'test-project',
         title: 'Related Source',
         content: 'Source content with an explicit related note',
         kind: 'observation',

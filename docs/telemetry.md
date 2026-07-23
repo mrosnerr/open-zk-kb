@@ -1,6 +1,8 @@
 # Telemetry
 
-open-zk-kb can collect anonymous usage analytics to understand adoption and guide development. **Sharing is disabled by default** — both `telemetry.enabled` and `telemetry.share` must be set to `true` to send any data. This page documents what is collected, why, and how to opt out.
+open-zk-kb can collect anonymous usage analytics to understand adoption and guide development. Runtime configuration defaults remain disabled, and both `telemetry.enabled` and `telemetry.share` must be `true` to send any data. During an interactive installation, open-zk-kb asks for consent with **Yes** preselected and writes those settings only after confirmation. Choosing No, cancelling the prompt, using `--no-telemetry`, or installing non-interactively leaves sharing disabled. Direct package installs that do not run the installer, such as `pi install npm:open-zk-kb`, also remain disabled unless configured separately.
+
+This page documents what is collected, why, and how to opt out.
 
 ## What we collect
 

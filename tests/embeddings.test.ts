@@ -4,7 +4,26 @@ import {
   embeddingToBlob,
   blobToEmbedding,
   buildEmbeddingText,
+  generateEmbedding,
+  type EmbeddingResult,
 } from '../src/embeddings.js';
+
+describe('generateEmbedding', () => {
+  it('keeps unabortable local generation observable beyond the API timeout budget', async () => {
+    let complete: ((result: EmbeddingResult) => void) | undefined;
+    const pending = generateEmbedding('slow local text', {
+      provider: 'local', model: 'test-local', dimensions: 3,
+    }, 1, async () => new Promise<EmbeddingResult>(resolve => { complete = resolve; }));
+
+    await Bun.sleep(5);
+    if (!complete) throw new Error('local embedding generation did not start');
+    complete({ embedding: [0.1, 0.2, 0.3], model: 'test-local', tokenCount: 0 });
+
+    expect(await pending).toEqual({
+      embedding: [0.1, 0.2, 0.3], model: 'test-local', tokenCount: 0,
+    });
+  });
+});
 
 describe('cosineSimilarity', () => {
   it('returns 1.0 for identical vectors', () => {

@@ -9,7 +9,7 @@ open-zk-kb exposes ten MCP tools. Your agent calls these automatically based on 
 | [`knowledge-search`](#knowledge-search) | Search the knowledge base before starting work |
 | [`knowledge-maintain`](#knowledge-maintain) | Review, promote, archive, and rebuild notes |
 | [`knowledge-health`](#knowledge-health) | Vault health metrics, staleness distribution, growth rates, and infrastructure status |
-| [`knowledge-context`](#knowledge-context) | Get a global or project overview with computed inventory and recent activity |
+| [`knowledge-context`](#knowledge-context) | Get a project overview of local and explicitly global knowledge |
 | `knowledge-template` | Get the canonical note template for a specific kind |
 | `knowledge-mine` | Bulk-screen candidates from session history for duplicates and store |
 | `knowledge-open` | Open the vault in [Obsidian](obsidian.md) with a scaffolded theme, plugins, and homepage |
@@ -35,7 +35,7 @@ Store knowledge in the persistent knowledge base. One concept per note.
 | `status` | enum | No | Override default: `fleeting`, `permanent`, or `archived`. Defaults based on kind (see [Note Lifecycle](note-lifecycle.md)) |
 | `lifecycle` | enum | No | `living` (mutable), `snapshot` (immutable), or `append-only`. Defaults based on kind |
 | `tags` | string[] | No | Tags for categorization |
-| `project` | string | No | Project scope — auto-adds `project:<name>` tag |
+| `project` | string | Yes | Current project; storage adds exactly one `project:<name>` tag |
 | `client` | string | No | Client identifier (e.g. `claude-code`, `opencode`). Auto-detected from content when omitted |
 | `related` | string[] | No | IDs of related notes to link via `[[wikilinks]]` |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
@@ -55,7 +55,7 @@ When `kind: "domain"`:
 4. Generates a local embedding vector for semantic search (if enabled)
 5. Checks for near-duplicates via SimHash and warns if found
 6. Tracks wikilink relationships in the `note_links` table
-7. If `project` is set: auto-rebuilds the project's `index` note (a catalog of all project notes grouped by kind) and appends an entry to the project's `log` note (a chronological operations log)
+7. Uses the required `project` to rebuild that project's `index` when `navigation.enableProjectIndex` is enabled and append to its `log` when `navigation.enableProjectLog` is enabled
 
 ### Auto-generated notes
 
@@ -167,7 +167,7 @@ Search the knowledge base using full-text search and semantic similarity. Return
 | `kind` | enum | No | Filter by note kind |
 | `status` | enum | No | Filter by status: `fleeting`, `permanent`, or `archived` |
 | `lifecycle` | enum | No | Filter by lifecycle: `living`, `snapshot`, or `append-only` |
-| `project` | string | No | Filter by project tag |
+| `project` | string | Yes | Current project visibility boundary |
 | `client` | string | No | Your client name — excludes notes scoped to other clients |
 | `tags` | string[] | No | Filter by tags (all must match) |
 | `limit` | number | No | Max results (default 10) |
@@ -271,7 +271,8 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `project` | string | No | Scope metrics to a specific project |
+| `project` | string | Yes | Current project whose visible note metrics are requested |
+| `client` | string | No | Client applicability filter for note counts, links, embeddings, staleness, and growth |
 | `period` | string | No | Time window for growth rates: `"7d"`, `"30d"`, or `"90d"` (default: `"30d"`) |
 | `telemetry` | boolean | No | Include 30-day local-only tool invocation aggregates |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
@@ -290,14 +291,14 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 ### Example
 
 ```json
-{ "project": "my-app", "period": "7d", "telemetry": true }
+{ "project": "my-app", "client": "pi", "period": "7d", "telemetry": true }
 ```
 
 ---
 
 ## knowledge-context
 
-Get a global or project-scoped overview with a computed inventory of notes, recent activity, and resources. Use at the start of a session to orient yourself.
+Get the context visible to a required current project: project-local notes plus automatically visible explicit global knowledge, restricted by compatible client scope. Use at the start of a session to orient yourself. When `client` is supplied, the shared project log is omitted because historical log entries do not carry enough scope metadata to filter safely.
 
 The Pi extension also requests a compact project preference capsule from this tool when a session starts. It injects the capsule through the system prompt and displays a separate, deduplicated TUI entry; the model does not need to initiate a search. See the [Pi Experience](pi.md#automatic-project-preferences).
 
@@ -305,24 +306,15 @@ The Pi extension also requests a compact project preference capsule from this to
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `project` | string | No | Project name. Omit for a global overview across all projects |
+| `project` | string | Yes | Current project whose visible context is requested |
 | `logEntries` | number | No | Number of recent log entries to include (default: 10) |
 | `includePreferences` | boolean | No | Include a compact capsule of matching permanent personalization notes |
 | `client` | string | No | Client identifier used to include matching client-scoped preferences |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
 
-### Global overview (no `project`)
+### Project context
 
-Returns a high-level view across the entire vault:
-
-- List of all projects
-- Global inventory — note counts by kind
-- Recent notes across all projects
-- Resources
-
-### Project overview (`project` provided)
-
-Returns a focused view of a single project:
+Returns a focused view of the required current project together with explicit global notes that are automatically visible; no separate global request flag is needed:
 
 - **Domain note** — the project's domain note content (if one exists)
 - **Inventory by kind** — note counts broken down by kind for the project
@@ -346,6 +338,8 @@ Retrieve a single note by its exact ID. Faster and more precise than knowledge-s
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `noteId` | string | Yes | Exact note ID to retrieve |
+| `project` | string | Yes | Current project used to validate note visibility |
+| `client` | string | No | Optional client applicability filter |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
 
 ### What happens
@@ -363,5 +357,14 @@ Retrieve a single note by its exact ID. Faster and more precise than knowledge-s
 ### Example
 
 ```json
-{ "noteId": "2026030919130100" }
+{ "noteId": "2026030919130100", "project": "example-project", "client": "pi" }
 ```
+
+
+## Project visibility and authority
+
+Routine stored-knowledge tools (`knowledge-store`, `knowledge-search`, `knowledge-get`, `knowledge-context`, `knowledge-health`, and `knowledge-mine`) require an explicit current project. They can see that project's notes plus notes tagged `scope:global`, further restricted by compatible `client:*` tags. Notes belonging to other projects and unclassified notes are excluded before ranking, limiting, duplicate checks, links, counts, and exact-ID retrieval. Missing project context fails closed; there is no routine full-vault override. Ingest, template retrieval, and human-requested `knowledge-open` remain exceptions; Obsidian is a full-vault human browsing surface.
+
+Routine storage and mining create only project-local notes with exactly one `project:*` tag. They cannot create `scope:global` notes. Global creation uses maintenance `publish-global`: the agent authors a complete project-agnostic candidate from a local source, previews scope/link/duplicate evidence and a confirmation token, shows that evidence to the user, then applies only after explicit confirmation. The source remains local and points one way to the new derivative; the global note contains no reverse project provenance. The server computes evidence; the agent judges it.
+
+Maintenance actions—including review, dedupe, rebuild, format, embedding repair, audits, link health, migration, and publication—remain explicitly full-vault and label project ownership. Legacy notes with neither exactly one project tag nor `scope:global` are unclassified and invisible to routine calls. Use maintenance's legacy scope inventory and confirmed assignment to classify them; never silently treat them as global.

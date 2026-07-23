@@ -10,7 +10,13 @@ import {
 import type { TestContext } from './harness.js';
 import { resolveNotePath, walkMarkdownFiles, extractProjectFromTags } from '../src/storage/path-resolver.js';
 import { handleMaintain, handleStore } from '../src/tool-handlers.js';
-import { buildIndexContent, buildPreferencesIndexContent } from '../src/storage/IndexBuilder.js';
+import {
+  GLOBAL_SCOPE_PREDICATE,
+  buildGeneralIndexContent,
+  buildGeneralKindIndexContent,
+  buildIndexContent,
+  buildPreferencesIndexContent,
+} from '../src/storage/IndexBuilder.js';
 import { buildReviewContent } from '../src/storage/ReviewBuilder.js';
 import type { NoteMetadata } from '../src/storage/NoteRepository.js';
 
@@ -604,18 +610,11 @@ describe('Global Navigation', () => {
     expect(content).not.toContain('"projects/proj/preferences"');
   });
 
-  it('generates general/general.md for unscoped notes', async () => {
-    await handleStore(
-      { title: 'General Note', content: 'Unscoped content', kind: 'reference', summary: 'General ref', guidance: 'Use it' } as any,
-      context.engine,
-      null,
-      context.config,
-    );
+  it('does not treat explicit global notes as legacy unscoped notes', async () => {
+    context.engine.store('Unscoped content', { title: 'General Note', kind: 'reference', summary: 'General ref', guidance: 'Use it', tags: ['scope:global'] });
 
     const generalIndex = path.join(context.tempDir, 'general', 'general.md');
-    expect(fs.existsSync(generalIndex)).toBe(true);
-    const content = fs.readFileSync(generalIndex, 'utf-8');
-    expect(content).toContain('# `[!!library]` General Knowledge');
+    expect(fs.existsSync(generalIndex)).toBe(false);
   });
 
   it('appends to global log on subsequent stores', async () => {
@@ -790,65 +789,18 @@ describe('Structured navigation regressions', () => {
     expect(content).toContain('[system] Full DB rebuild');
   });
 
-  it('generates preferences/preferences.md when personalization notes exist', async () => {
-    await handleStore(
-      { title: 'Pref', content: 'Pref content', kind: 'personalization', summary: 'User prefers Bun', guidance: 'Use Bun' } as any,
-      context.engine,
-      null,
-      context.config,
-    );
+  it('does not publish global personalization through the legacy unscoped index', async () => {
+    context.engine.store('Pref content', { title: 'Pref', kind: 'personalization', summary: 'User prefers Bun', guidance: 'Use Bun', tags: ['scope:global'] });
 
     const preferencesIndex = path.join(context.tempDir, 'preferences', 'preferences.md');
-    expect(fs.existsSync(preferencesIndex)).toBe(true);
-    const content = fs.readFileSync(preferencesIndex, 'utf-8');
-    expect(content).toContain('# `[!!user-cog]` Preferences');
-    expect(content).toContain('BC-folder-note-field: "up"');
-    expect(content).toContain('up: "[[Home|Home]]"');
-     expect(content).toContain('dv.pages(\'"preferences"\')');
-
-     const globalIndex = fs.readFileSync(path.join(context.tempDir, 'Home.md'), 'utf-8');
-     expect(globalIndex).toContain('[[preferences/preferences\\|Preferences]]');
+    expect(fs.existsSync(preferencesIndex)).toBe(false);
   });
 
-  it('generates general kind subdir folder notes for unscoped notes', async () => {
-    await handleStore(
-      { title: 'General Decision', content: 'Decide', kind: 'decision', summary: 'General summary', guidance: 'Use it' } as any,
-      context.engine,
-      null,
-      context.config,
-    );
+  it('does not generate legacy general kind indexes for explicit global notes', async () => {
+    context.engine.store('Decide', { title: 'General Decision', kind: 'decision', summary: 'General summary', guidance: 'Use it', tags: ['scope:global'] });
 
     const generalKindIndex = path.join(context.tempDir, 'general', 'decisions', 'decisions.md');
-    expect(fs.existsSync(generalKindIndex)).toBe(true);
-    const content = fs.readFileSync(generalKindIndex, 'utf-8');
-    expect(content).toContain('# General — Decisions');
-    expect(content).toContain('[[general/general|General]]');
-     expect(content).toContain('dv.pages(\'"general/decisions"\')');
-   });
-
-   it('groups general kind subdirs by note kind, not by filesystem path (flat-vault safe)', async () => {
-    // Regression: pre-migration flat vaults must not pollute general/ with vault-name dirs.
-    const flatNote = `---
-id: 2026042700000099
-title: Flat Unscoped Decision
-kind: decision
-status: permanent
-lifecycle: snapshot
-type: atomic
-created: 2026-04-27
-updated: 2026-04-27
----
-
-Flat content`;
-    createNoteFile(context, '2026042700000099', flatNote, '2026042700000099-flat-unscoped.md');
-    context.engine.rebuildFromFiles();
-
-    await handleMaintain({ action: 'rebuild' }, context.engine, context.config);
-
-    expect(fs.existsSync(path.join(context.tempDir, 'general', 'decisions', 'decisions.md'))).toBe(true);
-
-    const vaultBasename = path.basename(context.tempDir);
-    expect(fs.existsSync(path.join(context.tempDir, 'general', vaultBasename))).toBe(false);
+    expect(fs.existsSync(generalKindIndex)).toBe(false);
   });
 
   it('creates sub-MOC files for small project kinds below split threshold', async () => {
@@ -874,6 +826,18 @@ Flat content`;
  });
 
 describe('Preferences Navigation', () => {
+  it('uses one strict global-scope predicate that excludes conflicted notes', () => {
+    const general = buildGeneralIndexContent([{ kind: 'decision' } as NoteMetadata]);
+    const kind = buildGeneralKindIndexContent('decision', []);
+    const predicate = Function(`return (${GLOBAL_SCOPE_PREDICATE})`)() as (page: unknown) => boolean;
+
+    expect(general).toContain(GLOBAL_SCOPE_PREDICATE);
+    expect(kind).toContain(GLOBAL_SCOPE_PREDICATE);
+    expect(predicate({ file: { tags: ['scope:global'] } })).toBe(true);
+    expect(predicate({ file: { tags: ['#scope:global', '#project:alpha'] } })).toBe(false);
+    expect(predicate({ file: { tags: [{ tag: '#scope:global' }, { name: 'project:alpha' }] } })).toBe(false);
+  });
+
   it('excludes archived notes from all preference sections', () => {
     const content = buildPreferencesIndexContent([]);
     const occurrences = (content.match(/\.where\(p => p\.status !== 'archived'\)/g) || []).length;
@@ -890,13 +854,14 @@ describe('Preferences Navigation', () => {
     expect(tableCount).toBe(3);
 
     expect(content).toContain(
-      "p => !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:') || t.startsWith('client:') || t.startsWith('#client:'))"
+      "p => tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:') || t.startsWith('client:') || t.startsWith('#client:'))"
+    );
+    expect(content).not.toContain('obsidian://quickadd');
+    expect(content).toContain(
+      "p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')) && ((tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global')"
     );
     expect(content).toContain(
-      "p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')))"
-    );
-    expect(content).toContain(
-      "p => tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:')))"
+      "p => !tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && tagsFor(p).filter(t => t.startsWith('project:') || t.startsWith('#project:')).length === 1"
     );
   });
 
@@ -931,10 +896,10 @@ describe('Preferences Navigation', () => {
     const projectSection = content.slice(projectIdx);
 
     expect(harnessSection).toContain(
-      "p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')))"
+      "p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')) && ((tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global')"
     );
     expect(projectSection).toContain(
-      "p => tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:')))"
+      "p => !tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && tagsFor(p).filter(t => t.startsWith('project:') || t.startsWith('#project:')).length === 1"
     );
   });
 });

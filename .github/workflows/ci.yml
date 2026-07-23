@@ -92,6 +92,8 @@ jobs:
 
       - name: Smoke tests (install, MCP protocol, KB round-trip)
         run: bash tests/docker/smoke-test.sh
+        env:
+          OPEN_ZK_KB_EPHEMERAL_SMOKE: "1"
 
       # Non-blocking: these tests spawn dist/cli.js subprocesses and are timing-sensitive on shared hosted runners; failures are surfaced in the job log but do not fail the build.
       - name: Stdio bridge integration tests
@@ -119,13 +121,21 @@ jobs:
         run: bun run build
 
       - name: Cache embedding model
+        id: embedding-cache
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6
         with:
-          path: ~/.cache/open-zk-kb/models/Xenova/all-MiniLM-L6-v2
+          path: ${{ runner.temp }}/open-zk-kb-model-cache/open-zk-kb/models/Xenova/all-MiniLM-L6-v2
           key: embedding-model-all-MiniLM-L6-v2-${{ runner.os }}
+
+      - name: Prime embedding model cache
+        if: steps.embedding-cache.outputs.cache-hit != 'true'
+        run: bun -e "import { generateEmbedding, DEFAULT_EMBEDDING_CONFIG } from './dist/embeddings.js'; const result = await generateEmbedding('cache prime', DEFAULT_EMBEDDING_CONFIG); if (!result) process.exit(1);"
+        env:
+          XDG_CACHE_HOME: ${{ runner.temp }}/open-zk-kb-model-cache
 
       - name: Local model smoke tests
         run: LOCAL_MODELS=1 bash tests/docker/smoke-test.sh
         env:
-          NODE_TLS_REJECT_UNAUTHORIZED: "0"
+          OPEN_ZK_KB_EPHEMERAL_SMOKE: "1"
+          OPEN_ZK_KB_MODEL_CACHE_SEED: ${{ runner.temp }}/open-zk-kb-model-cache/open-zk-kb/models/Xenova/all-MiniLM-L6-v2
         timeout-minutes: 10

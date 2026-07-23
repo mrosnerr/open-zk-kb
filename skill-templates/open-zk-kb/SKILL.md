@@ -1,6 +1,6 @@
 ---
 name: open-zk-kb
-version: 1.4.1
+version: 1.4.2
 description: >
   This skill should be used when the user asks to "store a note", "save this
   to the knowledge base", "remember this", "search my notes", "what do I know
@@ -25,7 +25,7 @@ allowed-tools:
 
 ## Storing Knowledge
 
-Use `knowledge-store` with **one concept per note**. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents). If you learn multiple things, make multiple store calls — don't bundle.
+Use `knowledge-store` with **one concept per note**. Pass the canonical current project on every call; routine capture is always project-local. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents). If you learn multiple things, make multiple store calls — don't bundle. Never use routine store or mine calls to create global knowledge.
 For structured kinds, `knowledge-template --kind {kind}` shows full templates with examples.
 
 **Kinds** (with key sections):
@@ -94,10 +94,9 @@ Use `personalization` only for an **enduring user preference or behavioral expec
 Apply the **durability test within the declared scope** before storing: *Would this still help a future agent working in that project or client after the current task and transient implementation, subscription, or configuration change?* Universal preferences must also remain broadly useful across projects and clients. If not, use `decision`, `reference`, `domain`, or a fleeting note as appropriate.
 
 Record applicability explicitly using existing scope parameters/tags:
-- **Universal** — omit both `project` and `client`; do this only when the preference applies across projects and harnesses.
-- **Project** — pass `project` (stored as `project:<name>`).
-- **Client/harness** — pass `client` (stored as `client:<name>`).
-- A preference may have both scopes when both genuinely apply.
+- **Project** — always pass `project` on routine storage (stored as exactly one `project:<name>` tag).
+- **Client/harness** — pass `client` when applicable (stored as `client:<name>`).
+- **Global** — do not omit `project` or add `scope:global` during routine capture. Publish only a separately distilled, project-agnostic derivative through confirmed maintenance.
 
 Do **not** store these as general personalization:
 - Exact configuration state, such as `#1E1E1E`, `/Users/me/.config/app`, or `model: claude-3-5-sonnet` → `reference`, or fleeting if temporary.
@@ -112,7 +111,7 @@ Do **not** store these as general personalization:
 ✅ **Always**:
 - One concept per note — split if in doubt
 - Include both `summary` and `guidance` on every store call
-- Search before storing to avoid duplicates
+- Search before storing to avoid duplicates, passing the current project explicitly
 
 ⚠️ **Ask first**:
 - Before archiving or deleting notes you didn't create this session
@@ -123,6 +122,7 @@ Do **not** store these as general personalization:
 - Use vague titles like "Notes" or "Stuff"
 - Store sensitive data (API keys, credentials, tokens)
 - Defer storage to after task completion
+- Store global or unscoped knowledge through routine tools
 
 ### Lifecycle
 Notes have a `lifecycle` field controlling mutability. The server enforces it.
@@ -151,13 +151,17 @@ When a useful URL comes up: `knowledge-ingest` to extract, then `knowledge-store
 
 ### Project Overview
 Use `knowledge-context` at the start of a session to orient yourself:
-- `knowledge-context(project: "my-project")` — returns computed inventory (note counts by kind, recent notes, resources) and recent log entries for a project
-- `knowledge-context()` — omit `project` for a global overview across all projects
+- `knowledge-context(project: "example-project")` — returns the current project's inventory plus explicitly global notes
+- Never omit `project` on routine stored-knowledge calls; omission does not grant vault-wide access
 - Optional: `logEntries` (number, default 10) to control how many log entries are shown
 
 ### Maintenance
 
-**Metrics**: `knowledge-health` — operational metrics including health counts, embedding coverage, link health, staleness distribution, growth by kind, and infrastructure status. Parameters: `project?`, `period?` ("7d"/"30d"/"90d", default "30d"), `telemetry?`.
+Maintenance is deliberately full-vault: review, dedupe, rebuild, formatting, embedding repair, audits, migration, and publication may inspect every project and must label ownership. The server computes validation and duplicate evidence; the agent judges what it means and what action to recommend.
+
+Global publication uses `publish-global`. Author a complete project-agnostic derivative from a project-local source, run a dry-run preview, show the user the evidence, and apply only with explicit confirmation and the matching token. Publication preserves the local source and records only a local-to-global relationship; the global derivative contains no reverse project provenance. Legacy notes without exactly one project tag or `scope:global` are unclassified: inventory them in maintenance and explicitly assign them to a project or publish a distilled derivative. Never silently make them global.
+
+**Metrics**: routine `knowledge-health` requires the current project for note metrics; infrastructure and telemetry may remain vault-level and are labeled separately.
 
 **One-command maintenance**: `knowledge-maintain(action: "full")` — runs rebuild → migrate-layout → format → dedupe → embed → link-health in dependency order.
 
@@ -177,9 +181,9 @@ Use `knowledge-mine` to bootstrap the KB from past sessions. Bulk-screens candid
 1. Enumerate sessions: `session_list` (filter by date/project)
 2. Read in batches of 5-10: `session_read` per session
 3. Extract candidates — decisions, observations, procedures, resources, personalizations
-4. `knowledge-mine(candidates: [...], dry_run: true)` → preview
+4. `knowledge-mine(project: "<current-project>", candidates: [...], dry_run: true)` → preview
 5. Review classifications, edit if needed
-6. `knowledge-mine(candidates: [...], dry_run: false)` → store
+6. `knowledge-mine(project: "<current-project>", candidates: [...], dry_run: false)` → store
 
 **Tips**: Batch sessions (5-10) to stay within context. Include `source` for provenance. Pass `project` to scope all candidates. Max 50 per call.
 

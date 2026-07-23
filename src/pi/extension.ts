@@ -23,6 +23,14 @@ interface BridgeOptions {
 type ToolName = (typeof TOOL_DEFINITIONS)[number]['name'];
 
 const MUTATING_TOOLS = new Set<ToolName>(['knowledge-store', 'knowledge-ingest', 'knowledge-maintain', 'knowledge-mine']);
+const ROUTINE_STORED_KNOWLEDGE_TOOLS = new Set<ToolName>([
+  'knowledge-store',
+  'knowledge-search',
+  'knowledge-get',
+  'knowledge-context',
+  'knowledge-health',
+  'knowledge-mine',
+]);
 
 function preferenceText(result: AgentToolResult<Record<string, unknown> | undefined>): string | undefined {
   const structured = result.details?.structuredContent;
@@ -363,7 +371,13 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
     };
 
     for (const definition of TOOL_DEFINITIONS) {
-      const parameters = toTypeBoxSchema(definition.params);
+      const injectsProject = ROUTINE_STORED_KNOWLEDGE_TOOLS.has(definition.name);
+      const parameters = toTypeBoxSchema(injectsProject && 'project' in definition.params
+        ? {
+          ...definition.params,
+          project: { ...definition.params.project, required: false },
+        }
+        : definition.params);
       const renderResult = RENDER_RESULTS[definition.name];
       pi.registerTool({
         name: definition.name,
@@ -374,7 +388,15 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
         parameters,
         executionMode: definition.executionMode,
         execute: async (_toolCallId, params, signal) => {
-          const result = await bridge.callTool(definition.name, params as Record<string, unknown>, signal);
+          const args = params as Record<string, unknown>;
+          let routineArgs = args;
+          if (ROUTINE_STORED_KNOWLEDGE_TOOLS.has(definition.name)) {
+            const boundedArgs = { ...args };
+            delete boundedArgs.project;
+            delete boundedArgs.client;
+            routineArgs = { ...boundedArgs, ...(project ? { project } : {}), client: 'pi' };
+          }
+          const result = await bridge.callTool(definition.name, routineArgs, signal);
           if (MUTATING_TOOLS.has(definition.name)) capsuleRequest = undefined;
           return result;
         },

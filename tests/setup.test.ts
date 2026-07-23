@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
-import { installTtsrRule, removeTtsrRule } from '../src/setup.js';
+import { installTtsrRule, removeTtsrRule, TELEMETRY_PROMPT_INITIAL_VALUE } from '../src/setup.js';
 import { OMP_AGENT_DOCS_PREAMBLE } from '../src/agent-docs-targets.js';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
@@ -137,24 +137,31 @@ function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
   expect(block.split('\n')).toHaveLength(MANAGED_BLOCK_LINE_COUNT);
   expect(block).toContain('Persistent cross-session memory via `knowledge-*` MCP tools.');
   expect(block).toContain('`knowledge-search` for relevant context.');
-  expect(block).toContain("Filter by `project` and `kind`; follow each note's `<guidance>`.");
+  expect(block).toContain("Pass the current project explicitly on every routine stored-knowledge call; follow each note's `<guidance>`.");
+  expect(block).toContain('Routine capture is project-local; never create global knowledge with `knowledge-store` or `knowledge-mine`.');
+  expect(block).toContain('preview `publish-global`');
+  expect(block).toContain('Maintenance remains full-vault and must classify legacy unscoped notes');
   expect(block).toContain('`knowledge-store` immediately, never defer:');
   expect(block).toContain('useful URL → resource (`knowledge-ingest` first).');
   expect(block).toContain('**Each note:** one concept only.');
   expect(block).toContain('Include a `summary` and imperative `guidance`.');
-  expect(block).toContain('**Project session start:** `knowledge-context`.');
+  expect(block).toContain('**Project session start:** `knowledge-context` with the current project.');
   expect(block).toContain(
     usesOmpSkill
       ? '`skill://open-zk-kb`.'
       : '`knowledge-template --kind {kind}` and the `open-zk-kb` skill where supported.'
   );
   expect(block).not.toContain('Capture Checkpoints');
-  expect(block).not.toContain('knowledge-mine');
+  expect(block).toContain('never create global knowledge with `knowledge-store` or `knowledge-mine`');
   expect(block).not.toContain('knowledge-maintain');
 }
 
 
 describe('setup.ts', () => {
+  it('preselects Yes for interactive telemetry consent', () => {
+    expect(TELEMETRY_PROMPT_INITIAL_VALUE).toBe(true);
+  });
+
   let ctx: TestContext;
   let envSnapshot: EnvSnapshot;
   const tempDirs: string[] = [];
@@ -1364,6 +1371,8 @@ describe('setup.ts', () => {
     expect(skillContent).toContain('description:');
     expect(skillContent).toContain('knowledge-search');
     expect(skillContent).toContain('knowledge-store');
+    expect(skillContent).toContain('knowledge-mine(project: "<current-project>", candidates: [...], dry_run: true)');
+    expect(skillContent).toContain('knowledge-mine(project: "<current-project>", candidates: [...], dry_run: false)');
   });
 
   it('install creates skill through dangling parent symlink', async () => {

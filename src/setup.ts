@@ -119,6 +119,7 @@ export interface ClientConfig {
 }
 
 const PI_PACKAGE_NAME = 'open-zk-kb';
+export const TELEMETRY_PROMPT_INITIAL_VALUE = true;
 export const CLIENT_CONFIGS: Record<McpClient, ClientConfig> = {
   'opencode': {
     name: 'OpenCode',
@@ -419,7 +420,14 @@ function isOpenZkKbPiPackageSource(source: string): boolean {
 
 function isOpenZkKbLocalPackagePath(source: string): boolean {
   const normalized = path.normalize(source);
-  return path.basename(normalized) === PI_PACKAGE_NAME;
+  if (path.basename(normalized) === PI_PACKAGE_NAME) return true;
+
+  try {
+    const manifest = JSON.parse(fs.readFileSync(path.join(normalized, 'package.json'), 'utf-8')) as unknown;
+    return isJsonObject(manifest) && manifest.name === PI_PACKAGE_NAME;
+  } catch {
+    return false;
+  }
 }
 
 function normalizePiPackages(config: JsonObject, desiredSource: string): void {
@@ -694,6 +702,42 @@ function removeDisabledServers(config: JsonObject, serverNames: string[]): strin
 
 function getVaultPath(): string {
   return path.join(xdgDataHome, 'open-zk-kb');
+}
+
+/**
+ * Destructive smoke tests must only delete vaults inside their private,
+ * sentinel-marked sandbox. This is an independent backstop in case the shell
+ * harness passes an unexpected XDG path.
+ */
+function assertSmokeTestVaultDeletionIsSandboxed(vaultPath: string): void {
+  if (process.env.OPEN_ZK_KB_SMOKE_TEST !== '1') return;
+
+  const sandboxRoot = process.env.OPEN_ZK_KB_SMOKE_SANDBOX_ROOT;
+  if (!sandboxRoot) {
+    throw new Error('Refusing vault deletion: smoke-test sandbox root is not set');
+  }
+
+  const sentinelPath = path.join(sandboxRoot, '.open-zk-kb-smoke-sandbox');
+  const expectedSentinel = 'open-zk-kb destructive smoke-test sandbox';
+  if (!fs.existsSync(sentinelPath)
+    || !fs.statSync(sentinelPath).isFile()
+    || fs.readFileSync(sentinelPath, 'utf8').trim() !== expectedSentinel) {
+    throw new Error('Refusing vault deletion: smoke-test sandbox sentinel is missing or invalid');
+  }
+
+  const realSandboxRoot = fs.realpathSync(sandboxRoot);
+  const realVaultPath = fs.existsSync(vaultPath)
+    ? fs.realpathSync(vaultPath)
+    : path.resolve(vaultPath);
+  const relativeVaultPath = path.relative(realSandboxRoot, realVaultPath);
+  const isInsideSandbox = relativeVaultPath !== ''
+    && relativeVaultPath !== '..'
+    && !relativeVaultPath.startsWith(`..${path.sep}`)
+    && !path.isAbsolute(relativeVaultPath);
+
+  if (!isInsideSandbox) {
+    throw new Error(`Refusing vault deletion outside smoke-test sandbox: ${realVaultPath}`);
+  }
 }
 
 function getConfigYamlPath(): string {
@@ -1719,6 +1763,12 @@ export function uninstall(args: UninstallArgs): UninstallResult {
   const vaultPath = getVaultPath();
   const docsLabel = clientConfig.agentDocsLabel || 'Agent docs';
 
+  // Smoke mode must reject an unexpected vault before dry-run summaries,
+  // confirmation statistics, or any other read touches that path.
+  if (args.removeVault) {
+    assertSmokeTestVaultDeletionIsSandboxed(vaultPath);
+  }
+
   const disabledServersOnUninstall = clientConfig.disabledServersOnUninstall ?? [];
   const configExists = fs.existsSync(clientConfig.configPath);
   const hasAuxiliaryArtifacts = hasAuxiliaryInstallArtifacts(clientConfig);
@@ -2231,10 +2281,10 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
 
       const answer = await p.confirm({
         message: 'Help improve open-zk-kb with anonymous usage analytics?\n' +
-          color.dim('    Session metadata: client, models, version, platform, vault size, tool usage counts.\n') +
-          color.dim('    Never any note contents, search queries, or personal data.\n') +
+          color.dim('    Sends session metadata and a random installation ID to PostHog EU Cloud.\n') +
+          color.dim('    Never note contents, search queries, names, email addresses, or file paths.\n') +
           color.dim('    Open source and auditable: https://github.com/mrosnerr/open-zk-kb/blob/main/docs/telemetry.md'),
-        initialValue: false,
+        initialValue: TELEMETRY_PROMPT_INITIAL_VALUE,
       });
       if (p.isCancel(answer)) return null; // Don't block install on cancel
       // Only write config when opting in — the defaults are already disabled,

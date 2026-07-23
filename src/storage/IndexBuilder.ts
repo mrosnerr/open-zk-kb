@@ -72,6 +72,11 @@ const SECTION_COLORS: Record<string, string> = {
   personalization: 'var(--color-pink-rgb)',
 };
 
+export const GLOBAL_SCOPE_PREDICATE = `p => {
+  const tags = (p.file.tags || []).map(t => typeof t === "string" ? t : (t && typeof t.tag === "string" ? t.tag : (t && typeof t.name === "string" ? t.name : String(t)))).map(t => t.replace(/^#/, ""));
+  return tags.includes("scope:global") && !tags.some(t => t.startsWith("project:"));
+}`;
+
 const QUICKADD_CHOICE_LABELS: Record<string, string> = {
   decision: 'Project Decision',
   observation: 'Project Observation',
@@ -79,15 +84,6 @@ const QUICKADD_CHOICE_LABELS: Record<string, string> = {
   reference: 'Project Reference',
   resource: 'Project Resource',
   personalization: 'Project Preference',
-};
-
-const GENERAL_QUICKADD_CHOICE_LABELS: Record<string, string> = {
-  decision: 'Decision \u2014 choices & tradeoffs',
-  observation: 'Observation \u2014 things you noticed',
-  procedure: 'Procedure \u2014 step-by-step workflows',
-  reference: 'Reference \u2014 sources & excerpts',
-  resource: 'Resource \u2014 tools & URLs',
-  personalization: 'Preference \u2014 personal habits',
 };
 
 
@@ -138,17 +134,6 @@ function buildQuickAddUri(project: string, kind: string): string | null {
     'value-scope': 'project',
     'value-project': project,
     'value-kind': kind,
-  });
-  return `obsidian://quickadd?${params.toString().replace(/\+/g, '%20')}`;
-}
-
-function buildGeneralQuickAddUri(kind: string): string | null {
-  const choice = GENERAL_QUICKADD_CHOICE_LABELS[kind];
-  if (!choice) return null;
-
-  const params = new URLSearchParams({
-    choice,
-    'value-scope': 'general',
   });
   return `obsidian://quickadd?${params.toString().replace(/\+/g, '%20')}`;
 }
@@ -420,7 +405,7 @@ export function buildGlobalIndexContent(
   lines.push('## Browse');
   lines.push('| Section | Notes | Description |');
   lines.push('|---------|-------|-------------|');
-  lines.push(`| [[general/${getGeneralFolderNoteBasename()}\\|General Knowledge]] | ${generalCount} | Unscoped references, decisions, observations |`);
+  lines.push(`| [[general/${getGeneralFolderNoteBasename()}\\|Global Knowledge]] | ${generalCount} | Confirmed, project-agnostic knowledge |`);
   lines.push(`| [[preferences/${getPreferencesFolderNoteBasename()}\\|Preferences]] | ${preferencesCount} | Personal style, habits, and tool preferences |`);
   if (includeReviewLink) {
     lines.push(`| [[review\\|Needs Review]] | ${fleetingCount} | Fleeting notes awaiting promotion or archive |`);
@@ -487,15 +472,15 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
 
   lines.push(buildShellFrontmatter({
     kind: 'index',
-    title: 'General Knowledge',
+    title: 'Global Knowledge',
     'BC-folder-note': true,
-    aliases: ['General'],
+    aliases: ['Global Knowledge', 'General'],
     cssclasses: ['folder-note-shell'],
     up: `[[${getGlobalHomeNoteBasename()}|Home]]`,
   }).trimEnd());
   lines.push('');
-  lines.push('# `[!!library]` General Knowledge');
-  lines.push('`[!!info|Cross-cutting notes without a project scope|var(--color-cyan-rgb)]`');
+  lines.push('# `[!!library]` Global Knowledge');
+  lines.push('`[!!info|Confirmed, project-agnostic knowledge|var(--color-cyan-rgb)]`');
   lines.push('');
 
   const byKind = groupNotesByKind(notes);
@@ -509,11 +494,14 @@ export function buildGeneralIndexContent(notes: NoteMetadata[]): string {
       ? 'preferences'
       : `general/${KIND_DIR_MAP[kind] || `${kind}s`}`;
 
-    const generalAddUri = buildGeneralQuickAddUri(kind);
-    const addLink = generalAddUri ? ` [+](${generalAddUri})` : '';
-    lines.push(`## ${header}${addLink}`);
+    lines.push(`## ${header}`);
     lines.push('');
-    lines.push(...buildDataviewTable(source, kind, header));
+    lines.push(...buildDataviewTable(
+      source,
+      kind,
+      header,
+      GLOBAL_SCOPE_PREDICATE,
+    ));
     lines.push('');
   }
 
@@ -575,9 +563,7 @@ export function buildPreferencesIndexContent(_notes: NoteMetadata[]): string {
     up: `[[${getGlobalHomeNoteBasename()}|Home]]`,
   }).trimEnd());
   lines.push('');
-  const prefsAddUri = buildGeneralQuickAddUri('personalization');
-  const prefsAddLink = prefsAddUri ? ` [+](${prefsAddUri})` : '';
-  lines.push(`# \`[!!user-cog]\` Preferences${prefsAddLink}`);
+  lines.push('# `[!!user-cog]` Preferences');
   lines.push('`[!!info|Personal style, habits, and tool preferences|var(--color-pink-rgb)]`');
   lines.push('');
 
@@ -585,7 +571,7 @@ export function buildPreferencesIndexContent(_notes: NoteMetadata[]): string {
   lines.push('## Universal Preferences');
   lines.push('');
   lines.push(...buildPreferencesDataviewTable(
-    `p => !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:') || t.startsWith('client:') || t.startsWith('#client:'))`,
+    `p => tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:') || t.startsWith('client:') || t.startsWith('#client:'))`,
     `"Universal"`,
   ));
   lines.push('');
@@ -594,7 +580,7 @@ export function buildPreferencesIndexContent(_notes: NoteMetadata[]): string {
   lines.push('## Harness Preferences');
   lines.push('');
   lines.push(...buildPreferencesDataviewTable(
-    `p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:'))`,
+    `p => tagsFor(p).some(t => t.startsWith('client:') || t.startsWith('#client:')) && ((tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && !tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:'))) || (!tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && tagsFor(p).filter(t => t.startsWith('project:') || t.startsWith('#project:')).length === 1))`,
     `tagsFor(p).filter(t => t.startsWith('client:') || t.startsWith('#client:') || t.startsWith('project:') || t.startsWith('#project:')).map(t => t.replace(/^#/, '')).join(', ') || 'Universal'`,
   ));
   lines.push('');
@@ -603,7 +589,7 @@ export function buildPreferencesIndexContent(_notes: NoteMetadata[]): string {
   lines.push('## Project Preferences');
   lines.push('');
   lines.push(...buildPreferencesDataviewTable(
-    `p => tagsFor(p).some(t => t.startsWith('project:') || t.startsWith('#project:'))`,
+    `p => !tagsFor(p).some(t => t === 'scope:global' || t === '#scope:global') && tagsFor(p).filter(t => t.startsWith('project:') || t.startsWith('#project:')).length === 1`,
     `tagsFor(p).filter(t => t.startsWith('client:') || t.startsWith('#client:') || t.startsWith('project:') || t.startsWith('#project:')).map(t => t.replace(/^#/, '')).join(', ') || 'Universal'`,
   ));
   lines.push('');
@@ -620,23 +606,28 @@ export function buildGeneralKindIndexContent(kind: string, _notes: NoteMetadata[
 
   lines.push(buildShellFrontmatter({
     kind: 'index',
-    title: `General ${header}`,
+    title: `Global ${header}`,
     'BC-folder-note': true,
     'BC-folder-note-field': 'up',
     aliases: [header],
     cssclasses: ['folder-note-shell'],
-    up: `[[general/${getGeneralFolderNoteBasename()}|General]]`,
+    up: `[[general/${getGeneralFolderNoteBasename()}|Global]]`,
   }).trimEnd());
   lines.push('');
-  lines.push(`# General — ${header}`);
+  lines.push(`# Global — ${header}`);
   const kindDesc = SECTION_DESCRIPTIONS[kind];
   const kindColor = SECTION_COLORS[kind];
   const kindIcon = SECTION_ICONS[kind];
   if (kindDesc && kindColor && kindIcon) {
-    lines.push(`\`[!!info|${kindDesc} — not scoped to a project|${kindColor}]\``);
+    lines.push(`\`[!!info|${kindDesc} — confirmed for global use|${kindColor}]\``);
   }
   lines.push('');
-  lines.push(...buildDataviewTable(`general/${KIND_DIR_MAP[kind] || `${kind}s`}`, kind, header));
+  lines.push(...buildDataviewTable(
+    `general/${KIND_DIR_MAP[kind] || `${kind}s`}`,
+    kind,
+    header,
+    GLOBAL_SCOPE_PREDICATE,
+  ));
   lines.push('');
   lines.push('---');
   lines.push(`Last rebuilt: ${formatDateTime()}`);

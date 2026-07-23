@@ -2,6 +2,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 
 const EMBEDDING_DIMENSIONS = 384;
 const _TOTAL_EXPECTED = 9;
@@ -68,7 +69,7 @@ async function testEmbeddings() {
 async function testKbRoundTripWithEmbeddings() {
   console.log('\n\u25b8 KB Round-Trip with Embeddings');
 
-  const tmpDir = fs.mkdtempSync('/tmp/model-smoke-');
+  const tmpDir = fs.mkdtempSync(path.join(process.env.TMPDIR || os.tmpdir(), 'model-smoke-'));
 
   const transport = new StdioClientTransport({
     command: 'bun',
@@ -84,6 +85,7 @@ async function testKbRoundTripWithEmbeddings() {
     await client.callTool({
       name: 'knowledge-store',
       arguments: {
+        project: 'model-smoke',
         title: 'Prefer Tailwind CSS for styling',
         content: 'Use Tailwind CSS utility classes for all frontend styling. Avoid Bootstrap.',
         kind: 'personalization',
@@ -95,6 +97,7 @@ async function testKbRoundTripWithEmbeddings() {
     await client.callTool({
       name: 'knowledge-store',
       arguments: {
+        project: 'model-smoke',
         title: 'PostgreSQL for all databases',
         content: 'We chose PostgreSQL for consistency across services. It handles ACID transactions well.',
         kind: 'decision',
@@ -105,14 +108,14 @@ async function testKbRoundTripWithEmbeddings() {
 
     const searchResult = await client.callTool({
       name: 'knowledge-search',
-      arguments: { query: 'What CSS framework should I use for styling?' },
+      arguments: { project: 'model-smoke', query: 'What CSS framework should I use for styling?' },
     });
     const searchText = text(searchResult);
     check('semantic search finds relevant note', searchText.includes('Tailwind'), `search: ${searchText.substring(0, 100)}`);
 
     const statsResult = await client.callTool({
       name: 'knowledge-health',
-      arguments: {},
+      arguments: { project: 'model-smoke' },
     });
     const statsText = text(statsResult);
     const embeddedMatch = statsText.match(/Embedded: (\d+)\/(\d+)/);

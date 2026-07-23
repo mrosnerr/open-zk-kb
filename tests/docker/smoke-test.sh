@@ -1,6 +1,192 @@
 #!/bin/bash
 set -euo pipefail
 
+# This suite intentionally exercises destructive install/uninstall paths. Isolate
+# every user-writable location before running any command so a host invocation
+# cannot touch the caller's real vault or client configuration.
+SMOKE_SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)
+SMOKE_REPO_ROOT=$(CDPATH= cd -- "$SMOKE_SCRIPT_DIR/../.." && pwd -P)
+SMOKE_ORIGINAL_HOME=${HOME:-}
+SMOKE_ORIGINAL_XDG_DATA_HOME=${XDG_DATA_HOME:-}
+
+# The destructive suite is supported only on an explicitly disposable runner
+# (CI or a container). Unit tests may invoke the lightweight sandbox verifier.
+if [ "${1:-}" != "--verify-sandbox" ] \
+  && [ "${OPEN_ZK_KB_EPHEMERAL_SMOKE:-}" != "1" ]; then
+  echo "REFUSING TO RUN destructive smoke tests on an unmarked host." >&2
+  echo "Run the documented Docker command instead." >&2
+  exit 1
+fi
+
+SMOKE_SANDBOX_MARKER="open-zk-kb destructive smoke-test sandbox"
+SMOKE_SANDBOX_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/open-zk-kb-smoke.XXXXXX")
+SMOKE_SANDBOX_ROOT=$(CDPATH= cd -- "$SMOKE_SANDBOX_ROOT" && pwd -P)
+
+# Refuse even temporary sandbox creation below inherited user-data roots. This
+# catches hostile or surprising TMPDIR values before the suite writes anything.
+for SMOKE_PROTECTED_ROOT in "$SMOKE_ORIGINAL_HOME" "$SMOKE_ORIGINAL_XDG_DATA_HOME"; do
+  if [ -n "$SMOKE_PROTECTED_ROOT" ] && [ -d "$SMOKE_PROTECTED_ROOT" ]; then
+    SMOKE_PROTECTED_ROOT=$(CDPATH= cd -- "$SMOKE_PROTECTED_ROOT" && pwd -P)
+    case "$SMOKE_SANDBOX_ROOT" in
+      "$SMOKE_PROTECTED_ROOT"|"$SMOKE_PROTECTED_ROOT"/*)
+        rmdir "$SMOKE_SANDBOX_ROOT"
+        echo "REFUSING TO RUN: smoke sandbox resolved inside user data: $SMOKE_PROTECTED_ROOT" >&2
+        exit 1
+        ;;
+    esac
+  fi
+done
+
+SMOKE_SANDBOX_SENTINEL="$SMOKE_SANDBOX_ROOT/.open-zk-kb-smoke-sandbox"
+chmod 700 "$SMOKE_SANDBOX_ROOT"
+printf '%s\n' "$SMOKE_SANDBOX_MARKER" > "$SMOKE_SANDBOX_SENTINEL"
+
+smoke_canonical_path() {
+  local target=$1
+  local parent base
+  if [ -d "$target" ]; then
+    (CDPATH= cd -P -- "$target" && pwd -P)
+    return
+  fi
+  parent=$(dirname -- "$target")
+  base=$(basename -- "$target")
+  parent=$(CDPATH= cd -P -- "$parent" 2>/dev/null && pwd -P) || return 1
+  printf '%s/%s\n' "$parent" "$base"
+}
+
+smoke_assert_sandbox_path() {
+  local target=$1
+  local allow_root=${2:-false}
+  local resolved
+
+  if [ ! -f "$SMOKE_SANDBOX_SENTINEL" ] \
+    || [ "$(cat "$SMOKE_SANDBOX_SENTINEL")" != "$SMOKE_SANDBOX_MARKER" ]; then
+    echo "REFUSING DELETION: smoke-test sandbox sentinel is missing or invalid" >&2
+    return 1
+  fi
+
+  resolved=$(smoke_canonical_path "$target") || {
+    echo "REFUSING DELETION: cannot resolve $target" >&2
+    return 1
+  }
+
+  if [ "$resolved" = "$SMOKE_SANDBOX_ROOT" ]; then
+    if [ "$allow_root" = "true" ]; then
+      return 0
+    fi
+    echo "REFUSING DELETION: sandbox root requires cleanup authorization" >&2
+    return 1
+  fi
+
+  case "$resolved" in
+    "$SMOKE_SANDBOX_ROOT"/*) return 0 ;;
+    *)
+      echo "REFUSING DELETION OUTSIDE SMOKE SANDBOX: $resolved" >&2
+      return 1
+      ;;
+  esac
+}
+
+smoke_rm_rf() {
+  local target
+  for target in "$@"; do
+    smoke_assert_sandbox_path "$target" || return 1
+    rm -rf -- "$target"
+  done
+}
+
+smoke_cleanup() {
+  if [ -d "$SMOKE_SANDBOX_ROOT" ]; then
+    smoke_assert_sandbox_path "$SMOKE_SANDBOX_ROOT" true || return
+    rm -rf -- "$SMOKE_SANDBOX_ROOT"
+  fi
+}
+trap smoke_cleanup EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+
+mkdir -p \
+  "$SMOKE_SANDBOX_ROOT/home" \
+  "$SMOKE_SANDBOX_ROOT/home/.config" \
+  "$SMOKE_SANDBOX_ROOT/home/.local/share" \
+  "$SMOKE_SANDBOX_ROOT/home/.local/state" \
+  "$SMOKE_SANDBOX_ROOT/home/.cache" \
+  "$SMOKE_SANDBOX_ROOT/runtime" \
+  "$SMOKE_SANDBOX_ROOT/tmp"
+
+export HOME="$SMOKE_SANDBOX_ROOT/home"
+export XDG_CONFIG_HOME="$HOME/.config"
+export XDG_DATA_HOME="$HOME/.local/share"
+export XDG_STATE_HOME="$HOME/.local/state"
+export XDG_CACHE_HOME="$HOME/.cache"
+export XDG_RUNTIME_DIR="$SMOKE_SANDBOX_ROOT/runtime"
+export TMPDIR="$SMOKE_SANDBOX_ROOT/tmp"
+export NPM_CONFIG_CACHE="$XDG_CACHE_HOME/npm"
+export NPM_CONFIG_PREFIX="$SMOKE_SANDBOX_ROOT/npm-prefix"
+export NPM_CONFIG_USERCONFIG="$XDG_CONFIG_HOME/npm/npmrc"
+export BUN_INSTALL="$SMOKE_SANDBOX_ROOT/bun-install"
+export BUN_INSTALL_CACHE_DIR="$XDG_CACHE_HOME/bun-install"
+export GIT_CONFIG_GLOBAL="$XDG_CONFIG_HOME/git/config"
+export GIT_CONFIG_SYSTEM=/dev/null
+unset APPDATA LOCALAPPDATA
+export OPEN_ZK_KB_SMOKE_TEST=1
+export OPEN_ZK_KB_SMOKE_SANDBOX_ROOT="$SMOKE_SANDBOX_ROOT"
+
+# CI may restore the immutable model files outside the disposable smoke root.
+# Copy only that explicitly provided model directory into the private cache;
+# model execution continues to read and write exclusively inside the sandbox.
+SMOKE_MODEL_CACHE_TARGET="$XDG_CACHE_HOME/open-zk-kb/models/Xenova/all-MiniLM-L6-v2"
+SMOKE_MODEL_CACHE_SEEDED=false
+if [ -n "${OPEN_ZK_KB_MODEL_CACHE_SEED:-}" ]; then
+  case "$OPEN_ZK_KB_MODEL_CACHE_SEED" in
+    */all-MiniLM-L6-v2) ;;
+    *)
+      echo "REFUSING MODEL CACHE SEED: expected all-MiniLM-L6-v2 directory" >&2
+      exit 1
+      ;;
+  esac
+  if [ ! -d "$OPEN_ZK_KB_MODEL_CACHE_SEED" ] || [ -L "$OPEN_ZK_KB_MODEL_CACHE_SEED" ]; then
+    echo "REFUSING MODEL CACHE SEED: source is missing or symlinked" >&2
+    exit 1
+  fi
+  if find "$OPEN_ZK_KB_MODEL_CACHE_SEED" -type l -print -quit | grep -q .; then
+    echo "REFUSING MODEL CACHE SEED: source contains symlinks" >&2
+    exit 1
+  fi
+  mkdir -p "$SMOKE_MODEL_CACHE_TARGET"
+  cp -R "$OPEN_ZK_KB_MODEL_CACHE_SEED"/. "$SMOKE_MODEL_CACHE_TARGET"/
+  SMOKE_MODEL_CACHE_SEEDED=true
+fi
+
+cd "$SMOKE_REPO_ROOT"
+
+# Lightweight regression-test entry point. It proves inherited HOME/XDG values
+# are ignored and that the deletion guard rejects the original user vault.
+if [ "${1:-}" = "--verify-sandbox" ]; then
+  if [ -n "$SMOKE_ORIGINAL_HOME" ] && smoke_rm_rf "$SMOKE_ORIGINAL_HOME/.local/share/open-zk-kb" 2>/dev/null; then
+    echo "sandbox guard accepted the original vault" >&2
+    exit 1
+  fi
+  printf 'SMOKE_SANDBOX_ROOT=%s\n' "$SMOKE_SANDBOX_ROOT"
+  printf 'HOME=%s\n' "$HOME"
+  printf 'XDG_CONFIG_HOME=%s\n' "$XDG_CONFIG_HOME"
+  printf 'XDG_DATA_HOME=%s\n' "$XDG_DATA_HOME"
+  printf 'XDG_STATE_HOME=%s\n' "$XDG_STATE_HOME"
+  printf 'XDG_CACHE_HOME=%s\n' "$XDG_CACHE_HOME"
+  printf 'XDG_RUNTIME_DIR=%s\n' "$XDG_RUNTIME_DIR"
+  printf 'TMPDIR=%s\n' "$TMPDIR"
+  printf 'NPM_CONFIG_CACHE=%s\n' "$NPM_CONFIG_CACHE"
+  printf 'NPM_CONFIG_PREFIX=%s\n' "$NPM_CONFIG_PREFIX"
+  printf 'NPM_CONFIG_USERCONFIG=%s\n' "$NPM_CONFIG_USERCONFIG"
+  printf 'BUN_INSTALL=%s\n' "$BUN_INSTALL"
+  printf 'BUN_INSTALL_CACHE_DIR=%s\n' "$BUN_INSTALL_CACHE_DIR"
+  printf 'GIT_CONFIG_GLOBAL=%s\n' "$GIT_CONFIG_GLOBAL"
+  printf 'MODEL_CACHE_DIR=%s\n' "$SMOKE_MODEL_CACHE_TARGET"
+  printf 'MODEL_CACHE_SEEDED=%s\n' "$SMOKE_MODEL_CACHE_SEEDED"
+  exit 0
+fi
+
 PASS=0
 FAIL=0
 TESTS=()
@@ -34,6 +220,7 @@ if TEST_OUTPUT=$(bun test 2>&1); then
 else
   FAIL_LINE=$(echo "$TEST_OUTPUT" | grep -oE "[0-9]+ fail" | head -1 || true)
   fail "unit tests" "${FAIL_LINE:-bun test exited non-zero without a matching summary line}"
+  echo "$TEST_OUTPUT"
 fi
 echo ""
 
@@ -105,7 +292,7 @@ for CLIENT in opencode claude-code cursor windsurf; do
 done
 
 # Verify vault directory was created (shared across all clients)
-VAULT_PATH="$HOME/.local/share/open-zk-kb"
+VAULT_PATH="$XDG_DATA_HOME/open-zk-kb"
 if [ -d "$VAULT_PATH" ]; then
   pass "vault directory created"
 else
@@ -161,9 +348,9 @@ echo ""
 echo "▸ MCP Server Protocol + KB Round-Trip"
 
 # Use a clean temporary vault to avoid state pollution from previous runs
-MCP_VAULT_DIR=$(mktemp -d)
+MCP_VAULT_DIR=$(mktemp -d "$SMOKE_SANDBOX_ROOT/mcp-vault.XXXXXX")
 MCP_OUTPUT=$(XDG_DATA_HOME="$MCP_VAULT_DIR" timeout 20 bun run tests/docker/mcp-protocol-test.ts 2>/dev/null || true)
-rm -rf "$MCP_VAULT_DIR"
+smoke_rm_rf "$MCP_VAULT_DIR"
 echo "$MCP_OUTPUT" | grep -E "^  [✅❌]" || true
 
 MCP_RESULT=$(echo "$MCP_OUTPUT" | grep "MCP_RESULT" || echo "MCP_RESULT:0:4")
@@ -338,6 +525,7 @@ echo "▸ README JSON Validation"
 BLOCK_COUNT=0
 BLOCK_VALID=0
 
+JSON_CHECK_PATH="$TMPDIR/json-check.txt"
 bun -e "
   const fs = require('fs');
   const readme = fs.readFileSync('README.md', 'utf-8');
@@ -347,10 +535,10 @@ bun -e "
     try { JSON.parse(block); valid++; } catch {}
   }
   console.log(blocks.length + ':' + valid);
-" 2>/dev/null > /tmp/json-check.txt || echo "0:0" > /tmp/json-check.txt
+" 2>/dev/null > "$JSON_CHECK_PATH" || echo "0:0" > "$JSON_CHECK_PATH"
 
-BLOCK_COUNT=$(cut -d: -f1 /tmp/json-check.txt)
-BLOCK_VALID=$(cut -d: -f2 /tmp/json-check.txt)
+BLOCK_COUNT=$(cut -d: -f1 "$JSON_CHECK_PATH")
+BLOCK_VALID=$(cut -d: -f2 "$JSON_CHECK_PATH")
 
 if [ "$BLOCK_COUNT" -eq 0 ]; then
   pass "README has no JSON blocks (none to validate)"
@@ -364,7 +552,7 @@ echo ""
 # ─── 16. MCP server works without pre-existing vault ───
 echo "▸ MCP Server Fresh Start (no vault)"
 
-rm -rf "$VAULT_PATH"
+smoke_rm_rf "$VAULT_PATH"
 
 FRESH_OUTPUT=$(timeout 15 bun run tests/docker/mcp-protocol-test.ts 2>/dev/null || true)
 if echo "$FRESH_OUTPUT" | grep -q "knowledge-store creates note"; then
@@ -391,7 +579,7 @@ for CLIENT in opencode claude-code cursor windsurf; do
   bun run src/setup.ts uninstall --client "$CLIENT" >/dev/null 2>&1 || true
 done
 
-rm -rf "$VAULT_PATH"
+smoke_rm_rf "$VAULT_PATH"
 mkdir -p "$VAULT_PATH/.index"
 
 cat > "$VAULT_PATH/202501011200-existing-decision.md" << 'NOTE'
@@ -401,6 +589,7 @@ kind: decision
 status: permanent
 tags:
   - architecture
+  - project:smoke-test-project
 created: 2025-01-01T12:00:00.000Z
 ---
 
@@ -414,6 +603,7 @@ kind: personalization
 status: permanent
 tags:
   - ui
+  - project:smoke-test-project
 created: 2025-01-02T12:00:00.000Z
 ---
 
@@ -447,10 +637,16 @@ EXISTING_OUTPUT=$(timeout 15 bun -e "
   const rebuild = await client.callTool({ name: 'knowledge-maintain', arguments: { action: 'rebuild' } });
   const rebuildText = JSON.stringify(rebuild);
 
-  const search = await client.callTool({ name: 'knowledge-search', arguments: { query: 'PostgreSQL database' } });
+  const search = await client.callTool({
+    name: 'knowledge-search',
+    arguments: { query: 'PostgreSQL database', project: 'smoke-test-project' },
+  });
   const searchText = JSON.stringify(search);
 
-  const stats = await client.callTool({ name: 'knowledge-health', arguments: {} });
+  const stats = await client.callTool({
+    name: 'knowledge-health',
+    arguments: { project: 'smoke-test-project' },
+  });
   const statsText = JSON.stringify(stats);
 
   await client.close();
@@ -477,14 +673,24 @@ echo ""
 # ─── 18. npm pack produces valid package ───
 echo "▸ npm pack Validation"
 
-# Strip patchedDependencies before packing — it's a dev-only Bun feature
-# that breaks consumers when included in the published tarball.
-node -e "const p=JSON.parse(require('fs').readFileSync('package.json','utf8')); delete p.patchedDependencies; require('fs').writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');"
-(bun pm pack || npm pack) >/dev/null 2>&1 || true
-git checkout package.json 2>/dev/null || true
+# Pack from a sandboxed staging copy. Never rewrite package.json or create
+# tarballs in the developer's working tree.
+PACK_SOURCE="$SMOKE_SANDBOX_ROOT/package-source"
+PACK_OUTPUT_DIR="$SMOKE_SANDBOX_ROOT/package-output"
+mkdir -p "$PACK_SOURCE" "$PACK_OUTPUT_DIR"
+for SOURCE in package.json README.md LICENSE CHANGELOG.md server.json llms.txt dist patches skills skill-templates templates assets docs; do
+  if [ -e "$SOURCE" ]; then
+    cp -R "$SOURCE" "$PACK_SOURCE/"
+  fi
+done
+node -e "const fs=require('fs'); const f=process.argv[1]; const p=JSON.parse(fs.readFileSync(f,'utf8')); delete p.patchedDependencies; fs.writeFileSync(f, JSON.stringify(p,null,2)+'\n');" "$PACK_SOURCE/package.json"
+(
+  cd "$PACK_SOURCE"
+  bun pm pack --destination "$PACK_OUTPUT_DIR" || npm pack --pack-destination "$PACK_OUTPUT_DIR"
+) >/dev/null 2>&1 || true
 shopt -s nullglob
 TARBALL=""
-for CANDIDATE in open-zk-kb-*.tgz; do
+for CANDIDATE in "$PACK_OUTPUT_DIR"/open-zk-kb-*.tgz; do
   if [ -z "$TARBALL" ] || [ "$CANDIDATE" -nt "$TARBALL" ]; then
     TARBALL="$CANDIDATE"
   fi
@@ -504,14 +710,15 @@ if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
     fi
   done
 
-  PACK_DIR=$(mktemp -d)
+  PACK_DIR=$(mktemp -d "$SMOKE_SANDBOX_ROOT/package-install.XXXXXX")
   mkdir -p "$PACK_DIR/test-install"
-  cp "$TARBALL" "$PACK_DIR/test-install/"
+  TARBALL_NAME=$(basename "$TARBALL")
+  cp "$TARBALL" "$PACK_DIR/test-install/$TARBALL_NAME"
 
   INSTALL_STATUS=0
   INSTALL_OUTPUT=$(
     cd "$PACK_DIR/test-install" &&
-    echo '{"dependencies":{"open-zk-kb":"file:./'"$TARBALL"'"}}' > package.json &&
+    echo '{"dependencies":{"open-zk-kb":"file:./'"$TARBALL_NAME"'"}}' > package.json &&
     bun install 2>&1
   ) || INSTALL_STATUS=$?
 
@@ -526,7 +733,7 @@ if [ -n "$TARBALL" ] && [ -f "$TARBALL" ]; then
     fail "package install" "$(echo "$INSTALL_OUTPUT" | head -5)"
   fi
 
-  rm -rf "$PACK_DIR"
+  smoke_rm_rf "$PACK_DIR"
   rm -f "$TARBALL"
 else
   fail "npm pack" "no tarball created"
@@ -555,7 +762,7 @@ echo ""
 if [ "${LOCAL_MODELS:-}" = "1" ]; then
   echo "▸ Local Model Quality Tests"
 
-  MODEL_OUTPUT=$(NODE_TLS_REJECT_UNAUTHORIZED=0 timeout 300 bun run tests/docker/model-smoke-test.ts 2>/dev/null || true)
+  MODEL_OUTPUT=$(timeout 300 bun run tests/docker/model-smoke-test.ts 2>/dev/null || true)
   echo "$MODEL_OUTPUT" | grep -E "^  [✅❌⏱]" || true
 
   MODEL_RESULT=$(echo "$MODEL_OUTPUT" | grep "MODEL_SMOKE_RESULT" || echo "MODEL_SMOKE_RESULT:0:12")

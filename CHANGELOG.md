@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.4.2
+
+### Added
+
+- **Project knowledge boundaries** — routine search, context, retrieval, health, storage, and mining now require an explicit project and expose only that project's notes plus confirmed global derivatives, with compatible client filtering
+- **Global publication and legacy migration** — maintenance workflows can inventory unclassified notes, assign them to projects with confirmation, and publish reviewed global derivatives without exposing project provenance
+
+### Changed
+
+- **Telemetry consent prompt** — interactive installations now preselect Yes when asking to share anonymous usage analytics. Sharing is still enabled only after confirmation; No, cancellation, `--no-telemetry`, and non-interactive installs remain disabled
+- **Project-aware navigation** — generated Obsidian indexes, logs, QuickAdd choices, and Pi context injection respect project/global boundaries and fail closed when project context is unavailable
+
+### Fixed
+
+- **Destructive smoke-test isolation** — smoke runs now require an explicitly disposable environment, isolate every writable path, guard recursive deletion, preserve host vaults, and verify model downloads with TLS
+- **Cross-scope leakage** — exact-ID retrieval, duplicate screening, related-note discovery, domain injection, health metrics, links, rebuilds, and client-scoped context no longer expose unrelated or unclassified notes
+
 ## 1.4.1
 
 ### Changed
