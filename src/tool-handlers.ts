@@ -1009,6 +1009,50 @@ function updateGlobalNavigation(
 
 // ---- Handlers ----
 
+async function persistSemanticMetadata(
+  noteId: string,
+  note: { title: string; summary: string; content: string },
+  repo: NoteRepository,
+  embeddingConfig?: EmbeddingConfig | null,
+  backgroundAfterMs?: number,
+): Promise<number[] | null> {
+  repo.updateContentHash(noteId, computeSimHash(note.summary || note.content || note.title));
+  if (!embeddingConfig) return null;
+
+  const embeddingPromise = generateEmbedding(buildEmbeddingText(note.title, note.summary, note.content), embeddingConfig);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = backgroundAfterMs === undefined
+      ? await embeddingPromise
+      : await Promise.race([
+        embeddingPromise,
+        new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), backgroundAfterMs); }),
+      ]);
+    if (result) {
+      repo.storeEmbedding(noteId, result.embedding, result.model);
+      return result.embedding;
+    }
+    if (backgroundAfterMs !== undefined) {
+      void embeddingPromise.then(slowResult => {
+        if (slowResult) repo.storeEmbedding(noteId, slowResult.embedding, slowResult.model);
+      }).catch(error => {
+        logToFile('WARN', 'Background embedding generation failed', {
+          noteId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      });
+    }
+  } catch (error) {
+    logToFile('WARN', 'Embedding generation failed', {
+      noteId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  return null;
+}
+
 export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null): Promise<string> {
   const project = validateCurrentProject(args.project);
   if (!project) {
@@ -1089,46 +1133,13 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 
   scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', args.kind, 1, args.model));
 
-  const hashContent = args.summary || args.content || args.title;
-  const hash = computeSimHash(hashContent);
-  repo.updateContentHash(result.id, hash);
-
   // Race embedding generation against 500ms timeout for related notes search.
   // If timeout wins, the embedding still persists in the background (no data loss).
-  let noteEmbedding: number[] | null = null;
-  if (embeddingConfig) {
-    const text = buildEmbeddingText(args.title, args.summary, args.content);
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      const embeddingPromise = generateEmbedding(text, embeddingConfig);
-      const embResult = await Promise.race([
-        embeddingPromise,
-        new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), 500); }),
-      ]);
-      if (embResult) {
-        repo.storeEmbedding(result.id, embResult.embedding, embResult.model);
-        noteEmbedding = embResult.embedding;
-      } else {
-        void embeddingPromise.then(slowResult => {
-          if (slowResult) {
-            repo.storeEmbedding(result.id, slowResult.embedding, slowResult.model);
-          }
-        }).catch(error => {
-          logToFile('WARN', 'Background embedding generation failed', {
-            noteId: result.id,
-            error: error instanceof Error ? error.message : String(error),
-          });
-        });
-      }
-    } catch (error) {
-      logToFile('WARN', 'Embedding generation failed', {
-        noteId: result.id,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  }
+  const noteEmbedding = await persistSemanticMetadata(result.id, {
+    title: args.title,
+    summary: args.summary,
+    content: args.content,
+  }, repo, embeddingConfig, 500);
 
   const relatedConfig = config?.store?.relatedNotes;
   const relatedEnabled = relatedConfig?.enabled !== false;
@@ -1393,7 +1404,10 @@ const PUBLISHABLE_KIND_SET = new Set<NoteKind>(PUBLISHABLE_KINDS);
 
 function resolvedPublishTags(candidate: PublishGlobalCandidate): string[] {
   const tags = [...new Set([...(candidate.tags || []), 'scope:global'])];
-  const detectedClient = detectClient(candidate.content, candidate.guidance);
+  const detectedClient = detectClient(
+    [candidate.title, candidate.content, candidate.summary, candidate.guidance].join('\n'),
+    '',
+  );
   if (detectedClient) {
     const detectedTag = clientTag(detectedClient);
     if (!tags.includes(detectedTag)) tags.push(detectedTag);
@@ -1648,6 +1662,11 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         repo.remove(derivative.id);
         return `Error: Failed to link the local source to its global derivative; publication was rolled back (${error instanceof Error ? error.message : String(error)}).`;
       }
+      await persistSemanticMetadata(derivative.id, {
+        title: args.candidate.title.trim(),
+        summary: args.candidate.summary.trim(),
+        content: args.candidate.content.trim(),
+      }, repo, embeddingConfig);
       const projectScope = parseKnowledgeApplicability(source.tags);
       const changedPaths = [source.path, derivative.path];
       if (projectScope.type === 'project-local') {

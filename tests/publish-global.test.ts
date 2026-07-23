@@ -91,6 +91,58 @@ describe('publish-global maintenance', () => {
     expect(ctx.engine.search('reusable instructions', { visibility: { project: 'alpha', client: 'pi' } })).toHaveLength(0);
     expect(ctx.engine.search('reusable instructions', { visibility: { project: 'alpha', client: 'claude-code' } }).map(note => note.id))
       .toContain(global.id);
+
+    for (const clientCandidate of [
+      {
+        ...candidate,
+        title: 'Configure CLAUDE.md',
+        content: 'Reusable instructions configure agent behavior.',
+        summary: 'Agent files define reusable behavior.',
+        guidance: 'Keep agent instructions current.',
+      },
+      {
+        ...candidate,
+        title: 'Configure Agent Files',
+        content: 'Reusable instructions configure agent behavior.',
+        summary: 'CLAUDE.md defines reusable agent behavior.',
+        guidance: 'Keep agent instructions current.',
+      },
+    ]) {
+      const fieldPreview = JSON.parse(await handleMaintain({
+        action: 'publish-global', noteId: local.id, candidate: clientCandidate, dryRun: true,
+      }, ctx.engine, ctx.config));
+      expect(fieldPreview.targetTags).toContain('client:claude-code');
+    }
+  });
+
+  it('persists duplicate-screening hashes and embeddings before publication returns', async () => {
+    const local = source();
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({
+      data: [{ embedding: [0.1, 0.2, 0.3], index: 0 }],
+      model: 'test-model',
+    }), { status: 200 })) as typeof globalThis.fetch;
+
+    try {
+      const preview = JSON.parse(await handleMaintain({
+        action: 'publish-global', noteId: local.id, candidate, dryRun: true,
+      }, ctx.engine, ctx.config));
+      const applied = JSON.parse(await handleMaintain({
+        action: 'publish-global', noteId: local.id, candidate, dryRun: false,
+        confirm: true, token: preview.confirmationToken,
+      }, ctx.engine, ctx.config, {
+        provider: 'api', baseUrl: 'https://api.example.com/v1', apiKey: 'test',
+        model: 'test-model', dimensions: 3,
+      }));
+
+      expect(ctx.engine.getAllContentHashes().map(item => item.id)).toContain(applied.created);
+      expect(ctx.engine.getNotesWithoutEmbeddings(Number.MAX_SAFE_INTEGER).map(note => note.id)).not.toContain(applied.created);
+      expect(ctx.engine.searchVector([0.1, 0.2, 0.3], {
+        visibility: { project: 'beta' },
+      }).map(note => note.id)).toContain(applied.created);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 
   it('rejects exact project evidence and non-global links while allowing global links', async () => {
