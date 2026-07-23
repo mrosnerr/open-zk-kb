@@ -79,6 +79,7 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
 /** Absolute word-count ceiling — warns regardless of kind. */
 export const ABSOLUTE_WARN_THRESHOLD = 300;
 const EMBEDDING_BACKFILL_BATCH_SIZE = 50;
+const EMBEDDING_FOREGROUND_TIMEOUT_MS = 10_000;
 
 export const TITLE_SOFT_WARN_WORDS = 6;
 export const TITLE_HARD_LIMIT_WORDS = 10;
@@ -136,7 +137,11 @@ type BrokenLink = {
   line: number;
 };
 
-function filterFalsePositiveBrokenLinks(broken: BrokenLink[], vaultPath: string | undefined): BrokenLink[] {
+function filterFalsePositiveBrokenLinks(
+  broken: BrokenLink[],
+  vaultPath: string | undefined,
+  isIndexedTarget: (target: string) => boolean = () => false,
+): BrokenLink[] {
   if (!vaultPath) return broken;
   const resolvedVault = path.resolve(vaultPath);
   const vaultPrefix = resolvedVault + path.sep;
@@ -145,6 +150,9 @@ function filterFalsePositiveBrokenLinks(broken: BrokenLink[], vaultPath: string 
     return resolved === resolvedVault || resolved.startsWith(vaultPrefix);
   };
   return broken.filter(({ brokenTarget }) => {
+    // A target indexed in another scope is deliberately invisible, not a
+    // filesystem false positive. Keep it in scoped health results as broken.
+    if (isIndexedTarget(brokenTarget)) return true;
     const notePathRel = `${brokenTarget}.md`;
     const basename = path.basename(brokenTarget);
     const dirIndexPathRel = path.join(brokenTarget, `${basename}.md`);
@@ -427,7 +435,11 @@ export async function handleHealth(args: HealthArgs, repo: NoteRepository, confi
   }
 
   {
-    const brokenLinks = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(project, args.client), config?.vault);
+    const brokenLinks = filterFalsePositiveBrokenLinks(
+      repo.getBrokenLinks(project, args.client),
+      config?.vault,
+      target => repo.resolveLink(target) !== null,
+    );
     const oneWayLinks = repo.getOneWayLinks(project, args.client);
     const unlinkedNotes = repo.getUnlinkedNotes(project, args.client);
     const linkIssueCount = brokenLinks.length + oneWayLinks.length + unlinkedNotes.length;
@@ -1434,8 +1446,11 @@ function publicationToken(source: NoteMetadata, candidate: PublishGlobalCandidat
 }
 
 function projectAssignmentToken(note: NoteMetadata, project: string): string {
+  // Assignment rewrites the note file after moving it. Bind confirmation to its
+  // persisted bytes as well as the index so an out-of-band edit cannot be lost.
+  const persistedNoteHash = createHash('sha256').update(fs.readFileSync(note.path)).digest('hex');
   return createHash('sha256')
-    .update(JSON.stringify({ noteId: note.id, noteUpdatedAt: note.updated_at, currentTags: [...note.tags].sort(), project }))
+    .update(JSON.stringify({ noteId: note.id, noteUpdatedAt: note.updated_at, currentTags: [...note.tags].sort(), persistedNoteHash, project }))
     .digest('hex');
 }
 
@@ -1666,7 +1681,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         title: args.candidate.title.trim(),
         summary: args.candidate.summary.trim(),
         content: args.candidate.content.trim(),
-      }, repo, embeddingConfig);
+      }, repo, embeddingConfig, EMBEDDING_FOREGROUND_TIMEOUT_MS);
       const projectScope = parseKnowledgeApplicability(source.tags);
       const changedPaths = [source.path, derivative.path];
       if (projectScope.type === 'project-local') {

@@ -144,40 +144,19 @@ async function generateLocalEmbeddingBatch(texts: string[], config: EmbeddingCon
 }
 
 /**
- * Generate an embedding vector for the given text using an OpenAI-compatible API.
- * Returns null if the call fails (timeout, bad response, etc.) — never throws.
+ * Generate an embedding vector for the given text.
+ * API requests honor timeoutMs and return null on failure. Local inference cannot
+ * be aborted, so callers that need a foreground deadline must retain and observe
+ * this promise in the background rather than abandoning a successful late result.
  */
 export async function generateEmbedding(
   text: string,
   config: EmbeddingConfig,
   timeoutMs: number = 10000,
+  generateLocal: (text: string, config: EmbeddingConfig) => Promise<EmbeddingResult | null> = generateLocalEmbedding,
 ): Promise<EmbeddingResult | null> {
   if (config.provider === 'local') {
-    // Local model loading/inference has no AbortSignal support. Race it against the
-    // same deadline used by API providers so callers (notably publish-global) do
-    // not wait indefinitely for a model download or stalled inference.
-    const localPromise = generateLocalEmbedding(text, config);
-    let timedOut = false;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    try {
-      return await Promise.race([
-        localPromise,
-        new Promise<null>((resolve) => {
-          timer = setTimeout(() => {
-            timedOut = true;
-            resolve(null);
-          }, timeoutMs);
-        }),
-      ]);
-    } finally {
-      if (timer) clearTimeout(timer);
-      if (timedOut) {
-        logToFile('ERROR', 'Local embedding generation timed out', {
-          model: config.model,
-          timeoutMs,
-        });
-      }
-    }
+    return generateLocal(text, config);
   }
 
   if (!hasApiCredentials(config)) {

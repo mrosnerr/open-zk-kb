@@ -2358,6 +2358,15 @@ export class NoteRepository {
           JOIN notes source ON l.source_id = source.id
           WHERE source.status != 'archived'${sourceScope.sql}
         )
+        AND n.id NOT IN (
+          SELECT l.target_id FROM note_links l
+          JOIN notes source ON l.source_id = source.id
+          JOIN notes global_target ON l.target_id = global_target.id
+          WHERE source.status != 'archived'
+            AND global_target.status != 'archived'
+            AND EXISTS (SELECT 1 FROM json_each(global_target.tags) WHERE value = 'scope:global')
+            AND (SELECT COUNT(*) FROM json_each(global_target.tags) WHERE value LIKE 'project:%') = 0
+        )
       ORDER BY n.created_at DESC
     `);
     const results = stmt.all(...noteScope.params, ...targetScope.params, ...sourceScope.params) as NoteMetadata[];

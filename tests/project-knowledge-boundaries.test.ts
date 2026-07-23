@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import * as path from 'node:path';
 import { cleanupTestHarness, createTestHarness, type TestContext } from './harness.js';
 import { parseKnowledgeApplicability } from '../src/knowledge-scope.js';
+import { handleHealth } from '../src/tool-handlers.js';
 
 describe('repository project knowledge boundaries', () => {
   let context: TestContext;
@@ -57,6 +59,28 @@ describe('repository project knowledge boundaries', () => {
     const results = context.engine.searchVector([1, 0], { limit: 5, visibility: { project: 'alpha', client: 'pi' } });
     expect(results.map(note => note.id)).toEqual([alpha.id, global.id]);
     expect(context.engine.searchVector([1, 0], { visibility: { project: 'alpha', client: 'cursor' } }).map(note => note.id)).toEqual([global.id]);
+  });
+
+  it('reports path-style links to indexed but hidden targets as broken in scoped health', async () => {
+    const beta = store('Beta hidden target', ['project:beta']);
+    const betaNote = context.engine.getById(beta.id);
+    if (!betaNote) throw new Error('beta target missing');
+    const targetPath = path.relative(context.tempDir, betaNote.path)
+      .replace(/\.md$/, '')
+      .split(path.sep).join('/');
+    store('Alpha source', ['project:alpha'], `See [[${targetPath}]].`);
+
+    const health = await handleHealth({ project: 'alpha' }, context.engine, context.config);
+
+    expect(health).toContain('1 broken');
+  });
+
+  it('counts incoming global publication relations across project boundaries', () => {
+    const alpha = store('Alpha publication source', ['project:alpha']);
+    const global = store('Published global derivative', ['scope:global']);
+    context.engine.addLocalToGlobalRelation(alpha.id, global.id);
+
+    expect(context.engine.getUnlinkedNotes('beta').map(note => note.id)).not.toContain(global.id);
   });
 
   it('uses project-plus-global visibility for health aggregates', () => {

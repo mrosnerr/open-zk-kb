@@ -165,6 +165,19 @@ Keep this body.
     expect(ctx.engine.getById(legacy.id)?.tags).toEqual([]);
   });
 
+  it('rejects an assignment when the note file changes after preview', async () => {
+    const legacy = ctx.engine.store('Original body.', { title: 'Externally Edited Assignment', kind: 'reference', tags: [] });
+    const preview = JSON.parse(await handleMaintain({ action: 'assign-project', noteId: legacy.id, project: 'alpha', dryRun: true }, ctx.engine, ctx.config));
+    const externalBytes = `${fs.readFileSync(legacy.path, 'utf8')}\nExternal edit that must not be overwritten.\n`;
+    fs.writeFileSync(legacy.path, externalBytes, 'utf8');
+
+    const result = await handleMaintain({ action: 'assign-project', noteId: legacy.id, project: 'alpha', dryRun: false, confirm: true, token: preview.confirmationToken }, ctx.engine, ctx.config);
+
+    expect(result).toContain('stale or does not match');
+    expect(fs.readFileSync(legacy.path, 'utf8')).toBe(externalBytes);
+    expect(ctx.engine.getById(legacy.id)?.tags).toEqual([]);
+  });
+
   it('keeps assigned personalizations in the canonical preferences path', async () => {
     const preference = ctx.engine.store('Use concise prose.', { title: 'Concise', kind: 'personalization', tags: [] });
     const preview = JSON.parse(await handleMaintain({ action: 'assign-project', noteId: preference.id, project: 'alpha', dryRun: true }, ctx.engine, ctx.config));
