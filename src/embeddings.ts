@@ -153,7 +153,31 @@ export async function generateEmbedding(
   timeoutMs: number = 10000,
 ): Promise<EmbeddingResult | null> {
   if (config.provider === 'local') {
-    return generateLocalEmbedding(text, config);
+    // Local model loading/inference has no AbortSignal support. Race it against the
+    // same deadline used by API providers so callers (notably publish-global) do
+    // not wait indefinitely for a model download or stalled inference.
+    const localPromise = generateLocalEmbedding(text, config);
+    let timedOut = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        localPromise,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => {
+            timedOut = true;
+            resolve(null);
+          }, timeoutMs);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+      if (timedOut) {
+        logToFile('ERROR', 'Local embedding generation timed out', {
+          model: config.model,
+          timeoutMs,
+        });
+      }
+    }
   }
 
   if (!hasApiCredentials(config)) {
