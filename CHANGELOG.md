@@ -16,6 +16,7 @@
 
 - **Destructive smoke-test isolation** — smoke runs now require an explicitly disposable environment, isolate every writable path, guard recursive deletion, preserve host vaults, and verify model downloads with TLS
 - **Cross-scope leakage** — exact-ID retrieval, duplicate screening, related-note discovery, domain injection, health metrics, links, rebuilds, and client-scoped context no longer expose unrelated or unclassified notes
+- **Actionable scoped health** — project-scoped link findings now include bounded details, while Pi keeps collapsed health summaries concise and shows details only when expanded
 
 ## 1.4.1
 

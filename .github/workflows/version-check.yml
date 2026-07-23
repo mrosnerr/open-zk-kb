@@ -108,22 +108,31 @@ jobs:
 
             const result = coreCompare !== 0 ? coreCompare : comparePre(head.pre, base.pre);
 
-            if (result <= 0) {
-              console.error(`::error::Version must increase. base=${process.env.BASE_VERSION} head=${process.env.HEAD_VERSION}`);
+            if (result < 0) {
+              console.error(`::error::Version must not decrease. base=${process.env.BASE_VERSION} head=${process.env.HEAD_VERSION}`);
               process.exit(1);
             }
-            console.log(`Version ${process.env.HEAD_VERSION} > ${process.env.BASE_VERSION}`);
+            if (result === 0) {
+              console.log(`Version remains ${process.env.HEAD_VERSION}; npm availability and changelog checks must still pass`);
+            } else {
+              console.log(`Version ${process.env.HEAD_VERSION} > ${process.env.BASE_VERSION}`);
+            }
           '
 
       - name: Verify version not already on npm
         if: steps.scope.outputs.needs_bump == 'true'
         run: |
           VERSION="${{ steps.versions.outputs.head }}"
-          if npm view "open-zk-kb@$VERSION" version >/dev/null 2>&1; then
+          if LOOKUP_OUTPUT="$(npm view "open-zk-kb@$VERSION" version --json 2>&1)"; then
             echo "::error::open-zk-kb@$VERSION is already published on npm"
             exit 1
+          elif echo "$LOOKUP_OUTPUT" | grep -q 'E404'; then
+            echo "Version $VERSION is available on npm"
+          else
+            echo "::error::Unable to verify open-zk-kb@$VERSION availability on npm"
+            echo "$LOOKUP_OUTPUT"
+            exit 1
           fi
-          echo "Version $VERSION is available on npm"
 
       - name: Require CHANGELOG.md update
         if: steps.scope.outputs.needs_bump == 'true'
