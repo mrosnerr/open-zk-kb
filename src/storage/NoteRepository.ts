@@ -6,6 +6,7 @@ import { Database } from 'bun:sqlite';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import YAML from 'yaml';
 import { expandPath } from '../utils/path.js';
 import { logToFile } from '../logger.js';
 import { extractWikiLinks as parseAllWikiLinks, parseWikiLink } from '../utils/wikilink.js';
@@ -361,11 +362,15 @@ export class NoteRepository {
 
     if (metadata.summary) fm.tagline = metadata.summary;
 
+    const extraFrontmatterKeys = new Set<string>();
     const extraFrontmatter = metadata.extraFrontmatter as Record<string, unknown> | undefined;
     if (extraFrontmatter) {
       const reserved = new Set(Object.keys(fm));
       for (const [key, value] of Object.entries(extraFrontmatter)) {
-        if (!reserved.has(key)) fm[key] = value;
+        if (!reserved.has(key)) {
+          fm[key] = value;
+          extraFrontmatterKeys.add(key);
+        }
       }
     }
 
@@ -380,22 +385,33 @@ export class NoteRepository {
     }
 
     return `---\n${Object.entries(fm)
-      .filter(([_, v]) => v !== undefined && v !== null && (Array.isArray(v) ? v.length > 0 : true))
-      .map(([k, v]) => {
-        if (Array.isArray(v)) return `${k}:\n${(v as string[]).map(item => {
-          const s = String(item);
-          return /[#{}[\]|>@`"'\n]/.test(s) || s.includes(': ') ? `  - "${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : `  - ${s}`;
+      .filter(([key, value]) => extraFrontmatterKeys.has(key)
+        ? value !== undefined
+        : value !== undefined && value !== null && (Array.isArray(value) ? value.length > 0 : true))
+      .map(([key, value]) => {
+        if (extraFrontmatterKeys.has(key)) return YAML.stringify({ [key]: value }).trimEnd();
+        if (Array.isArray(value)) return `${key}:\n${(value as string[]).map(item => {
+          const scalar = String(item);
+          return /[#{}[\]|>@`"'\n]/.test(scalar) || scalar.includes(': ')
+            ? `  - "${scalar.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`
+            : `  - ${scalar}`;
         }).join('\n')}`;
-        const str = String(v);
-         if (typeof v === 'string' && /[:#{}[\]|>@`"']/.test(str)) {
-           return `${k}: "${str.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
-         }
-        return `${k}: ${v}`;
+        const scalar = String(value);
+        if (typeof value === 'string' && /[:#{}[\]|>@`"']/.test(scalar)) {
+          return `${key}: "${scalar.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+        }
+        return `${key}: ${value}`;
       })
       .join('\n')}\n---\n\n`;
   }
 
   private static readonly MANAGED_SECTIONS = new Set(['Guidance', 'Context', 'Related']);
+  // These are reconstructed from canonical metadata or note-body sections during rewrites.
+  // All other parsed keys (including user overrides for `up` and `aliases`) must round-trip.
+  private static readonly REWRITE_MANAGED_FRONTMATTER_KEYS = new Set([
+    'id', 'title', 'kind', 'status', 'lifecycle', 'type', 'tags', 'created', 'updated',
+    'tagline', 'summary', 'guidance', 'context',
+  ]);
 
   protected buildNoteBody(options: {
     content: string;
@@ -507,6 +523,12 @@ export class NoteRepository {
   private static readonly NAV_PATTERN = /^> \[!breadcrumb\]\n(> [^\n]*\n)+\n/;
   private static readonly TITLE_PATTERN = /^# [^\n]+\n\n/;
 
+  private extraFrontmatterForRewrite(frontmatter: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(frontmatter).filter(([key]) =>
+      !NoteRepository.REWRITE_MANAGED_FRONTMATTER_KEYS.has(key),
+    ));
+  }
+
   protected stripNavBreadcrumb(body: string): string {
     return body.replace(NoteRepository.NAV_PATTERN, '');
   }
@@ -515,32 +537,44 @@ export class NoteRepository {
     const match = content.match(/^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/);
     if (!match) return { frontmatter: {}, body: content };
 
-    const fm: Record<string, unknown> = {};
-    const lines = match[1].split('\n');
-    let currentKey: string | null = null;
-
-    for (const line of lines) {
-      const arrayMatch = line.match(/^(\w+):\s*$/);
-      if (arrayMatch) {
-        currentKey = arrayMatch[1];
-        fm[currentKey] = [];
-        continue;
-      }
-
-      const itemMatch = line.match(/^\s+-\s+(.+)$/);
-      if (itemMatch && currentKey) {
-        (fm[currentKey] as string[]).push(itemMatch[1]);
-        continue;
-      }
-
-      const keyValueMatch = line.match(/^(\w+):\s*(.+)$/);
-      if (keyValueMatch) {
-        let val = keyValueMatch[2];
-        if (val.startsWith('"') && val.endsWith('"')) {
-          val = val.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+    let fm: Record<string, unknown> = {};
+    try {
+      const parsed = YAML.parse(match[1]);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        fm = parsed as Record<string, unknown>;
+        for (const key of NoteRepository.REWRITE_MANAGED_FRONTMATTER_KEYS) {
+          if (key !== 'tags' && fm[key] !== undefined && fm[key] !== null) fm[key] = String(fm[key]);
         }
-        fm[keyValueMatch[1]] = val;
-        currentKey = null;
+        if (Array.isArray(fm.tags)) fm.tags = fm.tags.map(tag => String(tag));
+      }
+    } catch {
+      // Preserve the previous best-effort behavior for malformed legacy frontmatter.
+      const lines = match[1].split('\n');
+      let currentKey: string | null = null;
+
+      for (const line of lines) {
+        const arrayMatch = line.match(/^(\w+):\s*$/);
+        if (arrayMatch) {
+          currentKey = arrayMatch[1];
+          fm[currentKey] = [];
+          continue;
+        }
+
+        const itemMatch = line.match(/^\s+-\s+(.+)$/);
+        if (itemMatch && currentKey) {
+          (fm[currentKey] as string[]).push(itemMatch[1]);
+          continue;
+        }
+
+        const keyValueMatch = line.match(/^(\w+):\s*(.+)$/);
+        if (keyValueMatch) {
+          let val = keyValueMatch[2];
+          if (val.startsWith('"') && val.endsWith('"')) {
+            val = val.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+          }
+          fm[keyValueMatch[1]] = val;
+          currentKey = null;
+        }
       }
     }
 
@@ -1627,7 +1661,11 @@ export class NoteRepository {
       const summary = merged.summary || bodySections.summary || (oldFm.tagline as string) || (oldFm.summary as string) || '';
       const guidance = merged.guidance || bodySections.guidance || (oldFm.guidance as string) || '';
       const context = merged.context || bodySections.context || (oldFm.context as string) || '';
-      const newFrontmatter = this.buildFrontmatter({ ...merged, summary });
+      const newFrontmatter = this.buildFrontmatter({
+        ...merged,
+        summary,
+        extraFrontmatter: this.extraFrontmatterForRewrite(oldFm),
+      });
       const navBreadcrumb = this.buildNavBreadcrumb(kind, tags);
       const titleLine = isStructural ? '' : `# ${merged.title}\n\n`;
       const userContent = bodySections.content;
@@ -2190,6 +2228,7 @@ export class NoteRepository {
           summary,
           created_at: row.created_at,
           updated_at: row.updated_at,
+          extraFrontmatter: this.extraFrontmatterForRewrite(oldFm),
         });
 
         const navBreadcrumb = this.buildNavBreadcrumb(row.kind, tags);

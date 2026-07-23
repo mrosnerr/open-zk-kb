@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import * as fs from 'fs';
+import YAML from 'yaml';
 import { handleMaintain } from '../src/tool-handlers.js';
 import { cleanupTestHarness, createTestHarness, type TestContext } from './harness.js';
 
@@ -45,6 +46,92 @@ describe('legacy scope maintenance', () => {
     expect(ctx.engine.search('Repair', { visibility: { project: 'alpha' } }).map(note => note.id)).toContain(legacy.id);
     await handleMaintain({ action: 'rebuild' }, ctx.engine, ctx.config);
     expect(ctx.engine.getById(legacy.id)?.path).toBe(assigned.path);
+  });
+
+  it('preserves custom frontmatter during project assignment and formatting', () => {
+    const legacy = ctx.engine.store('Keep this body.', {
+      title: 'Custom Metadata',
+      kind: 'reference',
+      tags: ['topic'],
+      extraFrontmatter: {
+        'custom-key': 'custom value',
+        yaml_like_true: 'true',
+        yaml_like_number: '123',
+        yaml_like_null: 'null',
+        empty_value: null,
+        empty_list: [],
+        up: '[[Manual Parent]]',
+        aliases: ['Manual Alias'],
+        plugin_data: { enabled: true, fields: [{ name: 'alpha', weight: 2 }] },
+      },
+    });
+
+    expect(ctx.engine.assignProject(legacy.id, 'alpha', ['topic', 'project:alpha'])).not.toBeNull();
+    const assigned = ctx.engine.getById(legacy.id);
+    if (!assigned) throw new Error('assigned note missing');
+    const readFrontmatter = () => {
+      const file = fs.readFileSync(assigned.path, 'utf8');
+      const match = file.match(/^---\n([\s\S]*?)\n---/);
+      if (!match) throw new Error('frontmatter missing');
+      return YAML.parse(match[1]) as Record<string, unknown>;
+    };
+    expect(readFrontmatter()).toMatchObject({
+      'custom-key': 'custom value',
+      yaml_like_true: 'true',
+      yaml_like_number: '123',
+      yaml_like_null: 'null',
+      empty_value: null,
+      empty_list: [],
+      up: '[[Manual Parent]]',
+      aliases: ['Manual Alias'],
+      plugin_data: { enabled: true, fields: [{ name: 'alpha', weight: 2 }] },
+    });
+
+    ctx.engine.formatAllFiles();
+    expect(readFrontmatter()).toMatchObject({
+      'custom-key': 'custom value',
+      yaml_like_true: 'true',
+      yaml_like_number: '123',
+      yaml_like_null: 'null',
+      empty_value: null,
+      empty_list: [],
+      up: '[[Manual Parent]]',
+      aliases: ['Manual Alias'],
+      plugin_data: { enabled: true, fields: [{ name: 'alpha', weight: 2 }] },
+    });
+  });
+
+  it('rewrites managed fields when legacy frontmatter is malformed', () => {
+    const legacy = ctx.engine.store('Keep this body.', { title: 'Malformed Metadata', kind: 'reference', tags: ['topic'] });
+    fs.writeFileSync(legacy.path, `---
+id: ${legacy.id}
+title: Malformed Metadata
+kind: reference
+status: fleeting
+lifecycle: living
+type: atomic
+tags:
+  - topic
+plugin_data: [unterminated
+---
+
+# Malformed Metadata
+
+Keep this body.
+`);
+
+    expect(ctx.engine.assignProject(legacy.id, 'alpha', ['topic', 'project:alpha'])).not.toBeNull();
+    const assigned = ctx.engine.getById(legacy.id);
+    if (!assigned) throw new Error('assigned note missing');
+    const file = fs.readFileSync(assigned.path, 'utf8');
+    const match = file.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    const parsed = YAML.parse(match?.[1] || '') as Record<string, unknown>;
+    expect({ ...parsed, id: String(parsed.id) }).toMatchObject({
+      id: legacy.id,
+      kind: 'reference',
+      tags: ['topic', 'project:alpha'],
+    });
   });
 
   it('leaves note bytes and indexed metadata unchanged when the filesystem move fails', async () => {
