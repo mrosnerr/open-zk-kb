@@ -123,11 +123,16 @@ jobs:
         if: steps.scope.outputs.needs_bump == 'true'
         run: |
           VERSION="${{ steps.versions.outputs.head }}"
-          if npm view "open-zk-kb@$VERSION" version >/dev/null 2>&1; then
+          if LOOKUP_OUTPUT="$(npm view "open-zk-kb@$VERSION" version --json 2>&1)"; then
             echo "::error::open-zk-kb@$VERSION is already published on npm"
             exit 1
+          elif echo "$LOOKUP_OUTPUT" | grep -q 'E404'; then
+            echo "Version $VERSION is available on npm"
+          else
+            echo "::error::Unable to verify open-zk-kb@$VERSION availability on npm"
+            echo "$LOOKUP_OUTPUT"
+            exit 1
           fi
-          echo "Version $VERSION is available on npm"
 
       - name: Require CHANGELOG.md update
         if: steps.scope.outputs.needs_bump == 'true'
