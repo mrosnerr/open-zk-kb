@@ -108,11 +108,15 @@ jobs:
 
             const result = coreCompare !== 0 ? coreCompare : comparePre(head.pre, base.pre);
 
-            if (result <= 0) {
-              console.error(`::error::Version must increase. base=${process.env.BASE_VERSION} head=${process.env.HEAD_VERSION}`);
+            if (result < 0) {
+              console.error(`::error::Version must not decrease. base=${process.env.BASE_VERSION} head=${process.env.HEAD_VERSION}`);
               process.exit(1);
             }
-            console.log(`Version ${process.env.HEAD_VERSION} > ${process.env.BASE_VERSION}`);
+            if (result === 0) {
+              console.log(`Version remains ${process.env.HEAD_VERSION}; npm availability and changelog checks must still pass`);
+            } else {
+              console.log(`Version ${process.env.HEAD_VERSION} > ${process.env.BASE_VERSION}`);
+            }
           '
 
       - name: Verify version not already on npm
