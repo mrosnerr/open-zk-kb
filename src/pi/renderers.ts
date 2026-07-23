@@ -312,8 +312,9 @@ function healthResult(
     .map(({ kind, count }) => `${count} ${kindLabels[kind] ?? (count === '1' ? kind : `${kind}s`)}`);
   const embedded = sectionBody(sections, 'Embeddings').match(/Embedded:\s*(\d+)\/(\d+)\s+notes?/i);
   const links = sectionBody(sections, 'Link Health');
-  const linkIssue = /Issues:/i.test(links)
-    ? theme.fg('warning', `${ICONS.error} ${links.replace(/^[-*]\s*/, '')}`)
+  const linkIssueLine = links.split('\n').find((line) => /^[-*]\s+Issues:/i.test(line));
+  const linkIssue = linkIssueLine
+    ? theme.fg('warning', `${ICONS.error} ${linkIssueLine.replace(/^[-*]\s*/, '')}`)
     : '';
   const healthySignals = [
     embedded ? `${embedded[1]}/${embedded[2]} embedded` : '',

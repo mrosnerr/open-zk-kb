@@ -275,7 +275,11 @@ Related notes:
 - Embedded: 60/62 notes (2 missing)
 
 ## Link Health
-- Issues: 3 unlinked, 1 broken (run \`knowledge-maintain link-health\` for details)
+- Issues: 3 unlinked, 1 broken
+- Scoped unlinked notes:
+  - "Private orphan" [2026071801234504]
+- Scoped broken links:
+  - "Project source" [2026071801234505] content:12 → [[projects/private/secret]]
 
 ## Staleness
 - 0–7d: 25
@@ -349,10 +353,14 @@ Related notes:
     expect(healthCollapsed).toContain('2 preferences · 3 decisions · 2 observations · 1 reference');
     expect(healthCollapsed).toContain('60/62 embedded');
     expect(healthCollapsed).toContain('Issues: 3 unlinked, 1 broken');
+    expect(healthCollapsed).not.toContain('Private orphan');
+    expect(healthCollapsed).not.toContain('projects/private/secret');
     const healthExpanded = render('knowledge-health', fixtures['knowledge-health'], true);
     for (const section of ['Health (62 notes)', 'Embeddings', 'Link Health', 'Staleness', 'Growth (last 30d)', 'Infrastructure', 'Version']) {
       expect(healthExpanded).toContain(section);
     }
+    expect(healthExpanded).toContain('Private orphan');
+    expect(healthExpanded).toContain('projects/private/secret');
   });
 
   it('renders remaining tools without raw markup in collapsed results', () => {
