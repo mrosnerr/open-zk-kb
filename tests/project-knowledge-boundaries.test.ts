@@ -73,6 +73,10 @@ describe('repository project knowledge boundaries', () => {
     const health = await handleHealth({ project: 'alpha' }, context.engine, context.config);
 
     expect(health).toContain('1 broken');
+    expect(health).toContain('Scoped broken links');
+    expect(health).toContain('Alpha source');
+    expect(health).toContain(`[[${targetPath}]]`);
+    expect(health).not.toContain('run `knowledge-maintain link-health` for details');
   });
 
   it('counts incoming global publication relations across project boundaries', () => {
