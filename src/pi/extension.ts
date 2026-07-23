@@ -371,7 +371,13 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
     };
 
     for (const definition of TOOL_DEFINITIONS) {
-      const parameters = toTypeBoxSchema(definition.params);
+      const injectsProject = ROUTINE_STORED_KNOWLEDGE_TOOLS.has(definition.name);
+      const parameters = toTypeBoxSchema(injectsProject && 'project' in definition.params
+        ? {
+          ...definition.params,
+          project: { ...definition.params.project, required: false },
+        }
+        : definition.params);
       const renderResult = RENDER_RESULTS[definition.name];
       pi.registerTool({
         name: definition.name,

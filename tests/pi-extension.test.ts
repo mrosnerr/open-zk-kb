@@ -10,7 +10,10 @@ import { RENDER_RESULTS } from '../src/pi/renderers.js';
 interface RegisteredTool {
   name: string;
   description: string;
-  parameters: unknown;
+  parameters: {
+    properties?: Record<string, unknown>;
+    required?: string[];
+  };
   renderCall?: unknown;
   renderResult?: unknown;
   execute(
@@ -144,6 +147,16 @@ describe('Pi extension', () => {
       ]);
       expect(registered.every((tool) => typeof tool.renderResult === 'function')).toBe(true);
       expect(registered.every((tool) => tool.renderCall === undefined)).toBe(true);
+      const projectInjectedTools = [
+        'knowledge-store', 'knowledge-search', 'knowledge-get',
+        'knowledge-context', 'knowledge-health', 'knowledge-mine',
+      ];
+      for (const name of projectInjectedTools) {
+        const schema = registered.find((tool) => tool.name === name)?.parameters;
+        expect(schema?.properties?.project).toBeDefined();
+        expect(schema?.required ?? []).not.toContain('project');
+      }
+      expect(registered.find((tool) => tool.name === 'knowledge-store')?.parameters.required).toContain('title');
       expect(promptHandler).toBeDefined();
 
       expect(preferenceRenderer).toBeDefined();
