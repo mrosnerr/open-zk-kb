@@ -449,7 +449,30 @@ export async function handleHealth(args: HealthArgs, repo: NoteRepository, confi
       if (unlinkedNotes.length > 0) parts.push(`${unlinkedNotes.length} unlinked`);
       if (brokenLinks.length > 0) parts.push(`${brokenLinks.length} broken`);
       if (oneWayLinks.length > 0) parts.push(`${oneWayLinks.length} one-way`);
-      output += `- Issues: ${parts.join(', ')} (run \`knowledge-maintain link-health\` for details)\n`;
+      output += `- Issues: ${parts.join(', ')}\n`;
+
+      const detailLimit = 5;
+      if (unlinkedNotes.length > 0) {
+        output += '- Scoped unlinked notes:\n';
+        for (const note of unlinkedNotes.slice(0, detailLimit)) {
+          output += `  - "${note.title}" [${note.id}]\n`;
+        }
+        if (unlinkedNotes.length > detailLimit) output += `  - …and ${unlinkedNotes.length - detailLimit} more\n`;
+      }
+      if (brokenLinks.length > 0) {
+        output += '- Scoped broken links:\n';
+        for (const link of brokenLinks.slice(0, detailLimit)) {
+          output += `  - "${link.sourceTitle}" [${link.sourceId}] content:${link.line} → [[${link.brokenTarget}]]\n`;
+        }
+        if (brokenLinks.length > detailLimit) output += `  - …and ${brokenLinks.length - detailLimit} more\n`;
+      }
+      if (oneWayLinks.length > 0) {
+        output += '- Scoped one-way links:\n';
+        for (const link of oneWayLinks.slice(0, detailLimit)) {
+          output += `  - "${link.sourceTitle}" [${link.sourceId}] → "${link.targetTitle}" [${link.targetId}]\n`;
+        }
+        if (oneWayLinks.length > detailLimit) output += `  - …and ${oneWayLinks.length - detailLimit} more\n`;
+      }
     } else {
       output += '- All clear ✓\n';
     }
