@@ -92,7 +92,7 @@
     "yaml": "^2.3.4"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.80.10",
+    "@earendil-works/pi-ai": "^0.82.0",
     "@earendil-works/pi-coding-agent": "^0.80.10",
     "@earendil-works/pi-tui": "^0.80.10",
     "@eslint/js": "^10.0.1",
