@@ -2546,6 +2546,48 @@ export class NoteRepository {
     }));
   }
 
+  /**
+   * Query-only snapshot for the internal vault-review core (src/review/).
+   * Returns every note, any status, ordered like `getAll` (updated_at DESC).
+   * When `visibility` is omitted this is unrestricted full-vault maintenance
+   * scope; when provided it delegates to the canonical `visibilityPredicate`
+   * (global/universal-client semantics; unclassified notes fail closed).
+   * No mutation, telemetry, or filesystem access.
+   */
+  getReviewNotes(visibility?: VisibilityOptions): NoteMetadata[] {
+    const scope = this.visibilityPredicate('notes', visibility);
+    const rows = this.db.prepare(`
+      SELECT * FROM notes WHERE 1=1${scope.sql}
+      ORDER BY updated_at DESC, id ASC
+    `).all(...scope.params) as NoteMetadata[];
+    return rows.map(r => ({
+      ...r,
+      kind: (r.kind || 'observation') as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
+  /**
+   * Batch backlink counts for the internal vault-review core: incoming links
+   * from non-archived source notes, keyed by target note id. When
+   * `visibility` is provided, source notes are additionally restricted to
+   * the canonical visibility predicate (scoped evaluation); omitted means
+   * unrestricted across projects (full-vault evaluation). A single
+   * aggregate query — not per-note lookups — so callers can batch across an
+   * entire snapshot.
+   */
+  getReviewBacklinkCounts(visibility?: VisibilityOptions): Map<string, number> {
+    const scope = this.visibilityPredicate('src', visibility);
+    const rows = this.db.prepare(`
+      SELECT l.target_id as target_id, COUNT(*) as cnt
+      FROM note_links l
+      JOIN notes src ON src.id = l.source_id
+      WHERE src.status != 'archived'${scope.sql}
+      GROUP BY l.target_id
+    `).all(...scope.params) as Array<{ target_id: string; cnt: number }>;
+    return new Map(rows.map(r => [r.target_id, r.cnt]));
+  }
+
   getReviewQueue(
     filter?: 'fleeting' | 'permanent',
     daysThreshold: number = 14,

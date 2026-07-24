@@ -12,7 +12,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { NoteRepository } from '../src/storage/NoteRepository';
+import { buildReviewSnapshot } from '../src/review/facts';
+import type { ReviewReader } from '../src/review/reader';
+import { evaluateReview } from '../src/review/registry';
+import { NoteRepository, type NoteMetadata } from '../src/storage/NoteRepository';
 import { createTestHarness, cleanupTestHarness, type TestContext } from './harness';
 import { computeSimHash } from '../src/utils/simhash';
 
@@ -428,6 +431,62 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
       });
       console.log(`  rebuildFromFiles (1000 notes): ${elapsed.toFixed(2)}ms`);
       expect(elapsed).toBeLessThan(10000);
+    });
+  });
+
+  // =========================================================
+  // 7. Host-neutral vault review core
+  // =========================================================
+  describe('Vault Review Core', () => {
+    it('materializes and evaluates 1,000 notes in-process < 200ms', () => {
+      const now = Date.now();
+      const notes: NoteMetadata[] = Array.from({ length: 1000 }, (_, index) => {
+        const kind = index % 5 === 0 ? 'personalization' : 'reference';
+        const content = index % 5 === 0
+          ? `Temporarily configure claude-sonnet routing for /tmp/note-${index}.`
+          : fakeContent(index, index % 3 === 0 ? 250 : 100);
+        return {
+          id: String(index).padStart(16, '0'),
+          path: `/vault/${index}.md`,
+          title: `Representative review note ${index}`,
+          kind,
+          status: index % 4 === 0 ? 'permanent' : 'fleeting',
+          lifecycle: 'living',
+          type: 'atomic',
+          tags: ['project:bench'],
+          content,
+          summary: `Summary ${index}`,
+          guidance: `Guidance ${index}`,
+          created_at: now - 20 * 86_400_000,
+          updated_at: now - index,
+          word_count: content.split(/\s+/).length,
+          access_count: index % 7,
+        };
+      });
+      const reader: ReviewReader = {
+        listNotes: () => notes,
+        backlinkCounts: () => new Map(),
+      };
+      const scope = { kind: 'full' } as const;
+      let firstTotals: Readonly<Record<string, number>> = {};
+      const elapsed = timeSync(() => {
+        const snapshot = buildReviewSnapshot(reader, scope, now);
+        firstTotals = evaluateReview({
+          scope,
+          now,
+          policy: { reviewAfterDays: 14, archiveAfterDays: 90, promotionThreshold: 3, exemptKinds: [] },
+        }, snapshot).totals;
+      });
+      const second = evaluateReview({
+        scope,
+        now,
+        policy: { reviewAfterDays: 14, archiveAfterDays: 90, promotionThreshold: 3, exemptKinds: [] },
+      }, buildReviewSnapshot(reader, scope, now));
+
+      console.log(`  Vault review core (1000 notes): ${elapsed.toFixed(2)}ms`);
+      expect(elapsed).toBeLessThan(200);
+      expect(second.totals).toEqual(firstTotals);
+      expect(Object.values(firstTotals).reduce((sum, count) => sum + count, 0)).toBeGreaterThan(0);
     });
   });
 });

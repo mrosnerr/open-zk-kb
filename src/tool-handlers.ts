@@ -60,30 +60,18 @@ import { getTemplate, getExpectedCategories, matchCategories, extractHeaders, st
 import type { GitVersioning } from './git-versioning.js';
 import { parseKnowledgeApplicability } from './knowledge-scope.js';
 import { PUBLISHABLE_KINDS } from './tool-meta.js';
+import { buildReviewSnapshot } from './review/facts.js';
+import { createRepositoryReviewReader } from './review/reader.js';
+import { evaluateReview } from './review/registry.js';
+import type { Finding, ReviewScope } from './review/types.js';
 
 // ---- Constants ----
 
-/** Soft word-count guidelines per note kind (not hard limits). */
-export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: number }> = {
-  personalization: { target: 50, warn: 80 },
-  decision:        { target: 150, warn: 250 },
-  procedure:       { target: 150, warn: 250 },
-  reference:       { target: 120, warn: 200 },
-  observation:     { target: 100, warn: 200 },
-  resource:        { target: 50, warn: 100 },
-  domain:          { target: 500, warn: 1000 },
-  index:           { target: 500, warn: 2000 },
-  log:             { target: 500, warn: 5000 },
-};
+import { KIND_WORD_GUIDELINES, ABSOLUTE_WARN_THRESHOLD, TITLE_SOFT_WARN_WORDS, TITLE_HARD_LIMIT_WORDS, TITLE_HARD_LIMIT_CHARS } from './content-guidelines.js';
+export { KIND_WORD_GUIDELINES, ABSOLUTE_WARN_THRESHOLD, TITLE_SOFT_WARN_WORDS, TITLE_HARD_LIMIT_WORDS, TITLE_HARD_LIMIT_CHARS };
 
-/** Absolute word-count ceiling — warns regardless of kind. */
-export const ABSOLUTE_WARN_THRESHOLD = 300;
 const EMBEDDING_BACKFILL_BATCH_SIZE = 50;
 const EMBEDDING_FOREGROUND_TIMEOUT_MS = 10_000;
-
-export const TITLE_SOFT_WARN_WORDS = 6;
-export const TITLE_HARD_LIMIT_WORDS = 10;
-export const TITLE_HARD_LIMIT_CHARS = 80;
 
 // ---- Helper functions ----
 
@@ -108,26 +96,6 @@ function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
     return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider whether it captures more than one concept.`;
   }
   return null;
-}
-
-function getRecommendation(
-  note: NoteMetadata,
-  daysOld: number,
-  promotionThreshold: number,
-  archiveAfterDays: number,
-): { action: 'promote' | 'archive' | 'review'; rationale: string } {
-  const accesses = note.access_count || 0;
-  const backlinks = note.backlinks_count || 0;
-  if (accesses >= promotionThreshold) {
-    return { action: 'promote', rationale: `Accessed ${accesses} times (threshold: ${promotionThreshold})` };
-  }
-  if (accesses === 0 && daysOld > archiveAfterDays && backlinks === 0) {
-    return { action: 'archive', rationale: `Zero accesses, ${daysOld} days old, no backlinks — likely stale` };
-  }
-  if (accesses === 0 && daysOld > archiveAfterDays) {
-    return { action: 'review', rationale: `Zero accesses but ${backlinks} backlink(s) — referenced by other notes` };
-  }
-  return { action: 'review', rationale: `${daysOld} days old, ${accesses} accesses — needs manual review` };
 }
 
 type BrokenLink = {
@@ -1402,39 +1370,6 @@ async function backfillEmbeddings(
   return { requested: notesWithout.length, stored };
 }
 
-type PreferenceAuditSignal = { type: string; evidence: string[] };
-
-function collectRegexEvidence(text: string, pattern: RegExp): string[] {
-  return [...text.matchAll(pattern)]
-    .map(match => match[0].trim())
-    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
-}
-
-function detectPreferenceAuditSignals(note: NoteMetadata): PreferenceAuditSignal[] {
-  const text = [note.title, note.summary, note.content, note.guidance].filter(Boolean).join('\n');
-  const definitions: Array<{ type: string; pattern: RegExp }> = [
-    { type: 'temporary-wording', pattern: /\b(?:temporary|temporarily|for now|currently|this (?:session|task)|until (?:further notice|tomorrow|next week))\b/gi },
-    { type: 'exact-path', pattern: /(?<!\S)(?:[A-Za-z]:\\(?:[^\s<>:"|?*]+\\)*[^\s<>:"|?*]+|(?:~|\.{1,2})?\/(?:[\w.-]+\/)*[\w.-]+|\.[\w.-]+\/(?:[\w.-]+\/)*[\w.-]+)/gm },
-    { type: 'hex-color', pattern: /#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?\b/gi },
-    { type: 'model-identifier', pattern: /\b(?:gpt-?[34](?:[.\w-]*)?|claude-(?:\d|opus|sonnet|haiku)[\w.-]*|gemini-[\w.-]+|llama-?\d[\w.-]*)\b/gi },
-    { type: 'model-routing', pattern: /\b(?:route|routing|fallback|default model|model selection)\b/gi },
-    { type: 'configuration-language', pattern: /\b(?:configure|configured|configuration|set|install|implement|implementation|enable|disable)\b/gi },
-  ];
-  const signals = definitions
-    .map(({ type, pattern }) => ({ type, evidence: collectRegexEvidence(text, pattern) }))
-    .filter(signal => signal.evidence.length > 0);
-
-  const tags = Array.isArray(note.tags) ? note.tags : [];
-  const hasApplicability = tags.some(tag => tag.startsWith('project:') || tag.startsWith('client:'));
-  if (!hasApplicability) {
-    const technologyEvidence = collectRegexEvidence(text, /\b(?:OpenCode|Claude Code|Cursor|Windsurf|Zed|VS Code|React|Next\.js|TypeScript|Python|Bun)\b/gi);
-    if (technologyEvidence.length > 0) {
-      signals.push({ type: 'missing-applicability', evidence: technologyEvidence });
-    }
-  }
-  return signals;
-}
-
 const PUBLISHABLE_KIND_SET = new Set<NoteKind>(PUBLISHABLE_KINDS);
 
 function resolvedPublishTags(candidate: PublishGlobalCandidate): string[] {
@@ -1881,15 +1816,34 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const daysThreshold = args.days || config.lifecycle.reviewAfterDays;
       const limit = args.limit || 3;
       const archiveDays = Math.max(1, config.lifecycle.autoArchiveFleetingDays);
-      const staleCutoff = Date.now() - (archiveDays * 24 * 60 * 60 * 1000);
-      const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.exemptKinds, staleCutoff);
-
-      // Compute stale notes early — needed for the early return check
-      const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
-      const staleForArchive = allNotes
-        .filter(n => n.status === 'fleeting' && computeStaleness(n) >= archiveDays);
-
-      const hasCandidates = queue.fleeting.total > 0 || queue.permanent.total > 0;
+      const now = Date.now();
+      const scope: ReviewScope = { kind: 'full' };
+      const snapshot = buildReviewSnapshot(createRepositoryReviewReader(repo), scope, now);
+      const factsById = new Map(snapshot.map(fact => [fact.note.id, fact] as const));
+      const lifecycleEvaluation = evaluateReview({
+        scope,
+        profile: 'lifecycle',
+        now,
+        policy: {
+          reviewAfterDays: daysThreshold,
+          archiveAfterDays: archiveDays,
+          promotionThreshold: config.lifecycle.promotionThreshold,
+          exemptKinds: config.lifecycle.exemptKinds,
+        },
+      }, snapshot);
+      const contentEvaluation = evaluateReview({ scope, profile: 'content', now }, snapshot);
+      const reviewDue = lifecycleEvaluation.groups.find(group => group.ruleId === 'lifecycle.review-due')?.findings ?? [];
+      const staleForArchive = lifecycleEvaluation.groups.find(group => group.ruleId === 'lifecycle.stale-fleeting')?.findings ?? [];
+      const fleetingAll = args.filter === 'permanent'
+        ? []
+        : reviewDue.filter(finding => factsById.get(finding.primary.id)?.note.status === 'fleeting');
+      const permanentAll = args.filter === 'fleeting'
+        ? []
+        : reviewDue.filter(finding => factsById.get(finding.primary.id)?.note.status === 'permanent');
+      const limitQueue = (findings: readonly Finding[]): readonly Finding[] => limit < 0 ? findings : findings.slice(0, limit);
+      const candidates = [...limitQueue(fleetingAll), ...limitQueue(permanentAll)];
+      const totalCandidates = fleetingAll.length + permanentAll.length;
+      const hasCandidates = totalCandidates > 0;
 
       if (!hasCandidates && staleForArchive.length === 0) {
         return 'No notes pending review. All notes are up to date!';
@@ -1898,65 +1852,46 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       let output = '';
 
       if (hasCandidates) {
-        const candidates = [...queue.fleeting.notes, ...queue.permanent.notes];
-        const candidateIds = new Set(candidates.map(n => n.id));
-        const totalCandidates = queue.fleeting.total + queue.permanent.total;
+        const candidateIds = new Set(candidates.map(finding => finding.primary.id));
         output += `## Review Candidates (${candidates.length} of ${totalCandidates})\n\n`;
 
         for (let i = 0; i < candidates.length; i++) {
-          const note = candidates[i];
-          const staleness = computeStaleness(note);
-          const accesses = note.access_count || 0;
-          const backlinks = note.backlinks_count || 0;
-          const wordCount = countWords(note.content);
-          const guide = KIND_WORD_GUIDELINES[note.kind as NoteKind];
-          const wordSignal = guide && wordCount > guide.warn
-            ? `${wordCount} (oversized, target: ~${guide.target})`
-            : `${wordCount}`;
-          const backlinkSignal = backlinks === 0 ? '0 (unlinked)' : `${backlinks}`;
-          const archiveSuggestionDays = Math.max(1, Math.floor(archiveDays / 2));
-        const rec = getRecommendation(note, staleness, config.lifecycle.promotionThreshold, archiveSuggestionDays);
+          const finding = candidates[i];
+          const fact = factsById.get(finding.primary.id);
+          if (!fact) continue;
+          const note = fact.note;
+          const guide = KIND_WORD_GUIDELINES[note.kind];
+          const wordSignal = guide && fact.contentWords > guide.warn
+            ? `${fact.contentWords} (oversized, target: ~${guide.target})`
+            : `${fact.contentWords}`;
+          const backlinkSignal = fact.backlinks === 0 ? '0 (unlinked)' : `${fact.backlinks}`;
+          const resolution = finding.resolutions?.[0];
 
           output += `### [${i + 1}] "${note.title}" (${note.id})\n`;
-          output += `kind: ${note.kind} | status: ${note.status} | staleness: ${staleness} days\n`;
-          output += `Accesses: ${accesses} | Backlinks: ${backlinkSignal} | Words: ${wordSignal}\n`;
-          output += `⮕ Suggested: ${rec.action.toUpperCase()} — ${rec.rationale}\n\n`;
+          output += `kind: ${note.kind} | status: ${note.status} | staleness: ${fact.staleDays} days\n`;
+          output += `Accesses: ${note.access_count} | Backlinks: ${backlinkSignal} | Words: ${wordSignal}\n`;
+          if (resolution) output += `⮕ Suggested: ${resolution.label} — ${resolution.rationale}\n\n`;
         }
 
-        // Flag oversized notes that may need splitting (exclude already-shown candidates)
-        const oversized = allNotes
-          .filter(n => n.status !== 'archived')
-          .filter(n => !candidateIds.has(n.id))
-          .map(n => ({ ...n, wordCount: countWords(n.content) }))
-          .filter(n => {
-            const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
-            return guide ? n.wordCount > guide.warn : n.wordCount > ABSOLUTE_WARN_THRESHOLD;
-          })
-          .sort((a, b) => b.wordCount - a.wordCount);
-
+        const oversized = (contentEvaluation.groups.find(group => group.ruleId === 'content.oversized')?.findings ?? [])
+          .filter(finding => !candidateIds.has(finding.primary.id));
         if (oversized.length > 0) {
           output += `### Oversized Notes (${oversized.length} may need splitting)\n`;
-          for (const n of oversized) {
-            const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
-            const target = guide ? guide.target : '?';
-            output += `- "${n.title}" (${n.kind}) — ${n.wordCount} words (target: ~${target}) [${n.id}]\n`;
+          for (const finding of oversized) {
+            const fact = factsById.get(finding.primary.id);
+            if (!fact) continue;
+            output += `- "${fact.note.title}" (${fact.note.kind}) — ${fact.contentWords} words (target: ~${fact.wordGuidance.target}) [${fact.note.id}]\n`;
           }
           output += '\n';
         }
 
-        const longTitles = allNotes
-          .filter(n => n.status !== 'archived' && !['index', 'log'].includes(n.kind))
-          .filter(n => {
-            const words = n.title.trim().split(/\s+/).filter(Boolean).length;
-            return words > TITLE_SOFT_WARN_WORDS;
-          })
-          .sort((a, b) => b.title.split(/\s+/).length - a.title.split(/\s+/).length);
-
+        const longTitles = contentEvaluation.groups.find(group => group.ruleId === 'title.too-long')?.findings ?? [];
         if (longTitles.length > 0) {
           output += `### Long Titles (${longTitles.length} exceed ${TITLE_SOFT_WARN_WORDS}-word target)\n`;
-          for (const n of longTitles) {
-            const words = n.title.trim().split(/\s+/).filter(Boolean).length;
-            output += `- "${n.title}" (${n.kind}) — ${words} words [${n.id}]\n`;
+          for (const finding of longTitles) {
+            const fact = factsById.get(finding.primary.id);
+            if (!fact) continue;
+            output += `- "${fact.note.title}" (${fact.note.kind}) — ${fact.titleWords} words [${fact.note.id}]\n`;
           }
           output += '\n';
         }
@@ -1970,15 +1905,16 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       if (staleForArchive.length > 0) {
         output += `### Stale Fleeting Notes (${staleForArchive.length} older than ${archiveDays} days)\n`;
         output += 'These fleeting notes were never promoted. Consider archiving:\n\n';
-        for (const n of staleForArchive) {
-          output += `- "${n.title}" (${n.kind}) — ${computeStaleness(n)} days old [${n.id}]\n`;
+        for (const finding of staleForArchive) {
+          const fact = factsById.get(finding.primary.id);
+          if (!fact) continue;
+          output += `- "${fact.note.title}" (${fact.note.kind}) — ${fact.staleDays} days old [${fact.note.id}]\n`;
         }
         output += '\n';
       }
 
       output += '---\n';
       output += 'Actions: `knowledge-maintain promote/archive/delete` with noteId=<id>\n';
-
       return output;
     }
     case 'dedupe': {
@@ -2175,8 +2111,27 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const notes = repo.getAll(Number.MAX_SAFE_INTEGER)
         .filter(note => note.kind === 'personalization' && note.status !== 'archived')
         .sort((a, b) => a.id.localeCompare(b.id));
+
+      const scope: ReviewScope = { kind: 'full' };
+      const now = Date.now();
+      const snapshot = buildReviewSnapshot(createRepositoryReviewReader(repo), scope, now);
+      const evaluation = evaluateReview({ scope, profile: 'preference', now }, snapshot);
+      const findingsByNote = new Map<string, Finding[]>();
+      for (const group of evaluation.groups) {
+        for (const finding of group.findings) {
+          const bucket = findingsByNote.get(finding.primary.id) ?? [];
+          bucket.push(finding);
+          findingsByNote.set(finding.primary.id, bucket);
+        }
+      }
       const findings = notes
-        .map(note => ({ note, signals: detectPreferenceAuditSignals(note) }))
+        .map(note => ({
+          note,
+          signals: (findingsByNote.get(note.id) ?? []).map(finding => ({
+            type: finding.ruleId.replace(/^preference\./, ''),
+            evidence: finding.evidence.map(entry => String(entry.value)),
+          })),
+        }))
         .filter(finding => finding.signals.length > 0);
 
       let output = '## Preference Audit (Read-only)\n\n';
