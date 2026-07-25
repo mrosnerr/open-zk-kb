@@ -12,12 +12,14 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { extractContextualMarkdownFacts } from '../src/markdown/contextual-facts';
 import { buildReviewSnapshot } from '../src/review/facts';
 import type { ReviewReader } from '../src/review/reader';
 import { evaluateReview } from '../src/review/registry';
 import { NoteRepository, type NoteMetadata } from '../src/storage/NoteRepository';
 import { createTestHarness, cleanupTestHarness, type TestContext } from './harness';
 import { computeSimHash } from '../src/utils/simhash';
+import { extractWikiLinks } from '../src/utils/wikilink';
 
 const BENCH = !!process.env.BENCH;
 
@@ -431,6 +433,55 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
       });
       console.log(`  rebuildFromFiles (1000 notes): ${elapsed.toFixed(2)}ms`);
       expect(elapsed).toBeLessThan(10000);
+    });
+  });
+
+  // =========================================================
+  // 6. Contextual Markdown extraction
+  // =========================================================
+  describe('Contextual Markdown Facts', () => {
+    it('extracts 1,000 representative notes in-process < 1,500ms', () => {
+      const notes = Array.from({ length: 1000 }, (_, index) => [
+        '---',
+        `related: "[[${String(index).padStart(16, '0')}|Metadata]]"`,
+        '---',
+        `# Note ${index} [[${String(index + 1000).padStart(16, '0')}|Heading]]`,
+        `Authored prose ${fakeContent(index, 80)} [[${String(index + 2000).padStart(16, '0')}#Detail|Detail]].`,
+        `Inline \`[[${String(index + 3000).padStart(16, '0')}]]\` example.`,
+        '```md',
+        `[[${String(index + 4000).padStart(16, '0')}]]`,
+        '```',
+      ].join('\n'));
+
+      const measure = (): { eligibleText: number; contextualLinks: number; excludedCandidates: number; elapsed: number } => {
+        let eligibleText = 0;
+        let contextualLinks = 0;
+        let excludedCandidates = 0;
+        const elapsed = timeSync(() => {
+          for (const note of notes) {
+            const result = extractContextualMarkdownFacts(note);
+            expect(result.ok).toBe(true);
+            if (!result.ok) throw new Error(result.reason);
+            eligibleText += result.textSegments.length;
+            contextualLinks += result.wikilinks.length;
+            excludedCandidates += extractWikiLinks(note).length - result.wikilinks.length;
+          }
+        });
+        return { eligibleText, contextualLinks, excludedCandidates, elapsed };
+      };
+
+      const first = measure();
+      const second = measure();
+      console.log(`  Contextual Markdown facts (1000 notes): ${first.elapsed.toFixed(2)}ms`);
+      expect(first.elapsed).toBeLessThan(1500);
+      expect(first.contextualLinks).toBe(2000);
+      expect(first.excludedCandidates).toBe(3000);
+      expect(first.eligibleText).toBeGreaterThan(0);
+      expect(second).toMatchObject({
+        eligibleText: first.eligibleText,
+        contextualLinks: first.contextualLinks,
+        excludedCandidates: first.excludedCandidates,
+      });
     });
   });
 
