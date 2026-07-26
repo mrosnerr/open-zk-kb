@@ -108,6 +108,13 @@ export interface TelemetryAggregates {
   storesByKind: Record<string, number>;
   maintainByAction: Record<string, number>;
   sessionDurations: number[];
+  /**
+   * Contextual link-health scan usage: `runs` counts `unlinked`,
+   * `broken-links`, and `link-health` maintain rows with a non-null
+   * `result_count`; `excludedCandidates` sums that `result_count` (excluded
+   * contextual candidates). No note-level data is aggregated.
+   */
+  contextualLinkScans: { runs: number; excludedCandidates: number };
 }
 
 export interface TelemetryRow {
@@ -1827,6 +1834,14 @@ export class NoteRepository {
       GROUP BY session_id
     `).all(cutoff) as Array<{ duration: number | null }>;
 
+    const contextualLinkScanRow = this.db.prepare(`
+      SELECT COUNT(*) as runs, COALESCE(SUM(result_count), 0) as excludedCandidates
+      FROM tool_telemetry
+      WHERE timestamp >= ? AND tool_name = 'maintain'
+        AND arg_kind IN ('unlinked', 'broken-links', 'link-health')
+        AND result_count IS NOT NULL
+    `).get(cutoff) as { runs: number | null; excludedCandidates: number | null };
+
     return {
       sessions: counts.sessions ?? 0,
       searches: counts.searches ?? 0,
@@ -1835,6 +1850,10 @@ export class NoteRepository {
       mines: counts.mines ?? 0,
       storesByKind,
       maintainByAction,
+      contextualLinkScans: {
+        runs: contextualLinkScanRow.runs ?? 0,
+        excludedCandidates: contextualLinkScanRow.excludedCandidates ?? 0,
+      },
       sessionDurations: durationRows.map(row => row.duration ?? 0),
     };
   }
@@ -2450,6 +2469,28 @@ export class NoteRepository {
     }
 
     return broken;
+  }
+
+  /**
+   * Query-only source list for the internal contextual link-health
+   * evaluator: active, non-structural note identity/metadata plus the file
+   * path a production reader needs to load raw source bytes. Never exposes
+   * content, a database handle, or a mutation capability.
+   */
+  getContextualLinkDocuments(): Array<{ id: string; title: string; kind: NoteKind; status: NoteStatus; tags: string[]; path: string }> {
+    const rows = this.db.prepare(`
+      SELECT id, title, kind, status, tags, path FROM notes
+      WHERE status != 'archived' AND kind NOT IN ('index', 'log')
+      ORDER BY id ASC
+    `).all() as Array<{ id: string; title: string; kind: string; status: string; tags: string; path: string }>;
+    return rows.map(r => ({
+      id: r.id,
+      title: r.title,
+      kind: (r.kind || 'observation') as NoteKind,
+      status: r.status as NoteStatus,
+      tags: JSON.parse(r.tags) as string[],
+      path: r.path,
+    }));
   }
 
   getUpgradeStatus(): { total: number; needsSummary: number; needsGuidance: number } {

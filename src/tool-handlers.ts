@@ -64,6 +64,9 @@ import { buildReviewSnapshot } from './review/facts.js';
 import { createRepositoryReviewReader } from './review/reader.js';
 import { evaluateReview } from './review/registry.js';
 import type { Finding, ReviewScope } from './review/types.js';
+import { evaluateContextualLinkGraph } from './link-health/evaluator.js';
+import { createRepositoryContextualLinkReader } from './link-health/reader.js';
+import type { ContextualLinkGraphResult, ContextualScanTotals, ContextualUnlinkedFinding } from './link-health/types.js';
 
 // ---- Constants ----
 
@@ -106,11 +109,11 @@ type BrokenLink = {
 };
 
 function filterFalsePositiveBrokenLinks(
-  broken: BrokenLink[],
+  broken: readonly BrokenLink[],
   vaultPath: string | undefined,
   isIndexedTarget: (target: string) => boolean = () => false,
 ): BrokenLink[] {
-  if (!vaultPath) return broken;
+  if (!vaultPath) return [...broken];
   const resolvedVault = path.resolve(vaultPath);
   const vaultPrefix = resolvedVault + path.sep;
   const insideVault = (candidate: string): boolean => {
@@ -131,6 +134,56 @@ function filterFalsePositiveBrokenLinks(
     return !noteResolves && !dirResolves;
   });
 }
+
+const CONTEXTUAL_FAILURE_DISPLAY_CAP = 20;
+
+/**
+ * Runs one ephemeral contextual link-health scan: reads active,
+ * non-structural documents through the query-only production reader and
+ * evaluates them with the pure graph evaluator. No contextual edge or
+ * finding is persisted.
+ */
+function runContextualLinkScan(repo: NoteRepository): { result: ContextualLinkGraphResult; elapsedMs: number } {
+  const reader = createRepositoryContextualLinkReader(repo);
+  const start = Date.now();
+  const documents = reader.listDocuments();
+  const result = evaluateContextualLinkGraph(documents, reader.resolveTarget);
+  const elapsedMs = Date.now() - start;
+  return { result, elapsedMs };
+}
+
+/** Aggregate-only log event: counts and duration, never note ids, titles, paths, content, or link targets. */
+function logContextualLinkScan(action: string, totals: ContextualScanTotals, elapsedMs: number, config?: AppConfig): void {
+  logToFile('INFO', 'Contextual link scan completed', {
+    action,
+    documentsParsed: totals.documentsParsed,
+    rawCandidates: totals.rawCandidates,
+    contextualLinks: totals.contextualLinks,
+    excludedCandidates: totals.excludedCandidates,
+    parseFailures: totals.parseFailures,
+    elapsedMs,
+  }, config);
+}
+
+function renderContextualScanSummary(totals: ContextualScanTotals, elapsedMs: number): string {
+  return `## Contextual Markdown Scan\n\n`
+    + `Documents: ${totals.documentsParsed} | Raw candidates: ${totals.rawCandidates} | Contextual links: ${totals.contextualLinks} | `
+    + `Excluded: ${totals.excludedCandidates} | Parse failures: ${totals.parseFailures} | Elapsed: ${elapsedMs}ms\n`;
+}
+
+function renderContextualFailures(failures: ContextualLinkGraphResult['failures']): string {
+  if (failures.length === 0) return '';
+  let output = `\n### Parse/Read Failures (${failures.length})\n\n`;
+  for (const failure of failures.slice(0, CONTEXTUAL_FAILURE_DISPLAY_CAP)) {
+    output += `- "${failure.title}" [${failure.id}]\n`;
+  }
+  if (failures.length > CONTEXTUAL_FAILURE_DISPLAY_CAP) {
+    output += `…and ${failures.length - CONTEXTUAL_FAILURE_DISPLAY_CAP} more\n`;
+  }
+  return output;
+}
+
+const INCOMPLETE_GRAPH_NOTICE = '\n⚠ Contextual graph incomplete — read/parse failures suppress unlinked findings.\n';
 
 function removeEmptyDirsRecursive(dir: string, isRoot: boolean): number {
   let entries: fs.Dirent[];
@@ -331,6 +384,7 @@ function formatTelemetryStats(repo: NoteRepository, days: number = 30): string {
   output += `  Most-stored kind: ${mostStored ? `${mostStored[0]} (${mostStored[1]})` : 'none (0)'}\n`;
   output += `  Most-used action: ${mostUsedAction ? `${mostUsedAction[0]} (${mostUsedAction[1]})` : 'none (0)'}\n`;
   output += `  Avg session duration: ${formatTelemetryNumber(avgDurationMin)} min\n`;
+  output += `  Contextual link scans: ${telemetry.contextualLinkScans.runs} (excluded ${telemetry.contextualLinkScans.excludedCandidates})\n`;
   return output;
 }
 
@@ -665,6 +719,7 @@ function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['st
 // ---- Navigation hooks ----
 
 const STRUCTURAL_KINDS = new Set(['index', 'log']);
+const CONTEXTUAL_LINK_ACTIONS = new Set(['unlinked', 'broken-links', 'link-health']);
 
 function extractProjectFromTags(tags: string[]): string | null {
   return extractProjectTag(tags);
@@ -1539,7 +1594,11 @@ function publicationValidation(source: NoteMetadata | null, candidate: PublishGl
 }
 
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
-  scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action, undefined, args.model));
+  // Contextual link-health actions defer this write until evaluation
+  // completes, recording excluded-candidate count as `result_count`.
+  if (!CONTEXTUAL_LINK_ACTIONS.has(args.action)) {
+    scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action, undefined, args.model));
+  }
 
   switch (args.action) {
     case 'scope-inventory': {
@@ -2227,15 +2286,27 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'unlinked': {
-      const unlinked = repo.getUnlinkedNotes();
+      const { result, elapsedMs } = runContextualLinkScan(repo);
+      logContextualLinkScan('unlinked', result.totals, elapsedMs, config);
+      scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'unlinked', result.totals.excludedCandidates, args.model));
+
+      let output = renderContextualScanSummary(result.totals, elapsedMs);
+      output += renderContextualFailures(result.failures);
+      if (result.incompleteGraph) {
+        output += INCOMPLETE_GRAPH_NOTICE;
+        return output;
+      }
+
+      const unlinked = result.unlinked;
       if (unlinked.length === 0) {
-        return 'No unlinked notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
+        output += '\nNo unlinked notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
+        return output;
       }
 
       // Group by project, then by kind
-      const byProject = new Map<string, NoteMetadata[]>();
+      const byProject = new Map<string, ContextualUnlinkedFinding[]>();
       for (const note of unlinked) {
-        const project = extractProjectFromTags(note.tags) || '(no project)';
+        const project = extractProjectFromTags([...note.tags]) || '(no project)';
         let group = byProject.get(project);
         if (!group) {
           group = [];
@@ -2246,7 +2317,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       const projectCount = [...byProject.keys()].filter(k => k !== '(no project)').length;
       const unscopedCount = byProject.get('(no project)')?.length ?? 0;
-      let output = `## Unlinked Notes (${unlinked.length})\n\n`;
+      output += `\n## Unlinked Notes (${unlinked.length})\n\n`;
       const summaryParts: string[] = [];
       if (projectCount > 0) summaryParts.push(`${unlinked.length - unscopedCount} in ${projectCount} project${projectCount > 1 ? 's' : ''}`);
       if (unscopedCount > 0) summaryParts.push(`${unscopedCount} unscoped`);
@@ -2268,7 +2339,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += `### ${project} (${notes.length})\n`;
 
         // Group by kind within project
-        const byKind = new Map<string, NoteMetadata[]>();
+        const byKind = new Map<string, ContextualUnlinkedFinding[]>();
         for (const note of notes) {
           let group = byKind.get(note.kind);
           if (!group) {
@@ -2300,12 +2371,23 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'broken-links': {
-      const broken = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
+      const { result, elapsedMs } = runContextualLinkScan(repo);
+      logContextualLinkScan('broken-links', result.totals, elapsedMs, config);
+      scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'broken-links', result.totals.excludedCandidates, args.model));
+
+      const broken = filterFalsePositiveBrokenLinks(result.broken, config?.vault);
+
+      let output = renderContextualScanSummary(result.totals, elapsedMs);
+      output += renderContextualFailures(result.failures);
+
       if (broken.length === 0) {
-        return 'No broken wikilinks found. All links resolve to existing notes.';
+        output += result.incompleteGraph
+          ? '\nNo broken wikilinks were confirmed in successfully parsed documents. Results are incomplete because some documents failed.'
+          : '\nNo broken wikilinks found. All links resolve to existing notes.';
+        return output;
       }
 
-      let output = `## Broken Wikilinks (${broken.length})\n\n`;
+      output += `\n## Broken Wikilinks (${broken.length})\n\n`;
       output += 'Links pointing to non-existent notes:\n\n';
       for (const { sourceId, sourceTitle, brokenTarget, line } of broken) {
         output += `- "${sourceTitle}" [${sourceId}] content:${line} → [[${brokenTarget}]] (not found)\n`;
@@ -2316,16 +2398,29 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'link-health': {
-      const unlinked = repo.getUnlinkedNotes();
-      const broken = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
-      const oneWay = repo.getOneWayLinks();
+      const { result, elapsedMs } = runContextualLinkScan(repo);
+      logContextualLinkScan('link-health', result.totals, elapsedMs, config);
+      scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'link-health', result.totals.excludedCandidates, args.model));
+
+      const broken = filterFalsePositiveBrokenLinks(result.broken, config?.vault);
+      const oneWay = result.oneWay;
+      const unlinked = result.incompleteGraph ? [] : result.unlinked;
+
+      let output = renderContextualScanSummary(result.totals, elapsedMs);
+      output += renderContextualFailures(result.failures);
+      if (result.incompleteGraph) {
+        output += INCOMPLETE_GRAPH_NOTICE;
+      }
 
       const total = unlinked.length + broken.length + oneWay.length;
       if (total === 0) {
-        return 'Link health: all clear. No unlinked notes, broken links, or one-way links found.';
+        output += result.incompleteGraph
+          ? '\nNo broken or one-way links were confirmed. Unlinked evaluation was suppressed because the contextual graph is incomplete.'
+          : '\nLink health: all clear. No unlinked notes, broken links, or one-way links found.';
+        return output;
       }
 
-      let output = '## Link Health Report\n\n';
+      output += '\n## Link Health Report\n\n';
 
       if (unlinked.length > 0) {
         output += `### Unlinked Notes (${unlinked.length})\n\n`;

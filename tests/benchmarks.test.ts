@@ -12,6 +12,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { evaluateContextualLinkGraph } from '../src/link-health/evaluator';
+import type { ContextualLinkReadResult } from '../src/link-health/types';
 import { extractContextualMarkdownFacts } from '../src/markdown/contextual-facts';
 import { buildReviewSnapshot } from '../src/review/facts';
 import type { ReviewReader } from '../src/review/reader';
@@ -482,6 +484,38 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
         contextualLinks: first.contextualLinks,
         excludedCandidates: first.excludedCandidates,
       });
+    });
+  });
+
+  describe('Contextual Link Health', () => {
+    it('evaluates a 1,000-document authored-link graph in-process < 1,500ms', () => {
+      const documents: ContextualLinkReadResult[] = Array.from({ length: 1000 }, (_, index) => {
+        const id = String(index).padStart(16, '0');
+        const target = String((index + 1) % 1000).padStart(16, '0');
+        return {
+          document: { id, title: `Graph note ${index}`, kind: 'reference', status: 'fleeting', tags: ['project:bench'] },
+          ok: true,
+          source: [
+            '---', `up: "[[${target}|Navigation]]"`, '---',
+            `Authored [[${target}|Next]].`,
+            `Inline \`[[${target}|Example]]\` ignored.`,
+          ].join('\n'),
+        };
+      });
+      const ids = new Set(documents.map(entry => entry.document.id));
+      const resolve = (slug: string): string | null => ids.has(slug) ? slug : null;
+      let first = evaluateContextualLinkGraph([], resolve);
+      const elapsed = timeSync(() => { first = evaluateContextualLinkGraph(documents, resolve); });
+      const second = evaluateContextualLinkGraph(documents, resolve);
+
+      console.log(`  Contextual link health (1000 notes): ${elapsed.toFixed(2)}ms`);
+      expect(elapsed).toBeLessThan(1500);
+      expect(first.totals).toEqual({ documentsParsed: 1000, rawCandidates: 3000, contextualLinks: 1000, excludedCandidates: 2000, parseFailures: 0 });
+      expect(first.broken).toHaveLength(0);
+      expect(first.unlinked).toHaveLength(0);
+      expect(first.oneWay).toHaveLength(1000);
+      expect(second.totals).toEqual(first.totals);
+      expect(second.oneWay).toEqual(first.oneWay);
     });
   });
 

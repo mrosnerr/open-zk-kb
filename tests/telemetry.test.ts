@@ -98,6 +98,7 @@ describe('local tool telemetry', () => {
       storesByKind: {},
       maintainByAction: {},
       sessionDurations: [],
+      contextualLinkScans: { runs: 0, excludedCandidates: 0 },
     });
   });
 
