@@ -67,9 +67,10 @@ export function evaluateContextualLinkGraph(
 
     for (const link of facts.wikilinks) {
       const line = link.range.start.line + 1;
+      const offset = link.range.start.offset;
       const resolved = resolveTarget(link.slug);
       if (!resolved) {
-        broken.push(Object.freeze({ sourceId: document.id, sourceTitle: document.title, brokenTarget: link.slug, line }));
+        broken.push(Object.freeze({ sourceId: document.id, sourceTitle: document.title, brokenTarget: link.slug, line, offset }));
         continue;
       }
       // Only a resolved edge between two active, non-structural documents

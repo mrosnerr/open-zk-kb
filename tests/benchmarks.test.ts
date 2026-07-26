@@ -16,6 +16,7 @@ import { evaluateContextualLinkGraph } from '../src/link-health/evaluator';
 import type { ContextualLinkReadResult } from '../src/link-health/types';
 import { extractContextualMarkdownFacts } from '../src/markdown/contextual-facts';
 import { buildReviewSnapshot } from '../src/review/facts';
+import { evaluateGraphReview } from '../src/review/graph';
 import type { ReviewReader } from '../src/review/reader';
 import { evaluateReview } from '../src/review/registry';
 import { NoteRepository, type NoteMetadata } from '../src/storage/NoteRepository';
@@ -516,6 +517,17 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
       expect(first.oneWay).toHaveLength(1000);
       expect(second.totals).toEqual(first.totals);
       expect(second.oneWay).toEqual(first.oneWay);
+
+      // Formal graph-rule evaluation over the same snapshot stays well within
+      // budget and produces deterministic totals across repeated runs.
+      let firstRules = evaluateGraphReview(first);
+      const rulesElapsed = timeSync(() => { firstRules = evaluateGraphReview(first); });
+      const secondRules = evaluateGraphReview(first);
+      console.log(`  Contextual graph rules (1000 edges): ${rulesElapsed.toFixed(2)}ms`);
+      expect(elapsed + rulesElapsed).toBeLessThan(1500);
+      expect(firstRules.totals).toEqual({ 'links.broken': 0, 'links.unlinked': 0, 'links.reciprocal-missing': 1000 });
+      expect(secondRules.totals).toEqual(firstRules.totals);
+      expect(JSON.stringify(secondRules)).toBe(JSON.stringify(firstRules));
     });
   });
 

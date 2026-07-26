@@ -60,6 +60,7 @@ describe('contextual link-health evaluator', () => {
       sourceTitle: a.title,
       brokenTarget: 'missing-target',
       line: 5,
+      offset: source.indexOf('[[missing-target]]'),
     }]);
     expect(result.unlinked).toEqual([]);
     expect(result.oneWay).toEqual([{
@@ -176,6 +177,67 @@ describe('contextual link-health maintenance adapters', () => {
 
     const output = await handleHealth({ project: 'test-project', telemetry: true }, ctx.engine, ctx.config);
     expect(output).toContain('Contextual link scans: 1 (excluded 2)');
+  });
+
+  it('bounds unlinked output to a default of 20, preserving the complete total and stating showing N of X', async () => {
+    for (let i = 0; i < 25; i++) {
+      ctx.engine.store(`Isolated body ${i}`, { title: `Isolated ${String(i).padStart(2, '0')}`, kind: 'reference', status: 'fleeting', tags: ['project:demo'] });
+    }
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Unlinked Notes (25)');
+    expect(output).toContain('Advisory: isolated notes are linking candidates');
+    expect(output).toContain('showing 20 of 25');
+    expect(output.match(/- "Isolated /g) ?? []).toHaveLength(20);
+  });
+
+  it('honors a positive explicit limit for unlinked display without changing the complete total', async () => {
+    for (let i = 0; i < 25; i++) {
+      ctx.engine.store(`Isolated body ${i}`, { title: `Isolated ${String(i).padStart(2, '0')}`, kind: 'reference', status: 'fleeting', tags: ['project:demo'] });
+    }
+    const output = await handleMaintain({ action: 'unlinked', limit: 5 }, ctx.engine, ctx.config);
+    expect(output).toContain('## Unlinked Notes (25)');
+    expect(output).toContain('showing 5 of 25');
+    expect(output.match(/- "Isolated /g) ?? []).toHaveLength(5);
+  });
+
+  it('omits the showing message when every unlinked finding is displayed', async () => {
+    for (let i = 0; i < 3; i++) {
+      ctx.engine.store(`Isolated body ${i}`, { title: `Isolated ${i}`, kind: 'reference', status: 'fleeting', tags: ['project:demo'] });
+    }
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Unlinked Notes (3)');
+    expect(output).not.toContain('showing');
+  });
+
+  it('bounds broken-links output while preserving the complete count', async () => {
+    for (let i = 0; i < 25; i++) {
+      ctx.engine.store(`Authored [[missing-${String(i).padStart(2, '0')}]].`, { title: `Broken ${i}`, kind: 'reference', status: 'fleeting' });
+    }
+    const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Broken Wikilinks (25)');
+    expect(output).toContain('(showing 20 of 25)');
+    expect(output.match(/\(not found\)/g) ?? []).toHaveLength(20);
+
+    const limited = await handleMaintain({ action: 'broken-links', limit: 5 }, ctx.engine, ctx.config);
+    expect(limited).toContain('## Broken Wikilinks (25)');
+    expect(limited).toContain('(showing 5 of 25)');
+    expect(limited.match(/\(not found\)/g) ?? []).toHaveLength(5);
+  });
+
+  it('labels advisory categories and keeps complete summary totals in a bounded link-health report', async () => {
+    for (let i = 0; i < 25; i++) {
+      ctx.engine.store(`Authored [[missing-${String(i).padStart(2, '0')}]].`, { title: `Broken ${i}`, kind: 'reference', status: 'fleeting' });
+    }
+    const alpha = ctx.engine.store('Alpha body', { title: 'Alpha', kind: 'reference', status: 'fleeting' });
+    ctx.engine.store(`[[${alpha.id}]]`, { title: 'Beta', kind: 'reference', status: 'fleeting' });
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+    expect(output).toContain('### Broken Wikilinks (25)');
+    expect(output).toContain('(showing 20 of 25)');
+    expect(output).toContain('### One-Way Links (1)');
+    expect(output).toContain('Advisory: A links to B');
+    expect(output).toContain('## Summary');
+    expect(output).toContain('Broken: 25 | One-way: 1');
   });
 
   it('does not mutate vault files, persisted links, or telemetry when telemetry is disabled', async () => {

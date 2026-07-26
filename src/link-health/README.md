@@ -39,10 +39,31 @@ is suppressed when its target document failed, since the missing reverse
 edge is unknown. Broken findings from successful documents remain valid
 even when other documents fail.
 
+## Formal graph rules
+
+The evaluator only materializes graph facts; it assigns no impact, basis,
+message, or repair advice. The `unlinked`, `broken-links`, and `link-health`
+actions evaluate one snapshot through the closed built-in rules in
+`review/graph.ts` (`links.broken`, `links.unlinked`,
+`links.reciprocal-missing`) so every graph finding carries a stable rule id,
+version, evidence basis, and canonical fingerprint. Broken occurrences are
+actionable invariant evidence; unlinked and reciprocal-missing findings are
+explicitly advisory heuristics.
+
+## Output limits
+
+Rules always compute complete groups and totals; the maintenance adapters
+apply a deterministic per-category display bound only after evaluation. A
+positive `limit` argument sets the bound; otherwise it defaults to 20. Each
+truncated category states `showing N of X` while headings, summaries, and
+telemetry keep the complete evaluated count. The sanitized failure cap stays
+independent of the issue-category limits.
+
 ## Status
 
 This module has no persistence and no public tool contract. It backs the
 `knowledge-maintain unlinked`, `broken-links`, and `link-health` actions
 only (see `tool-handlers.ts`); `knowledge-health`, `syncLinks()`, rebuild,
 and layout-migration link checks remain on the legacy persisted
-`note_links` graph.
+`note_links` graph. Baseline/delta persistence and semantic related-link
+candidates are deferred to separate changes.

@@ -35,6 +35,12 @@ export interface ContextualBrokenFinding {
   readonly brokenTarget: string;
   /** One-based line, derived from the contextual UTF-16 source range. */
   readonly line: number;
+  /**
+   * Zero-based UTF-16 start offset of the occurrence, stable per authored
+   * position. Used only to keep repeated broken occurrences distinct when the
+   * formal `links.broken` rule computes its logical identity.
+   */
+  readonly offset: number;
 }
 
 /** An active non-structural note with neither an outgoing candidate nor a resolved incoming edge. */

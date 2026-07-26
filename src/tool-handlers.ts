@@ -63,7 +63,8 @@ import { PUBLISHABLE_KINDS } from './tool-meta.js';
 import { buildReviewSnapshot } from './review/facts.js';
 import { createRepositoryReviewReader } from './review/reader.js';
 import { evaluateReview } from './review/registry.js';
-import type { Finding, ReviewScope } from './review/types.js';
+import { evaluateGraphReview } from './review/graph.js';
+import type { EvaluationResult, Finding, FindingGroup, ReviewScope } from './review/types.js';
 import { evaluateContextualLinkGraph } from './link-health/evaluator.js';
 import { createRepositoryContextualLinkReader } from './link-health/reader.js';
 import type { ContextualLinkGraphResult, ContextualScanTotals, ContextualUnlinkedFinding } from './link-health/types.js';
@@ -108,11 +109,11 @@ type BrokenLink = {
   line: number;
 };
 
-function filterFalsePositiveBrokenLinks(
-  broken: readonly BrokenLink[],
+function filterFalsePositiveBrokenLinks<T extends BrokenLink>(
+  broken: readonly T[],
   vaultPath: string | undefined,
   isIndexedTarget: (target: string) => boolean = () => false,
-): BrokenLink[] {
+): T[] {
   if (!vaultPath) return [...broken];
   const resolvedVault = path.resolve(vaultPath);
   const vaultPrefix = resolvedVault + path.sep;
@@ -184,6 +185,40 @@ function renderContextualFailures(failures: ContextualLinkGraphResult['failures'
 }
 
 const INCOMPLETE_GRAPH_NOTICE = '\n⚠ Contextual graph incomplete — read/parse failures suppress unlinked findings.\n';
+
+/** Default per-category display bound applied after complete graph-rule evaluation. */
+const DEFAULT_CONTEXTUAL_DISPLAY_LIMIT = 20;
+
+/** Positive-integer `limit` overrides the default; anything else uses the default. */
+function contextualDisplayLimit(limit: number | undefined): number {
+  return typeof limit === 'number' && Number.isInteger(limit) && limit > 0 ? limit : DEFAULT_CONTEXTUAL_DISPLAY_LIMIT;
+}
+
+function graphGroup(graph: EvaluationResult, ruleId: string): FindingGroup {
+  const group = graph.groups.find(candidate => candidate.ruleId === ruleId);
+  if (!group) throw new Error(`Missing graph rule group ${ruleId}`);
+  return group;
+}
+
+function findingEvidence(finding: Finding, label: string): string {
+  const match = finding.evidence.find(entry => entry.label === label);
+  return match ? String(match.value) : '';
+}
+
+/** Renders `links.broken` findings in their existing item format with a display bound. */
+function renderContextualBrokenFindings(findings: readonly Finding[], cap: number): string {
+  let output = '';
+  for (const finding of findings.slice(0, cap)) {
+    const sourceTitle = findingEvidence(finding, 'sourceTitle');
+    const target = findingEvidence(finding, 'target');
+    const line = findingEvidence(finding, 'line');
+    output += `- "${sourceTitle}" [${finding.primary.id}] content:${line} → [[${target}]] (not found)\n`;
+  }
+  if (findings.length > cap) {
+    output += `(showing ${cap} of ${findings.length})\n`;
+  }
+  return output;
+}
 
 function removeEmptyDirsRecursive(dir: string, isRoot: boolean): number {
   let entries: fs.Dirent[];
@@ -2297,15 +2332,34 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         return output;
       }
 
-      const unlinked = result.unlinked;
-      if (unlinked.length === 0) {
+      const unlinkedGroup = graphGroup(evaluateGraphReview(result, { ruleIds: ['links.unlinked'] }), 'links.unlinked');
+      const total = unlinkedGroup.total;
+      if (total === 0) {
         output += '\nNo unlinked notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
         return output;
       }
 
-      // Group by project, then by kind
+      // Formal findings drive order, totals, and the display bound; the frozen
+      // graph facts carry the tags/kind/title needed for project grouping.
+      const factsById = new Map(result.unlinked.map(note => [note.id, note]));
+
+      // Keep complete per-project counts for headings and the summary.
+      const allByProject = new Map<string, number>();
+      for (const note of result.unlinked) {
+        const project = extractProjectFromTags([...note.tags]) || '(no project)';
+        allByProject.set(project, (allByProject.get(project) ?? 0) + 1);
+      }
+
+      // Group the first N formal findings, rather than applying the cap
+      // after presentation sorting, so the displayed subset follows rule order.
+      const displayCap = contextualDisplayLimit(args.limit);
+      const displayedFindings = unlinkedGroup.findings.slice(0, displayCap);
+
+      // Group the selected findings by project, then by kind.
       const byProject = new Map<string, ContextualUnlinkedFinding[]>();
-      for (const note of unlinked) {
+      for (const finding of displayedFindings) {
+        const note = factsById.get(finding.primary.id);
+        if (!note) continue;
         const project = extractProjectFromTags([...note.tags]) || '(no project)';
         let group = byProject.get(project);
         if (!group) {
@@ -2315,15 +2369,15 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         group.push(note);
       }
 
-      const projectCount = [...byProject.keys()].filter(k => k !== '(no project)').length;
-      const unscopedCount = byProject.get('(no project)')?.length ?? 0;
-      output += `\n## Unlinked Notes (${unlinked.length})\n\n`;
+      const projectCount = [...allByProject.keys()].filter(k => k !== '(no project)').length;
+      const unscopedCount = allByProject.get('(no project)') ?? 0;
+      output += `\n## Unlinked Notes (${total})\n\n`;
+      output += 'Advisory: isolated notes are linking candidates, not confirmed defects — not every note needs a backlink.\n\n';
       const summaryParts: string[] = [];
-      if (projectCount > 0) summaryParts.push(`${unlinked.length - unscopedCount} in ${projectCount} project${projectCount > 1 ? 's' : ''}`);
+      if (projectCount > 0) summaryParts.push(`${total - unscopedCount} in ${projectCount} project${projectCount > 1 ? 's' : ''}`);
       if (unscopedCount > 0) summaryParts.push(`${unscopedCount} unscoped`);
       output += summaryParts.join(', ') + '\n\n';
 
-      const displayCap = 20;
       let displayed = 0;
 
       // Sort projects alphabetically, but put (no project) last
@@ -2336,7 +2390,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       for (const project of sortedProjects) {
         if (displayed >= displayCap) break;
         const notes = byProject.get(project) ?? [];
-        output += `### ${project} (${notes.length})\n`;
+        output += `### ${project} (${allByProject.get(project) ?? notes.length})\n`;
 
         // Group by kind within project
         const byKind = new Map<string, ContextualUnlinkedFinding[]>();
@@ -2361,8 +2415,8 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n';
       }
 
-      if (displayed < unlinked.length) {
-        output += `(showing ${displayed} of ${unlinked.length} — use \`knowledge-search\` to find specific notes)\n\n`;
+      if (displayed < total) {
+        output += `(showing ${displayed} of ${total} — use \`knowledge-search\` to find specific notes)\n\n`;
       }
 
       output += '## Next Steps\n';
@@ -2376,22 +2430,21 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'broken-links', result.totals.excludedCandidates, args.model));
 
       const broken = filterFalsePositiveBrokenLinks(result.broken, config?.vault);
+      const brokenGroup = graphGroup(evaluateGraphReview({ broken, unlinked: [], oneWay: [] }, { ruleIds: ['links.broken'] }), 'links.broken');
 
       let output = renderContextualScanSummary(result.totals, elapsedMs);
       output += renderContextualFailures(result.failures);
 
-      if (broken.length === 0) {
+      if (brokenGroup.total === 0) {
         output += result.incompleteGraph
           ? '\nNo broken wikilinks were confirmed in successfully parsed documents. Results are incomplete because some documents failed.'
           : '\nNo broken wikilinks found. All links resolve to existing notes.';
         return output;
       }
 
-      output += `\n## Broken Wikilinks (${broken.length})\n\n`;
+      output += `\n## Broken Wikilinks (${brokenGroup.total})\n\n`;
       output += 'Links pointing to non-existent notes:\n\n';
-      for (const { sourceId, sourceTitle, brokenTarget, line } of broken) {
-        output += `- "${sourceTitle}" [${sourceId}] content:${line} → [[${brokenTarget}]] (not found)\n`;
-      }
+      output += renderContextualBrokenFindings(brokenGroup.findings, contextualDisplayLimit(args.limit));
       output += '\n## Next Steps\n';
       output += '[A] Create the missing target notes\n';
       output += '[B] Update or remove the broken links\n';
@@ -2403,8 +2456,10 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'link-health', result.totals.excludedCandidates, args.model));
 
       const broken = filterFalsePositiveBrokenLinks(result.broken, config?.vault);
-      const oneWay = result.oneWay;
-      const unlinked = result.incompleteGraph ? [] : result.unlinked;
+      const graph = evaluateGraphReview({ broken, unlinked: result.unlinked, oneWay: result.oneWay });
+      const unlinkedGroup = graphGroup(graph, 'links.unlinked');
+      const brokenGroup = graphGroup(graph, 'links.broken');
+      const reciprocalGroup = graphGroup(graph, 'links.reciprocal-missing');
 
       let output = renderContextualScanSummary(result.totals, elapsedMs);
       output += renderContextualFailures(result.failures);
@@ -2412,7 +2467,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += INCOMPLETE_GRAPH_NOTICE;
       }
 
-      const total = unlinked.length + broken.length + oneWay.length;
+      const total = unlinkedGroup.total + brokenGroup.total + reciprocalGroup.total;
       if (total === 0) {
         output += result.incompleteGraph
           ? '\nNo broken or one-way links were confirmed. Unlinked evaluation was suppressed because the contextual graph is incomplete.'
@@ -2420,37 +2475,48 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         return output;
       }
 
+      const displayCap = contextualDisplayLimit(args.limit);
+      const factsById = new Map(result.unlinked.map(note => [note.id, note]));
       output += '\n## Link Health Report\n\n';
 
-      if (unlinked.length > 0) {
-        output += `### Unlinked Notes (${unlinked.length})\n\n`;
-        output += 'Notes with no incoming or outgoing wikilinks:\n\n';
-        for (const note of unlinked) {
+      if (unlinkedGroup.total > 0) {
+        output += `### Unlinked Notes (${unlinkedGroup.total})\n\n`;
+        output += 'Advisory: notes with no incoming or outgoing wikilinks — linking candidates, not confirmed defects:\n\n';
+        let shown = 0;
+        for (const finding of unlinkedGroup.findings.slice(0, displayCap)) {
+          const note = factsById.get(finding.primary.id);
+          if (!note) continue;
           output += `- "${note.title}" [${note.id}] | ${note.kind} | ${note.status}\n`;
+          shown++;
         }
+        if (unlinkedGroup.total > shown) output += `(showing ${shown} of ${unlinkedGroup.total})\n`;
         output += '\n';
       }
 
-      if (broken.length > 0) {
-        output += `### Broken Wikilinks (${broken.length})\n\n`;
+      if (brokenGroup.total > 0) {
+        output += `### Broken Wikilinks (${brokenGroup.total})\n\n`;
         output += 'Links pointing to non-existent notes:\n\n';
-        for (const { sourceId, sourceTitle, brokenTarget, line } of broken) {
-          output += `- "${sourceTitle}" [${sourceId}] content:${line} → [[${brokenTarget}]] (not found)\n`;
-        }
+        output += renderContextualBrokenFindings(brokenGroup.findings, displayCap);
         output += '\n';
       }
 
-      if (oneWay.length > 0) {
-        output += `### One-Way Links (${oneWay.length})\n\n`;
-        output += 'A links to B but B does not link back to A:\n\n';
-        for (const { sourceId, sourceTitle, targetId, targetTitle } of oneWay) {
-          output += `- "${sourceTitle}" [${sourceId}] → "${targetTitle}" [${targetId}] (no reverse link)\n`;
+      if (reciprocalGroup.total > 0) {
+        output += `### One-Way Links (${reciprocalGroup.total})\n\n`;
+        output += 'Advisory: A links to B but B does not link back to A — reciprocity is a judgment call:\n\n';
+        let shown = 0;
+        for (const finding of reciprocalGroup.findings.slice(0, displayCap)) {
+          const sourceTitle = findingEvidence(finding, 'sourceTitle');
+          const targetTitle = findingEvidence(finding, 'targetTitle');
+          const targetId = finding.related?.[0]?.id ?? '';
+          output += `- "${sourceTitle}" [${finding.primary.id}] → "${targetTitle}" [${targetId}] (no reverse link)\n`;
+          shown++;
         }
+        if (reciprocalGroup.total > shown) output += `(showing ${shown} of ${reciprocalGroup.total})\n`;
         output += '\n';
       }
 
       output += '## Summary\n';
-      output += `Unlinked: ${unlinked.length} | Broken: ${broken.length} | One-way: ${oneWay.length}\n`;
+      output += `Unlinked: ${unlinkedGroup.total} | Broken: ${brokenGroup.total} | One-way: ${reciprocalGroup.total}\n`;
       return output;
     }
     case 'migrate-layout': {
