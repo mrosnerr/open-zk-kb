@@ -1,159 +1,129 @@
-// graph.ts - Closed built-in graph-rule profile for the internal
-// vault-review core.
+// review/graph.ts
 //
-// The per-note evaluator in `registry.ts` judges one `NoteFacts` row at a
-// time. Contextual link-health instead materializes one immutable graph
-// snapshot (scan totals, broken occurrences, isolated notes, deduplicated
-// missing-reciprocal edges); this module evaluates that snapshot through
-// three closed built-in rules using the same `finalizeFinding()`,
-// fingerprint, grouping, and deterministic-order contracts as
-// `evaluateReview()`. It owns no filesystem, repository, database, parser,
-// resolver, clock, telemetry, or mutation capability — rules receive only
-// frozen plain graph facts. See src/review/README.md.
+// Rule-driven contextual graph review orchestrator. Selects built-in rules,
+// materializes only their transitive fact dependencies exactly once per
+// invocation, and evaluates formal findings from frozen, declared-keys-only
+// slices. See src/review/README.md for the fact/plan/rule boundary.
 
-import type {
-  ContextualBrokenFinding,
-  ContextualOneWayFinding,
-  ContextualUnlinkedFinding,
-} from '../link-health/types.js';
+import type { ContextualLinkFailure, ContextualLinkReadResult, ContextualLinkResolution, ContextualScanTotals } from '../link-health/types.js';
+import { deepFreeze } from '../utils/deep-freeze.js';
+import { type GraphPlan, planGraphFacts, sliceGraphFacts } from './graph-plan.js';
+import {
+  buildContextualLinkFacts,
+  buildDocumentApplicabilityFacts,
+  buildGraphEdgeFacts,
+  buildResolvedLinkFacts,
+} from './graph-providers.js';
+import { BUILTIN_GRAPH_RULES, GRAPH_RULE_METADATA } from './graph-rules.js';
+import { requireFact, type GraphFactKey, type GraphFacts } from './graph-types.js';
 import { finalizeFinding } from './registry.js';
-import type {
-  EvaluationResult,
-  Finding,
-  FindingDraft,
-  FindingGroup,
-  ReviewScope,
-  RuleMetadata,
-} from './types.js';
+import type { EvaluationResult, Finding, FindingGroup, ReviewScope } from './types.js';
 
-/**
- * The immutable graph facts a graph rule may read. Restricted to the three
- * graph-fact collections so rules never see a reader, resolver, path,
- * repository, database, clock, telemetry, or mutation handle.
- */
-export interface GraphFacts {
-  readonly broken: readonly ContextualBrokenFinding[];
-  readonly unlinked: readonly ContextualUnlinkedFinding[];
-  readonly oneWay: readonly ContextualOneWayFinding[];
+export { BUILTIN_GRAPH_RULES, GRAPH_RULE_METADATA, planGraphFacts };
+export type { GraphPlan } from './graph-plan.js';
+export type {
+  ContextualLinkFacts,
+  ContextualOccurrence,
+  DocumentApplicability,
+  DocumentApplicabilityFacts,
+  GraphDocument,
+  GraphEdge,
+  GraphEdgeFacts,
+  GraphFactKey,
+  GraphFacts,
+  GraphRule,
+  GraphRuleId,
+  ResolvedLinkFacts,
+  ResolvedLinkTarget,
+  ResolvedOccurrence,
+} from './graph-types.js';
+
+export interface GraphReviewResult {
+  readonly plan: GraphPlan;
+  readonly facts: GraphFacts;
+  readonly review: EvaluationResult;
+  readonly totals: ContextualScanTotals;
+  readonly failures: readonly ContextualLinkFailure[];
+  /** True when any document failed to read or parse; `links.unlinked` suppresses all findings in that case. */
+  readonly incompleteGraph: boolean;
+  /** Test-only visibility into which fact layers actually ran, in execution order. */
+  readonly executionTrace: readonly GraphFactKey[];
 }
 
-export interface GraphRule extends RuleMetadata {
-  /** Consumes the whole immutable snapshot and returns findings in rule-declared order. */
-  readonly evaluate: (facts: GraphFacts) => readonly FindingDraft[];
+/** Defensively copies caller-owned read results so a later caller-side mutation can never alter this evaluation. */
+function copyReadResult(entry: ContextualLinkReadResult): ContextualLinkReadResult {
+  const document = { ...entry.document, tags: [...entry.document.tags] };
+  return entry.ok ? { document, ok: true, source: entry.source } : { document, ok: false, reason: entry.reason };
 }
 
-const linksBroken: GraphRule = {
-  id: 'links.broken',
-  version: 1,
-  profile: 'links',
-  impact: 'warning',
-  basis: 'invariant',
-  requiredFacts: ['broken'],
-  evaluate: facts =>
-    facts.broken.map(occurrence => ({
-      primary: { id: occurrence.sourceId, role: 'primary' as const },
-      message: 'Authored wikilink target does not resolve',
-      evidence: [
-        { label: 'sourceTitle', value: occurrence.sourceTitle },
-        { label: 'target', value: occurrence.brokenTarget },
-        { label: 'line', value: occurrence.line },
-      ],
-      // Source note, normalized target, and occurrence start offset keep
-      // repeated authored occurrences of the same broken target distinct.
-      identity: [occurrence.sourceId, occurrence.brokenTarget, occurrence.offset],
-    })),
-};
-
-const linksUnlinked: GraphRule = {
-  id: 'links.unlinked',
-  version: 1,
-  profile: 'links',
-  impact: 'info',
-  basis: 'heuristic',
-  requiredFacts: ['unlinked'],
-  evaluate: facts =>
-    facts.unlinked.map(note => ({
-      primary: { id: note.id, role: 'primary' as const },
-      message: 'Note has no authored incoming or outgoing wikilink',
-      evidence: [
-        { label: 'title', value: note.title },
-        { label: 'kind', value: note.kind },
-        { label: 'status', value: note.status },
-      ],
-      identity: [note.id],
-    })),
-};
-
-const linksReciprocalMissing: GraphRule = {
-  id: 'links.reciprocal-missing',
-  version: 1,
-  profile: 'links',
-  impact: 'info',
-  basis: 'heuristic',
-  requiredFacts: ['oneWay'],
-  evaluate: facts =>
-    facts.oneWay.map(edge => ({
-      primary: { id: edge.sourceId, role: 'primary' as const },
-      related: [{ id: edge.targetId, role: 'related' as const }],
-      message: 'Resolved edge has no authored reverse edge',
-      evidence: [
-        { label: 'sourceTitle', value: edge.sourceTitle },
-        { label: 'targetTitle', value: edge.targetTitle },
-      ],
-      identity: [edge.sourceId, edge.targetId],
-    })),
-};
-
-/** Closed built-in graph inventory, in rule-id declaration order. */
-export const BUILTIN_GRAPH_RULES: readonly GraphRule[] = [linksBroken, linksUnlinked, linksReciprocalMissing];
-
-/** Metadata-only view for the combined internal built-in inventory. */
-export const GRAPH_RULE_METADATA: readonly RuleMetadata[] = BUILTIN_GRAPH_RULES.map(
-  ({ id, version, profile, impact, basis, requiredFacts }) => ({ id, version, profile, impact, basis, requiredFacts }),
-);
-
-function deepFreeze<T>(value: T): T {
-  if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
-    Object.freeze(value);
-    for (const key of Object.keys(value as Record<string, unknown>)) {
-      deepFreeze((value as Record<string, unknown>)[key]);
-    }
+/** Materializes one fact layer from already-completed prior layers, in the plan's dependency order. */
+function applyGraphFactLayer(
+  key: GraphFactKey,
+  facts: GraphFacts,
+  documents: readonly ContextualLinkReadResult[],
+  resolve: (slug: string) => ContextualLinkResolution,
+): GraphFacts {
+  switch (key) {
+    case 'contextual-links':
+      return { ...facts, contextualLinks: deepFreeze(buildContextualLinkFacts(documents)) };
+    case 'resolved-links':
+      return { ...facts, resolvedLinks: deepFreeze(buildResolvedLinkFacts(requireFact(facts, 'contextualLinks'), resolve)) };
+    case 'graph-edges':
+      return {
+        ...facts,
+        graphEdges: deepFreeze(buildGraphEdgeFacts(requireFact(facts, 'contextualLinks'), requireFact(facts, 'resolvedLinks'))),
+      };
+    case 'document-applicability':
+      return { ...facts, documentApplicability: deepFreeze(buildDocumentApplicabilityFacts(requireFact(facts, 'contextualLinks'))) };
   }
-  return value;
-}
-
-export interface GraphEvaluationOptions {
-  readonly ruleIds?: readonly string[];
-  readonly scope?: ReviewScope;
 }
 
 /**
- * Evaluates one immutable graph snapshot through the selected closed graph
- * rules, reusing `finalizeFinding()` for rule id/version/impact/basis and the
- * canonical fingerprint. The result — findings, evidence, subjects, groups,
- * and totals — is deep-frozen so source-array mutation cannot alter it.
+ * Plans the selected built-in graph rules, materializes each planned fact
+ * layer exactly once, and evaluates formal findings from a frozen,
+ * declared-keys-only slice per rule. `documents` and `scope` are copied
+ * before use, so no caller-owned value is mutated or frozen.
  */
-export function evaluateGraphReview(facts: GraphFacts, options: GraphEvaluationOptions = {}): EvaluationResult {
-  // Do not freeze caller-owned objects: callers may retain their scan result.
-  // Rules instead get a copied, deeply frozen plain-data snapshot, preventing
-  // either rule mutation or later caller mutation from affecting evaluation.
-  const snapshot = deepFreeze<GraphFacts>({
-    broken: facts.broken.map(occurrence => ({ ...occurrence })),
-    unlinked: facts.unlinked.map(note => ({ ...note, tags: [...note.tags] })),
-    oneWay: facts.oneWay.map(edge => ({ ...edge })),
+export function materializeGraphReview(
+  documents: readonly ContextualLinkReadResult[],
+  resolve: (slug: string) => ContextualLinkResolution,
+  ruleIds: readonly string[] = BUILTIN_GRAPH_RULES.map(rule => rule.id),
+  scope?: ReviewScope,
+): GraphReviewResult {
+  const plan = planGraphFacts(ruleIds);
+  const copiedDocuments = documents.map(copyReadResult);
+
+  const executionTrace: GraphFactKey[] = [];
+  let facts: GraphFacts = {};
+  for (const key of plan.providerKeys) {
+    executionTrace.push(key);
+    facts = applyGraphFactLayer(key, facts, copiedDocuments, resolve);
+  }
+  facts = deepFreeze(facts);
+
+  const groups: FindingGroup[] = plan.ruleIds.map(ruleId => {
+    const rule = BUILTIN_GRAPH_RULES.find(candidate => candidate.id === ruleId);
+    if (!rule) throw new Error(`Missing planned graph rule: ${ruleId}`);
+    const slice = deepFreeze(sliceGraphFacts(facts, rule.requiredFacts));
+    const findings: Finding[] = rule.evaluate(slice).map(draft => finalizeFinding(rule, draft));
+    return { ruleId, findings, total: findings.length };
   });
-  const selected = BUILTIN_GRAPH_RULES.filter(rule => !options.ruleIds || options.ruleIds.includes(rule.id));
-  const groups: FindingGroup[] = selected.map(rule => {
-    const findings: Finding[] = rule.evaluate(snapshot).map(draft => finalizeFinding(rule, draft));
-    return { ruleId: rule.id, findings, total: findings.length };
-  });
-  const scope: ReviewScope = options.scope?.kind === 'project'
-    ? { kind: 'project', project: options.scope.project, ...(options.scope.client ? { client: options.scope.client } : {}) }
-    : { kind: 'full' };
-  return deepFreeze({
+
+  const review: EvaluationResult = deepFreeze({
     profile: 'links',
-    scope,
+    scope: scope ? { ...scope } : { kind: 'full' as const },
     groups,
     totals: Object.fromEntries(groups.map(group => [group.ruleId, group.total])),
+  });
+
+  const contextualLinks = requireFact(facts, 'contextualLinks');
+  return deepFreeze({
+    plan,
+    facts,
+    review,
+    totals: contextualLinks.totals,
+    failures: contextualLinks.failures,
+    incompleteGraph: contextualLinks.failures.length > 0,
+    executionTrace,
   });
 }

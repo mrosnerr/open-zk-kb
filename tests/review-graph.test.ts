@@ -1,184 +1,192 @@
-// tests/review-graph.test.ts - Formal contextual graph rules: metadata,
-// basis/impact, fingerprint stability, deterministic ordering, logical
-// identity, and deep-freeze isolation. See src/review/graph.ts.
 import { describe, expect, it } from 'bun:test';
+import type { ContextualLinkDocument, ContextualLinkReadResult } from '../src/link-health/types';
+import { canonicalFingerprint } from '../src/review/fingerprint';
 import {
   BUILTIN_GRAPH_RULES,
   GRAPH_RULE_METADATA,
-  evaluateGraphReview,
+  materializeGraphReview,
+  planGraphFacts,
+  type GraphFactKey,
   type GraphFacts,
   type GraphRule,
 } from '../src/review/graph';
-import { canonicalFingerprint } from '../src/review/fingerprint';
+import { orderFactKeys } from '../src/review/graph-plan';
 
-function facts(overrides: Partial<GraphFacts> = {}): GraphFacts {
-  return { broken: [], unlinked: [], oneWay: [], ...overrides };
+function document(id: string, title: string, tags: string[] = []): ContextualLinkDocument {
+  return { id, title, kind: 'reference', status: 'fleeting', tags };
 }
 
-const brokenOccurrence = {
-  sourceId: '2026072500000001',
-  sourceTitle: 'Alpha',
-  brokenTarget: 'missing-target',
-  line: 5,
-  offset: 42,
-};
+function readable(doc: ContextualLinkDocument, source: string): ContextualLinkReadResult {
+  return { document: doc, ok: true, source };
+}
 
-const isolatedNote = {
-  id: '2026072500000002',
-  title: 'Lone',
-  kind: 'reference' as const,
-  status: 'fleeting' as const,
-  tags: ['project:demo'],
-};
+const alpha = document('1000000000000001', 'Alpha', ['project:demo']);
+const beta = document('1000000000000002', 'Beta', ['project:demo']);
 
-const edge = {
-  sourceId: '2026072500000003',
-  sourceTitle: 'Source',
-  targetId: '2026072500000004',
-  targetTitle: 'Target',
-};
+const resolveKnown = (slug: string) => slug === beta.id
+  ? { kind: 'document' as const, id: beta.id }
+  : { kind: 'unresolved' as const };
 
-describe('graph review: registry metadata', () => {
-  it('declares three closed rules with the compatibility rule-id order', () => {
-    expect(BUILTIN_GRAPH_RULES.map(r => r.id)).toEqual([
+describe('graph registry and planning', () => {
+  it('preserves closed rule metadata and compatibility order', () => {
+    expect(BUILTIN_GRAPH_RULES.map(rule => rule.id)).toEqual([
       'links.broken',
       'links.unlinked',
       'links.reciprocal-missing',
     ]);
-    expect(GRAPH_RULE_METADATA.map(r => r.id)).toEqual(BUILTIN_GRAPH_RULES.map(r => r.id));
-    for (const rule of BUILTIN_GRAPH_RULES) expect(rule.profile).toBe('links');
-  });
-
-  it('marks broken invariant/warning and the advisory rules info/heuristic', () => {
-    const byId = new Map(BUILTIN_GRAPH_RULES.map(r => [r.id, r]));
-    expect(byId.get('links.broken')).toMatchObject({ impact: 'warning', basis: 'invariant' });
-    expect(byId.get('links.unlinked')).toMatchObject({ impact: 'info', basis: 'heuristic' });
-    expect(byId.get('links.reciprocal-missing')).toMatchObject({ impact: 'info', basis: 'heuristic' });
-  });
-});
-
-describe('graph review: finding shape and identity', () => {
-  it('emits links.broken with source, target, one-based line, and occurrence-stable identity', () => {
-    const result = evaluateGraphReview(facts({ broken: [brokenOccurrence] }), { ruleIds: ['links.broken'] });
-    const finding = result.groups[0].findings[0];
-    expect(finding.ruleId).toBe('links.broken');
-    expect(finding.ruleVersion).toBe(1);
-    expect(finding.impact).toBe('warning');
-    expect(finding.basis).toBe('invariant');
-    expect(finding.primary.id).toBe(brokenOccurrence.sourceId);
-    expect(finding.evidence).toEqual([
-      { label: 'sourceTitle', value: 'Alpha' },
-      { label: 'target', value: 'missing-target' },
-      { label: 'line', value: 5 },
+    expect(GRAPH_RULE_METADATA.map(rule => rule.id)).toEqual(BUILTIN_GRAPH_RULES.map(rule => rule.id));
+    expect(BUILTIN_GRAPH_RULES.map(({ profile, impact, basis }) => ({ profile, impact, basis }))).toEqual([
+      { profile: 'links', impact: 'warning', basis: 'invariant' },
+      { profile: 'links', impact: 'info', basis: 'heuristic' },
+      { profile: 'links', impact: 'info', basis: 'heuristic' },
     ]);
-    expect(finding.identity).toEqual([brokenOccurrence.sourceId, 'missing-target', 42]);
-    expect(finding.fingerprint).toBe(canonicalFingerprint('links.broken', [brokenOccurrence.sourceId, 'missing-target', 42]));
-    expect(finding.resolutions).toBeUndefined();
   });
 
-  it('keeps repeated broken occurrences of the same target distinct by offset', () => {
-    const second = { ...brokenOccurrence, offset: 99 };
-    const result = evaluateGraphReview(facts({ broken: [brokenOccurrence, second] }), { ruleIds: ['links.broken'] });
-    const fingerprints = result.groups[0].findings.map(f => f.fingerprint);
-    expect(new Set(fingerprints).size).toBe(2);
+  it('rejects an unknown rule id, fact key, and dependency cycle', () => {
+    expect(() => planGraphFacts(['links.unknown'])).toThrow('Unknown graph rule: links.unknown');
+    const unknown = {
+      'contextual-links': ['mystery' as GraphFactKey],
+      'resolved-links': [],
+      'graph-edges': [],
+      'document-applicability': [],
+    } satisfies Readonly<Record<GraphFactKey, readonly GraphFactKey[]>>;
+    expect(() => orderFactKeys(['contextual-links'], unknown)).toThrow('Unknown graph fact key: mystery');
+    const cyclic = {
+      'contextual-links': ['resolved-links'],
+      'resolved-links': ['contextual-links'],
+      'graph-edges': [],
+      'document-applicability': [],
+    } satisfies Readonly<Record<GraphFactKey, readonly GraphFactKey[]>>;
+    expect(() => orderFactKeys(['contextual-links'], cyclic)).toThrow('Graph fact dependency cycle at: contextual-links');
   });
 
-  it('emits links.unlinked as info/heuristic with the isolated note as logical subject', () => {
-    const result = evaluateGraphReview(facts({ unlinked: [isolatedNote] }), { ruleIds: ['links.unlinked'] });
-    const finding = result.groups[0].findings[0];
-    expect(finding.impact).toBe('info');
-    expect(finding.basis).toBe('heuristic');
-    expect(finding.primary.id).toBe(isolatedNote.id);
-    expect(finding.identity).toEqual([isolatedNote.id]);
-  });
-
-  it('emits links.reciprocal-missing with an ordered source-target pair', () => {
-    const result = evaluateGraphReview(facts({ oneWay: [edge] }), { ruleIds: ['links.reciprocal-missing'] });
-    const finding = result.groups[0].findings[0];
-    expect(finding.impact).toBe('info');
-    expect(finding.basis).toBe('heuristic');
-    expect(finding.primary.id).toBe(edge.sourceId);
-    expect(finding.related?.[0]?.id).toBe(edge.targetId);
-    expect(finding.identity).toEqual([edge.sourceId, edge.targetId]);
+  it('materializes only the selected provider closure in deterministic order', () => {
+    expect(planGraphFacts(['links.broken']).providerKeys).toEqual(['contextual-links', 'resolved-links']);
+    expect(planGraphFacts(['links.unlinked']).providerKeys).toEqual(['contextual-links', 'resolved-links', 'graph-edges']);
+    expect(planGraphFacts(['links.reciprocal-missing']).providerKeys).toEqual([
+      'contextual-links', 'resolved-links', 'graph-edges', 'document-applicability',
+    ]);
   });
 });
 
-describe('graph review: determinism and selection', () => {
-  const all = facts({ broken: [brokenOccurrence], unlinked: [isolatedNote], oneWay: [edge] });
+describe('graph materialization and formal findings', () => {
+  it('resolves each distinct target once and preserves occurrence identity and fingerprints', () => {
+    let calls = 0;
+    const source = `[[missing]] [[missing]] [[${beta.id}]]`;
+    const result = materializeGraphReview([readable(alpha, source), readable(beta, '')], slug => {
+      calls++;
+      return resolveKnown(slug);
+    });
 
-  it('produces identical groups, fingerprints, totals, and order across repeated evaluation', () => {
-    const first = evaluateGraphReview(all);
-    const second = evaluateGraphReview(all);
-    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
-    expect(first.groups.map(g => g.ruleId)).toEqual(['links.broken', 'links.unlinked', 'links.reciprocal-missing']);
-    expect(first.totals).toEqual({ 'links.broken': 1, 'links.unlinked': 1, 'links.reciprocal-missing': 1 });
+    expect(calls).toBe(2);
+    const broken = result.review.groups[0].findings;
+    expect(broken).toHaveLength(2);
+    expect(broken[0]).toMatchObject({
+      ruleId: 'links.broken', ruleVersion: 1, impact: 'warning', basis: 'invariant',
+      primary: { id: alpha.id, role: 'primary' },
+      evidence: [
+        { label: 'sourceTitle', value: 'Alpha' },
+        { label: 'target', value: 'missing' },
+        { label: 'line', value: 1 },
+      ],
+      identity: [alpha.id, 'missing', 0],
+    });
+    expect(broken[0].fingerprint).toBe(canonicalFingerprint('links.broken', [alpha.id, 'missing', 0]));
+    expect(broken[0].fingerprint).not.toBe(broken[1].fingerprint);
+    expect(broken[0].resolutions).toBeUndefined();
   });
 
-  it('selects only the requested rule ids', () => {
-    const result = evaluateGraphReview(all, { ruleIds: ['links.unlinked'] });
-    expect(result.groups.map(g => g.ruleId)).toEqual(['links.unlinked']);
-  });
-});
-
-describe('graph review: deep-freeze isolation', () => {
-  it('freezes findings, evidence, subjects, groups, and totals', () => {
-    const result = evaluateGraphReview(facts({ broken: [brokenOccurrence], oneWay: [edge] }));
-    expect(Object.isFrozen(result)).toBe(true);
-    expect(Object.isFrozen(result.groups)).toBe(true);
-    expect(Object.isFrozen(result.totals)).toBe(true);
-    const brokenGroup = result.groups.find(g => g.ruleId === 'links.broken');
-    if (!brokenGroup) throw new Error('missing broken group');
-    const finding = brokenGroup.findings[0];
-    expect(Object.isFrozen(finding)).toBe(true);
-    expect(Object.isFrozen(finding.evidence)).toBe(true);
-    expect(Object.isFrozen(finding.evidence[0])).toBe(true);
-    expect(Object.isFrozen(finding.primary)).toBe(true);
-    expect(() => (finding.evidence as { label: string }[]).push({ label: 'x' })).toThrow();
+  it('uses logical subjects for unlinked and ordered source-target identity for reciprocal findings', () => {
+    const lone = document('1000000000000003', 'Lone');
+    const result = materializeGraphReview([readable(alpha, `[[${beta.id}]]`), readable(beta, ''), readable(lone, '')], resolveKnown);
+    const unlinked = result.review.groups.find(group => group.ruleId === 'links.unlinked')?.findings[0];
+    const reciprocal = result.review.groups.find(group => group.ruleId === 'links.reciprocal-missing')?.findings[0];
+    expect(unlinked).toMatchObject({ primary: { id: lone.id }, identity: [lone.id], impact: 'info', basis: 'heuristic' });
+    expect(reciprocal).toMatchObject({
+      primary: { id: alpha.id }, related: [{ id: beta.id, role: 'related' }], identity: [alpha.id, beta.id],
+    });
   });
 
-  it('does not let source-array mutation after evaluation alter the result', () => {
-    const source = [{ ...brokenOccurrence }];
-    const result = evaluateGraphReview(facts({ broken: source }), { ruleIds: ['links.broken'] });
-    source.push({ ...brokenOccurrence, offset: 1000 });
-    source[0].brokenTarget = 'mutated';
-    expect(result.groups[0].total).toBe(1);
-    expect(result.groups[0].findings[0].identity).toEqual([brokenOccurrence.sourceId, 'missing-target', 42]);
+  it('treats vault-target as a valid discriminated target without creating an edge or broken finding', () => {
+    const result = materializeGraphReview([readable(alpha, '[[unindexed]]')], () => ({ kind: 'vault-target' }), ['links.broken']);
+    expect(result.facts.resolvedLinks?.occurrences[0].resolution).toEqual({ kind: 'vault-target' });
+    expect(result.review.totals).toEqual({ 'links.broken': 0 });
   });
 
-  it('copies scope before freezing the returned result', () => {
-    const scope = { kind: 'project' as const, project: 'demo', client: 'pi' };
-    const result = evaluateGraphReview(facts(), { scope });
-    expect(result.scope).toEqual(scope);
-    expect(result.scope).not.toBe(scope);
-    expect(Object.isFrozen(result.scope)).toBe(true);
-    expect(Object.isFrozen(scope)).toBe(false);
+  it('keeps conservative rule-only policy for failures and publication edges', () => {
+    const failed = document('1000000000000003', 'Failed');
+    const global = document(beta.id, beta.title, ['scope:global']);
+    const local = document(alpha.id, alpha.title, ['project:demo']);
+    const result = materializeGraphReview([
+      readable(local, `[[${global.id}]] [[missing]]`),
+      readable(global, ''),
+      { document: failed, ok: false, reason: '/private/error' },
+    ], resolveKnown);
+    expect(result.review.totals).toEqual({ 'links.broken': 1, 'links.unlinked': 0, 'links.reciprocal-missing': 0 });
+    expect(result.incompleteGraph).toBe(true);
+    expect(result.failures).toEqual([{ id: failed.id, title: failed.title }]);
+    expect(JSON.stringify(result)).not.toContain('/private/error');
   });
-});
 
-describe('graph review: rule input boundary', () => {
-  it('passes each rule a copied, deeply frozen graph-fact snapshot', () => {
+  it('passes each rule only its declared, deeply frozen fact slice', () => {
     const rule = BUILTIN_GRAPH_RULES[0];
-    const originalEvaluate = rule.evaluate;
+    const original = rule.evaluate;
     let received: GraphFacts | undefined;
-    (rule as { evaluate: GraphRule['evaluate'] }).evaluate = input => {
-      received = input;
-      return [];
-    };
+    (rule as { evaluate: GraphRule['evaluate'] }).evaluate = input => { received = input; return []; };
     try {
-      const source = facts({ broken: [{ ...brokenOccurrence }], unlinked: [{ ...isolatedNote, tags: [...isolatedNote.tags] }] });
-      evaluateGraphReview(source, { ruleIds: ['links.broken'] });
-      expect(received).toBeDefined();
-      if (!received) throw new Error('rule did not receive graph facts');
-      expect(received).not.toBe(source);
+      materializeGraphReview([readable(alpha, '[[missing]]')], resolveKnown, ['links.broken']);
+      expect(Object.keys(received ?? {})).toEqual(['resolvedLinks']);
       expect(Object.isFrozen(received)).toBe(true);
-      expect(Object.isFrozen(received.broken)).toBe(true);
-      expect(Object.isFrozen(received.broken[0])).toBe(true);
-      expect(Object.isFrozen(received.unlinked)).toBe(true);
-      expect(Object.isFrozen(received.unlinked[0])).toBe(true);
-      expect(Object.isFrozen(received.unlinked[0].tags)).toBe(true);
-      expect(Object.isFrozen(source)).toBe(false);
+      expect(Object.isFrozen(received?.resolvedLinks?.occurrences)).toBe(true);
     } finally {
-      (rule as { evaluate: GraphRule['evaluate'] }).evaluate = originalEvaluate;
+      (rule as { evaluate: GraphRule['evaluate'] }).evaluate = original;
     }
+  });
+});
+
+describe('graph result isolation and determinism', () => {
+  it('is JSON-byte deterministic with stable group order and totals', () => {
+    const input = [readable(alpha, `[[${beta.id}]] [[missing]]`), readable(beta, '')];
+    const first = materializeGraphReview(input, resolveKnown);
+    const second = materializeGraphReview(input, resolveKnown);
+    expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+    expect(first.review.groups.map(group => group.ruleId)).toEqual([
+      'links.broken', 'links.unlinked', 'links.reciprocal-missing',
+    ]);
+    expect(first.review.totals).toEqual({ 'links.broken': 1, 'links.unlinked': 0, 'links.reciprocal-missing': 1 });
+  });
+
+  it('copies resolver-owned outcomes before freezing facts', () => {
+    const resolution = { kind: 'document' as const, id: beta.id };
+    const result = materializeGraphReview(
+      [readable(alpha, `[[${beta.id}]]`), readable(beta, '')],
+      () => resolution,
+      ['links.broken'],
+    );
+
+    expect(Object.isFrozen(resolution)).toBe(false);
+    resolution.id = 'caller-mutated';
+    expect(result.facts.resolvedLinks?.occurrences[0].resolution).toEqual({ kind: 'document', id: beta.id });
+    expect(Object.isFrozen(result.facts.resolvedLinks?.occurrences[0].resolution)).toBe(true);
+  });
+
+  it('deep-freezes outputs without freezing or retaining caller-owned values', () => {
+    const tags = ['project:demo'];
+    const callerDocument = document(alpha.id, alpha.title, tags);
+    const input = [readable(callerDocument, '[[missing]]')];
+    const scope = { kind: 'project' as const, project: 'demo', client: 'pi' };
+    const result = materializeGraphReview(input, resolveKnown, undefined, scope);
+
+    tags.push('mutated');
+    input.push(readable(beta, ''));
+    scope.project = 'changed';
+    expect(result.facts.contextualLinks?.documents[0].tags).toEqual(['project:demo']);
+    expect(result.review.scope).toEqual({ kind: 'project', project: 'demo', client: 'pi' });
+    expect(Object.isFrozen(tags)).toBe(false);
+    expect(Object.isFrozen(scope)).toBe(false);
+    expect(Object.isFrozen(result)).toBe(true);
+    expect(Object.isFrozen(result.facts.contextualLinks?.documents[0].tags)).toBe(true);
+    expect(Object.isFrozen(result.review.groups[0].findings[0].evidence[0])).toBe(true);
+    expect(() => (result.review.groups as unknown as unknown[]).push({})).toThrow();
   });
 });

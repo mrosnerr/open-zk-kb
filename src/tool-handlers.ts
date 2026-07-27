@@ -63,11 +63,10 @@ import { PUBLISHABLE_KINDS } from './tool-meta.js';
 import { buildReviewSnapshot } from './review/facts.js';
 import { createRepositoryReviewReader } from './review/reader.js';
 import { evaluateReview } from './review/registry.js';
-import { evaluateGraphReview } from './review/graph.js';
+import { materializeGraphReview, type GraphDocument, type GraphReviewResult } from './review/graph.js';
 import type { EvaluationResult, Finding, FindingGroup, ReviewScope } from './review/types.js';
-import { evaluateContextualLinkGraph } from './link-health/evaluator.js';
 import { createRepositoryContextualLinkReader } from './link-health/reader.js';
-import type { ContextualLinkGraphResult, ContextualScanTotals, ContextualUnlinkedFinding } from './link-health/types.js';
+import type { ContextualScanTotals } from './link-health/types.js';
 
 // ---- Constants ----
 
@@ -139,16 +138,15 @@ function filterFalsePositiveBrokenLinks<T extends BrokenLink>(
 const CONTEXTUAL_FAILURE_DISPLAY_CAP = 20;
 
 /**
- * Runs one ephemeral contextual link-health scan: reads active,
- * non-structural documents through the query-only production reader and
- * evaluates them with the pure graph evaluator. No contextual edge or
- * finding is persisted.
+ * Runs one ephemeral contextual graph review: selects rules, reads active
+ * non-structural documents through the query-only production reader, and
+ * materializes only their shared fact dependency closure. No fact, edge,
+ * plan, resolution cache, or finding is persisted.
  */
-function runContextualLinkScan(repo: NoteRepository): { result: ContextualLinkGraphResult; elapsedMs: number } {
+function runContextualLinkScan(repo: NoteRepository, ruleIds: readonly string[]): { result: GraphReviewResult; elapsedMs: number } {
   const reader = createRepositoryContextualLinkReader(repo);
   const start = Date.now();
-  const documents = reader.listDocuments();
-  const result = evaluateContextualLinkGraph(documents, reader.resolveTarget);
+  const result = materializeGraphReview(reader.listDocuments(), reader.resolveTarget, ruleIds);
   const elapsedMs = Date.now() - start;
   return { result, elapsedMs };
 }
@@ -172,7 +170,7 @@ function renderContextualScanSummary(totals: ContextualScanTotals, elapsedMs: nu
     + `Excluded: ${totals.excludedCandidates} | Parse failures: ${totals.parseFailures} | Elapsed: ${elapsedMs}ms\n`;
 }
 
-function renderContextualFailures(failures: ContextualLinkGraphResult['failures']): string {
+function renderContextualFailures(failures: GraphReviewResult['failures']): string {
   if (failures.length === 0) return '';
   let output = `\n### Parse/Read Failures (${failures.length})\n\n`;
   for (const failure of failures.slice(0, CONTEXTUAL_FAILURE_DISPLAY_CAP)) {
@@ -2321,7 +2319,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'unlinked': {
-      const { result, elapsedMs } = runContextualLinkScan(repo);
+      const { result, elapsedMs } = runContextualLinkScan(repo, ['links.unlinked']);
       logContextualLinkScan('unlinked', result.totals, elapsedMs, config);
       scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'unlinked', result.totals.excludedCandidates, args.model));
 
@@ -2332,7 +2330,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         return output;
       }
 
-      const unlinkedGroup = graphGroup(evaluateGraphReview(result, { ruleIds: ['links.unlinked'] }), 'links.unlinked');
+      const unlinkedGroup = graphGroup(result.review, 'links.unlinked');
       const total = unlinkedGroup.total;
       if (total === 0) {
         output += '\nNo unlinked notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
@@ -2341,11 +2339,16 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
 
       // Formal findings drive order, totals, and the display bound; the frozen
       // graph facts carry the tags/kind/title needed for project grouping.
-      const factsById = new Map(result.unlinked.map(note => [note.id, note]));
+      const unlinkedNotes: readonly GraphDocument[] = result.facts.contextualLinks?.documents ?? [];
+      const factsById = new Map(unlinkedNotes.map(note => [note.id, note]));
 
-      // Keep complete per-project counts for headings and the summary.
+      // Keep complete per-project counts for headings and the summary, but
+      // derive membership only from formal unlinked findings. The document
+      // index also contains linked notes used by the other graph rules.
       const allByProject = new Map<string, number>();
-      for (const note of result.unlinked) {
+      for (const finding of unlinkedGroup.findings) {
+        const note = factsById.get(finding.primary.id);
+        if (!note) continue;
         const project = extractProjectFromTags([...note.tags]) || '(no project)';
         allByProject.set(project, (allByProject.get(project) ?? 0) + 1);
       }
@@ -2356,7 +2359,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const displayedFindings = unlinkedGroup.findings.slice(0, displayCap);
 
       // Group the selected findings by project, then by kind.
-      const byProject = new Map<string, ContextualUnlinkedFinding[]>();
+      const byProject = new Map<string, GraphDocument[]>();
       for (const finding of displayedFindings) {
         const note = factsById.get(finding.primary.id);
         if (!note) continue;
@@ -2393,7 +2396,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += `### ${project} (${allByProject.get(project) ?? notes.length})\n`;
 
         // Group by kind within project
-        const byKind = new Map<string, ContextualUnlinkedFinding[]>();
+        const byKind = new Map<string, GraphDocument[]>();
         for (const note of notes) {
           let group = byKind.get(note.kind);
           if (!group) {
@@ -2425,12 +2428,11 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'broken-links': {
-      const { result, elapsedMs } = runContextualLinkScan(repo);
+      const { result, elapsedMs } = runContextualLinkScan(repo, ['links.broken']);
       logContextualLinkScan('broken-links', result.totals, elapsedMs, config);
       scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'broken-links', result.totals.excludedCandidates, args.model));
 
-      const broken = filterFalsePositiveBrokenLinks(result.broken, config?.vault);
-      const brokenGroup = graphGroup(evaluateGraphReview({ broken, unlinked: [], oneWay: [] }, { ruleIds: ['links.broken'] }), 'links.broken');
+      const brokenGroup = graphGroup(result.review, 'links.broken');
 
       let output = renderContextualScanSummary(result.totals, elapsedMs);
       output += renderContextualFailures(result.failures);
@@ -2451,12 +2453,11 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'link-health': {
-      const { result, elapsedMs } = runContextualLinkScan(repo);
+      const { result, elapsedMs } = runContextualLinkScan(repo, ['links.broken', 'links.unlinked', 'links.reciprocal-missing']);
       logContextualLinkScan('link-health', result.totals, elapsedMs, config);
       scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'link-health', result.totals.excludedCandidates, args.model));
 
-      const broken = filterFalsePositiveBrokenLinks(result.broken, config?.vault);
-      const graph = evaluateGraphReview({ broken, unlinked: result.unlinked, oneWay: result.oneWay });
+      const graph = result.review;
       const unlinkedGroup = graphGroup(graph, 'links.unlinked');
       const brokenGroup = graphGroup(graph, 'links.broken');
       const reciprocalGroup = graphGroup(graph, 'links.reciprocal-missing');
@@ -2476,7 +2477,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       const displayCap = contextualDisplayLimit(args.limit);
-      const factsById = new Map(result.unlinked.map(note => [note.id, note]));
+      const factsById = new Map((result.facts.contextualLinks?.documents ?? []).map(note => [note.id, note]));
       output += '\n## Link Health Report\n\n';
 
       if (unlinkedGroup.total > 0) {

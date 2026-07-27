@@ -12,11 +12,10 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { evaluateContextualLinkGraph } from '../src/link-health/evaluator';
-import type { ContextualLinkReadResult } from '../src/link-health/types';
+import type { ContextualLinkReadResult, ContextualLinkResolution } from '../src/link-health/types';
 import { extractContextualMarkdownFacts } from '../src/markdown/contextual-facts';
 import { buildReviewSnapshot } from '../src/review/facts';
-import { evaluateGraphReview } from '../src/review/graph';
+import { materializeGraphReview } from '../src/review/graph';
 import type { ReviewReader } from '../src/review/reader';
 import { evaluateReview } from '../src/review/registry';
 import { NoteRepository, type NoteMetadata } from '../src/storage/NoteRepository';
@@ -504,30 +503,17 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
         };
       });
       const ids = new Set(documents.map(entry => entry.document.id));
-      const resolve = (slug: string): string | null => ids.has(slug) ? slug : null;
-      let first = evaluateContextualLinkGraph([], resolve);
-      const elapsed = timeSync(() => { first = evaluateContextualLinkGraph(documents, resolve); });
-      const second = evaluateContextualLinkGraph(documents, resolve);
+      const resolve = (slug: string): ContextualLinkResolution => (ids.has(slug) ? { kind: 'document', id: slug } : { kind: 'unresolved' });
+      let first = materializeGraphReview([], resolve);
+      const elapsed = timeSync(() => { first = materializeGraphReview(documents, resolve); });
+      const second = materializeGraphReview(documents, resolve);
 
-      console.log(`  Contextual link health (1000 notes): ${elapsed.toFixed(2)}ms`);
+      console.log(`  Rule-driven contextual graph (1000 notes): ${elapsed.toFixed(2)}ms`);
       expect(elapsed).toBeLessThan(1500);
       expect(first.totals).toEqual({ documentsParsed: 1000, rawCandidates: 3000, contextualLinks: 1000, excludedCandidates: 2000, parseFailures: 0 });
-      expect(first.broken).toHaveLength(0);
-      expect(first.unlinked).toHaveLength(0);
-      expect(first.oneWay).toHaveLength(1000);
-      expect(second.totals).toEqual(first.totals);
-      expect(second.oneWay).toEqual(first.oneWay);
-
-      // Formal graph-rule evaluation over the same snapshot stays well within
-      // budget and produces deterministic totals across repeated runs.
-      let firstRules = evaluateGraphReview(first);
-      const rulesElapsed = timeSync(() => { firstRules = evaluateGraphReview(first); });
-      const secondRules = evaluateGraphReview(first);
-      console.log(`  Contextual graph rules (1000 edges): ${rulesElapsed.toFixed(2)}ms`);
-      expect(elapsed + rulesElapsed).toBeLessThan(1500);
-      expect(firstRules.totals).toEqual({ 'links.broken': 0, 'links.unlinked': 0, 'links.reciprocal-missing': 1000 });
-      expect(secondRules.totals).toEqual(firstRules.totals);
-      expect(JSON.stringify(secondRules)).toBe(JSON.stringify(firstRules));
+      expect(first.review.totals).toEqual({ 'links.broken': 0, 'links.unlinked': 0, 'links.reciprocal-missing': 1000 });
+      expect(second.review.totals).toEqual(first.review.totals);
+      expect(JSON.stringify(second)).toBe(JSON.stringify(first));
     });
   });
 

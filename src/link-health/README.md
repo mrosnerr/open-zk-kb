@@ -1,18 +1,17 @@
 # Contextual Link Health
 
-`evaluator.ts` is a pure, read-only authored-link graph evaluator over
-active, non-structural Markdown documents. It consumes only plain
-`ContextualLinkReadResult` values and a `resolveTarget` query function — no
-filesystem, repository, database, clock, or telemetry capability — and
-returns a deeply frozen result: scan totals, note-identity-only failures,
-broken occurrences, unlinked notes, deduplicated one-way edges, and an
-`incompleteGraph` flag.
-
 `reader.ts` is the only production adapter that touches the filesystem or
 `NoteRepository`: it lists active non-structural documents, reads each raw
-source file, and exposes a `resolveTarget` query that delegates to
-`NoteRepository.resolveLink`. It never persists contextual edges, rewrites
-`note_links`, or exposes a mutation capability.
+source file, and exposes a query that classifies a target as an indexed
+document, an existing non-graph vault target, or unresolved. It never
+persists contextual edges, rewrites `note_links`, or exposes a mutation
+capability.
+
+The closed planner and neutral fact providers under `review/` consume the
+reader's plain values. Selected rules drive a deterministic dependency plan;
+each provider executes at most once per invocation, and completed immutable
+fact layers are shared across rules. No provider owns issue impact, message,
+or repair policy.
 
 ## Graph semantics
 
@@ -41,14 +40,14 @@ even when other documents fail.
 
 ## Formal graph rules
 
-The evaluator only materializes graph facts; it assigns no impact, basis,
-message, or repair advice. The `unlinked`, `broken-links`, and `link-health`
-actions evaluate one snapshot through the closed built-in rules in
-`review/graph.ts` (`links.broken`, `links.unlinked`,
-`links.reciprocal-missing`) so every graph finding carries a stable rule id,
-version, evidence basis, and canonical fingerprint. Broken occurrences are
-actionable invariant evidence; unlinked and reciprocal-missing findings are
-explicitly advisory heuristics.
+The `unlinked`, `broken-links`, and `link-health` actions select the closed
+built-in rules in `review/graph-rules.ts` (`links.broken`, `links.unlinked`,
+`links.reciprocal-missing`) before materialization. Rules own unresolved,
+isolation, incomplete-scan, reciprocity, and publication-exemption policy,
+so every issue has one semantic implementation site. Every graph finding
+carries a stable rule id, version, evidence basis, and canonical fingerprint.
+Broken occurrences are actionable invariant evidence; unlinked and
+reciprocal-missing findings are explicitly advisory heuristics.
 
 ## Output limits
 

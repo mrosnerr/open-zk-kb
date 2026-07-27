@@ -2,8 +2,8 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { evaluateContextualLinkGraph } from '../src/link-health/evaluator';
-import type { ContextualLinkDocument, ContextualLinkReadResult } from '../src/link-health/types';
+import type { ContextualLinkDocument, ContextualLinkReadResult, ContextualLinkResolution } from '../src/link-health/types';
+import { materializeGraphReview } from '../src/review/graph';
 import { handleHealth, handleMaintain } from '../src/tool-handlers';
 import { cleanupTestHarness, createTestHarness, listAllNoteFiles, sleep, type TestContext } from './harness';
 
@@ -30,7 +30,10 @@ function databaseSnapshot(ctx: TestContext): Record<string, unknown[]> {
   }
 }
 
-describe('contextual link-health evaluator', () => {
+describe('rule-driven contextual link health', () => {
+  const resolve = (knownId?: string) => (slug: string): ContextualLinkResolution =>
+    slug === knownId ? { kind: 'document', id: slug } : { kind: 'unresolved' };
+
   it('uses authored links for exact totals, broken lines, and deduplicated edges', () => {
     const a = document('2026072500000001', 'Alpha');
     const b = document('2026072500000002', 'Beta');
@@ -43,10 +46,7 @@ describe('contextual link-health evaluator', () => {
       `[[${b.id}]]`,
       `[[${b.id}]]`,
     ].join('\n');
-    const result = evaluateContextualLinkGraph(
-      [readable(a, source), readable(b, 'No links here.')],
-      slug => slug === b.id ? b.id : null,
-    );
+    const result = materializeGraphReview([readable(a, source), readable(b, 'No links here.')], resolve(b.id));
 
     expect(result.totals).toEqual({
       documentsParsed: 2,
@@ -55,45 +55,43 @@ describe('contextual link-health evaluator', () => {
       excludedCandidates: 2,
       parseFailures: 0,
     });
-    expect(result.broken).toEqual([{
-      sourceId: a.id,
-      sourceTitle: a.title,
-      brokenTarget: 'missing-target',
-      line: 5,
-      offset: source.indexOf('[[missing-target]]'),
-    }]);
-    expect(result.unlinked).toEqual([]);
-    expect(result.oneWay).toEqual([{
-      sourceId: a.id,
-      sourceTitle: a.title,
-      targetId: b.id,
-      targetTitle: b.title,
-    }]);
+    const broken = result.review.groups.find(group => group.ruleId === 'links.broken');
+    expect(broken?.findings).toHaveLength(1);
+    expect(broken?.findings[0].evidence).toEqual([
+      { label: 'sourceTitle', value: a.title },
+      { label: 'target', value: 'missing-target' },
+      { label: 'line', value: 5 },
+    ]);
+    expect(result.review.totals).toEqual({
+      'links.broken': 1,
+      'links.unlinked': 0,
+      'links.reciprocal-missing': 1,
+    });
+    expect(result.facts.graphEdges?.edges).toHaveLength(1);
     expect(Object.isFrozen(result)).toBe(true);
-    expect(Object.isFrozen(result.broken[0])).toBe(true);
-    expect(Object.isFrozen(result.oneWay[0])).toBe(true);
+    expect(Object.isFrozen(broken?.findings[0])).toBe(true);
   });
 
-  it('deeply freezes copied tags in unlinked findings', () => {
+  it('deeply freezes copied document tags', () => {
     const tags = ['topic:immutable'];
     const lone = document('2026072500000001', 'Lone', tags);
-    const result = evaluateContextualLinkGraph([readable(lone, 'No links here.')], () => null);
+    const result = materializeGraphReview([readable(lone, 'No links here.')], resolve());
+    const copiedTags = result.facts.contextualLinks?.documents[0].tags;
 
-    expect(result.unlinked).toHaveLength(1);
-    expect(Object.isFrozen(result.unlinked[0].tags)).toBe(true);
-    expect(result.unlinked[0].tags).not.toBe(tags);
-    expect(() => (result.unlinked[0].tags as string[]).push('mutated')).toThrow();
+    expect(Object.isFrozen(copiedTags)).toBe(true);
+    expect(copiedTags).not.toBe(tags);
+    expect(() => (copiedTags as string[]).push('mutated')).toThrow();
     tags.push('source-mutated');
-    expect(result.unlinked[0].tags).toEqual(['topic:immutable']);
+    expect(copiedTags).toEqual(['topic:immutable']);
   });
 
   it('suppresses unsafe graph conclusions after a read failure but keeps valid broken findings', () => {
     const failed = document('2026072500000001', 'Failed');
     const source = document('2026072500000002', 'Source');
-    const result = evaluateContextualLinkGraph([
+    const result = materializeGraphReview([
       { document: failed, ok: false, reason: '/private/path must not escape' },
       readable(source, `[[${failed.id}]]\n[[missing-target]]`),
-    ], slug => slug === failed.id ? failed.id : null);
+    ], resolve(failed.id));
 
     expect(result.incompleteGraph).toBe(true);
     expect(result.totals).toEqual({
@@ -105,19 +103,21 @@ describe('contextual link-health evaluator', () => {
     });
     expect(result.failures).toEqual([{ id: failed.id, title: failed.title }]);
     expect(JSON.stringify(result.failures)).not.toContain('/private/path');
-    expect(result.unlinked).toEqual([]);
-    expect(result.oneWay).toEqual([]);
-    expect(result.broken.map(item => item.brokenTarget)).toEqual(['missing-target']);
+    expect(result.review.totals).toEqual({
+      'links.broken': 1,
+      'links.unlinked': 0,
+      'links.reciprocal-missing': 0,
+    });
   });
 
   it('exempts project-local to global publication edges from reciprocal findings', () => {
     const local = document('2026072500000001', 'Local', ['project:alpha']);
     const global = document('2026072500000002', 'Global', ['scope:global']);
-    const result = evaluateContextualLinkGraph(
+    const result = materializeGraphReview(
       [readable(local, `[[${global.id}]]`), readable(global, 'No reverse link.')],
-      slug => slug === global.id ? global.id : null,
+      resolve(global.id),
     );
-    expect(result.oneWay).toEqual([]);
+    expect(result.review.totals['links.reciprocal-missing']).toBe(0);
   });
 });
 

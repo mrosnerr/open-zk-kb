@@ -1,20 +1,20 @@
 // link-health/reader.ts
 //
-// Query-only production reader consumed by the contextual link-health
-// evaluator. The evaluator receives only plain `ContextualLinkReadResult`
+// Query-only production reader consumed by rule-driven graph fact
+// materialization. Providers receive only plain `ContextualLinkReadResult`
 // values and a `resolveTarget` query function — never a filesystem,
 // repository, or database handle. Only this adapter reads files or queries
 // `NoteRepository`.
 
 import * as fs from 'node:fs';
 import type { NoteRepository } from '../storage/NoteRepository.js';
-import type { ContextualLinkDocument, ContextualLinkReadResult } from './types.js';
+import type { ContextualLinkDocument, ContextualLinkReadResult, ContextualLinkResolution } from './types.js';
 
 export interface ContextualLinkReader {
   /** Active, non-structural documents with their raw-source read outcome, in a stable order. */
   readonly listDocuments: () => readonly ContextualLinkReadResult[];
-  /** Resolves a wikilink slug to a note id using existing repository resolution semantics. */
-  readonly resolveTarget: (slug: string) => string | null;
+  /** Resolves a wikilink slug to its complete neutral resolution outcome using existing repository semantics. */
+  readonly resolveTarget: (slug: string) => ContextualLinkResolution;
 }
 
 export function createRepositoryContextualLinkReader(repository: NoteRepository): ContextualLinkReader {
@@ -37,6 +37,6 @@ export function createRepositoryContextualLinkReader(repository: NoteRepository)
           }
         })
       ),
-    resolveTarget: slug => repository.resolveLink(slug),
+    resolveTarget: slug => repository.resolveContextualLink(slug),
   };
 }

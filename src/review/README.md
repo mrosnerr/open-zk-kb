@@ -4,12 +4,11 @@ The `review` module is an internal, read-only evaluation boundary. Rules use imm
 
 ## Graph profile (`graph.ts`)
 
-Alongside the per-note evaluator (`registry.ts`), `graph.ts` evaluates one
-immutable contextual graph snapshot — scan totals, broken occurrences,
-isolated notes, and deduplicated missing-reciprocal edges materialized by
-`link-health/evaluator.ts` — through three closed built-in rules that reuse
-the same `finalizeFinding()`, canonical fingerprint, grouping, and
-deterministic-order contracts:
+Alongside the per-note evaluator (`registry.ts`), `graph.ts` selects closed
+built-in graph rules before materialization, plans their shared neutral fact
+dependencies, and evaluates each rule from its declared frozen fact slice.
+The rules reuse the same `finalizeFinding()`, canonical fingerprint, grouping,
+and deterministic-order contracts:
 
 - `links.broken` — `warning` / `invariant`. An authored wikilink occurrence
   that cannot be resolved. Evidence carries the source title, normalized
@@ -29,6 +28,19 @@ deterministic-order contracts:
 Graph rules receive only frozen plain graph facts — never a reader, resolver,
 path, repository, database, clock, telemetry, or mutation handle. Results are
 deep-frozen, ephemeral, and never persisted; no rule emits a repair callback.
-`evaluateGraphReview()` never loads rules from files, configuration, plugins,
-or the network. Baseline/delta persistence and semantic related-link
+`materializeGraphReview()` never loads rules or providers from files,
+configuration, plugins, or the network. Baseline/delta persistence and semantic related-link
 candidates are deliberately deferred.
+
+## Contextual graph fact planning
+
+Contextual maintenance selects built-in graph rules before reading documents. A
+closed dependency plan materializes contextual occurrences, resolution outcomes,
+deduplicated active edges, and applicability only when required. Provider values
+are invocation-local, deeply frozen neutral data; broken-link, isolation,
+completeness, reciprocity, and publication-edge policy lives in the formal rules.
+Identical inputs use source/occurrence order and stable dependency ordering.
+
+Only explicit `unlinked`, `broken-links`, and `link-health` maintenance calls use
+this pipeline. Persisted link synchronization, ordinary health, rebuild and
+migration paths, and extension lifecycle hooks retain their existing behavior.

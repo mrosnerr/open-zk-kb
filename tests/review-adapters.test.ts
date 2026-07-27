@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
@@ -90,6 +91,40 @@ describe('knowledge-maintain preference-audit compatibility', () => {
     expect(positions.every(position => position >= 0)).toBe(true);
     expect(positions).toEqual([...positions].sort((a, b) => a - b));
     expect(firstSection.match(/"temporarily"/g)).toHaveLength(1);
+  });
+});
+
+describe('graph repository and maintain adapters', () => {
+  let ctx: TestContext;
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => { cleanupTestHarness(ctx); });
+
+  it('resolves unindexed Markdown and directory-index Markdown as vault targets', async () => {
+    fs.writeFileSync(path.join(ctx.tempDir, 'handbook.md'), '# Handbook\n');
+    fs.mkdirSync(path.join(ctx.tempDir, 'guides'));
+    fs.writeFileSync(path.join(ctx.tempDir, 'guides', 'guides.md'), '# Guides\n');
+
+    expect(ctx.engine.resolveContextualLink('handbook')).toEqual({ kind: 'vault-target' });
+    expect(ctx.engine.resolveContextualLink('guides')).toEqual({ kind: 'vault-target' });
+    expect(ctx.engine.resolveContextualLink('actually-missing')).toEqual({ kind: 'unresolved' });
+
+    ctx.engine.store('See [[handbook]] and [[guides]].', { title: 'Source', kind: 'reference' });
+    const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
+    expect(output).toContain('No broken wikilinks found');
+    expect(output).not.toContain('handbook');
+    expect(output).not.toContain('guides');
+  });
+
+  it('groups and counts unlinked output from formal finding subjects only', async () => {
+    const target = ctx.engine.store('target', { title: 'Linked Target', kind: 'reference', tags: ['project:linked'] });
+    ctx.engine.store(`[[${target.id}]]`, { title: 'Linked Source', kind: 'reference', tags: ['project:linked'] });
+    ctx.engine.store('isolated', { title: 'Only Unlinked', kind: 'reference' });
+
+    const output = await handleMaintain({ action: 'unlinked' }, ctx.engine, ctx.config);
+    expect(output).toContain('## Unlinked Notes (1)');
+    expect(output).toContain('1 unscoped');
+    expect(output).not.toContain('in 1 project');
+    expect(output).not.toContain('### linked');
   });
 });
 

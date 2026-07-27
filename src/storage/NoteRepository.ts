@@ -12,6 +12,7 @@ import { logToFile } from '../logger.js';
 import { extractWikiLinks as parseAllWikiLinks, parseWikiLink } from '../utils/wikilink.js';
 import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
+import type { ContextualLinkResolution } from '../link-health/types.js';
 import type { NoteKind, NoteStatus, Lifecycle } from '../types.js';
 import { VALID_LIFECYCLES } from '../types.js';
 import {
@@ -2268,6 +2269,28 @@ export class NoteRepository {
 
   private extractWikiLinks(content: string): string[] {
     return parseAllWikiLinks(content).map(link => link.slug);
+  }
+
+  /** Query-only exhaustive contextual resolution. Existing unindexed Markdown
+   * files and directory-index notes are valid targets but do not participate
+   * in the active graph, so they resolve to a neutral `vault-target` outcome
+   * rather than a document identity. */
+  public resolveContextualLink(linkText: string): ContextualLinkResolution {
+    const indexed = this.resolveLink(linkText);
+    if (indexed) return { kind: 'document', id: indexed };
+
+    const parsed = parseWikiLink(linkText);
+    const relative = parsed.slug.replaceAll('\\', '/');
+    if (relative.startsWith('/') || relative.split('/').includes('..')) return { kind: 'unresolved' };
+
+    const basename = path.basename(relative);
+    const candidates = [`${relative}.md`, path.join(relative, `${basename}.md`)];
+    const resolvedRoot = `${path.resolve(this.docsPath)}${path.sep}`;
+    const existsAsVaultTarget = candidates.some(candidate => {
+      const absolute = path.resolve(this.docsPath, candidate);
+      return absolute.startsWith(resolvedRoot) && fs.existsSync(absolute);
+    });
+    return existsAsVaultTarget ? { kind: 'vault-target' } : { kind: 'unresolved' };
   }
 
   public resolveLink(linkText: string): string | null {

@@ -28,37 +28,19 @@ export interface ContextualLinkFailure {
   readonly title: string;
 }
 
-/** One authored contextual wikilink occurrence that failed to resolve. */
-export interface ContextualBrokenFinding {
-  readonly sourceId: string;
-  readonly sourceTitle: string;
-  readonly brokenTarget: string;
-  /** One-based line, derived from the contextual UTF-16 source range. */
-  readonly line: number;
-  /**
-   * Zero-based UTF-16 start offset of the occurrence, stable per authored
-   * position. Used only to keep repeated broken occurrences distinct when the
-   * formal `links.broken` rule computes its logical identity.
-   */
-  readonly offset: number;
-}
-
-/** An active non-structural note with neither an outgoing candidate nor a resolved incoming edge. */
-export interface ContextualUnlinkedFinding {
-  readonly id: string;
-  readonly title: string;
-  readonly kind: NoteKind;
-  readonly status: NoteStatus;
-  readonly tags: readonly string[];
-}
-
-/** A resolved, deduplicated source→target edge lacking its reverse edge. */
-export interface ContextualOneWayFinding {
-  readonly sourceId: string;
-  readonly sourceTitle: string;
-  readonly targetId: string;
-  readonly targetTitle: string;
-}
+/**
+ * The complete, neutral outcome of resolving one authored wikilink target —
+ * a discriminated outcome rather than a string sentinel. `document` means
+ * the slug resolves to some note id, which may or may not participate in
+ * the active graph. `vault-target` means an existing unindexed vault
+ * Markdown file or directory-index Markdown file: a valid target outside
+ * the active graph, carrying no path or other identity. `unresolved` means
+ * no target exists.
+ */
+export type ContextualLinkResolution =
+  | { readonly kind: 'document'; readonly id: string }
+  | { readonly kind: 'vault-target' }
+  | { readonly kind: 'unresolved' };
 
 /** Deterministic scan totals shared by every migrated action, independent of elapsed timing. */
 export interface ContextualScanTotals {
@@ -67,15 +49,4 @@ export interface ContextualScanTotals {
   readonly contextualLinks: number;
   readonly excludedCandidates: number;
   readonly parseFailures: number;
-}
-
-export interface ContextualLinkGraphResult {
-  readonly totals: ContextualScanTotals;
-  readonly failures: readonly ContextualLinkFailure[];
-  readonly broken: readonly ContextualBrokenFinding[];
-  /** Empty and meaningless whenever `incompleteGraph` is true. */
-  readonly unlinked: readonly ContextualUnlinkedFinding[];
-  readonly oneWay: readonly ContextualOneWayFinding[];
-  /** True when any document failed to read or parse; unlinked findings are suppressed. */
-  readonly incompleteGraph: boolean;
 }
