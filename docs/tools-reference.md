@@ -213,7 +213,7 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 | Action | Description | Requires `noteId` |
 |--------|-------------|-------------------|
 | `review` | Surface notes that haven't been accessed recently for triage | No |
-| `dedupe` | Find near-duplicate notes using SimHash similarity | No |
+| `dedupe` | Read-only exact-title and SimHash audit over all active non-structural notes | No |
 | `promote` | Move a fleeting note to permanent status | Yes |
 | `archive` | Move a note to archived status | Yes |
 | `delete` | Permanently delete a note (file + DB + FTS + links) | Yes |
@@ -232,6 +232,14 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 | `migrate-layout` | Move flat vault to kind-based directory structure | No |
 | `upgrade-vault` | Refresh Obsidian scaffold assets | No |
 | `full` | Composite: rebuild → migrate-layout → format → dedupe → embed → link-health (one-command maintenance) | No |
+
+### Maintenance preview integrity
+
+`dedupe` uses one stable snapshot of every active note except structural `index` and `log` notes. Existing valid hashes are reused; missing hashes are computed only in memory and are never written by the audit. Its coverage line reports `eligible`, `hashed-at-start`, `computed-ephemerally`, `evaluated`, `omitted`, and complete/incomplete status. Group totals remain complete when only the first ten groups are displayed, and SimHash groups include the threshold and distance-from-seed evidence. Findings are advisory; archive and delete remain explicit actions.
+
+Lifecycle `review` candidates include whitespace-normalized summary and guidance evidence, each deterministically bounded to 240 characters. This evidence comes from the query-only review snapshot and does not increment access metadata.
+
+Deferred work includes lifecycle-rule precision, scoped contextual health, persisted baselines or suppressions, and scaling pairwise SimHash comparison.
 
 ### Examples
 

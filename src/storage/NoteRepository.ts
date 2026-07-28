@@ -993,6 +993,21 @@ export class NoteRepository {
     this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(hash, noteId);
   }
 
+  /** Query-only canonical input for one duplicate audit invocation. */
+  getDuplicateAuditSnapshot(): Array<NoteMetadata & { content_hash?: string | null }> {
+    type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string; content_hash?: string | null };
+    const rows = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE status != 'archived' AND kind NOT IN ('index', 'log')
+      ORDER BY id ASC
+    `).all() as NoteRow[];
+    return rows.map(row => ({
+      ...row,
+      kind: (row.kind || 'observation') as NoteKind,
+      tags: JSON.parse(row.tags),
+    }));
+  }
+
   getNotesWithoutContentHash(limit: number = 100): NoteMetadata[] {
     type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string };
 

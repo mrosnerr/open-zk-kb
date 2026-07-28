@@ -1195,11 +1195,12 @@ describe('MCP Tool: knowledge-maintain', () => {
 
     expect(result).toContain('permanent - protected');
     expect(result).toContain('⚠ Permanent notes (⦸) are never auto-archived');
-    expect(result).toContain(`Archive ${duplicate.id}`);
+    expect(result).toContain(duplicate.id);
+    expect(result).not.toContain(`Archive ${duplicate.id}`);
     expect(result).not.toContain(`Archive ${permanent.id}`);
   });
 
-  it('dedupe backfills missing hashes and reports SimHash near-duplicates', async () => {
+  it('dedupe computes missing hashes ephemerally and reports SimHash near-duplicates', async () => {
     ctx.engine.clearAll();
 
     ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', { tags: ['project:test-project'],
@@ -1215,9 +1216,12 @@ describe('MCP Tool: knowledge-maintain', () => {
 
     const result = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
 
-    expect(result).toContain('Backfilled 2 content hashes');
+    expect(result).toContain('computed-ephemerally=2');
+    expect(result).toContain('omitted=0');
     expect(result).toContain('Content-Based Near-Duplicates');
-    expect(result).toContain('(near-duplicate)');
+    expect(result).toContain('distance-from-seed=0');
+    const snapshot = ctx.engine.getDuplicateAuditSnapshot();
+    expect(snapshot.every(row => row.content_hash == null)).toBe(true);
   });
 });
 

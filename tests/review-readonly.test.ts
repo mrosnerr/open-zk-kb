@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { buildReviewSnapshot } from '../src/review/facts';
 import { createRepositoryReviewReader } from '../src/review/reader';
 import { evaluateReview } from '../src/review/registry';
+import { handleMaintain } from '../src/tool-handlers';
 import { cleanupTestHarness, createTestHarness, listAllNoteFiles, type TestContext } from './harness';
 
 function fileSnapshot(ctx: TestContext): Record<string, string> {
@@ -52,4 +53,21 @@ describe('vault-review core: read-only state', () => {
     expect(fileSnapshot(ctx)).toEqual(beforeFiles);
     expect(databaseSnapshot(ctx)).toEqual(beforeDatabase);
   });
+
+  it('leaves files and all relevant logical tables unchanged during a dedupe preview', async () => {
+    cleanupTestHarness(ctx);
+    ctx = createTestHarness({ telemetryEnabled: false });
+    ctx.engine.store('Duplicate body for audit.', { title: 'Duplicate Audit', kind: 'reference', tags: ['project:demo'] });
+    ctx.engine.store('Duplicate body for audit.', { title: 'Duplicate Audit', kind: 'reference', tags: ['project:demo'] });
+
+    const beforeFiles = fileSnapshot(ctx);
+    const beforeDatabase = databaseSnapshot(ctx);
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+
+    expect(output).toContain('status=complete');
+    expect(output).toContain('Title-Based Duplicates');
+    expect(fileSnapshot(ctx)).toEqual(beforeFiles);
+    expect(databaseSnapshot(ctx)).toEqual(beforeDatabase);
+  });
+
 });

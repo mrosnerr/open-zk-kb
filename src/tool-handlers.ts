@@ -42,6 +42,7 @@ import {
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
+import { evaluateDuplicates } from './maintenance/duplicates.js';
 import type { EmbeddingConfig } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
 import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
@@ -75,6 +76,16 @@ export { KIND_WORD_GUIDELINES, ABSOLUTE_WARN_THRESHOLD, TITLE_SOFT_WARN_WORDS, T
 
 const EMBEDDING_BACKFILL_BATCH_SIZE = 50;
 const EMBEDDING_FOREGROUND_TIMEOUT_MS = 10_000;
+const REVIEW_EVIDENCE_MAX_CHARS = 240;
+
+function boundedReviewEvidence(value: string | undefined, maxChars = REVIEW_EVIDENCE_MAX_CHARS): string | undefined {
+  if (!value) return undefined;
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  if (maxChars <= 0) return undefined;
+  return normalized.length <= maxChars
+    ? normalized
+    : `${normalized.slice(0, maxChars - 1).trimEnd()}…`;
+}
 
 // ---- Helper functions ----
 
@@ -1626,7 +1637,7 @@ function publicationValidation(source: NoteMetadata | null, candidate: PublishGl
   return { errors: [...new Set(errors)], duplicates, projectReferences, outboundLinks };
 }
 
-export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
+export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null, nowProvider: () => number = Date.now): Promise<string> {
   // Contextual link-health actions defer this write until evaluation
   // completes, recording excluded-candidate count as `result_count`.
   if (!CONTEXTUAL_LINK_ACTIONS.has(args.action)) {
@@ -1908,7 +1919,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const daysThreshold = args.days || config.lifecycle.reviewAfterDays;
       const limit = args.limit || 3;
       const archiveDays = Math.max(1, config.lifecycle.autoArchiveFleetingDays);
-      const now = Date.now();
+      const now = nowProvider();
       const scope: ReviewScope = { kind: 'full' };
       const snapshot = buildReviewSnapshot(createRepositoryReviewReader(repo), scope, now);
       const factsById = new Map(snapshot.map(fact => [fact.note.id, fact] as const));
@@ -1962,6 +1973,18 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
           output += `### [${i + 1}] "${note.title}" (${note.id})\n`;
           output += `kind: ${note.kind} | status: ${note.status} | staleness: ${fact.staleDays} days\n`;
           output += `Accesses: ${note.access_count} | Backlinks: ${backlinkSignal} | Words: ${wordSignal}\n`;
+          const hasSummary = Boolean(note.summary?.trim());
+          const hasGuidance = Boolean(note.guidance?.trim());
+          const fieldBudget = hasSummary && hasGuidance
+            ? Math.floor(REVIEW_EVIDENCE_MAX_CHARS / 2)
+            : REVIEW_EVIDENCE_MAX_CHARS;
+          const summary = boundedReviewEvidence(note.summary, fieldBudget);
+          const guidance = boundedReviewEvidence(note.guidance, fieldBudget);
+          if (summary) output += `Summary: ${summary}\n`;
+          if (guidance) output += `Guidance: ${guidance}\n`;
+          if (!summary && !guidance) {
+            output += `Evidence: ${boundedReviewEvidence(note.content) ?? '(no textual evidence)'}\n`;
+          }
           if (resolution) output += `⮕ Suggested: ${resolution.label} — ${resolution.rationale}\n\n`;
         }
 
@@ -2000,7 +2023,11 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         for (const finding of staleForArchive) {
           const fact = factsById.get(finding.primary.id);
           if (!fact) continue;
-          output += `- "${fact.note.title}" (${fact.note.kind}) — ${fact.staleDays} days old [${fact.note.id}]\n`;
+          const evidence = boundedReviewEvidence(fact.note.summary)
+            ?? boundedReviewEvidence(fact.note.guidance)
+            ?? boundedReviewEvidence(fact.note.content)
+            ?? '(no textual evidence)';
+          output += `- "${fact.note.title}" (${fact.note.kind}) — ${fact.staleDays} days old [${fact.note.id}] — Evidence: ${evidence}\n`;
         }
         output += '\n';
       }
@@ -2010,99 +2037,48 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'dedupe': {
-      const unhashed = repo.getNotesWithoutContentHash(500);
-      let backfilled = 0;
-      for (const note of unhashed) {
-        const hashContent = note.summary || note.content || note.title;
-        if (!hashContent) continue;
-        const hash = computeSimHash(hashContent);
-        repo.updateContentHash(note.id, hash);
-        backfilled++;
-      }
-      if (backfilled > 0) {
-        logToFile('INFO', 'Backfilled content hashes during dedupe', { count: backfilled });
-      }
-
-      const titleDuplicates = repo.findDuplicates();
-      const simhashDuplicates = repo.findSimHashDuplicates();
-
-      if (titleDuplicates.size === 0 && simhashDuplicates.size === 0) {
-        const backfillMsg = backfilled > 0 ? ` Backfilled ${backfilled} content hash${backfilled === 1 ? '' : 'es'}.` : '';
-        return `No duplicate notes found.${backfillMsg}`;
-      }
-
+      const evaluation = evaluateDuplicates(repo.getDuplicateAuditSnapshot());
+      const { coverage } = evaluation;
       let output = '## Duplicate Detection\n\n';
-      if (backfilled > 0) {
-        output += `*Backfilled ${backfilled} content hash${backfilled === 1 ? '' : 'es'} for SimHash comparison.*\n\n`;
+      output += `Coverage: eligible=${coverage.eligible} | hashed-at-start=${coverage.hashedAtStart} | computed-ephemerally=${coverage.computedEphemerally} | evaluated=${coverage.evaluated} | omitted=${coverage.omitted} | status=${coverage.complete ? 'complete' : 'incomplete'}\n`;
+      if (coverage.omitted > 0) output += `Omission reasons: ${JSON.stringify(coverage.omissionReasons)}\n`;
+      output += `Groups: exact-title=${evaluation.titleGroups.length} | SimHash=${evaluation.simhashGroups.length} (complete totals)\n\n`;
+
+      if (evaluation.titleGroups.length === 0 && evaluation.simhashGroups.length === 0) {
+        return `${output}No duplicate notes found.`;
       }
 
-      if (titleDuplicates.size > 0) {
-        output += `### Title-Based Duplicates (${titleDuplicates.size} groups)\n\n`;
-
-        let groupNum = 1;
-        for (const [, notes] of titleDuplicates) {
-          output += `**Group ${groupNum}: "${notes[0].title}" (${notes.length} notes)**\n`;
-          notes.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
-
-          for (let i = 0; i < notes.length; i++) {
-            const note = notes[i];
-            const isPermanent = note.status === 'permanent';
-            const marker = isPermanent ? '⦸ (permanent - protected)' : (i === 0 ? '(keep)' : '(duplicate)');
-            output += `- ${note.id} | ${note.status} | ${note.access_count || 0} accesses | ${marker}\n`;
+      if (evaluation.titleGroups.length > 0) {
+        output += `### Title-Based Duplicates (${evaluation.titleGroups.length} groups)\n\n`;
+        for (const [index, group] of evaluation.titleGroups.slice(0, 10).entries()) {
+          output += `**Group ${index + 1}: normalized title "${group.normalizedTitle}" (${group.notes.length} notes)**\n`;
+          for (const note of group.notes) {
+            const protectedStatus = note.status === 'permanent' ? ' | ⦸ permanent - protected' : '';
+            output += `- ${note.id} | "${note.title}" | ${note.status}${protectedStatus}\n`;
           }
-
-          const archivable = notes.filter((n, i) => i > 0 && n.status !== 'permanent');
-          if (archivable.length > 0) {
-            output += `\n**Recommendation:** Archive ${archivable.map((n) => n.id).join(', ')}\n`;
-          } else {
-            output += '\n**Note:** All duplicates are permanent — manual review needed.\n';
-          }
-
           output += '\n';
-          groupNum++;
-
-          if (groupNum > 10) {
-            output += `... and ${titleDuplicates.size - 10} more groups.\n\n`;
-            break;
-          }
         }
+        if (evaluation.titleGroups.length > 10) output += `... and ${evaluation.titleGroups.length - 10} more groups.\n\n`;
       }
 
-      if (simhashDuplicates.size > 0) {
-        output += `### Content-Based Near-Duplicates (${simhashDuplicates.size} groups)\n\n`;
-
-        let groupNum = 1;
-        for (const [, notes] of simhashDuplicates) {
-          output += `**Group ${groupNum} (${notes.length} notes)**\n`;
-          notes.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
-
-          for (let i = 0; i < notes.length; i++) {
-            const note = notes[i];
-            const isPermanent = note.status === 'permanent';
-            const marker = isPermanent ? '⦸ (permanent - protected)' : (i === 0 ? '(keep)' : '(near-duplicate)');
-            output += `- ${note.id} | "${note.title}" | ${note.status} | ${marker}\n`;
+      if (evaluation.simhashGroups.length > 0) {
+        output += `### Content-Based Near-Duplicates (${evaluation.simhashGroups.length} groups; SimHash threshold ≤ ${evaluation.threshold})\n\n`;
+        for (const [index, group] of evaluation.simhashGroups.slice(0, 10).entries()) {
+          output += `**Group ${index + 1}: seed ${group.seedId} (${group.notes.length} notes)**\n`;
+          for (const note of group.notes) {
+            const evidence = group.evidence.find(item => item.noteId === note.id);
+            const distance = evidence ? ` | distance-from-seed=${evidence.distanceFromSeed}` : ' | seed';
+            const protectedStatus = note.status === 'permanent' ? ' | ⦸ permanent - protected' : '';
+            output += `- ${note.id} | "${note.title}" | ${note.status}${distance}${protectedStatus}\n`;
           }
-
-          const archivable = notes.filter((n, i) => i > 0 && n.status !== 'permanent');
-          if (archivable.length > 0) {
-            output += `\n**Recommendation:** Archive ${archivable.map((n) => n.id).join(', ')}\n`;
-          }
-
           output += '\n';
-          groupNum++;
-
-          if (groupNum > 10) {
-            output += `... and ${simhashDuplicates.size - 10} more groups.\n\n`;
-            break;
-          }
         }
+        if (evaluation.simhashGroups.length > 10) output += `... and ${evaluation.simhashGroups.length - 10} more groups.\n\n`;
       }
 
-      output += '## Next Steps:\n';
-      output += '[A] Archive specific duplicate (requires --noteId)\n';
-      output += '[B] View specific note details (use knowledge-search)\n';
-      output += '\n⚠ Permanent notes (⦸) are never auto-archived. Promote the best version before archiving others.\n';
-
+      output += 'Findings are similarity evidence for review, not confirmed semantic duplicates.\n';
+      output += 'Actions remain explicit: `knowledge-maintain archive/delete` with noteId=<id>.\n';
+      output += '⚠ Permanent notes (⦸) are never auto-archived.\n';
       return output;
     }
     case 'embed': {

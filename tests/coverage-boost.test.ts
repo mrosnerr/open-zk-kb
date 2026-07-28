@@ -823,7 +823,7 @@ describe('Tool Handlers — Coverage Boost', () => {
       const output = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
       expect(output).toContain('Title-Based Duplicates');
       expect(output).toContain('Same Title');
-      expect(output).toContain('Recommendation');
+      expect(output).toContain('Findings are similarity evidence for review');
     });
   });
 

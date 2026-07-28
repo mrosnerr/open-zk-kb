@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 import type { ContextualLinkReadResult, ContextualLinkResolution } from '../src/link-health/types';
+import { evaluateDuplicates } from '../src/maintenance/duplicates';
 import { extractContextualMarkdownFacts } from '../src/markdown/contextual-facts';
 import { buildReviewSnapshot } from '../src/review/facts';
 import { materializeGraphReview } from '../src/review/graph';
@@ -335,6 +336,33 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
       });
       console.log(`  findSimHashDuplicates (200 notes): ${elapsed.toFixed(2)}ms`);
       expect(elapsed).toBeLessThan(100);
+    });
+
+    it('complete ephemeral duplicate audit (1000 notes) < 1500ms', () => {
+      const notes = Array.from({ length: 1000 }, (_, index): NoteMetadata => ({
+        id: String(index).padStart(16, '0'),
+        path: `/note-${index}.md`,
+        title: `Ephemeral Note ${index}`,
+        kind: 'reference',
+        status: 'fleeting',
+        lifecycle: 'living',
+        type: 'atomic',
+        tags: [],
+        content: fakeContent(index, 100),
+        summary: '',
+        guidance: '',
+        created_at: 1,
+        updated_at: 1,
+        word_count: 100,
+      }));
+
+      let evaluated = 0;
+      const elapsed = timeSync(() => {
+        evaluated = evaluateDuplicates(notes).coverage.evaluated;
+      });
+      console.log(`  Complete ephemeral duplicate audit (1000 notes): ${elapsed.toFixed(2)}ms`);
+      expect(evaluated).toBe(1000);
+      expect(elapsed).toBeLessThan(1500);
     });
 
     it('getRelevantNotesForContext (200 notes) < 50ms', () => {
