@@ -183,16 +183,19 @@ Global publication uses `publish-global`. Author a complete project-agnostic der
 **Suggested actions are hints, not commands** — always apply your own judgment.
 
 ### Mining Session History
-Use `knowledge-mine` to bootstrap the KB from past sessions. Bulk-screens candidates for duplicates, returns STORE/SKIP/REVIEW per candidate.
+Use `knowledge-mine` to bootstrap the KB from past sessions. It bulk-screens candidates and reports STORE/SKIP/REVIEW evidence, but classifications never authorize mutation by themselves.
 
 **Workflow**:
 1. Enumerate sessions: `session_list` (filter by date/project)
-2. Read in batches of 5-10: `session_read` per session
-3. Extract candidates — decisions, observations, procedures, resources, personalizations
-4. `knowledge-mine(project: "<current-project>", candidates: [...], dry_run: true)` → preview
-5. Review classifications, edit if needed
-6. `knowledge-mine(project: "<current-project>", candidates: [...], dry_run: false)` → store
+2. Read in batches of 5–10: `session_read` per session
+3. Extract candidates that pass the precision gate — decisions, observations, procedures, resources, and personalizations
+4. Call `knowledge-mine(project: "<current-project>", candidates: [...], dry_run: true)` with no dispositions; retain each deterministic candidate key
+5. Judge each candidate and submit explicit candidate-keyed `store`, `update`, or `skip` dispositions. Leave uncertain or REVIEW candidates unspecified. Updates require the selected `noteId` and `expectedUpdatedAt`
+6. Review the mutation-free normalized plan and batch token
+7. Apply the unchanged ordered candidates and dispositions with `dry_run: false`, `confirm: true`, and that batch token
 
-**Tips**: Batch sessions (5-10) to stay within context. Include `source` for provenance. Pass `project` to scope all candidates. Max 50 per call.
+Never call `dry_run: false` without a reviewed plan; that legacy form now returns a zero-mutation migration response. If apply reports a partial failure, reconcile the completed prefix and ambiguous remainder before retrying—there is no automatic rollback or idempotency guarantee.
+
+**Tips**: Batch sessions (5–10) to stay within context. Include `source` for provenance. Pass `project` to scope all candidates. Maximum 50 per call.
 
 For detailed kind descriptions and examples, see [kinds-reference.md](kinds-reference.md).

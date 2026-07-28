@@ -4,6 +4,7 @@
 
 import { Database } from 'bun:sqlite';
 import { createHash } from 'crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import * as fs from 'fs';
 import * as path from 'path';
 import YAML from 'yaml';
@@ -25,6 +26,8 @@ import {
 } from './path-resolver.js';
 import type { ConformanceRecord, ConformanceAggregates } from '../template-handler.js';
 import { parseKnowledgeApplicability, type VisibilityOptions } from '../knowledge-scope.js';
+import { computeSimHash } from '../utils/simhash.js';
+import { normalizeScreeningTitle, type ScreeningSnapshot } from '../reviewed-storage.js';
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -67,6 +70,11 @@ export interface StoreResult {
   path: string;
   id: string;
   previousPath?: string;
+}
+
+export interface KnowledgeMutationContext {
+  getScreeningSnapshot(visibility: VisibilityOptions): ScreeningSnapshot;
+  store(contentOrOptions: string | (StoreOptions & { content?: string }), optionsArg?: StoreOptions): StoreResult;
 }
 
 export interface StoreOptions {
@@ -141,6 +149,10 @@ function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
   throw new Error('unreachable');
 }
 
+function stripGeneratedRelatedSection(content: string): string {
+  return content.replace(/\n\n## Related\n(?:- .*\n?)+$/u, '');
+}
+
 function computeEmbeddingSourceHash(title: string, summary: string, content: string): string {
   return createHash('sha256')
     .update(title)
@@ -162,6 +174,8 @@ export class NoteRepository {
   protected schemaManager: SchemaManager;
   private readonly sessionId: string;
   private readonly telemetryEnabled: boolean;
+  private readonly mutationLockOwners = new Map<string, string>();
+  private readonly mutationLockContext = new AsyncLocalStorage<KnowledgeMutationContext>();
 
   constructor(docsPath: string = '~/.local/share/open-zk-kb', options: { telemetryEnabled?: boolean; readonly?: boolean } = {}) {
     try {
@@ -638,6 +652,50 @@ export class NoteRepository {
     contentOrOptions: string | (StoreOptions & { content?: string }),
     optionsArg?: StoreOptions
   ): StoreResult {
+    return this.withKnowledgeMutationLock(context => context.store(contentOrOptions, optionsArg));
+  }
+
+  /**
+   * Runs final reviewed validation and its canonical write under one vault-wide lock.
+   * The supplied context deliberately uses the unlocked primitive to avoid reentrant deadlock.
+   */
+  withKnowledgeMutationLock<T>(operation: (context: KnowledgeMutationContext) => T): T {
+    const activeContext = this.mutationLockContext.getStore();
+    if (activeContext) return operation(activeContext);
+    const lockPath = path.join(this.docsPath, '.index', 'knowledge-mutation.lock');
+    this.acquireMutationLock(lockPath);
+    const context = this.knowledgeMutationContext();
+    try {
+      return this.mutationLockContext.run(context, () => operation(context));
+    } finally {
+      this.releaseMutationLock(lockPath);
+    }
+  }
+
+  async withKnowledgeMutationLockAsync<T>(operation: (context: KnowledgeMutationContext) => Promise<T>): Promise<T> {
+    const activeContext = this.mutationLockContext.getStore();
+    if (activeContext) return operation(activeContext);
+    const lockPath = path.join(this.docsPath, '.index', 'knowledge-mutation.lock');
+    this.acquireMutationLock(lockPath);
+    const context = this.knowledgeMutationContext();
+    try {
+      return await this.mutationLockContext.run(context, () => operation(context));
+    } finally {
+      this.releaseMutationLock(lockPath);
+    }
+  }
+
+  private knowledgeMutationContext(): KnowledgeMutationContext {
+    return {
+      getScreeningSnapshot: visibility => this.getScreeningSnapshot(visibility),
+      store: (contentOrOptions, optionsArg) => this.storeUnlocked(contentOrOptions, optionsArg),
+    };
+  }
+
+  private storeUnlocked(
+    contentOrOptions: string | (StoreOptions & { content?: string }),
+    optionsArg?: StoreOptions
+  ): StoreResult {
     const now = Date.now();
 
     let content: string;
@@ -706,9 +764,9 @@ export class NoteRepository {
           );
         }
         if (existingLifecycle === 'append-only') {
-          const normalizedExisting = (existing.content || '').trimEnd();
-          const normalizedNew = content.trimEnd();
-          if (!normalizedNew.startsWith(normalizedExisting)) {
+          const normalizedExisting = stripGeneratedRelatedSection(existing.content || '').trimEnd();
+          const normalizedNew = stripGeneratedRelatedSection(content).trimEnd();
+          if (normalizedNew.length <= normalizedExisting.length || !normalizedNew.startsWith(normalizedExisting)) {
             throw new LifecycleViolationError(
               `Cannot modify append-only note "${existing.title}" [${existing.id}]. New content must strictly extend existing content — append only, do not rewrite.`
             );
@@ -782,7 +840,7 @@ export class NoteRepository {
       action: isUpdate ? 'updated' : 'created',
       path: filePath,
       id,
-      previousPath: isUpdate ? this.getById(id)?.path : undefined,
+      previousPath: isUpdate ? existingForVersion?.path : undefined,
     };
   }
 
@@ -976,6 +1034,117 @@ export class NoteRepository {
 
     const merged = [...scores.values()].sort((a, b) => b.score - a.score);
     return merged.slice(0, limit).map(entry => entry.note);
+  }
+
+  /** Copies all persisted screening inputs in one SQLite read transaction. */
+  getScreeningSnapshot(visibility: VisibilityOptions): ScreeningSnapshot {
+    type ScreeningRow = {
+      id: string; title: string; content: string; summary: string; guidance: string;
+      kind: NoteKind; status: NoteStatus; lifecycle: Lifecycle; tags: string;
+      updated_at: number; content_hash: string | null; embedding: Uint8Array | null;
+      embedding_model: string | null;
+    };
+    const read = this.db.transaction(() => {
+      const scope = this.visibilityPredicate('n', visibility);
+      const rows = this.db.prepare(`
+        SELECT id, title, content, summary, guidance, kind, status, lifecycle, tags,
+               updated_at, content_hash, embedding, embedding_model
+        FROM notes n
+        WHERE status != 'archived' AND kind NOT IN ('index', 'log')${scope.sql}
+        ORDER BY id ASC
+      `).all(...scope.params) as ScreeningRow[];
+      const links = this.db.prepare(`
+        SELECT source_id, target_id FROM note_links ORDER BY source_id, target_id
+      `).all() as Array<{ source_id: string; target_id: string }>;
+      const schemaVersion = (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+      return { rows, links, schemaVersion };
+    });
+    const copied = withBusyRetry(read);
+    const visibleIds = new Set(copied.rows.map(row => row.id));
+    const relatedBySource = new Map<string, string[]>();
+    for (const link of copied.links) {
+      if (!visibleIds.has(link.source_id) || !visibleIds.has(link.target_id)) continue;
+      const related = relatedBySource.get(link.source_id) ?? [];
+      related.push(link.target_id);
+      relatedBySource.set(link.source_id, related);
+    }
+    return {
+      schemaVersion: copied.schemaVersion,
+      notes: copied.rows.map(row => {
+        const contentHash = row.content_hash || computeSimHash(row.summary || row.content || row.title);
+        return {
+          id: row.id,
+          title: row.title,
+          normalizedTitle: normalizeScreeningTitle(row.title),
+          content: row.content,
+          summary: row.summary || '',
+          guidance: row.guidance || '',
+          kind: row.kind,
+          status: row.status,
+          lifecycle: row.lifecycle || 'living',
+          tags: [...JSON.parse(row.tags) as string[]],
+          related: relatedBySource.get(row.id) ?? [],
+          updatedAt: row.updated_at,
+          contentHash,
+          hashSource: row.content_hash ? 'stored' as const : 'ephemeral' as const,
+          embedding: row.embedding ? [...blobToEmbedding(row.embedding)] : undefined,
+          embeddingModel: row.embedding_model || undefined,
+        };
+      }),
+    };
+  }
+
+  private acquireMutationLock(lockPath: string): void {
+    const owner = crypto.randomUUID();
+    const startedAt = Date.now();
+    const maxAttempts = 40;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        fs.mkdirSync(lockPath);
+        fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt }), { flag: 'wx' });
+        this.mutationLockOwners.set(lockPath, owner);
+        return;
+      } catch (error) {
+        if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
+        this.recoverStaleMutationLock(lockPath);
+        if (attempt < maxAttempts - 1) Bun.sleepSync(Math.min(10 + attempt * 5, 100));
+      }
+    }
+    throw new Error(`Timed out acquiring knowledge mutation lock at ${lockPath}`);
+  }
+
+  private recoverStaleMutationLock(lockPath: string): void {
+    try {
+      const stat = fs.statSync(lockPath);
+      if (Date.now() - stat.mtimeMs < 30_000) return;
+      let owner: { pid?: number; startedAt?: number } | undefined;
+      try { owner = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8')) as typeof owner; } catch { /* malformed lock requires a longer grace period */ }
+      if (!owner?.pid || !owner.startedAt) {
+        if (Date.now() - stat.mtimeMs < 300_000) return;
+      } else {
+        try { process.kill(owner.pid, 0); return; } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== 'ESRCH') return;
+        }
+      }
+      const quarantine = `${lockPath}.stale-${crypto.randomUUID()}`;
+      fs.renameSync(lockPath, quarantine);
+      fs.rmSync(quarantine, { recursive: true, force: true });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'EEXIST') throw error;
+    }
+  }
+
+  private releaseMutationLock(lockPath: string): void {
+    const expected = this.mutationLockOwners.get(lockPath);
+    if (!expected) return;
+    try {
+      const actual = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8')) as { owner?: string };
+      if (actual.owner === expected) fs.rmSync(lockPath, { recursive: true, force: true });
+    } finally {
+      this.mutationLockOwners.delete(lockPath);
+    }
   }
 
   /**
@@ -1829,7 +1998,8 @@ export class NoteRepository {
     `).all(cutoff) as Array<{ arg_kind: string; count: number }>;
     const storesByKind: Record<string, number> = {};
     for (const row of storeRows) {
-      storesByKind[row.arg_kind] = row.count;
+      const kind = row.arg_kind.split(':', 1)[0];
+      storesByKind[kind] = (storesByKind[kind] ?? 0) + row.count;
     }
 
     const maintainRows = this.db.prepare(`

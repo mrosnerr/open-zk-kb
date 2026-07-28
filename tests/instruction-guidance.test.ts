@@ -116,11 +116,12 @@ describe('precision-first instruction contract', () => {
     expect(installed.every(item => item.instructionVersion === '1.4.2')).toBe(true);
   });
 
-  it('does not change the public knowledge-store schema', () => {
+  it('extends the public knowledge-store schema with optional reviewed operation fields', () => {
     const store = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-store');
     expect(store).toBeDefined();
     expect(Object.keys(store?.params ?? {})).toEqual([
       'title', 'content', 'kind', 'summary', 'guidance', 'status', 'lifecycle', 'tags', 'project', 'client', 'related', 'model',
+      'dryRun', 'disposition', 'noteId', 'expectedUpdatedAt', 'confirm', 'token',
     ]);
   });
 });

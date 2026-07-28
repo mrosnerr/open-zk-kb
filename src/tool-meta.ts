@@ -252,10 +252,14 @@ export const TOOL_DEFINITIONS = [
 			model: {
 				type: "string",
 				required: false,
-
-				description:
-					"Your model identifier (e.g. claude-opus-4, gpt-4o). Enables richer responses for capable models.",
+				description: "Your model identifier (e.g. claude-opus-4, gpt-4o).",
 			},
+			dryRun: { type: "boolean", required: false, description: "Screen without mutation." },
+			disposition: { type: "string", required: false, enum: ["create", "update", "skip"], description: "Explicit reviewed operation." },
+			noteId: { type: "string", required: false, description: "Reviewed update target ID." },
+			expectedUpdatedAt: { type: "number", required: false, description: "Optimistic update version from preview." },
+			confirm: { type: "boolean", required: false, description: "Confirm the reviewed operation." },
+			token: { type: "string", required: false, description: "Operation-specific token returned by preview." },
 		},
 	},
 
@@ -624,6 +628,18 @@ export const TOOL_DEFINITIONS = [
 				required: false,
 				description: "Preview dedup results without storing (default: true)",
 			},
+			dispositions: {
+				type: "array", required: false, description: "Candidate-keyed reviewed plan.",
+				items: { type: "object", required: true, properties: {
+					candidateKey: { type: "string", required: true },
+					action: { type: "string", required: true, enum: ["store", "update", "skip"] },
+					noteId: { type: "string", required: false },
+					expectedUpdatedAt: { type: "number", required: false },
+					token: { type: "string", required: false },
+				} },
+			},
+			batchToken: { type: "string", required: false, description: "Token binding the ordered batch and plan." },
+			confirm: { type: "boolean", required: false, description: "Confirm application of the reviewed plan." },
 			model: {
 				type: "string",
 				required: false,

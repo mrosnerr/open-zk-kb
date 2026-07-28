@@ -4087,20 +4087,24 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
       } | undefined;
       expect(schema?.properties?.candidates?.items?.properties?.project).toBeDefined();
 
+      const candidates = [{
+        title: 'Candidate Scoped Domain',
+        content: 'Candidate-only project context for MCP mining validation.',
+        kind: 'domain',
+        summary: 'Candidate-level domain project is accepted',
+        guidance: 'Use candidate project when mining domain notes',
+        project: 'candidate-only',
+      }];
+      const preview = await client.callTool({ name: 'knowledge-mine', arguments: { project: 'candidate-only', candidates } });
+      const previewText = (preview.content as Array<{ type: string; text: string }>)[0].text;
+      const candidateKey = /Candidate key: ([a-f0-9]{64})/.exec(previewText)?.[1];
+      if (!candidateKey) throw new Error('Expected mining candidate key');
+      const dispositions = [{ candidateKey, action: 'store' }];
+      const planResult = await client.callTool({ name: 'knowledge-mine', arguments: { project: 'candidate-only', candidates, dispositions } });
+      const plan = JSON.parse((planResult.content as Array<{ type: string; text: string }>)[0].text) as { batchToken: string };
       const mineResult = await client.callTool({
         name: 'knowledge-mine',
-        arguments: {
-          project: 'candidate-only',
-          dry_run: false,
-          candidates: [{
-            title: 'Candidate Scoped Domain',
-            content: 'Candidate-only project context for MCP mining validation.',
-            kind: 'domain',
-            summary: 'Candidate-level domain project is accepted',
-            guidance: 'Use candidate project when mining domain notes',
-            project: 'candidate-only',
-          }],
-        },
+        arguments: { project: 'candidate-only', candidates, dispositions, dry_run: false, confirm: true, batchToken: plan.batchToken },
       });
       const mineContent = mineResult.content as Array<{ type: string; text: string }>;
       expect(mineContent[0].text).toContain('✅ Stored as');

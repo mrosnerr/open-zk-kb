@@ -170,7 +170,7 @@ server:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
    - `knowledge-template` -- canonical note template for a kind
-   - `knowledge-mine` -- bulk-screen candidates for duplicates and store
+   - `knowledge-mine` -- bulk-screen candidates and apply an explicitly reviewed create/update/skip plan
    - `knowledge-health` -- vault health metrics, staleness, growth rate
    - `knowledge-maintain` -- review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML

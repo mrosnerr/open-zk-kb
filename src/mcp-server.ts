@@ -166,6 +166,12 @@ export function createMcpServer(): McpServer {
           client: args.client,
           related: args.related,
           model: args.model,
+          dryRun: args.dryRun,
+          disposition: args.disposition,
+          noteId: args.noteId,
+          expectedUpdatedAt: args.expectedUpdatedAt,
+          confirm: args.confirm,
+          token: args.token,
         }, await getOrCreateRepo(), getEmbeddingConfig(), config, gitVersioning);
         return { content: [{ type: 'text' as const, text: result }] };
       } catch (error) {
@@ -463,6 +469,9 @@ export function createMcpServer(): McpServer {
           project: args.project,
           client: args.client,
           dry_run: args.dry_run,
+          dispositions: args.dispositions,
+          confirm: args.confirm,
+          batchToken: args.batchToken,
           model: args.model,
         }, await getOrCreateRepo(), getEmbeddingConfig(), config, gitVersioning);
         return { content: [{ type: 'text' as const, text: result }] };

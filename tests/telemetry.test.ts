@@ -27,13 +27,26 @@ describe('local tool telemetry', () => {
 
     const rows = ctx.engine.getTelemetryRows();
     expect(rows.map(row => row.tool_name)).toEqual(['store', 'search', 'maintain']);
-    expect(rows[0].arg_kind).toBe('observation');
+    expect(rows[0].arg_kind).toBe('observation:create');
     expect(rows[0].result_count).toBe(1);
     expect(rows[1].arg_kind).toBeNull();
     expect(rows[1].result_count).toBe(1);
     expect(rows[2].arg_kind).toBe('review');
     expect(rows[2].result_count).toBeNull();
     expect(new Set(rows.map(row => row.session_id)).size).toBe(1);
+  });
+
+  it('records content-free reviewed store outcomes without candidate identity', async () => {
+    await handleStore({ project: 'test-project', title: 'Telemetry Review Target', content: 'telemetry collision content', kind: 'reference', summary: 'Telemetry collision summary.', guidance: 'Use telemetry target.' }, ctx.engine, null, ctx.config);
+    await handleStore({ project: 'test-project', title: 'Telemetry Review Target', content: 'replacement collision content', kind: 'reference', summary: 'Replacement collision summary.', guidance: 'Use replacement target.', dryRun: true }, ctx.engine, null, ctx.config);
+    await handleStore({ project: 'test-project', title: 'Skipped Telemetry Candidate', content: 'skipped telemetry content', kind: 'reference', summary: 'Skipped telemetry summary.', guidance: 'Skip telemetry candidate.', disposition: 'skip' }, ctx.engine, null, ctx.config);
+    await sleep(0);
+
+    const rows = ctx.engine.getTelemetryRows();
+    expect(rows.map(row => row.arg_kind)).toEqual(['reference:create', 'reference:collision-review', 'reference:skip']);
+    const serialized = JSON.stringify(rows);
+    expect(serialized).not.toContain('Telemetry Review Target');
+    expect(serialized).not.toContain('replacement collision content');
   });
 
   it('updates last_accessed_at only for returned search results', async () => {

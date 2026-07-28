@@ -408,6 +408,42 @@ Related notes:
     expect(expanded).not.toContain('Related notes');
   });
 
+  it('renders reviewed store and mining confirmations and partial failures', () => {
+    const review = JSON.stringify({
+      mutated: false,
+      state: 'review-required',
+      evidence: { matches: [{ id: '2026071801234500' }] },
+      createToken: 'create-token',
+      updateTokens: [{ id: '2026071801234500', token: 'update-token' }],
+    });
+    const collapsedStore = render('knowledge-store', review, false, storeArgs);
+    expect(collapsedStore).toContain('Review required · no mutation · 1 collision');
+    expect(collapsedStore).not.toContain('create-token');
+    const cleanPreview = JSON.stringify({ mutated: false, state: 'preview', evidence: { matches: [] }, createToken: 'clean-create-token', updateTokens: [] });
+    const collapsedPreview = render('knowledge-store', cleanPreview, false, storeArgs);
+    expect(collapsedPreview).toContain('Preview complete · no mutation');
+    expect(collapsedPreview).not.toContain('clean-create-token');
+    expect(render('knowledge-store', cleanPreview, true, storeArgs)).toContain('create token: clean-create-token');
+
+    const expandedStore = render('knowledge-store', review, true, storeArgs);
+    expect(expandedStore).toContain('create token: create-token');
+    expect(expandedStore).toContain('update targets: 1');
+
+    const plan = JSON.stringify({ mutated: false, state: 'plan-ready', batchToken: 'batch-token', plan: [{ action: 'store' }] });
+    expect(render('knowledge-mine', plan, false)).toContain('Reviewed plan ready · 1 disposition');
+    expect(render('knowledge-mine', plan, true)).toContain('batch token: batch-token');
+
+    const partial = JSON.stringify({
+      mutated: true,
+      state: 'partial-failure',
+      completed: [{ candidateKey: 'first', action: 'store' }],
+      message: 'Completed operations were not rolled back.',
+    });
+    const renderedPartial = render('knowledge-mine', partial, true);
+    expect(renderedPartial).toContain('Partial failure · 1 completed');
+    expect(renderedPartial).toContain('not rolled back');
+  });
+
   it('preserves complete malformed and error responses', () => {
     const malformed = 'raw response for Array<T> and literal <Component>\nsecond line\nfinal diagnostic';
     expect(render('knowledge-search', malformed, false)).toContain(malformed);
