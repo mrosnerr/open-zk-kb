@@ -1,11 +1,16 @@
 ## Knowledge Base (open-zk-kb)
 Persistent cross-session memory via `knowledge-*` MCP tools.
-**Pre-flight before work:**
-`knowledge-search` for relevant context.
-Pass the current project explicitly on every routine stored-knowledge call; follow each note's `<guidance>`.
-**`knowledge-store` immediately, never defer:**
-- enduring preference/correction → project-local personalization, optionally restricted by client. Apply durability within its declared scope: it must outlast the current task and transient implementation/configuration/subscription. Otherwise use decision/reference/domain instead. Weighed choice → decision; non-obvious gotcha → observation; looked up twice → reference; multi-step workflow discovered → procedure; useful URL → resource (`knowledge-ingest` first).
-**Each note:** one concept only.
-Include a `summary` and imperative `guidance`.
-**Project session start:** `knowledge-context` with the current project. Routine capture is project-local; never create global knowledge with `knowledge-store` or `knowledge-mine`. Global publication is maintenance-only: author a project-agnostic derivative, preview `publish-global`, show the evidence, and apply only after user confirmation. Maintenance remains full-vault and must classify legacy unscoped notes instead of treating them as global.
+**Before work:** search project-visible knowledge with `knowledge-search` and follow relevant guidance.
+
+**Precision-first capture (default: no new note):** Call `knowledge-store` for routine agent-initiated knowledge only when all four gates pass:
+- **Novel:** search found no adequate existing note.
+- **Durable:** useful beyond this task and transient branch, session, subscription, or configuration.
+- **Behavior-changing:** materially changes a future decision or action.
+- **Canonical here:** the knowledge base is a better home than code, tests, Git, issues, OpenSpec, documentation, generated logs, or another note.
+
+Do not routinely capture progress, completed-work or release summaries, cleanup reports, commits, milestones, immediately resolved findings, transient research, or facts authoritative elsewhere. Zero captures is a successful result. When a candidate qualifies, capture it before its evidence is lost; do not harvest indiscriminately at session end. Explicit requests to remember enduring qualified knowledge receive prompt handling, subject to safety, scope, novelty, and canonical-note checks.
+
+Search before creating. Reuse an adequate existing note; use a supported reviewed update for a canonical living note when available. If no safe update path exists, do not create a duplicate. Normally create zero or one agent-initiated note per task; separate genuinely independent durable concepts need separate justification. Each note is one concept with `summary` and imperative `guidance`.
+
+**Project scope:** pass the current project on routine calls; never create global knowledge routinely. `index` and `log` are server-generated and must not be created manually.
 **Full detail:** `knowledge-template --kind {kind}` and the `open-zk-kb` skill where supported.

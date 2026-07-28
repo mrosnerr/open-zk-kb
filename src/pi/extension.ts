@@ -427,7 +427,7 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
       const additions: string[] = [];
       if (!hasGuidance) {
         additions.push(
-          'Open-zk-kb persistent memory is available through the knowledge-* tools. Search first with knowledge-search when prior context may matter, pass client: "pi", and store durable user preferences, decisions, procedures, observations, references, and resources with knowledge-store.',
+          'Open-zk-kb persistent memory is available through the knowledge-* tools. Search project knowledge first. Routine storage defaults to no new note and requires novelty, durability, future behavioral value, and a canonical home here; exclude progress, transient outcomes, and authoritative records elsewhere. Explicit qualified memory requests should be handled promptly.',
         );
       }
       if (capsule) additions.push(`Personalization preferences:\n${capsule}`);

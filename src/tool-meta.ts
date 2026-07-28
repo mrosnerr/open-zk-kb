@@ -177,9 +177,9 @@ export const TOOL_DEFINITIONS = [
 			"Store knowledge in the persistent Zettelkasten knowledge base. One concept per note." +
 			CONTENT_STRUCTURE_HINTS,
 		promptSnippet:
-			"Store or update durable cross-session memory in open-zk-kb.",
+			"Store qualified durable cross-session memory in open-zk-kb.",
 		promptGuidelines: [
-			"Use knowledge-store immediately when the user asks you to remember a preference, decision, procedure, observation, reference, or useful resource.",
+			"Use knowledge-store promptly when the user explicitly asks you to remember qualified enduring knowledge; apply the precision gate and do not store transient or authoritative-elsewhere content.",
 		],
 		executionMode: "sequential",
 		params: {
@@ -266,7 +266,7 @@ export const TOOL_DEFINITIONS = [
 			"Extract article content as clean markdown. Returns title, content, word count, and metadata. " +
 			"PREFER passing html from your own web tools (Playwright, Exa, web_fetch) — the built-in url fetcher " +
 			"is a basic fallback that cannot render JavaScript or bypass bot protection. " +
-			"Use the extracted content to create notes via knowledge-store.",
+			"Treat extracted content as a candidate; store it only when it passes the precision gate.",
 		promptSnippet:
 			"Extract URL or HTML content before storing useful resources in open-zk-kb.",
 		executionMode: "parallel",

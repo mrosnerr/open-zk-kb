@@ -193,7 +193,8 @@ describe('Pi extension', () => {
       const promptResult = await promptHandler?.({
         systemPrompt: 'Base prompt',
       });
-      expect(promptResult?.systemPrompt).toContain('client: "pi"');
+      expect(promptResult?.systemPrompt).toContain('Routine storage defaults to no new note');
+      expect(promptResult?.systemPrompt).not.toContain('Pass client: "pi"');
       expect(promptResult?.systemPrompt).toContain('[universal] Keep answers concise.');
 
       const dedupedPrompt = await promptHandler?.({

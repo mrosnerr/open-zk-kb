@@ -1002,7 +1002,8 @@ describe('MCP Tool: knowledge-maintain', () => {
       expect(output).toContain('Result: updated');
       expect(content).toContain('<!-- OPEN-ZK-KB:START v1.2.0 -- managed by open-zk-kb, do not edit -->');
       expect(content).toContain('Persistent cross-session memory via `knowledge-*` MCP tools.');
-      expect(content).toContain('`knowledge-search` for relevant context.');
+      expect(content).toContain('search project-visible knowledge with `knowledge-search`');
+      expect(content).toContain('Precision-first capture (default: no new note)');
       expect(content).toContain('`skill://open-zk-kb`.');
       expect(content).not.toContain('`knowledge-template --kind {kind}`');
       expect(content).not.toContain('ALWAYS use the open-zk-kb MCP tools for persistent memory across sessions.');

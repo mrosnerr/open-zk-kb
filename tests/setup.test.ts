@@ -124,7 +124,6 @@ function runSetupCli(
 }
 
 
-const MANAGED_BLOCK_LINE_COUNT = 13;
 
 function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
   const block = content.match(
@@ -134,25 +133,32 @@ function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
   expect(block).toBeDefined();
   if (!block) throw new Error('Expected an open-zk-kb managed instruction block');
 
-  expect(block.split('\n')).toHaveLength(MANAGED_BLOCK_LINE_COUNT);
+  expect(block.split('\n').length).toBeGreaterThan(12);
   expect(block).toContain('Persistent cross-session memory via `knowledge-*` MCP tools.');
-  expect(block).toContain('`knowledge-search` for relevant context.');
-  expect(block).toContain("Pass the current project explicitly on every routine stored-knowledge call; follow each note's `<guidance>`.");
-  expect(block).toContain('Routine capture is project-local; never create global knowledge with `knowledge-store` or `knowledge-mine`.');
-  expect(block).toContain('preview `publish-global`');
-  expect(block).toContain('Maintenance remains full-vault and must classify legacy unscoped notes');
-  expect(block).toContain('`knowledge-store` immediately, never defer:');
-  expect(block).toContain('useful URL → resource (`knowledge-ingest` first).');
-  expect(block).toContain('**Each note:** one concept only.');
-  expect(block).toContain('Include a `summary` and imperative `guidance`.');
-  expect(block).toContain('**Project session start:** `knowledge-context` with the current project.');
+  expect(block).toContain('search project-visible knowledge with `knowledge-search`');
+  expect(block).toContain('Precision-first capture (default: no new note)');
+  expect(block).toContain('Call `knowledge-store`');
+  expect(block).toContain('**Novel:**');
+  expect(block).toContain('**Durable:**');
+  expect(block).toContain('**Behavior-changing:**');
+  expect(block).toContain('**Canonical here:**');
+  expect(block).toContain('Zero captures is a successful result.');
+  expect(block).toContain('Do not routinely capture progress');
+  expect(block).toContain('completed-work or release summaries');
+  expect(block).toContain('Reuse an adequate existing note');
+  expect(block).toContain('supported reviewed update');
+  expect(block).toContain('If no safe update path exists, do not create a duplicate.');
+  expect(block).toContain('Each note is one concept with `summary` and imperative `guidance`.');
+  expect(block).toContain('pass the current project on routine calls; never create global knowledge routinely');
+  expect(block).toContain('`index` and `log` are server-generated');
   expect(block).toContain(
     usesOmpSkill
       ? '`skill://open-zk-kb`.'
       : '`knowledge-template --kind {kind}` and the `open-zk-kb` skill where supported.'
   );
   expect(block).not.toContain('Capture Checkpoints');
-  expect(block).toContain('never create global knowledge with `knowledge-store` or `knowledge-mine`');
+  expect(block).not.toContain('store immediately, never defer');
+  expect(block).not.toContain('Maintenance remains full-vault');
   expect(block).not.toContain('knowledge-maintain');
 }
 

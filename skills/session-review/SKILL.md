@@ -12,12 +12,8 @@ Scan the conversation for moments where prior context would have helped — debu
 - If called, was the query specific enough to surface relevant notes?
 - Were results used or ignored?
 
-## 2. Capture completeness
-
-Identify learnings, decisions, corrections, preferences, gotchas, and workflows that emerged during this session. For each:
-- Was it stored with knowledge-store?
-- If not, should it have been? Store it now if so.
-- Was it stored promptly, or deferred past the point where context was fresh?
+## 2. Capture precision
+First inspect session-created notes for overcapture: progress, transient outcomes, redundant concepts, immediately resolved findings, or facts better housed in code, Git, issues, OpenSpec, documentation, or logs. Report defects, but keep archive/delete changes subject to approval. Then identify only missed candidates that pass novelty, durability, behavioral-value, and canonical-home gates. Do not store plausible candidates automatically. Zero qualifying candidates is a successful review.
 
 ## 3. Storage quality
 
@@ -35,7 +31,7 @@ Summarize as a scorecard:
 | Area | Score | Notes |
 |------|-------|-------|
 | Search discipline | 🟢/🟡/🔴 | |
-| Capture completeness | 🟢/🟡/🔴 | |
+| Capture precision | 🟢/🟡/🔴 | |
 | Storage quality | 🟢/🟡/🔴 | |
 
-Then list specific actions taken (notes stored, searches that should have happened) and any remaining gaps.
+Then list specific actions taken, qualified notes stored this session, searches that should have happened, and any remaining gaps. Capture count is not a success metric.

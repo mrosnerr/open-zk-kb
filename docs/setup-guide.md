@@ -196,11 +196,11 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | Pi | Managed block | `~/.pi/agent/AGENTS.md` |
 | OMP | Skill + Preflight rule + TTSR rule | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/rules/open-zk-kb.md` + `~/.omp/agent/rules/open-zk-kb-enforce.md` |
 
-Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets three layers: a skill (detailed tool reference, loaded on-demand), an always-apply preflight rule (tiny, tells the agent to search KB in parallel with first exploration), and a TTSR enforcement rule (see below).
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets three layers: a skill (detailed tool reference, loaded on demand), an always-apply preflight rule carrying the same precision-first policy with an OMP skill pointer, and a TTSR truthfulness rule (see below). The setup values `compact`, `rules`, and `full` are compatibility aliases for one canonical managed policy; `preflight` changes only the OMP skill pointer.
 
 ### OMP: TTSR Enforcement Rule
 
-OMP supports **TTSR (Time-Traveling Stream Rules)** — a mechanism that monitors the model's output token stream during generation and interrupts mid-stream when a regex pattern matches. The TTSR enforcement rule catches the model claiming "I'll remember that" without actually calling `knowledge-store`, interrupts generation, injects a correction, and forces a retry.
+OMP supports **TTSR (Time-Traveling Stream Rules)** — a mechanism that monitors the model's output token stream during generation and interrupts mid-stream when a regex pattern matches. The truthfulness rule catches unsupported claims such as "I'll remember that." It requires `knowledge-store` in the current turn when an explicit qualified request can be persisted safely, requires correction when persistence is unavailable or unsafe, and requires correction without storage when the content fails the precision gate.
 
 This is OMP-specific — the TTSR mechanism exists in the shared Pi/OMP engine, but Pi's native rule discovery only scans `.omp` paths, so TTSR rules cannot be installed for Pi through the setup CLI. No other supported client (Claude Code, Cursor, Windsurf, Zed, OpenCode) has an equivalent mid-generation interruption mechanism. The rule is installed at `~/.omp/agent/rules/open-zk-kb-enforce.md`.
 
