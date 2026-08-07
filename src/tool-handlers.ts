@@ -1416,7 +1416,9 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
       return context.store(content, { title: args.title, kind: updateKind, status: effectiveStatus, lifecycle: effectiveLifecycle, tags, summary: args.summary, guidance: args.guidance, existingId });
   };
   try {
-    result = lockedContext ? applyWithContext(lockedContext) : repo.withKnowledgeMutationLock(applyWithContext);
+    result = lockedContext
+      ? applyWithContext(lockedContext)
+      : await repo.withKnowledgeMutationLockAsync(async context => applyWithContext(context));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     recordStoreOutcome(message.includes('stale') ? 'stale' : 'reconciliation');

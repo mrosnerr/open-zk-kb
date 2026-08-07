@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { NoteRepository } from '../src/storage/NoteRepository.js';
 import { handleStore, type StoreArgs } from '../src/tool-handlers.js';
 import { cleanupTestHarness, createTestHarness, listAllNoteFiles, type TestContext } from './harness.js';
 
@@ -151,6 +152,28 @@ describe('reviewed knowledge-store handler', () => {
     const whitespaceToken = (whitespacePreview.updateTokens as Array<{ token: string }>)[0].token;
     const rejected = await handleStore({ ...whitespace, dryRun: false, confirm: true, token: whitespaceToken }, ctx.engine, null, ctx.config);
     expect(rejected).toContain('metadata-preserving content extension');
+  });
+
+  it('queues a public store behind an awaiting holder from another repository instance', async () => {
+    const second = new NoteRepository(ctx.tempDir);
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    let acquired!: () => void;
+    const entered = new Promise<void>(resolve => { acquired = resolve; });
+    const holder = ctx.engine.withKnowledgeMutationLockAsync(async () => {
+      acquired();
+      await barrier;
+    });
+    await entered;
+    let settled = false;
+    const pendingStore = handleStore(args({ title: 'Queued memory' }), second, null, ctx.config)
+      .finally(() => { settled = true; });
+    await Bun.sleep(10);
+    expect(settled).toBe(false);
+    release();
+    await holder;
+    expect(await pendingStore).toContain('Stored reference: "Queued memory"');
+    second.close();
   });
 
   it('releases the lock and preserves rebuild recovery after an accepted filesystem failure', async () => {

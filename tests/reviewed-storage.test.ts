@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { NoteRepository } from '../src/storage/NoteRepository.js';
+import { KnowledgeMutationBusyError, NoteRepository, type KnowledgeMutationContext } from '../src/storage/NoteRepository.js';
 import {
   evaluateScreeningCandidate,
   normalizeScreeningTitle,
@@ -120,6 +120,87 @@ describe('reviewed storage screening', () => {
       expect(updated.action).toBe('updated');
       expect(ctx.engine.getById(created.id)?.content).toBe('updated content');
     } finally { second.close(); }
+  });
+
+  it('reuses an active vault lease across repository instances', async () => {
+    const second = new NoteRepository(ctx.tempDir);
+    try {
+      await ctx.engine.withKnowledgeMutationLockAsync(async () => {
+        await second.withKnowledgeMutationLockAsync(async context => {
+          expect(context.store('nested cross-instance content', { title: 'Nested cross-instance' }).action).toBe('created');
+        });
+      });
+      expect(second.getAll(10)).toHaveLength(1);
+    } finally { second.close(); }
+  });
+
+  it('fails synchronous same-process contention fast through a symlink alias without starving an async holder', async () => {
+    const aliasPath = `${ctx.tempDir}-alias`;
+    fs.symlinkSync(ctx.tempDir, aliasPath, 'dir');
+    const second = new NoteRepository(aliasPath);
+    try {
+      let release!: () => void;
+      const barrier = new Promise<void>(resolve => { release = resolve; });
+      let acquired!: () => void;
+      const entered = new Promise<void>(resolve => { acquired = resolve; });
+      const holder = ctx.engine.withKnowledgeMutationLockAsync(async () => {
+        acquired();
+        await barrier;
+      });
+      await entered;
+      const started = Date.now();
+      let contentionError: unknown;
+      try {
+        second.store('blocked content', { title: 'Blocked' });
+      } catch (error) {
+        contentionError = error;
+      }
+      expect(contentionError).toBeInstanceOf(KnowledgeMutationBusyError);
+      expect((contentionError as Error).message).toBe('Knowledge mutation is already in progress');
+      expect((contentionError as Error).message).not.toContain(ctx.tempDir);
+      expect((contentionError as Error).message).not.toContain(aliasPath);
+      expect(Date.now() - started).toBeLessThan(100);
+      release();
+      await holder;
+      expect(second.store('later content', { title: 'Later' }).action).toBe('created');
+    } finally {
+      second.close();
+      fs.rmSync(aliasPath, { force: true });
+    }
+  });
+
+  it('redacts the vault path when lock infrastructure cannot be resolved', () => {
+    const indexPath = path.join(ctx.tempDir, '.index');
+    const movedIndexPath = path.join(ctx.tempDir, '.index-moved');
+    fs.renameSync(indexPath, movedIndexPath);
+    try {
+      let lockError: unknown;
+      try {
+        ctx.engine.store('unreachable lock content', { title: 'Unreachable lock' });
+      } catch (error) {
+        lockError = error;
+      }
+      expect(lockError).toBeInstanceOf(Error);
+      expect((lockError as Error).message).toBe('Unable to resolve knowledge mutation lock');
+      expect((lockError as Error).message).not.toContain(ctx.tempDir);
+    } finally {
+      fs.renameSync(movedIndexPath, indexPath);
+    }
+  });
+
+  it('rejects detached context and AsyncLocalStorage descendants after lease release', async () => {
+    let detached: KnowledgeMutationContext | undefined;
+    let trigger!: () => void;
+    const deferred = new Promise<void>(resolve => { trigger = resolve; });
+    let escapedStore!: Promise<unknown>;
+    await ctx.engine.withKnowledgeMutationLockAsync(async context => {
+      detached = context;
+      escapedStore = deferred.then(() => ctx.engine.store('escaped descendant', { title: 'Escaped descendant' }));
+    });
+    expect(() => detached?.store('escaped context', { title: 'Escaped context' })).toThrow('Knowledge mutation context has been released');
+    trigger();
+    await expect(escapedStore).rejects.toThrow('Knowledge mutation context has been released');
+    expect(ctx.engine.getScreeningSnapshot({}).notes).toHaveLength(0);
   });
 
   it('conservatively recovers a stale dead-owner lock', () => {

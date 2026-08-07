@@ -167,6 +167,40 @@ function computeEmbeddingSourceHash(title: string, summary: string, content: str
 let idCounter = 0;
 let lastIdTimestamp = '';
 
+type MutationLockMode = 'sync' | 'async';
+type MutationLockLease = { id: string; active: boolean; mode: MutationLockMode };
+type MutationLockWaiter = (lease: MutationLockLease) => void;
+type MutationLockState = { currentLease: MutationLockLease | null; waiters: MutationLockWaiter[] };
+
+// Repository instances for one vault share this process-local gate. The filesystem
+// lock remains the authority for serialization with other processes.
+const mutationLockStates = new Map<string, MutationLockState>();
+const mutationContextLeases = new WeakMap<KnowledgeMutationContext, MutationLockLease>();
+const activeMutationLeases = new AsyncLocalStorage<Map<string, MutationLockLease>>();
+const MUTATION_LOCK_ERRORS = {
+  busy: 'Knowledge mutation is already in progress',
+  resolve: 'Unable to resolve knowledge mutation lock',
+  acquire: 'Unable to acquire knowledge mutation lock',
+  timeout: 'Timed out acquiring knowledge mutation lock',
+  release: 'Unable to release knowledge mutation lock',
+} as const;
+
+type MutationLockErrorKind = keyof typeof MUTATION_LOCK_ERRORS;
+
+class KnowledgeMutationLockError extends Error {
+  constructor(kind: MutationLockErrorKind) {
+    super(MUTATION_LOCK_ERRORS[kind]);
+    this.name = 'KnowledgeMutationLockError';
+  }
+}
+
+export class KnowledgeMutationBusyError extends Error {
+  constructor() {
+    super(MUTATION_LOCK_ERRORS.busy);
+    this.name = 'KnowledgeMutationBusyError';
+  }
+}
+
 export class NoteRepository {
   protected db: Database;
   protected docsPath: string;
@@ -657,39 +691,139 @@ export class NoteRepository {
 
   /**
    * Runs final reviewed validation and its canonical write under one vault-wide lock.
-   * The supplied context deliberately uses the unlocked primitive to avoid reentrant deadlock.
+   * Synchronous callers fail fast when another same-process operation owns the lock.
    */
   withKnowledgeMutationLock<T>(operation: (context: KnowledgeMutationContext) => T): T {
     const activeContext = this.mutationLockContext.getStore();
-    if (activeContext) return operation(activeContext);
+    if (activeContext) {
+      this.assertLeaseActive(mutationContextLeases.get(activeContext));
+      return operation(activeContext);
+    }
     const lockPath = path.join(this.docsPath, '.index', 'knowledge-mutation.lock');
-    this.acquireMutationLock(lockPath);
-    const context = this.knowledgeMutationContext();
-    try {
+    const gateKey = this.mutationLockGateKey(lockPath);
+    const inheritedLease = activeMutationLeases.getStore()?.get(gateKey);
+    if (inheritedLease) {
+      this.assertLeaseActive(inheritedLease);
+      const context = this.knowledgeMutationContext(inheritedLease);
       return this.mutationLockContext.run(context, () => operation(context));
+    }
+    const lease = this.acquireInProcessSyncOrFail(gateKey);
+    try {
+      this.acquireMutationLock(lockPath);
+      const context = this.knowledgeMutationContext(lease);
+      const leases = new Map(activeMutationLeases.getStore());
+      leases.set(gateKey, lease);
+      return activeMutationLeases.run(leases, () => this.mutationLockContext.run(context, () => operation(context)));
     } finally {
-      this.releaseMutationLock(lockPath);
+      lease.active = false;
+      try {
+        this.releaseMutationLock(lockPath);
+      } finally {
+        this.releaseInProcess(gateKey, lease);
+      }
     }
   }
 
   async withKnowledgeMutationLockAsync<T>(operation: (context: KnowledgeMutationContext) => Promise<T>): Promise<T> {
     const activeContext = this.mutationLockContext.getStore();
-    if (activeContext) return operation(activeContext);
+    if (activeContext) {
+      this.assertLeaseActive(mutationContextLeases.get(activeContext));
+      return operation(activeContext);
+    }
     const lockPath = path.join(this.docsPath, '.index', 'knowledge-mutation.lock');
-    this.acquireMutationLock(lockPath);
-    const context = this.knowledgeMutationContext();
+    const gateKey = this.mutationLockGateKey(lockPath);
+    const inheritedLease = activeMutationLeases.getStore()?.get(gateKey);
+    if (inheritedLease) {
+      this.assertLeaseActive(inheritedLease);
+      const context = this.knowledgeMutationContext(inheritedLease);
+      return this.mutationLockContext.run(context, () => operation(context));
+    }
+    const lease = await this.acquireInProcessAsync(gateKey);
     try {
-      return await this.mutationLockContext.run(context, () => operation(context));
+      await this.acquireMutationLockAsync(lockPath);
+      const context = this.knowledgeMutationContext(lease);
+      const leases = new Map(activeMutationLeases.getStore());
+      leases.set(gateKey, lease);
+      return await activeMutationLeases.run(leases, () => this.mutationLockContext.run(context, () => operation(context)));
     } finally {
-      this.releaseMutationLock(lockPath);
+      lease.active = false;
+      try {
+        this.releaseMutationLock(lockPath);
+      } finally {
+        this.releaseInProcess(gateKey, lease);
+      }
     }
   }
 
-  private knowledgeMutationContext(): KnowledgeMutationContext {
-    return {
-      getScreeningSnapshot: visibility => this.getScreeningSnapshot(visibility),
-      store: (contentOrOptions, optionsArg) => this.storeUnlocked(contentOrOptions, optionsArg),
+  private knowledgeMutationContext(lease: MutationLockLease): KnowledgeMutationContext {
+    const context: KnowledgeMutationContext = {
+      getScreeningSnapshot: visibility => {
+        this.assertLeaseActive(lease);
+        return this.getScreeningSnapshot(visibility);
+      },
+      store: (contentOrOptions, optionsArg) => {
+        this.assertLeaseActive(lease);
+        return this.storeUnlocked(contentOrOptions, optionsArg);
+      },
     };
+    mutationContextLeases.set(context, lease);
+    return context;
+  }
+
+  private assertLeaseActive(lease: MutationLockLease | undefined): asserts lease is MutationLockLease {
+    if (!lease?.active) throw new Error('Knowledge mutation context has been released');
+  }
+
+  private mutationLockGateKey(lockPath: string): string {
+    // The index directory exists after repository initialization. Resolve it so
+    // lexical aliases and symlinks for the same vault share one process gate.
+    try {
+      return path.join(fs.realpathSync(path.dirname(lockPath)), path.basename(lockPath));
+    } catch {
+      throw new KnowledgeMutationLockError('resolve');
+    }
+  }
+
+  private lockState(gateKey: string): MutationLockState {
+    let state = mutationLockStates.get(gateKey);
+    if (!state) {
+      state = { currentLease: null, waiters: [] };
+      mutationLockStates.set(gateKey, state);
+    }
+    return state;
+  }
+
+  private acquireInProcessSyncOrFail(gateKey: string): MutationLockLease {
+    const state = this.lockState(gateKey);
+    if (state.currentLease) throw new KnowledgeMutationBusyError();
+    const lease = { id: crypto.randomUUID(), active: true, mode: 'sync' as const };
+    state.currentLease = lease;
+    return lease;
+  }
+
+  private async acquireInProcessAsync(gateKey: string): Promise<MutationLockLease> {
+    const state = this.lockState(gateKey);
+    if (!state.currentLease) {
+      const lease = { id: crypto.randomUUID(), active: true, mode: 'async' as const };
+      state.currentLease = lease;
+      return lease;
+    }
+    return new Promise(resolve => state.waiters.push(resolve));
+  }
+
+  private releaseInProcess(gateKey: string, lease: MutationLockLease): void {
+    const state = this.lockState(gateKey);
+    if (state.currentLease !== lease) return;
+    lease.active = false;
+    const next = state.waiters.shift();
+    if (next) {
+      const nextLease = { id: crypto.randomUUID(), active: true, mode: 'async' as const };
+      state.currentLease = nextLease;
+      queueMicrotask(() => next(nextLease));
+    } else {
+      state.currentLease = null;
+      mutationLockStates.delete(gateKey);
+    }
   }
 
   private storeUnlocked(
@@ -1099,18 +1233,61 @@ export class NoteRepository {
     const startedAt = Date.now();
     const maxAttempts = 40;
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let createdDirectory = false;
       try {
         fs.mkdirSync(lockPath);
+        createdDirectory = true;
         fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt }), { flag: 'wx' });
         this.mutationLockOwners.set(lockPath, owner);
         return;
       } catch (error) {
-        if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        this.recoverStaleMutationLock(lockPath);
+        if (createdDirectory) {
+          try { fs.rmSync(lockPath, { recursive: true, force: true }); } catch { /* preserve the sanitized acquisition error */ }
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        try {
+          this.recoverStaleMutationLock(lockPath);
+        } catch {
+          throw new KnowledgeMutationLockError('acquire');
+        }
         if (attempt < maxAttempts - 1) Bun.sleepSync(Math.min(10 + attempt * 5, 100));
       }
     }
-    throw new Error(`Timed out acquiring knowledge mutation lock at ${lockPath}`);
+    throw new KnowledgeMutationLockError('timeout');
+  }
+
+  private async acquireMutationLockAsync(lockPath: string): Promise<void> {
+    const owner = crypto.randomUUID();
+    const startedAt = Date.now();
+    const maxAttempts = 40;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let createdDirectory = false;
+      try {
+        fs.mkdirSync(lockPath);
+        createdDirectory = true;
+        fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt }), { flag: 'wx' });
+        this.mutationLockOwners.set(lockPath, owner);
+        return;
+      } catch (error) {
+        if (createdDirectory) {
+          try { fs.rmSync(lockPath, { recursive: true, force: true }); } catch { /* preserve the sanitized acquisition error */ }
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        try {
+          this.recoverStaleMutationLock(lockPath);
+        } catch {
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        if (attempt < maxAttempts - 1) await Bun.sleep(Math.min(10 + attempt * 5, 100));
+      }
+    }
+    throw new KnowledgeMutationLockError('timeout');
   }
 
   private recoverStaleMutationLock(lockPath: string): void {
@@ -1142,6 +1319,8 @@ export class NoteRepository {
     try {
       const actual = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8')) as { owner?: string };
       if (actual.owner === expected) fs.rmSync(lockPath, { recursive: true, force: true });
+    } catch {
+      throw new KnowledgeMutationLockError('release');
     } finally {
       this.mutationLockOwners.delete(lockPath);
     }
