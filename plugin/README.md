@@ -84,7 +84,7 @@ embeddings:
 
 ## Documentation
 
-- [Full Documentation](https://mrosnerr.github.io/open-zk-kb)
+- [Full Documentation](https://github.com/mrosnerr/open-zk-kb/tree/main/docs)
 - [GitHub Repository](https://github.com/mrosnerr/open-zk-kb)
 
 ## License

@@ -38,7 +38,7 @@
     "type": "git",
     "url": "git+https://github.com/mrosnerr/open-zk-kb.git"
   },
-  "homepage": "https://mrosnerr.github.io/open-zk-kb",
+  "homepage": "https://github.com/mrosnerr/open-zk-kb",
   "bugs": {
     "url": "https://github.com/mrosnerr/open-zk-kb/issues"
   },

@@ -119,4 +119,4 @@ OpenCode, Claude Code, Cursor, Windsurf, Zed, Pi, OMP
 
 - Repository: https://github.com/mrosnerr/open-zk-kb
 - npm: https://www.npmjs.com/package/open-zk-kb
-- Documentation: https://mrosnerr.github.io/open-zk-kb
+- Documentation: https://github.com/mrosnerr/open-zk-kb/tree/main/docs

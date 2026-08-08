@@ -3,7 +3,7 @@
   "name": "io.github.mrosnerr/open-zk-kb",
   "description": "Shared, persistent memory for AI assistants, built on the Zettelkasten method.",
   "version": "1.4.2",
-  "websiteUrl": "https://mrosnerr.github.io/open-zk-kb",
+  "websiteUrl": "https://github.com/mrosnerr/open-zk-kb",
   "repository": {
     "url": "https://github.com/mrosnerr/open-zk-kb",
     "source": "github"
