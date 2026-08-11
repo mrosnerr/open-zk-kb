@@ -10,6 +10,8 @@
 ### Changed
 
 - **Telemetry consent prompt** — interactive installations now preselect Yes when asking to share anonymous usage analytics. Sharing is still enabled only after confirmation; No, cancellation, `--no-telemetry`, and non-interactive installs remain disabled
+- **Complete session telemetry** — the single next-startup `session` event now reports counters for all ten canonical tools with totals equal to their sum and canonical client labels
+- **Analytics traffic classification** — explicit synthetic/manual validation is labeled `$lib_env: "test"`, separate from source-checkout `dev` and installed-package `production` traffic
 - **Project-aware navigation** — generated Obsidian indexes, logs, QuickAdd choices, and Pi context injection respect project/global boundaries and fail closed when project context is unavailable
 
 ### Fixed

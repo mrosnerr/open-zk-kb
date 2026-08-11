@@ -56,7 +56,8 @@ describe('session tracking', () => {
       const row = db.prepare('SELECT * FROM sessions WHERE session_id = ?').get(ctx.engine.getSessionId()) as Record<string, unknown>;
       db.close();
 
-      expect(row.client).toBe('unknown');
+      // Unknown client names normalize to the closed canonical 'other' vocabulary.
+      expect(row.client).toBe('other');
       expect(row.client_version).toBeNull();
     });
 

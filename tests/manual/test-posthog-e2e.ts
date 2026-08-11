@@ -47,6 +47,9 @@ const env: Record<string, string> = {
   XDG_DATA_HOME: dataDir,
   XDG_STATE_HOME: stateDir,
   HOME: tmpDir,
+  // Synthetic validation must be classified as `test`, never `production`,
+  // even though this fixture runs from a packaged install.
+  OPEN_ZK_KB_TELEMETRY_ENV: 'test',
 };
 delete env.DO_NOT_TRACK;
 
@@ -81,11 +84,11 @@ async function run() {
   await sleep(2000);
 
   console.log('▶ Session 1: Calling knowledge-health...');
-  send(child1, 'tools/call', { name: 'knowledge-health', arguments: {} });
+  send(child1, 'tools/call', { name: 'knowledge-health', arguments: { project: 'telemetry-e2e', model: 'synthetic-claude-sonnet-4' } });
   await sleep(1000);
 
   console.log('▶ Session 1: Calling knowledge-search...');
-  send(child1, 'tools/call', { name: 'knowledge-search', arguments: { query: 'test' } });
+  send(child1, 'tools/call', { name: 'knowledge-search', arguments: { query: 'test', project: 'telemetry-e2e', model: 'synthetic-claude-sonnet-4' } });
   await sleep(1000);
 
   console.log('▶ Session 1: Sending SIGTERM (records session end, no network calls)...');
@@ -129,7 +132,7 @@ async function run() {
   if (stderr2) console.log('Session 2 stderr:', stderr2.slice(0, 300));
   console.log('\n🔍 Check PostHog for events from:', analyticsId);
   console.log('   Expected: 1x session event (from Session 1, reported by Session 2)');
-  console.log('   Properties: client=e2e-test, tool_search=1, tool_store=0');
+  console.log('   Properties: $lib_env=test, client=other (synthetic), model=other (synthetic), tool_health=1, tool_search=1');
 
   fs.rmSync(tmpDir, { recursive: true, force: true });
   console.log('🧹 Cleaned up');

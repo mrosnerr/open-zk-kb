@@ -25,7 +25,11 @@ const payload = {
   properties: {
     $lib: 'open-zk-kb',
     $lib_version: PKG_VERSION,
+    // Synthetic validation must never resemble production traffic.
+    $lib_env: 'test',
     $geoip_disable: true,
+    client: 'synthetic-validation',
+    model: 'synthetic-claude-sonnet-4',
     tool: 'diagnostic',
   },
 };

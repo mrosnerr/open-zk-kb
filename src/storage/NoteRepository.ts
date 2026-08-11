@@ -28,6 +28,7 @@ import type { ConformanceRecord, ConformanceAggregates } from '../template-handl
 import { parseKnowledgeApplicability, type VisibilityOptions } from '../knowledge-scope.js';
 import { computeSimHash } from '../utils/simhash.js';
 import { normalizeScreeningTitle, type ScreeningSnapshot } from '../reviewed-storage.js';
+import { TOOL_DEFINITIONS } from '../tool-meta.js';
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -92,7 +93,66 @@ export interface StoreOptions {
   extraFrontmatter?: Record<string, unknown>;
 }
 
-export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine' | 'template';
+type CanonicalToolName = typeof TOOL_DEFINITIONS[number]['name'];
+export type TelemetryToolName = CanonicalToolName extends `knowledge-${infer Name}` ? Name : never;
+export const TELEMETRY_TOOL_NAMES: readonly TelemetryToolName[] = TOOL_DEFINITIONS.map(tool => {
+  if (!tool.name.startsWith('knowledge-')) throw new Error(`Non-canonical tool name: ${tool.name}`);
+  return tool.name.slice('knowledge-'.length) as TelemetryToolName;
+});
+
+if (new Set(TELEMETRY_TOOL_NAMES).size !== TOOL_DEFINITIONS.length) {
+  throw new Error('Telemetry tool taxonomy must map one-to-one to tool metadata');
+}
+
+const TELEMETRY_TOOL_NAME_SET = new Set<string>(TELEMETRY_TOOL_NAMES);
+const MAX_MODEL_ID_LENGTH = 128;
+const MAX_PUBLIC_MODEL_NAME_LENGTH = 64;
+const MAX_CLIENT_VERSION_LENGTH = 32;
+export const CANONICAL_TELEMETRY_CLIENTS = ['pi', 'claude-code', 'opencode', 'cursor', 'windsurf', 'zed', 'omp', 'other'] as const;
+export type CanonicalTelemetryClient = typeof CANONICAL_TELEMETRY_CLIENTS[number];
+
+const TELEMETRY_CLIENT_ALIASES: Readonly<Record<string, CanonicalTelemetryClient>> = {
+  'open-zk-kb-pi': 'pi',
+  'omp-coding-agent': 'omp',
+  'claude_code': 'claude-code',
+  'open-code': 'opencode',
+};
+
+export function normalizeTelemetryClient(client: string | undefined | null): CanonicalTelemetryClient {
+  if (typeof client !== 'string') return 'other';
+  const normalized = client.trim().toLowerCase();
+  if (!normalized || !/^[a-z0-9][a-z0-9._-]*$/.test(normalized)) return 'other';
+  const aliased = TELEMETRY_CLIENT_ALIASES[normalized] ?? normalized;
+  return (CANONICAL_TELEMETRY_CLIENTS as readonly string[]).includes(aliased)
+    ? aliased as CanonicalTelemetryClient
+    : 'other';
+}
+
+export function normalizeTelemetryClientVersion(version: string | null | undefined): string | null {
+  if (typeof version !== 'string') return null;
+  const normalized = version.trim();
+  return normalized.length > 0
+    && normalized.length <= MAX_CLIENT_VERSION_LENGTH
+    && /^[0-9]+(?:\.[0-9]+){0,3}(?:[-+][a-zA-Z0-9.-]+)?$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+/** Keep model dimensions useful without retaining arbitrary caller-provided strings. */
+export function normalizeTelemetryModel(model: string | undefined): string | undefined {
+  if (model === undefined) return undefined;
+  const normalized = model.trim().toLowerCase();
+  if (!normalized || normalized.length > MAX_MODEL_ID_LENGTH || !/^[a-z0-9][a-z0-9._:/+-]*$/.test(normalized)) {
+    return 'other';
+  }
+  const segments = normalized.split('/');
+  if (segments.some(segment => !segment)) return 'other';
+
+  // Discard provider/deployment namespaces and retain only a bounded public model name.
+  const modelName = segments.at(-1) ?? normalized;
+  const allowedFamily = /^(?:claude|gpt|chatgpt|o[134](?:-|$)|gemini|gemma|llama|mistral|mixtral|codestral|command-r|deepseek|qwen|grok|phi|kimi|minimax)[a-z0-9._:+-]*$/;
+  return modelName.length <= MAX_PUBLIC_MODEL_NAME_LENGTH && allowedFamily.test(modelName) ? modelName : 'other';
+}
 
 export interface UnreportedSession {
   session_id: string;
@@ -132,6 +192,7 @@ export interface TelemetryRow {
   arg_kind: string | null;
   timestamp: number;
   result_count: number | null;
+  model: string | null;
 }
 
 function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
@@ -2136,7 +2197,7 @@ export class NoteRepository {
       this.db.prepare(`
         INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count, model)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null, model ?? null);
+      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null, normalizeTelemetryModel(model) ?? null);
     });
   }
 
@@ -2238,7 +2299,7 @@ export class NoteRepository {
 
   getTelemetryRows(): TelemetryRow[] {
     return this.db.prepare(`
-      SELECT session_id, tool_name, arg_kind, timestamp, result_count
+      SELECT session_id, tool_name, arg_kind, timestamp, result_count, model
       FROM tool_telemetry
       ORDER BY id
     `).all() as TelemetryRow[];
@@ -2257,7 +2318,16 @@ export class NoteRepository {
         this.db.prepare(`
           INSERT INTO sessions (session_id, client, client_version, started_at, vault_size, version, os_platform, reported)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(this.sessionId, client, clientVersion, Date.now(), vaultSize, version, process.platform, sharingEnabled ? 0 : 1);
+        `).run(
+          this.sessionId,
+          normalizeTelemetryClient(client),
+          normalizeTelemetryClientVersion(clientVersion),
+          Date.now(),
+          vaultSize,
+          version,
+          process.platform,
+          sharingEnabled ? 0 : 1,
+        );
       });
     } catch {
       // Silent failure — session recording should never block anything
@@ -2323,11 +2393,13 @@ export class NoteRepository {
       `).all(s.session_id) as Array<{ tool_name: string; count: number }>;
 
       const tool_counts: Record<string, number> = {};
-      let total_invocations = 0;
       for (const row of toolRows) {
-        tool_counts[row.tool_name] = row.count;
-        total_invocations += row.count;
+        if (TELEMETRY_TOOL_NAME_SET.has(row.tool_name)) tool_counts[row.tool_name] = row.count;
       }
+      const total_invocations = TELEMETRY_TOOL_NAMES.reduce(
+        (total, toolName) => total + (tool_counts[toolName] ?? 0),
+        0,
+      );
 
       const modelRows = this.db.prepare(`
         SELECT DISTINCT model FROM tool_telemetry

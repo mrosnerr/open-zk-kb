@@ -7,6 +7,8 @@ import {
   reportPreviousSessions,
   getOrCreateAnalyticsId,
   isSharingEnabled,
+  classifyLibraryEnvironment,
+  normalizeTelemetryClient,
 } from '../src/analytics.js';
 import type { UnreportedSession } from '../src/storage/NoteRepository.js';
 
@@ -20,6 +22,8 @@ describe('analytics', () => {
       XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
       XDG_DATA_HOME: process.env.XDG_DATA_HOME,
       DO_NOT_TRACK: process.env.DO_NOT_TRACK,
+      NODE_ENV: process.env.NODE_ENV,
+      OPEN_ZK_KB_TELEMETRY_ENV: process.env.OPEN_ZK_KB_TELEMETRY_ENV,
     };
   });
 
@@ -163,6 +167,102 @@ describe('analytics', () => {
     });
   });
 
+
+  describe('bounded analytics dimensions', () => {
+    it('normalizes known client aliases and hides unknown raw values', () => {
+      expect(normalizeTelemetryClient(' open-zk-kb-pi ')).toBe('pi');
+      expect(normalizeTelemetryClient('omp-coding-agent')).toBe('omp');
+      expect(normalizeTelemetryClient('CLAUDE_CODE')).toBe('claude-code');
+      expect(normalizeTelemetryClient('private-client-name')).toBe('other');
+      expect(normalizeTelemetryClient('')).toBe('other');
+      expect(normalizeTelemetryClient('invalid client')).toBe('other');
+    });
+
+    it('derives dev from source checkouts and production from packaged installs without consulting runtime overrides', () => {
+      process.env.OPEN_ZK_KB_TELEMETRY_ENV = 'test';
+      expect(classifyLibraryEnvironment('source')).toBe('dev');
+      expect(classifyLibraryEnvironment('packaged')).toBe('production');
+    });
+
+    it('lets explicit test classification win even for a packaged install', () => {
+      // Packaged fixture under explicit synthetic validation must not masquerade as production.
+      expect(classifyLibraryEnvironment('packaged', 'test')).toBe('test');
+      expect(classifyLibraryEnvironment('source', 'test')).toBe('test');
+    });
+
+    it('never permits explicit dev or production overrides at runtime', () => {
+      // dev/production derive from package source; the env-style override only selects test.
+      expect(classifyLibraryEnvironment('source', 'production')).toBe('dev');
+      expect(classifyLibraryEnvironment('source', 'dev')).toBe('dev');
+      expect(classifyLibraryEnvironment('packaged', 'production')).toBe('production');
+    });
+
+    it('routes no-arg classification through source location with OPEN_ZK_KB_TELEMETRY_ENV selecting only test', () => {
+      delete process.env.NODE_ENV;
+
+      // Running from a git/source checkout, runtime production/dev overrides are ignored.
+      process.env.OPEN_ZK_KB_TELEMETRY_ENV = 'production';
+      expect(classifyLibraryEnvironment()).toBe('dev');
+      process.env.OPEN_ZK_KB_TELEMETRY_ENV = 'dev';
+      expect(classifyLibraryEnvironment()).toBe('dev');
+
+      // The single permitted explicit selection is test (synthetic validation).
+      process.env.OPEN_ZK_KB_TELEMETRY_ENV = 'test';
+      expect(classifyLibraryEnvironment()).toBe('test');
+      delete process.env.OPEN_ZK_KB_TELEMETRY_ENV;
+
+      process.env.NODE_ENV = 'test';
+      expect(classifyLibraryEnvironment()).toBe('test');
+      delete process.env.NODE_ENV;
+    });
+
+    it('bounds client versions before sharing', async () => {
+      const env = createIsolatedEnv();
+      writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');
+      const { repo } = createMockRepo([createTestSession({ client_version: 'identifying arbitrary value' })]);
+      let body: Record<string, unknown> | undefined;
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: string | URL | Request, opts?: RequestInit) => {
+        body = JSON.parse(opts?.body as string);
+        return new Response('{}', { status: 200 });
+      }) as typeof fetch;
+      try {
+        await reportPreviousSessions(repo);
+        const batch = body?.batch as Array<Record<string, unknown>>;
+        expect((batch[0].properties as Record<string, unknown>).client_version).toBeNull();
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+
+    it('normalizes model values and bounds the shared model array', async () => {
+      const env = createIsolatedEnv();
+      writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');
+      const models = Array.from({ length: 40 }, (_, index) => `openai/gpt-5-${index}`);
+      models.push('private-customer/gpt-5-0', 'contains private whitespace', 'x'.repeat(129));
+      const { repo } = createMockRepo([createTestSession({ models })]);
+      let body: Record<string, unknown> | undefined;
+      const originalFetch = globalThis.fetch;
+      globalThis.fetch = (async (_url: string | URL | Request, opts?: RequestInit) => {
+        body = JSON.parse(opts?.body as string);
+        return new Response('{}', { status: 200 });
+      }) as typeof fetch;
+      try {
+        await reportPreviousSessions(repo);
+        const batch = body?.batch as Array<Record<string, unknown>>;
+        const sharedModels = (batch[0].properties as Record<string, unknown>).models as string[];
+        expect(sharedModels).toHaveLength(32);
+        expect(sharedModels.every(model => model === 'other' || model.startsWith('gpt-5-'))).toBe(true);
+        expect(sharedModels).toContain('gpt-5-0');
+        expect(new Set(sharedModels).size).toBe(sharedModels.length);
+        expect(sharedModels.every(model => !model.includes('/'))).toBe(true);
+        expect(sharedModels).not.toContain('contains private whitespace');
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
+    });
+  });
+
   // ── PII Snapshot Tests ──
 
   describe('PII snapshot — event properties are allowlisted', () => {
@@ -171,8 +271,9 @@ describe('analytics', () => {
     // If a new field is added to the payload, this test must be updated.
     const allowedKeys = [
       'client', 'client_version', 'duration_ms', 'models', 'os_platform',
-      'session_id', 'tool_maintain', 'tool_mine', 'tool_search',
-      'tool_store', 'tool_template', 'total_invocations', 'vault_size', 'version',
+      'session_id', 'tool_context', 'tool_get', 'tool_health', 'tool_ingest',
+      'tool_maintain', 'tool_mine', 'tool_open', 'tool_search', 'tool_store',
+      'tool_template', 'total_invocations', 'vault_size', 'version',
     ];
 
     it('real payload contains only allowlisted keys', async () => {
@@ -492,7 +593,7 @@ describe('analytics', () => {
         expect(props.$lib).toBe('open-zk-kb');
         expect(props.$lib_version).toBeDefined();
         expect(props.$lib_env).toBeDefined();
-        expect(['dev', 'production']).toContain(props.$lib_env);
+        expect(['dev', 'test', 'production']).toContain(props.$lib_env);
       } finally {
         globalThis.fetch = originalFetch;
       }

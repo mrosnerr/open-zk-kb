@@ -676,6 +676,7 @@ export async function handleHealth(args: HealthArgs, repo: NoteRepository, confi
     output += MODEL_HINT;
   }
 
+  scheduleTelemetryWrite('health', () => repo.recordToolInvocation('health', undefined, undefined, args.model));
   return output;
 }
 
@@ -767,6 +768,7 @@ export async function handleIngest(args: IngestArgs, repo?: NoteRepository): Pro
     output += MODEL_HINT;
   }
 
+  if (repo) scheduleTelemetryWrite('ingest', () => repo.recordToolInvocation('ingest', undefined, sections.length, args.model));
   return output;
 }
 
@@ -1878,13 +1880,7 @@ function publicationValidation(source: NoteMetadata | null, candidate: PublishGl
   return { errors: [...new Set(errors)], duplicates, projectReferences, outboundLinks };
 }
 
-export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null, nowProvider: () => number = Date.now): Promise<string> {
-  // Contextual link-health actions defer this write until evaluation
-  // completes, recording excluded-candidate count as `result_count`.
-  if (!CONTEXTUAL_LINK_ACTIONS.has(args.action) && args.action !== 'project-authority-review') {
-    scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action, undefined, args.model));
-  }
-
+async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null, nowProvider: () => number = Date.now, suppressTelemetry = false): Promise<string> {
   switch (args.action) {
     case 'project-authority-review': {
       const project = validateCurrentProject(args.project);
@@ -2560,7 +2556,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     case 'unlinked': {
       const { result, elapsedMs } = runContextualLinkScan(repo, ['links.unlinked']);
       logContextualLinkScan('unlinked', result.totals, elapsedMs, config);
-      scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'unlinked', result.totals.excludedCandidates, args.model));
+      if (!suppressTelemetry) {
+        scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'unlinked', result.totals.excludedCandidates, args.model));
+      }
 
       let output = renderContextualScanSummary(result.totals, elapsedMs);
       output += renderContextualFailures(result.failures);
@@ -2669,7 +2667,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     case 'broken-links': {
       const { result, elapsedMs } = runContextualLinkScan(repo, ['links.broken']);
       logContextualLinkScan('broken-links', result.totals, elapsedMs, config);
-      scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'broken-links', result.totals.excludedCandidates, args.model));
+      if (!suppressTelemetry) {
+        scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'broken-links', result.totals.excludedCandidates, args.model));
+      }
 
       const brokenGroup = graphGroup(result.review, 'links.broken');
 
@@ -2694,7 +2694,9 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     case 'link-health': {
       const { result, elapsedMs } = runContextualLinkScan(repo, ['links.broken', 'links.unlinked', 'links.reciprocal-missing']);
       logContextualLinkScan('link-health', result.totals, elapsedMs, config);
-      scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'link-health', result.totals.excludedCandidates, args.model));
+      if (!suppressTelemetry) {
+        scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'link-health', result.totals.excludedCandidates, args.model));
+      }
 
       const graph = result.review;
       const unlinkedGroup = graphGroup(graph, 'links.unlinked');
@@ -2916,7 +2918,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       for (const step of steps) {
         sections.push(`## ${stepNum}. ${step.label}\n`);
         try {
-          const result = await handleMaintain(step.stepArgs, repo, config, embeddingConfig, currentVersion, gitVersioning);
+          const result = await handleMaintainCore(step.stepArgs, repo, config, embeddingConfig, currentVersion, gitVersioning, nowProvider, true);
           sections.push(result);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -2931,6 +2933,15 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     default:
       return `Unknown action: ${args.action}`;
   }
+}
+
+export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null, nowProvider: () => number = Date.now): Promise<string> {
+  const result = await handleMaintainCore(args, repo, config, embeddingConfig, currentVersion, gitVersioning, nowProvider);
+  const rejected = result.startsWith('Error:') || result.startsWith('Unknown action:') || result.startsWith('Failed:');
+  if (!rejected && !CONTEXTUAL_LINK_ACTIONS.has(args.action)) {
+    scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action, undefined, args.model));
+  }
+  return result;
 }
 
 const CAPSULE_NOTE_LIMIT = 12;
@@ -2994,10 +3005,12 @@ export function handleContextResult(args: ContextArgs, repo: NoteRepository, con
   if (!project) return { text: 'Error: A valid project is required for knowledge context.' };
   if (args.preferenceOnly) {
     const preferenceCapsule = buildPreferenceCapsule(repo, { project, client: args.client });
+    scheduleTelemetryWrite('context', () => repo.recordToolInvocation('context', 'preference-only', preferenceCapsule.selected, args.model));
     return { text: preferenceCapsule.text, preferenceCapsule };
   }
   const logLimit = Math.max(1, args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10);
   const text = formatProjectOverview(project, logLimit, repo, args.client, args.model);
+  scheduleTelemetryWrite('context', () => repo.recordToolInvocation('context', undefined, undefined, args.model));
 
   return {
     text,
@@ -3141,6 +3154,7 @@ export async function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteR
   if (error) {
     return `Failed to launch Obsidian: ${error}`;
   }
+  if (repo) scheduleTelemetryWrite('open', () => repo.recordToolInvocation('open'));
   return `${formatSuccessMessage(vaultPath, resolvedProject)}\nObsidian is a full-vault human browsing surface; project focus does not isolate other projects.`;
 }
 
@@ -3163,6 +3177,7 @@ export function handleGet(args: GetArgs, repo: NoteRepository): string {
   const note = repo.getByIdVisible(args.noteId, { project, client: args.client });
   if (!note) return `Note not found: ${args.noteId}`;
   scheduleTelemetryWrite('get access', () => repo.updateLastAccessed([note.id]));
+  scheduleTelemetryWrite('get', () => repo.recordToolInvocation('get', undefined, 1, args.model));
 
   return renderNoteForSearch(note, project);
 }
