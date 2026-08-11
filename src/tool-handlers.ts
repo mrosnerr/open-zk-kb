@@ -323,6 +323,7 @@ export interface SearchArgs {
   tags?: string[];
   limit?: number;
   model?: string;
+  mode?: 'full' | 'compact';
 }
 
 export interface PublishGlobalCandidate {
@@ -360,6 +361,7 @@ export interface ContextArgs {
   model?: string;
   includePreferences?: boolean;
   client?: string;
+  preferenceOnly?: boolean;
 }
 
 export interface PreferenceCapsuleLine {
@@ -1563,7 +1565,10 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 }
 
 export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedding?: number[] | null, config?: AppConfig): string {
-  const requestedLimit = args.limit || 10;
+  if (args.mode === 'compact' && args.limit !== undefined && args.limit > 10) {
+    return 'Error: compact search limit cannot exceed 10.';
+  }
+  const requestedLimit = args.mode === 'compact' ? (args.limit ?? 5) : (args.limit || 10);
   const excludeStructuralKinds = config?.search?.excludeLogFromSearch !== false && !STRUCTURAL_KINDS.has(args.kind as string);
   const project = validateCurrentProject(args.project);
   if (!project) return 'Error: A valid project is required for knowledge search.';
@@ -1612,7 +1617,11 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     }
   }
 
-  if (results.length > requestedLimit) {
+  const availableCount = results.length + (domainNote ? 1 : 0);
+  if (args.mode === 'compact') {
+    const reservedResultLimit = Math.max(0, requestedLimit - (domainNote ? 1 : 0));
+    if (results.length > reservedResultLimit) results = results.slice(0, reservedResultLimit);
+  } else if (results.length > requestedLimit) {
     results = results.slice(0, requestedLimit);
   }
 
@@ -1626,6 +1635,31 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   }
 
   const totalCount = results.length + (domainNote ? 1 : 0);
+  if (args.mode === 'compact') {
+    const compactNotes = [...(domainNote ? [domainNote] : []), ...results].map(note => ({
+      identity: { id: note.id, title: note.title },
+      scope: parseKnowledgeApplicability(note.tags),
+      kind: note.kind,
+      status: note.status,
+      lifecycle: note.lifecycle,
+      ...compactSearchField('summary', note.summary || note.title),
+      ...compactSearchField('guidance', note.guidance || ''),
+      get: {
+        tool: 'knowledge-get',
+        noteId: note.id,
+        project,
+        ...(args.client ? { client: args.client } : {}),
+      },
+    }));
+    return JSON.stringify({
+      mode: 'compact',
+      count: compactNotes.length,
+      availableCount,
+      truncated: compactNotes.length < availableCount,
+      results: compactNotes,
+    }, null, 2) + clientWarning;
+  }
+
   let output = `Found ${totalCount} note(s):\n\n`;
 
   if (domainNote) {
@@ -1636,6 +1670,16 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     output += renderNoteForSearch(note, project) + '\n';
   }
   return output + clientWarning;
+}
+
+function compactSearchField(name: 'summary' | 'guidance', value: string): Record<string, string | boolean> {
+  const normalized = value.trim().replace(/\s+/g, ' ');
+  const points = Array.from(normalized);
+  const truncated = points.length > 240;
+  return {
+    [name]: truncated ? points.slice(0, 239).join('') + '…' : normalized,
+    [`${name}Truncated`]: truncated,
+  };
 }
 
 async function backfillEmbeddings(
@@ -1837,11 +1881,33 @@ function publicationValidation(source: NoteMetadata | null, candidate: PublishGl
 export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null, nowProvider: () => number = Date.now): Promise<string> {
   // Contextual link-health actions defer this write until evaluation
   // completes, recording excluded-candidate count as `result_count`.
-  if (!CONTEXTUAL_LINK_ACTIONS.has(args.action)) {
+  if (!CONTEXTUAL_LINK_ACTIONS.has(args.action) && args.action !== 'project-authority-review') {
     scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action, undefined, args.model));
   }
 
   switch (args.action) {
+    case 'project-authority-review': {
+      const project = validateCurrentProject(args.project);
+      if (!project) return 'Error: a valid project is required for project-authority-review action.';
+      const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
+      const now = nowProvider();
+      const notes = repo.getRecentNotes(Number.MAX_SAFE_INTEGER, { project })
+        .filter(note => {
+          const scope = parseKnowledgeApplicability(note.tags);
+          return scope.type === 'project-local' && scope.project === project && note.status !== 'archived' && !STRUCTURAL_KINDS.has(note.kind);
+        })
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const findings = notes.slice(0, limit).map(note => ({
+        identity: { id: note.id, title: note.title },
+        kind: note.kind,
+        ...compactSearchField('summary', note.summary || ''),
+        status: note.status,
+        lifecycle: note.lifecycle,
+        scope: parseKnowledgeApplicability(note.tags),
+        ageDays: Math.max(0, Math.floor((now - note.updated_at) / 86_400_000)),
+      }));
+      return JSON.stringify({ action: 'project-authority-review', mutated: false, project, scanned: notes.length, returned: findings.length, truncated: findings.length < notes.length, findings }, null, 2);
+    }
     case 'scope-inventory': {
       const notes = repo.getAll(Number.MAX_SAFE_INTEGER)
         .filter(note => note.status !== 'archived' && !STRUCTURAL_KINDS.has(note.kind))
@@ -2926,6 +2992,10 @@ export function buildPreferenceCapsule(
 export function handleContextResult(args: ContextArgs, repo: NoteRepository, config?: AppConfig): ContextResult {
   const project = validateCurrentProject(args.project);
   if (!project) return { text: 'Error: A valid project is required for knowledge context.' };
+  if (args.preferenceOnly) {
+    const preferenceCapsule = buildPreferenceCapsule(repo, { project, client: args.client });
+    return { text: preferenceCapsule.text, preferenceCapsule };
+  }
   const logLimit = Math.max(1, args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10);
   const text = formatProjectOverview(project, logLimit, repo, args.client, args.model);
 
@@ -2945,16 +3015,21 @@ function formatProjectOverview(project: string, logLimit: number, repo: NoteRepo
   const visibility = { project, client };
   const domainCandidate = repo.getDomainNote(project);
   const domainNote = domainCandidate ? repo.getByIdVisible(domainCandidate.id, visibility) : null;
-  const projectNotes = repo.getRecentNotes(Number.MAX_SAFE_INTEGER, visibility);
+  const projectNotes = repo.getRecentNotes(Number.MAX_SAFE_INTEGER, visibility)
+    .filter(note => {
+      const scope = parseKnowledgeApplicability(note.tags);
+      return scope.type === 'project-local' && scope.project === project;
+    });
   // Project logs contain titles for every client-scoped event and cannot be
   // losslessly filtered because historical entries do not carry note IDs.
   const logNote = client ? null : repo.getLogNote(project);
 
   if (projectNotes.length === 0 && !domainNote && !logNote) {
-    return `No notes found for project "${project}". Store a project-scoped note first (include project parameter).`;
+    return `No notes found for project "${project}". Authority context is unavailable: no exactly matching project-scoped notes were found, and no other project's context was substituted.`;
   }
 
   let output = `## Project Overview: ${project}\n\n`;
+  output += `Authority scope: exactly project:${project}. This is retained agent memory, not current project truth; consult canonical project artifacts for authority. Other projects are excluded and are not substituted.\n\n`;
 
   // Domain note (operating manual)
   if (domainNote) {

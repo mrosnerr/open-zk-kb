@@ -23,6 +23,22 @@ allowed-tools:
   - mcp__open-zk-kb__knowledge-health
 ---
 
+## Ownership and retrieval boundary
+
+Keep project management separate from the knowledge base. Code and tests own executable behavior; Git and issues own change and collaboration history; OpenSpec owns requirements and plans; docs own user-facing explanation; the knowledge base owns durable, reusable guidance not authoritative elsewhere. Do not inject tasks, plans, progress, commits, issue updates, or docs into notes by default.
+
+Use a three-tier context model: **compact** project context for orientation, **targeted** search for the task's actual decision, and **exact** retrieval of one named note only when compact and targeted evidence leave a material gap. Search is task-relevance-gated: do not search or store merely because a session is active. Keep the compact result small, make at most one exact escalation, and prefer zero captures.
+
+## Rehoming and archival
+
+For an existing note, choose explicitly:
+- **Keep** it when its concept and destination are correct.
+- **Distill** it when it contains durable guidance mixed with noise.
+- **Rehome** it when the authoritative destination is project-specific: preserve the source, copy or distill into the destination-specific code, test, Git, issue, OpenSpec, or docs record, then verify that record before archiving the note.
+- **Archive after verification** only when the destination is confirmed; otherwise defer.
+
+Use normal destination tools (editor, test runner, Git, issue tracker, or docs workflow), not knowledge tools, for rehoming. For mixed notes, extract only the qualifying concept; do not silently move unrelated material. Preserve → copy/distill → verify → archive. Deletion is separate and explicit; never treat rehoming or archive as delete.
+
 ## Storing Knowledge
 
 Use `knowledge-store` with **one concept per note** only after the precision gate passes. Pass the canonical current project on every call; routine capture is always project-local. Include `summary` (one-line takeaway) and `guidance` (imperative instruction for future agents). If multiple genuinely independent candidates each qualify, keep them atomic rather than bundling; do not store nonqualifying material merely to split it. Never use routine store or mine calls to create global knowledge.

@@ -633,6 +633,34 @@ describe('MCP Tool: knowledge-search', () => {
     expect(output).not.toContain('Generated Crowding');
   });
 
+  it('returns bounded compact cards with Unicode truncation evidence and preserves full mode', () => {
+    const long = `${'😀'.repeat(245)}   multiline\nsummary`;
+    for (let index = 0; index < 12; index++) {
+      ctx.engine.store(`compact-contract-keyword body ${index}`, {
+        tags: ['project:test-project'], title: `Compact ${index}`, kind: 'reference',
+        summary: long, guidance: long,
+      });
+    }
+
+    const compact = JSON.parse(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact' }, ctx.engine));
+    expect(compact.results).toHaveLength(5);
+    expect(compact.truncated).toBe(true);
+    expect(compact.availableCount).toBeGreaterThan(5);
+    for (const card of compact.results) {
+      expect(Array.from(card.summary)).toHaveLength(240);
+      expect(Array.from(card.guidance)).toHaveLength(240);
+      expect(card.summaryTruncated).toBe(true);
+      expect(card.guidanceTruncated).toBe(true);
+      expect(card.get.tool).toBe('knowledge-get');
+      expect(card.scope).toEqual({ type: 'project-local', project: 'test-project' });
+    }
+
+    const ten = JSON.parse(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact', limit: 10 }, ctx.engine));
+    expect(ten.results).toHaveLength(10);
+    expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact', limit: 11 }, ctx.engine)).toContain('cannot exceed 10');
+    expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'full', limit: 1 }, ctx.engine)).toContain('<content>');
+  });
+
   it('should return no results message with hint', () => {
     const output = handleSearch({ project: 'test-project', query: 'xyznonexistent' }, ctx.engine);
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
@@ -665,6 +693,58 @@ describe('MCP Tool: knowledge-get', () => {
 });
 
 describe('MCP Tool: knowledge-maintain', () => {
+  it('returns bounded factual project-authority evidence without changing files, rows, metadata, or project artifacts', async () => {
+    const ctx = createTestHarness();
+    const snapshotFiles = (root: string): Array<[string, string]> => {
+      const snapshot: Array<[string, string]> = [];
+      const visit = (directory: string): void => {
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+          const absolute = path.join(directory, entry.name);
+          if (entry.isDirectory()) visit(absolute);
+          else snapshot.push([path.relative(root, absolute), fs.readFileSync(absolute).toString('base64')]);
+        }
+      };
+      visit(root);
+      return snapshot.sort(([left], [right]) => left.localeCompare(right));
+    };
+    try {
+      for (let index = 0; index < 3; index++) {
+        ctx.engine.store(`body ${index}`, { tags: ['project:alpha'], title: `Alpha ${index}`, kind: 'reference', summary: 'x'.repeat(300) });
+      }
+      ctx.engine.store('other body', { tags: ['project:beta'], title: 'Beta', kind: 'reference' });
+      ctx.engine.store('archived body', { tags: ['project:alpha'], title: 'Archived Alpha', kind: 'reference', status: 'archived' });
+      ctx.engine.store('generated body', { tags: ['project:alpha'], title: 'Generated Alpha', kind: 'index', status: 'permanent' });
+      const externalPath = path.join(ctx.tempDir, 'external-project', 'openspec', 'requirements.txt');
+      fs.mkdirSync(path.dirname(externalPath), { recursive: true });
+      fs.writeFileSync(externalPath, 'authoritative project artifact');
+
+      const beforeRows = JSON.stringify(ctx.engine.getAll(Number.MAX_SAFE_INTEGER));
+      const beforeFiles = snapshotFiles(ctx.tempDir);
+      const output = JSON.parse(await handleMaintain(
+        { action: 'project-authority-review', project: 'alpha', limit: 2 },
+        ctx.engine, ctx.config, undefined, undefined, undefined, () => Date.now(),
+      )) as {
+        mutated: boolean;
+        returned: number;
+        truncated: boolean;
+        findings: Array<{ identity: { title: string }; scope: { project?: string }; summary: string; summaryTruncated: boolean }>;
+      };
+      const afterRows = JSON.stringify(ctx.engine.getAll(Number.MAX_SAFE_INTEGER));
+      const afterFiles = snapshotFiles(ctx.tempDir);
+
+      expect(output.mutated).toBe(false);
+      expect(output.returned).toBe(2);
+      expect(output.truncated).toBe(true);
+      expect(output.findings.every(finding => finding.scope.project === 'alpha')).toBe(true);
+      expect(output.findings.every(finding => Array.from(finding.summary).length <= 240 && finding.summaryTruncated)).toBe(true);
+      expect(output.findings.map(finding => finding.identity.title)).not.toContain('Archived Alpha');
+      expect(output.findings.map(finding => finding.identity.title)).not.toContain('Generated Alpha');
+      expect(JSON.stringify(output)).not.toMatch(/rehome|archive|destination|migrate/i);
+      expect(afterRows).toBe(beforeRows);
+      expect(afterFiles).toEqual(beforeFiles);
+      expect(fs.readFileSync(externalPath, 'utf8')).toBe('authoritative project artifact');
+    } finally { cleanupTestHarness(ctx); }
+  });
   let ctx: TestContext;
   const daysAgo = (days: number): number => Date.now() - (days * 24 * 60 * 60 * 1000);
 
@@ -1001,8 +1081,9 @@ describe('MCP Tool: knowledge-maintain', () => {
       expect(output).toContain('OMP');
       expect(output).toContain('Result: updated');
       expect(content).toContain('<!-- OPEN-ZK-KB:START v1.2.0 -- managed by open-zk-kb, do not edit -->');
-      expect(content).toContain('Persistent cross-session memory via `knowledge-*` MCP tools.');
-      expect(content).toContain('search project-visible knowledge with `knowledge-search`');
+      expect(content).toContain('Cross-session memory via `knowledge-*` MCP tools.');
+      expect(content).toContain('Retrieve only when durable memory can materially affect the task');
+      expect(content).toContain('`knowledge-search` in compact mode');
       expect(content).toContain('Precision-first capture (default: no new note)');
       expect(content).toContain('`skill://open-zk-kb`.');
       expect(content).not.toContain('`knowledge-template --kind {kind}`');
@@ -3942,6 +4023,17 @@ describe('Index and log note kinds', () => {
   it('should return a not-found message for unknown projects', () => {
     const output = handleContext({ project: 'unknown-project' }, ctx.engine, makeConfig());
     expect(output).toContain('No notes found for project "unknown-project"');
+  });
+
+  it('does not substitute global, prefix, subproject, or basename-collision notes for exact project memory', () => {
+    ctx.engine.store('GLOBAL_ONLY_SECRET', { title: 'Global only', kind: 'reference', tags: ['scope:global'] });
+    ctx.engine.store('PREFIX_SECRET', { title: 'Prefix sibling', kind: 'reference', tags: ['project:myapp-other'] });
+    ctx.engine.store('SUBPROJECT_SECRET', { title: 'Subproject', kind: 'reference', tags: ['project:myapp/sub'] });
+    ctx.engine.store('BASENAME_SECRET', { title: 'Basename collision', kind: 'reference', tags: ['project:team/myapp'] });
+
+    const output = handleContext({ project: 'myapp' }, ctx.engine, makeConfig());
+    expect(output).toContain('no exactly matching project-scoped notes were found');
+    expect(output).not.toMatch(/GLOBAL_ONLY_SECRET|PREFIX_SECRET|SUBPROJECT_SECRET|BASENAME_SECRET/);
   });
 
   it('should respect the logEntries parameter in overview output', async () => {

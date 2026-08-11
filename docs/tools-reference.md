@@ -194,7 +194,14 @@ Search the knowledge base using full-text search and semantic similarity. Return
 | `project` | string | Yes | Current project visibility boundary |
 | `client` | string | No | Your client name — excludes notes scoped to other clients |
 | `tags` | string[] | No | Filter by tags (all must match) |
-| `limit` | number | No | Max results (default 10) |
+| `limit` | number | No | Max results: 10 in `full`; 5 by default and at most 10 in `compact` |
+| `mode` | enum | No | `full` returns legacy full-content results (default, for compatibility); `compact` returns bounded evidence cards |
+
+### Response modes and retrieval flow
+
+`full` is the default and preserves the legacy full-note response. Use `compact` for routine relevance checks: it returns 5 cards by default and rejects limits above 10. Each card contains identity, kind, scope, and relevance plus whitespace-normalized `summary` and `guidance`; each text field is capped at 240 Unicode code points (not UTF-16 units). Truncated fields end with `…` and include a truncation flag. The result also reports how many matches were available.
+
+Start with compact search, judge relevance, and use `knowledge-get` for at most one exact named note when the bounded evidence is insufficient. Do not switch routinely to `full` merely to broaden context; `full` exists for compatibility and cases that genuinely require complete search results.
 
 ### How search works
 
@@ -255,6 +262,7 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 | `link-health` | Combined report: unlinked + broken links + one-way links | No |
 | `migrate-layout` | Move flat vault to kind-based directory structure | No |
 | `upgrade-vault` | Refresh Obsidian scaffold assets | No |
+| `project-authority-review` | Read-only, bounded evidence for active non-structural notes owned by one exact project | No |
 | `full` | Composite: rebuild → migrate-layout → format → dedupe → embed → link-health (one-command maintenance) | No |
 
 ### Maintenance preview integrity
@@ -262,6 +270,10 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 `dedupe` uses one stable snapshot of every active note except structural `index` and `log` notes. Existing valid hashes are reused; missing hashes are computed only in memory and are never written by the audit. Its coverage line reports `eligible`, `hashed-at-start`, `computed-ephemerally`, `evaluated`, `omitted`, and complete/incomplete status. Group totals remain complete when only the first ten groups are displayed, and SimHash groups include the threshold and distance-from-seed evidence. Findings are advisory; archive and delete remain explicit actions.
 
 Lifecycle `review` candidates include whitespace-normalized summary and guidance evidence, each deterministically bounded to 240 characters. This evidence comes from the query-only review snapshot and does not increment access metadata.
+
+`project-authority-review` requires `project`, defaults to 50 findings, and clamps its bound to 1–100. It returns deterministic ID-ordered identity, kind, bounded summary evidence, status, lifecycle, scope, and age, along with scanned/returned/truncated counts and `mutated: false`. It neither decides authority nor writes notes or destination systems.
+
+Use its findings only to support a human or agent decision. Keep correctly placed knowledge; for misplaced or mixed notes, preserve the source, copy or distill accepted content with the destination's normal tools, verify the destination, and only then archive the KB source. Leave mixed or uncertain material active until every part is accounted for; defer when authority or verification is uncertain. Archive is reversible retirement, not deletion; deletion remains a separate explicit destructive action. The KB server does not write OpenSpec, docs, code/tests, Git, or issue trackers.
 
 Deferred work includes lifecycle-rule precision, scoped contextual health, persisted baselines or suppressions, and scaling pairwise SimHash comparison.
 
@@ -330,9 +342,9 @@ Standalone tool for vault health metrics, staleness distribution, growth rates, 
 
 ## knowledge-context
 
-Get the context visible to a required current project: project-local notes plus automatically visible explicit global knowledge, restricted by compatible client scope. Use at the start of a session to orient yourself. When `client` is supplied, the shared project log is omitted because historical log entries do not carry enough scope metadata to filter safely.
+Get retained context scoped to a required current project. Overview mode uses only notes whose project scope exactly matches the requested project; visible global notes do not count as matching project memory and are not shown as local inventory. It can be used for explicit orientation. When `client` is supplied, the shared project log is omitted because historical log entries do not carry enough scope metadata to filter safely.
 
-The Pi extension also requests a compact project preference capsule from this tool when a session starts. It injects the capsule through the system prompt and displays a separate, deduplicated TUI entry; the model does not need to initiate a search. See the [Pi Experience](pi.md#automatic-project-preferences).
+The Pi extension requests the narrow `preferenceOnly` transport when a session starts. Automatic model context consists of the managed knowledge policy plus applicable retained preferences—not a compact project overview. The extension injects the preference capsule through the system prompt and displays a separate, deduplicated TUI entry; the model does not need to initiate a search. See the [Pi Experience](pi.md#automatic-project-preferences).
 
 ### Parameters
 
@@ -340,13 +352,18 @@ The Pi extension also requests a compact project preference capsule from this to
 |-----------|------|----------|-------------|
 | `project` | string | Yes | Current project whose visible context is requested |
 | `logEntries` | number | No | Number of recent log entries to include (default: 10) |
-| `includePreferences` | boolean | No | Include a compact capsule of matching permanent personalization notes |
+| `includePreferences` | boolean | No | In overview mode, include a compact capsule of matching permanent personalization notes |
+| `preferenceOnly` | boolean | No | Return only the preference capsule; used by Pi startup |
 | `client` | string | No | Client identifier used to include matching client-scoped preferences |
 | `model` | string | No | Your model identifier. Enables richer responses for capable models |
 
+### Preference-only semantics
+
+Preference-only mode considers only permanent personalization notes applicable to the exact project/client boundary. It returns at most 12 lines within an 800-token estimate (`ceil(UTF-16 code units / 4)`), skipping an oversized line so a later concise preference may fit. These lines are retained-memory claims and guidance, not project authority: verify requirements, status, and history in their owning systems. An empty capsule means no applicable retained preference was found; it does not mean that the project has no policy, requirements, or documentation.
+
 ### Project context
 
-Returns a focused view of the required current project together with explicit global notes that are automatically visible; no separate global request flag is needed:
+Overview mode returns a focused view of notes scoped to the exact required project. Global, prefix-related, subproject, and basename-collision scopes are not substituted as project-local context:
 
 - **Domain note** — the project's domain note content (if one exists)
 - **Inventory by kind** — note counts broken down by kind for the project

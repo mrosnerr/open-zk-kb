@@ -1,16 +1,17 @@
 ## Knowledge Base (open-zk-kb)
-Persistent cross-session memory via `knowledge-*` MCP tools.
-**Before work:** search project-visible knowledge with `knowledge-search` and follow relevant guidance.
+Cross-session memory via `knowledge-*` MCP tools. Retrieve only when durable memory can materially affect the task.
 
-**Precision-first capture (default: no new note):** Call `knowledge-store` for routine agent-initiated knowledge only when all four gates pass:
-- **Novel:** search found no adequate existing note.
-- **Durable:** useful beyond this task and transient branch, session, subscription, or configuration.
-- **Behavior-changing:** materially changes a future decision or action.
-- **Canonical here:** the knowledge base is a better home than code, tests, Git, issues, OpenSpec, documentation, generated logs, or another note.
+**Canonical ownership:**
+- **OpenSpec:** active scope, requirements, design, tasks.
+- **Code/tests:** implemented behavior.
+- **Maintained docs:** supported usage, architecture.
+- **Git:** integrated history. **Issues:** unresolved coordination.
+- **Knowledge base:** durable agent memory lacking a better home.
 
-Do not routinely capture progress, completed-work or release summaries, cleanup reports, commits, milestones, immediately resolved findings, transient research, or facts authoritative elsewhere. Zero captures is a successful result. When a candidate qualifies, capture it before its evidence is lost; do not harvest indiscriminately at session end. Explicit requests to remember enduring qualified knowledge receive prompt handling, subject to safety, scope, novelty, and canonical-note checks.
+Injection is independent of persistence: automatic note context carries only applicable permanent preferences (max 12; 800-token estimate)—never bodies, inventory, resources, activity, requirements, design, progress.
 
-Search before creating. Reuse an adequate existing note; use a supported reviewed update for a canonical living note when available. If no safe update path exists, do not create a duplicate. Normally create zero or one agent-initiated note per task; separate genuinely independent durable concepts need separate justification. Each note is one concept with `summary` and imperative `guidance`.
+**Precision-first capture (default: no new note):** Call `knowledge-store` only when gates pass: **Novel:** no adequate existing note; **Durable:** useful beyond task or transient state; **Behavior-changing:** changes future action; **Canonical here:** better here than the authorities above. Zero captures is a successful result.
 
-**Project scope:** pass the current project on routine calls; never create global knowledge routinely. `index` and `log` are server-generated and must not be created manually.
-**Full detail:** `skill://open-zk-kb`.
+When relevant, use `knowledge-search` in compact mode; escalate once to exact-ID `knowledge-get`. Reuse an adequate existing note or supported reviewed update. If no safe update path exists, do not create a duplicate. Handle explicit enduring-memory requests under these gates. Do not routinely capture plans, tasks, progress, commits, completed-work/release summaries, or transient research. Preserve existing notes; rehome only after destination verification; archive and delete separately. Pass the current project on routine calls; never create global knowledge routinely. `index` and `log` are server-generated.
+
+**Client pointer:** use `skill://open-zk-kb`.

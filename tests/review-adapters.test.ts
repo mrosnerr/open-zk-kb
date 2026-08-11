@@ -134,7 +134,7 @@ describe('review adapter public contract', () => {
       'promote', 'archive', 'delete', 'rebuild', 'format', 'upgrade', 'upgrade-read', 'upgrade-apply',
       'review', 'dedupe', 'embed', 'agent-docs', 'scope-audit', 'scope-inventory', 'assign-project',
       'preference-audit', 'unlinked', 'broken-links', 'link-health', 'migrate-layout', 'upgrade-vault',
-      'full', 'publish-global', 'global-reference-audit',
+      'full', 'publish-global', 'global-reference-audit', 'project-authority-review',
     ]);
     const maintain = TOOL_DEFINITIONS.find(tool => tool.name === 'knowledge-maintain');
     if (!maintain) throw new Error('knowledge-maintain metadata is missing');

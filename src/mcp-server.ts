@@ -251,6 +251,7 @@ export function createMcpServer(): McpServer {
           tags: args.tags,
           limit: args.limit,
           model: args.model,
+          mode: args.mode,
         }, await getOrCreateRepo(), queryEmbedding, config);
         return { content: [{ type: 'text' as const, text: result }] };
       } catch (error) {
@@ -280,6 +281,7 @@ export function createMcpServer(): McpServer {
         model: args.model,
         includePreferences: args.includePreferences,
         client: args.client,
+        preferenceOnly: args.preferenceOnly,
       }, await getOrCreateRepo(), config);
       return {
         content: [{ type: 'text' as const, text: result.text }],

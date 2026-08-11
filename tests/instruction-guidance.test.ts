@@ -19,6 +19,16 @@ function managedBody(content: string): string {
     .replace(/\n<!-- OPEN-ZK-KB:END -->\n?$/, '');
 }
 
+/** Deterministic canonical-body word count: the client pointer line is excluded. */
+function bodyWordCount(body: string): number {
+  return body
+    .split('\n')
+    .filter(line => !line.startsWith('**Client pointer:**'))
+    .join(' ')
+    .split(/\s+/)
+    .filter(word => /[A-Za-z0-9]/.test(word)).length;
+}
+
 function tempDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'open-zk-guidance-'));
   tempDirs.push(dir);
@@ -66,6 +76,48 @@ describe('precision-first instruction contract', () => {
       expect(content).not.toContain('store immediately, never defer');
       expect(content).not.toContain('Store first, then work');
     }
+  });
+
+  it('states exact canonical ownership and injection boundaries on every generated instruction surface', () => {
+    const dir = tempDir();
+    const bodies: string[] = [];
+    for (const size of ['compact', 'rules', 'full', 'preflight'] as const) {
+      const file = path.join(dir, `${size}.md`);
+      injectAgentDocs(file, size, false, undefined, '1.4.2');
+      bodies.push(managedBody(fs.readFileSync(file, 'utf8')));
+    }
+    bodies.push(read('templates/install/agent-instructions-full.md'), read('templates/install/agent-instructions-preflight.md'));
+
+    for (const body of bodies) {
+      expect(body).toContain('**OpenSpec:** active scope, requirements, design, tasks.');
+      expect(body).toContain('**Code/tests:** implemented behavior.');
+      expect(body).toContain('**Maintained docs:** supported usage, architecture.');
+      expect(body).toContain('**Git:** integrated history. **Issues:** unresolved coordination.');
+      expect(body).toContain('**Knowledge base:** durable agent memory lacking a better home.');
+      expect(body).toContain('Injection is independent of persistence');
+      expect(body).toContain(
+        'automatic note context carries only applicable permanent preferences (max 12; 800-token estimate)\u2014never bodies, inventory, resources, activity, requirements, design, progress.'
+      );
+      expect(body).toContain('Handle explicit enduring-memory requests under these gates.');
+      expect(body).toContain('`knowledge-search` in compact mode');
+      expect(body).toContain('escalate once to exact-ID `knowledge-get`');
+      expect(body).toContain('Preserve existing notes; rehome only after destination verification; archive and delete separately.');
+      expect(body).toContain('Pass the current project on routine calls; never create global knowledge routinely.');
+      expect(body).toContain('`index` and `log` are server-generated');
+      expect(bodyWordCount(body)).toBeLessThanOrEqual(200);
+    }
+  });
+
+  it('snapshots conservative mixed-note rehoming and retirement guidance', () => {
+    const content = read('skill-templates/open-zk-kb/SKILL.md');
+    expect(content).toContain('**Keep** it when its concept and destination are correct.');
+    expect(content).toContain('**Distill** it when it contains durable guidance mixed with noise.');
+    expect(content).toContain('preserve the source, copy or distill into the destination-specific code, test, Git, issue, OpenSpec, or docs record');
+    expect(content).toContain('**Archive after verification** only when the destination is confirmed; otherwise defer.');
+    expect(content).toContain('Use normal destination tools');
+    expect(content).toContain('For mixed notes, extract only the qualifying concept; do not silently move unrelated material.');
+    expect(content).toContain('Preserve → copy/distill → verify → archive.');
+    expect(content).toContain('Deletion is separate and explicit');
   });
 
   it('reviews precision before omissions and accepts no capture', () => {

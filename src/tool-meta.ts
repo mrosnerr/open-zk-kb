@@ -70,6 +70,7 @@ export const MAINTAIN_ACTIONS = [
 	"full",
 	"publish-global",
 	"global-reference-audit",
+	"project-authority-review",
 ] as const;
 
 export const PUBLISH_GLOBAL_CANDIDATE_PROPERTIES: Record<string, ParamDef> = {
@@ -307,10 +308,10 @@ export const TOOL_DEFINITIONS = [
 		label: "Search Knowledge",
 		description:
 			"Search the persistent knowledge base using full-text search and semantic similarity. " +
-			"Accepts natural language queries, keywords, or phrases. Returns matching notes with full content.",
+			"Accepts natural language queries, keywords, or phrases. Returns full content by default; compact mode is an additive metadata view with exact knowledge-get pointers.",
 		promptSnippet: "Search open-zk-kb for relevant prior context and guidance.",
 		promptGuidelines: [
-			'Use knowledge-search before work that may benefit from prior cross-session memory; pass client: "pi" for Pi-specific context.',
+			'Use knowledge-search before work that may benefit from prior cross-session memory; pass client: "pi" for Pi-specific context. Use compact mode for relevance-gated retrieval, then call knowledge-get with the exact returned noteId, project, and client when present.',
 		],
 		executionMode: "parallel",
 		params: {
@@ -360,7 +361,13 @@ export const TOOL_DEFINITIONS = [
 			limit: {
 				type: "number",
 				required: false,
-				description: "Max results (default 10)",
+				description: "Max results (full default 10; compact default 5 and maximum 10)",
+			},
+			mode: {
+				type: "string",
+				required: false,
+				description: "Additive response mode: compact returns bounded metadata plus exact knowledge-get pointers; full content remains the default",
+				enum: ["full", "compact"],
 			},
 			model: {
 				type: "string",
@@ -376,12 +383,12 @@ export const TOOL_DEFINITIONS = [
 		name: "knowledge-context",
 		label: "Knowledge Context",
 		description:
-			"Get context visible to the required current project: its domain note, inventory by kind, recent notes, " +
-			"resources, activity log, and automatically visible explicit global knowledge.",
+			"Get retained context scoped exactly to the required current project: its domain note, inventory by kind, recent notes, " +
+			"resources, and activity log. Visible global knowledge does not count as matching project memory.",
 		promptSnippet:
-			"Load an open-zk-kb project context at the start of project work.",
+			"Load retained project memory only when it can materially affect the task.",
 		promptGuidelines: [
-			"Use knowledge-context at the start of a project session to load prior context, decisions, and recent activity.",
+			"Use knowledge-context only when retained memory can materially affect the task; treat canonical project artifacts as authoritative.",
 		],
 		executionMode: "parallel",
 		params: {
@@ -399,6 +406,11 @@ export const TOOL_DEFINITIONS = [
 				type: "boolean",
 				required: false,
 				description: "Include a structured capsule of matching permanent preferences",
+			},
+			preferenceOnly: {
+				type: "boolean",
+				required: false,
+				description: "Return only the structured preference capsule without overview content",
 			},
 			client: {
 				type: "string",
@@ -530,7 +542,7 @@ export const TOOL_DEFINITIONS = [
 					"migrate-layout (move flat vault to kind-based directory structure), " +
 					"upgrade-vault (refresh Obsidian scaffold assets), " +
 					"publish-global (project-local → global confirmed publication with preview + token), " +
-					"global-reference-audit (read-only explicit-global reference evidence), or " +
+					"global-reference-audit (read-only explicit-global reference evidence), project-authority-review (read-only exact-project authority evidence), or " +
 					"full (composite: rebuild → migrate-layout → format → dedupe → embed → link-health, in dependency order).",
 				enum: MAINTAIN_ACTIONS,
 			},
@@ -543,7 +555,7 @@ export const TOOL_DEFINITIONS = [
 			project: {
 				type: "string",
 				required: false,
-				description: "Target project (required for assign-project)",
+				description: "Target project (required for assign-project and project-authority-review)",
 			},
 			filter: {
 				type: "string",

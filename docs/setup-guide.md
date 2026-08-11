@@ -178,6 +178,27 @@ server:
    - `knowledge-get` -- fetch a specific note by id
    - `knowledge-open` -- open the vault in Obsidian for visual browsing (see [Obsidian Guide](obsidian.md))
 
+## Context and ownership policy
+
+Keep the knowledge base separate from project management. Use this ownership table when deciding where information belongs:
+
+| Destination | Authority |
+|---|---|
+| OpenSpec | requirements, plans, and acceptance criteria |
+| Docs | user-facing explanation and contributor guidance |
+| Code/tests | implementation and executable behavior |
+| Git | commits, diffs, branches, and review history |
+| Issues | work tracking, discussion, and collaboration status |
+| Durable KB | reusable guidance that is not authoritative elsewhere |
+
+Automatic Pi context is the managed knowledge policy plus applicable permanent preferences—not compact project orientation. The preference transport is limited to 12 notes and an 800-token estimate (`ceil(UTF-16 code units / 4)`). An empty capsule means no applicable retained preference, not an absence of project policy. Compact search returns 5 cards by default and at most 10, with each summary and guidance capped at 240 Unicode code points.
+
+Use bounded retrieval: start with **compact** task-relevant search, judge relevance, then retrieve at most one exact named note when needed. The explicit overview mode remains available when a user actually needs project orientation, but it is not injected automatically. Flow: search compactly → judge task relevance → escalate once to one exact note → reuse, update, or capture only after the precision gates. Do not routinely store tasks, progress, commits, issue updates, docs, or uncertain history. Zero captures is valid.
+
+Examples: put an OpenSpec requirement in OpenSpec; an API explanation in docs; behavior in code and tests; commits, diffs, and review history in Git; work status and discussion in issues; and durable reusable guidance in the KB. Treat uncertain history as a question for Git/issues or a deferred investigation, not a memory fact.
+
+Run `knowledge-maintain` with `project-authority-review` to obtain read-only, factual candidates (`mutated: false`). Decide keep, distill, destination-specific rehome, archive after verification, or defer. Preserve the source, copy/distill through normal OpenSpec, docs, code/test, Git, or issue tools, verify it, and only then archive. For mixed notes, leave the source active until every accepted or unresolved part is accounted for. Archive does not delete; deletion is a separate explicit action.
+
 ## Initialize project-scoped use
 
 Configure each client or its agent instructions to pass the canonical current working-directory basename as `project` on every routine stored-knowledge call and its client identifier as `client`. Routine calls require that canonical project and fail closed when it is missing. Searches see only that project's notes and explicitly global notes; routine capture always creates project-local notes. Pi supplies its canonical project and `client: "pi"` automatically.

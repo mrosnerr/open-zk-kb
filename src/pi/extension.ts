@@ -38,10 +38,22 @@ function preferenceText(result: AgentToolResult<Record<string, unknown> | undefi
   const capsule = (structured as Record<string, unknown>).preferenceCapsule;
   if (!capsule || typeof capsule !== 'object') return undefined;
   const text = (capsule as Record<string, unknown>).text;
-  return typeof text === 'string' && text.trim() ? text.trim() : undefined;
+  if (typeof text !== 'string') return undefined;
+
+  const selected: string[] = [];
+  for (const line of text.trim().split('\n')) {
+    if (!line.trim() || selected.length === 12) continue;
+    const candidate = [...selected, line].join('\n');
+    if (Math.ceil(candidate.length / 4) > 800) break;
+    selected.push(line);
+  }
+  return selected.length > 0 ? selected.join('\n') : undefined;
 }
 
 const PREFERENCE_ENTRY_TYPE = 'open-zk-kb-preferences';
+
+export const FALLBACK_KNOWLEDGE_GUIDANCE =
+  'Open-zk-kb owns persistent knowledge; Pi injects only applicable permanent preferences. Use knowledge-search for relevance-gated, compact retrieval. Store only novel, durable knowledge with a canonical home. Exclude plans, task status, progress logs, backlogs, and other project-management records; do not duplicate authoritative sources.';
 
 interface PreferenceEntryData {
   fingerprint: string;
@@ -357,7 +369,7 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
           .callTool('knowledge-context', {
             project,
             client: 'pi',
-            includePreferences: true,
+            preferenceOnly: true,
           })
           .then(preferenceText)
           .catch(() => {
@@ -426,9 +438,7 @@ export function createOpenZkKbPiExtension(options?: Partial<BridgeOptions>) {
       const hasGuidance = event.systemPrompt.includes('OPEN-ZK-KB:START') || event.systemPrompt.includes('knowledge-search');
       const additions: string[] = [];
       if (!hasGuidance) {
-        additions.push(
-          'Open-zk-kb persistent memory is available through the knowledge-* tools. Search project knowledge first. Routine storage defaults to no new note and requires novelty, durability, future behavioral value, and a canonical home here; exclude progress, transient outcomes, and authoritative records elsewhere. Explicit qualified memory requests should be handled promptly.',
-        );
+        additions.push(FALLBACK_KNOWLEDGE_GUIDANCE);
       }
       if (capsule) additions.push(`Personalization preferences:\n${capsule}`);
       return additions.length ? { systemPrompt: `${event.systemPrompt}\n\n${additions.join('\n\n')}` } : {};

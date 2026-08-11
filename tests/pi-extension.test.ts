@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import { createOpenZkKbPiExtension } from '../src/pi/extension.js';
+import { createOpenZkKbPiExtension, FALLBACK_KNOWLEDGE_GUIDANCE } from '../src/pi/extension.js';
 import { ICONS } from '../src/pi/renderer/constants.js';
 import { RENDER_RESULTS } from '../src/pi/renderers.js';
 
@@ -40,6 +40,7 @@ function writeMockMcpServer(): {
 import * as fs from 'node:fs';
 let callsPath = process.env.MOCK_MCP_CALLS;
 let buffer = '';
+let transientFailures = 0;
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
   buffer += chunk;
@@ -60,9 +61,18 @@ process.stdin.on('data', (chunk) => {
     if (message.method === 'tools/call') {
       if (callsPath) fs.appendFileSync(callsPath, JSON.stringify(message.params) + '\\n');
       const context = message.params.name === 'knowledge-context';
+      const project = message.params.arguments?.project;
+      if (context && project === 'retry-project' && transientFailures++ === 0) {
+        respond(message.id, { isError: true, content: [{ type: 'text', text: 'transient context failure' }] });
+        continue;
+      }
+      const hasPreferences = context && project !== 'no-preferences';
       respond(message.id, {
         content: [{ type: 'text', text: 'called ' + message.params.name + ' with ' + JSON.stringify(message.params.arguments) }],
-        ...(context ? { structuredContent: { preferenceCapsule: { text: '- [universal] Keep answers concise. [2026072000000000]' } } } : {})
+        ...(context ? { structuredContent: {
+          ...(hasPreferences ? { preferenceCapsule: { text: Array.from({ length: 13 }, (_, index) => '- [universal] Preference ' + (index + 1) + (index === 0 ? ': Keep answers concise.' : '.') + ' [20260720000000' + String(index).padStart(2, '0') + ']').join('\\n') } } : {}),
+          overview: 'GENERAL NOTE CONTENT MUST NOT BE INJECTED'
+        } } : {})
       });
       continue;
     }
@@ -79,6 +89,11 @@ function respond(id, result) {
 }
 
 describe('Pi extension', () => {
+  it('keeps fallback knowledge guidance direct and at most 60 words', () => {
+    expect(FALLBACK_KNOWLEDGE_GUIDANCE).toContain('Exclude plans, task status, progress logs, backlogs');
+    expect(FALLBACK_KNOWLEDGE_GUIDANCE.trim().split(/\s+/).length).toBeLessThanOrEqual(60);
+  });
+
   it('registers knowledge tools and forwards calls through an MCP stdio bridge', async () => {
     const { dir, serverPath, callsPath } = writeMockMcpServer();
     const registered: RegisteredTool[] = [];
@@ -176,9 +191,11 @@ describe('Pi extension', () => {
         .render(100)
         .join('\n');
       expect(renderedPreference).toContain('knowledge-context');
-      expect(renderedPreference).toContain('✓ 1 session preference loaded automatically');
+      expect(renderedPreference).toContain('✓ 12 session preferences loaded automatically');
       expect(renderedPreference).toContain('[universal]');
       expect(renderedPreference).toContain('Keep answers concise.');
+      expect(renderedPreference).toContain('Preference 12.');
+      expect(renderedPreference).not.toContain('Preference 13.');
       expect(renderedPreference).not.toContain('pref-1');
 
       await sessionStartHandler?.({}, { cwd: '/work/example-project', mode: 'tui', sessionManager });
@@ -193,14 +210,23 @@ describe('Pi extension', () => {
       const promptResult = await promptHandler?.({
         systemPrompt: 'Base prompt',
       });
-      expect(promptResult?.systemPrompt).toContain('Routine storage defaults to no new note');
+      expect(promptResult?.systemPrompt).toContain('relevance-gated, compact retrieval');
+      expect(promptResult?.systemPrompt).toContain('Exclude plans, task status, progress logs, backlogs');
       expect(promptResult?.systemPrompt).not.toContain('Pass client: "pi"');
-      expect(promptResult?.systemPrompt).toContain('[universal] Keep answers concise.');
+      expect(promptResult?.systemPrompt).toContain('[universal] Preference 1: Keep answers concise.');
+      expect(promptResult?.systemPrompt).not.toContain('GENERAL NOTE CONTENT');
+
+      const contextCalls = fs.readFileSync(callsPath, 'utf8')
+        .trim().split('\n').map(line => JSON.parse(line) as { name: string; arguments: Record<string, unknown> })
+        .filter(call => call.name === 'knowledge-context');
+      expect(contextCalls.every(call => JSON.stringify(call.arguments) === JSON.stringify({
+        project: 'example-project', client: 'pi', preferenceOnly: true,
+      }))).toBe(true);
 
       const dedupedPrompt = await promptHandler?.({
         systemPrompt: 'knowledge-search is already documented',
       });
-      expect(dedupedPrompt?.systemPrompt).toContain('[universal] Keep answers concise.');
+      expect(dedupedPrompt?.systemPrompt).toContain('[universal] Preference 1: Keep answers concise.');
       expect(dedupedPrompt?.systemPrompt).not.toContain('persistent memory is available');
       expect(fs.readFileSync(callsPath, 'utf8').match(/knowledge-context/g)).toHaveLength(4);
 
@@ -218,6 +244,27 @@ describe('Pi extension', () => {
       expect(searchResult?.content[0]?.text).toContain(
         'called knowledge-search with {"query":"runtime","project":"example-project","client":"pi"}',
       );
+
+      sessionEntries = [];
+      await sessionStartHandler?.({}, { cwd: '/work/no-preferences', mode: 'tui', sessionManager });
+      expect(appendedEntries).toHaveLength(2);
+      const noPreferencePrompt = await promptHandler?.({ systemPrompt: 'Base prompt' });
+      expect(noPreferencePrompt?.systemPrompt).not.toContain('Personalization preferences:');
+      expect(noPreferencePrompt?.systemPrompt).not.toContain('GENERAL NOTE CONTENT');
+
+      await sessionStartHandler?.({}, { cwd: '/work/retry-project', mode: 'print', sessionManager });
+      const failedPrompt = await promptHandler?.({ systemPrompt: 'Base prompt' });
+      expect(failedPrompt?.systemPrompt).not.toContain('Personalization preferences:');
+      const retriedPrompt = await promptHandler?.({ systemPrompt: 'Base prompt' });
+      expect(retriedPrompt?.systemPrompt).toContain('Preference 1: Keep answers concise.');
+      const finalContextCalls = fs.readFileSync(callsPath, 'utf8').trim().split('\n')
+        .map(line => JSON.parse(line) as { name: string; arguments: Record<string, unknown> })
+        .filter(call => call.name === 'knowledge-context');
+      expect(finalContextCalls.slice(-3).map(call => call.arguments)).toEqual([
+        { project: 'no-preferences', client: 'pi', preferenceOnly: true },
+        { project: 'retry-project', client: 'pi', preferenceOnly: true },
+        { project: 'retry-project', client: 'pi', preferenceOnly: true },
+      ]);
 
       const maintenance = registered.find((candidate) => candidate.name === 'knowledge-maintain');
       const maintenanceResult = await maintenance?.execute('maintenance', { action: 'review' });

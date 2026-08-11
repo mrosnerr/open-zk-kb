@@ -12,6 +12,11 @@ function note(id: string, title: string, status: string, tags: string[], body: s
   return `---\nid: "${id}"\ntitle: ${title}\nkind: personalization\nstatus: ${status}\nlifecycle: living\ntags:\n${tags.map(tag => `  - ${tag}`).join('\n')}\nsummary: ${body}\nguidance: ${body}\ncreated: 2026-03-01\nupdated: 2026-03-01\n---\n\n# ${title}\n\n${body}\n`;
 }
 
+function projectNote(id: string, title: string, kind: 'reference' | 'resource' | 'log', body: string): string {
+  const lifecycle = kind === 'log' ? 'append-only' : 'living';
+  return `---\nid: "${id}"\ntitle: ${title}\nkind: ${kind}\nstatus: permanent\nlifecycle: ${lifecycle}\ntags:\n  - project:open-zk-kb\nsummary: ${body}\nguidance: Preserve this fixture outside automatic context.\ncreated: 2026-03-01\nupdated: 2026-03-01\n---\n\n# ${title}\n\n${body}\n`;
+}
+
 describe('Pi personalization scope integration', () => {
   it('rebuilds scoped Preferences and runs a read-only preference audit through local Pi', async () => {
     if (!fs.existsSync(piBinary)) {
@@ -34,7 +39,21 @@ describe('Pi personalization scope integration', () => {
     fs.writeFileSync(path.join(configHome, 'open-zk-kb', 'config.yaml'), `vault: ${JSON.stringify(vault)}\nembeddings:\n  enabled: false\ntelemetry:\n  enabled: false\n`);
     fs.writeFileSync(path.join(preferences, '2026030100000001-universal.md'), note('2026030100000001', 'Universal concise answers', 'permanent', ['scope:global', 'writing'], 'Keep answers concise.'));
     fs.writeFileSync(path.join(preferences, '2026030100000002-pi.md'), note('2026030100000002', 'Pi TypeScript setup', 'fleeting', ['scope:global', 'client:pi'], 'For now configure TypeScript output for Pi.'));
-    fs.writeFileSync(path.join(preferences, '2026030100000003-project.md'), note('2026030100000003', 'Project Python setup', 'permanent', ['project:atlas'], 'Install Python tooling for Atlas.'));
+    fs.writeFileSync(path.join(preferences, '2026030100000003-project.md'), note('2026030100000003', 'Project Python setup', 'permanent', ['project:atlas'], 'MISMATCHED_ATLAS_PREFERENCE must stay hidden.'));
+    for (let index = 0; index < 14; index++) {
+      const id = `20260301000001${String(index).padStart(2, '0')}`;
+      fs.writeFileSync(path.join(preferences, `${id}-applicable.md`), note(id, `Applicable preference ${index + 1}`, 'permanent',
+        index % 2 === 0 ? ['scope:global'] : ['project:open-zk-kb'], `APPLICABLE_PREF_${index + 1} keep this durable guidance concise.`));
+    }
+    fs.mkdirSync(path.join(vault, 'projects', 'open-zk-kb'), { recursive: true });
+    fs.mkdirSync(path.join(vault, 'references'), { recursive: true });
+    fs.mkdirSync(path.join(vault, 'resources'), { recursive: true });
+    fs.writeFileSync(path.join(vault, 'references', '2026030100000200-overview.md'),
+      projectNote('2026030100000200', 'General project overview', 'reference', 'GENERAL_PROJECT_OVERVIEW_SECRET requirement and design progress.'));
+    fs.writeFileSync(path.join(vault, 'projects', 'open-zk-kb', '2026030100000201-activity-log.md'),
+      projectNote('2026030100000201', 'Activity log', 'log', 'ACTIVITY_LOG_SECRET progress backlog.'));
+    fs.writeFileSync(path.join(vault, 'resources', '2026030100000202-internal.md'),
+      projectNote('2026030100000202', 'Internal resource', 'resource', 'GENERAL_RESOURCE_SECRET.'));
     const archivedPath = path.join(preferences, '2026030100000004-archived.md');
     fs.writeFileSync(archivedPath, note('2026030100000004', 'Archived Cursor routing', 'archived', [], 'Currently route Cursor to gpt-4.'));
     const sourceBefore = new Map(fs.readdirSync(preferences).filter(name => name.endsWith('.md')).map(name => [name, fs.readFileSync(path.join(preferences, name), 'utf8')]));
@@ -56,10 +75,21 @@ describe('Pi personalization scope integration', () => {
       const records = fs.readFileSync(trace, 'utf8').trim().split('\n').map(line => JSON.parse(line) as { tool: string; isError: boolean; text: string; systemPrompt: string });
       expect(records).toHaveLength(2);
       expect(records.every(record => record.tool === 'knowledge-maintain' && !record.isError)).toBe(true);
-      expect(records.every(record => record.systemPrompt.includes('Keep answers concise.'))).toBe(true);
+      expect(records.every(record => record.systemPrompt.includes('APPLICABLE_PREF_'))).toBe(true);
       expect(records.every(record => !record.systemPrompt.includes('<'))).toBe(true);
+      for (const record of records) {
+        const capsule = record.systemPrompt.split('Personalization preferences:\n')[1] ?? '';
+        const injected = capsule.split('\n').filter(line => /^-?\s*\[[^\]]+]/.test(line));
+        expect(injected.length).toBeGreaterThan(0);
+        expect(injected.length).toBeLessThanOrEqual(12);
+        expect(Math.ceil(capsule.length / 4)).toBeLessThanOrEqual(800);
+        for (const hidden of ['GENERAL_PROJECT_OVERVIEW_SECRET', 'ACTIVITY_LOG_SECRET', 'GENERAL_RESOURCE_SECRET',
+          'MISMATCHED_ATLAS_PREFERENCE', 'For now configure TypeScript output for Pi.', 'Archived Cursor routing']) {
+          expect(record.systemPrompt).not.toContain(hidden);
+        }
+      }
       const audit = records[1].text;
-      expect(audit).toContain('Active personalization notes scanned: 3');
+      expect(audit).toContain('Active personalization notes scanned: 17');
       expect(audit).toContain('Mutation: none');
       expect(audit).toContain('temporary-wording: "For now"');
       expect(audit).toContain('configuration-language: "configure"');

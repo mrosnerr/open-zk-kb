@@ -209,6 +209,7 @@ describe('MCP Protocol E2E', () => {
     const contextTool = tools.tools.find(tool => tool.name === 'knowledge-context');
     const schema = contextTool?.inputSchema as { properties?: Record<string, unknown> } | undefined;
     expect(schema?.properties).toHaveProperty('includePreferences');
+    expect(schema?.properties).toHaveProperty('preferenceOnly');
 
     await client!.callTool({
       name: 'knowledge-store',
@@ -239,6 +240,15 @@ describe('MCP Protocol E2E', () => {
     expect(structured?.preferenceCapsule?.selected).toBeGreaterThanOrEqual(1);
     expect(structured?.preferenceCapsule?.omitted).toBeGreaterThanOrEqual(0);
     expect(structured?.preferenceCapsule?.text).toContain('[project:protocol, client:pi] Keep Pi protocol output concise.');
+
+    const narrowResult = await client!.callTool({
+      name: 'knowledge-context',
+      arguments: { project: 'protocol', client: 'pi', preferenceOnly: true },
+    });
+    const narrowText = (narrowResult.content as Array<{ type: string; text: string }>)[0].text;
+    expect(narrowResult.structuredContent).toEqual({ preferenceCapsule: structured?.preferenceCapsule });
+    expect(narrowText).toBe(structured?.preferenceCapsule?.text);
+    expect(narrowText).not.toContain('Overview');
 
     const aliasResult = await client!.callTool({
       name: 'knowledge-overview',
