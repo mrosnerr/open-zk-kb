@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import { KnowledgeMutationBusyError, NoteRepository, processStartIdentity, shouldRecoverStaleLock, type KnowledgeMutationContext } from '../src/storage/NoteRepository.js';
@@ -132,6 +132,110 @@ describe('reviewed storage screening', () => {
 
     fs.rmSync(baselineDir, { force: true });
     expect(ctx.engine.rebuildFromFiles().errors).toBe(0);
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
+  it('observes durable rebuild invalidation without shared process state', () => {
+    ctx.engine.store('healthy cached content', { title: 'Cached', tags: ['project:demo'] });
+    const initialized = path.join(ctx.tempDir, '.index', 'canonical-baselines', '.initialized');
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+
+    // Simulate an independent rebuilder: only durable state changes, while this
+    // repository's process-local baseline state and sidecar cache remain healthy.
+    fs.rmSync(initialized);
+    const invalidated = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    expect(invalidated.canonicalDrift).toBe(true);
+    expect(reviewedOperationTokens({
+      candidate, evaluation: evaluateScreeningCandidate(candidate, invalidated),
+      snapshotVersion: invalidated.schemaVersion, configVersion: 'v1',
+      snapshotCanonicalDrift: invalidated.canonicalDrift,
+    }).createToken).toBeUndefined();
+
+    expect(ctx.engine.rebuildFromFiles().errors).toBe(0);
+    expect(fs.existsSync(initialized)).toBe(true);
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
+  it('aborts without changing the index when durable rebuild invalidation fails', () => {
+    const stored = ctx.engine.store('intact indexed content', { title: 'Intact', tags: ['project:demo'] });
+    const initialized = path.join(ctx.tempDir, '.index', 'canonical-baselines', '.initialized');
+    const originalRmSync = fs.rmSync;
+    const rmSync = spyOn(fs, 'rmSync').mockImplementation((target, options) => {
+      if (target === initialized) throw new Error('forced marker invalidation failure');
+      return originalRmSync(target, options);
+    });
+
+    try {
+      const result = ctx.engine.rebuildFromFiles();
+      expect(result.errors).toBe(1);
+      expect(result.warnings).toEqual(['Failed to invalidate canonical baseline trust; rebuild aborted']);
+      expect(fs.existsSync(initialized)).toBe(true);
+      expect(ctx.engine.getById(stored.id)?.content).toBe('intact indexed content');
+      expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+
+      fs.appendFileSync(stored.path, '\nexternal drift after aborted rebuild');
+      expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+    } finally {
+      rmSync.mockRestore();
+    }
+  });
+
+  it('keeps durable trust invalidated when rebuilding a baseline sidecar fails', () => {
+    ctx.engine.store('sidecar failure content', { title: 'Sidecar failure', tags: ['project:demo'] });
+    const initialized = path.join(ctx.tempDir, '.index', 'canonical-baselines', '.initialized');
+    const originalRenameSync = fs.renameSync;
+    const renameSync = spyOn(fs, 'renameSync').mockImplementation((oldPath, newPath) => {
+      if (String(newPath).includes(`${path.sep}canonical-baselines${path.sep}`) && String(newPath).endsWith('.json')) {
+        throw new Error('forced baseline sidecar failure');
+      }
+      return originalRenameSync(oldPath, newPath);
+    });
+
+    try {
+      ctx.engine.rebuildFromFiles();
+      expect(fs.existsSync(initialized)).toBe(false);
+      expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+    } finally {
+      renameSync.mockRestore();
+    }
+
+    expect(ctx.engine.rebuildFromFiles().errors).toBe(0);
+    expect(fs.existsSync(initialized)).toBe(true);
+  });
+
+  it('stays persistently fail-closed when a rebuild reports file errors and recovers once clean', () => {
+    const stored = ctx.engine.store('rebuild error content', { title: 'Rebuild error', tags: ['project:demo'] });
+    const initialized = path.join(ctx.tempDir, '.index', 'canonical-baselines', '.initialized');
+    expect(fs.existsSync(initialized)).toBe(true);
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+
+    const malformed = path.join(path.dirname(stored.path), 'malformed-note.md');
+    fs.writeFileSync(malformed, 'no frontmatter and no identifier\n');
+
+    const faulted = ctx.engine.rebuildFromFiles();
+    expect(faulted.errors).toBeGreaterThan(0);
+    expect(fs.existsSync(initialized)).toBe(false);
+    let faultedSnapshot = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    expect(faultedSnapshot.canonicalDrift).toBe(true);
+    expect(reviewedOperationTokens({
+      candidate, evaluation: evaluateScreeningCandidate(candidate, faultedSnapshot),
+      snapshotVersion: faultedSnapshot.schemaVersion, configVersion: 'v1',
+      snapshotCanonicalDrift: faultedSnapshot.canonicalDrift,
+    }).createToken).toBeUndefined();
+
+    ctx.engine.close();
+    ctx.engine = new NoteRepository(ctx.tempDir, { telemetryEnabled: false });
+    faultedSnapshot = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    expect(faultedSnapshot.canonicalDrift).toBe(true);
+    expect(reviewedOperationTokens({
+      candidate, evaluation: evaluateScreeningCandidate(candidate, faultedSnapshot),
+      snapshotVersion: faultedSnapshot.schemaVersion, configVersion: 'v1',
+      snapshotCanonicalDrift: faultedSnapshot.canonicalDrift,
+    }).createToken).toBeUndefined();
+
+    fs.rmSync(malformed, { force: true });
+    expect(ctx.engine.rebuildFromFiles().errors).toBe(0);
+    expect(fs.existsSync(initialized)).toBe(true);
     expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
   });
 

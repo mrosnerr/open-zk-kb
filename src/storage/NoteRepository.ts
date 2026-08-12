@@ -497,15 +497,15 @@ export class NoteRepository {
     }
   }
 
-  private updateCanonicalMetadataBaseline(filePath: string, indexedVersion?: number): void {
+  private updateCanonicalMetadataBaseline(filePath: string, indexedVersion?: number): boolean {
     const version = indexedVersion ?? (
       this.db.prepare('SELECT updated_at FROM notes WHERE path = ?').get(filePath) as { updated_at: number } | undefined
     )?.updated_at;
-    if (version === undefined) return;
+    if (version === undefined) return false;
     const baseline = { metadata: this.canonicalMetadata(filePath), indexedVersion: version };
-    if (this.writeCanonicalBaseline(filePath, baseline)) {
-      this.indexedCanonicalMetadata.set(filePath, baseline);
-    }
+    if (!this.writeCanonicalBaseline(filePath, baseline)) return false;
+    this.indexedCanonicalMetadata.set(filePath, baseline);
+    return true;
   }
 
   private removeCanonicalMetadataBaseline(filePath: string): void {
@@ -517,8 +517,11 @@ export class NoteRepository {
     this.indexedCanonicalMetadata.delete(filePath);
   }
 
-  private refreshIndexedCanonicalMetadata(rebaseline = false, readonly = false): void {
-    if (rebaseline && this.baselineState) this.baselineState.baselineUnavailable = false;
+  private refreshIndexedCanonicalMetadata(rebaseline = false, readonly = false, reconciled = true): void {
+    // Only a rebuild that reconciled every file may re-establish trust. A rebuild
+    // with read or parse errors leaves the index partially reconciled, so it must
+    // stay fail-closed instead of clearing prior baseline faults.
+    if (rebaseline && reconciled && this.baselineState) this.baselineState.baselineUnavailable = false;
     this.indexedCanonicalMetadata.clear();
     const baselineDir = path.join(this.docsPath, '.index', 'canonical-baselines');
     const initializedPath = path.join(baselineDir, '.initialized');
@@ -530,10 +533,17 @@ export class NoteRepository {
       this.markBaselineUnavailable('bootstrap');
       return;
     }
+    if (rebaseline && !reconciled) {
+      // Rebuild invalidates the trust marker before changing the index, so a
+      // partial reconciliation only needs to keep shared memory fail-closed.
+      this.markBaselineUnavailable('rebuild');
+      return;
+    }
+    let baselineWritesSucceeded = true;
     for (const row of rows) {
       const baselinePath = this.canonicalBaselinePath(row.path);
       if (rebaseline) {
-        this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
+        if (!this.updateCanonicalMetadataBaseline(row.path, row.updated_at)) baselineWritesSucceeded = false;
         continue;
       }
       try {
@@ -545,6 +555,9 @@ export class NoteRepository {
       }
     }
     if (readonly) return;
+    // Never restore durable trust after an incomplete sidecar refresh. Other
+    // processes cannot observe this instance's in-memory failure state.
+    if (rebaseline && !baselineWritesSucceeded) return;
     try {
       fs.mkdirSync(baselineDir, { recursive: true });
       fs.writeFileSync(initializedPath, '', { encoding: 'utf8', mode: 0o600, flag: 'a' });
@@ -1503,7 +1516,10 @@ export class NoteRepository {
     }
     // Evaluate every row so baselines rebaseline deterministically: a short-circuiting
     // predicate would leave later rows unbaselined once one row already drifted.
-    let canonicalDrift = this.baselineState?.baselineUnavailable === true;
+    // Check durable trust on every screening call so invalidation by another process
+    // is observed even when this process still has healthy cached baselines.
+    const initializedPath = path.join(this.docsPath, '.index', 'canonical-baselines', '.initialized');
+    let canonicalDrift = this.baselineState?.baselineUnavailable === true || !fs.existsSync(initializedPath);
     for (const row of copied.driftRows) {
       const baseline = this.indexedCanonicalMetadata.get(row.path);
       if (baseline?.indexedVersion !== row.updated_at) {
@@ -2881,6 +2897,20 @@ export class NoteRepository {
     const rawLinkSources = new Map<string, string>();
     let errors = 0;
 
+    // Invalidate durable trust before changing any indexed rows. If this cannot
+    // persist, preserve the existing index and abort rather than risk a restart
+    // trusting a partially rebuilt database.
+    const initializedPath = path.join(this.docsPath, '.index', 'canonical-baselines', '.initialized');
+    try {
+      fs.rmSync(initializedPath, { force: true });
+    } catch {
+      const warning = 'Failed to invalidate canonical baseline trust; rebuild aborted';
+      warnings.push(warning);
+      this.markBaselineUnavailable('rebuild-invalidate');
+      logToFile('WARN', warning);
+      return { indexed: 0, errors: 1, warnings };
+    }
+
     // Embeddings live only in SQLite (not in .md files), so save before DELETE.
     const savedEmbeddings = this.db.prepare(
       'SELECT id, embedding, embedding_model, title, summary, content FROM notes WHERE embedding IS NOT NULL'
@@ -2995,7 +3025,7 @@ export class NoteRepository {
       logToFile('WARN', warning);
     }
 
-    this.refreshIndexedCanonicalMetadata(true);
+    this.refreshIndexedCanonicalMetadata(true, false, errors === 0);
     return { indexed: uniqueIds.size, errors, warnings };
   }
 
