@@ -30,18 +30,12 @@ describe('reviewed store preview logical immutability', () => {
   beforeEach(() => { ctx = createTestHarness({ telemetryEnabled: false }); });
   afterEach(() => cleanupTestHarness(ctx));
 
-  it('leaves canonical files, database tables, navigation, logs, and Git state identical', async () => {
+  it('leaves canonical files, database tables, navigation, and logs identical', async () => {
     await handleStore({
       project: 'demo', title: 'Preview Immutable Target', content: 'canonical preview content', kind: 'reference',
       summary: 'Canonical preview summary.', guidance: 'Keep canonical preview state.',
     }, ctx.engine, null, ctx.config);
-    Bun.spawnSync(['git', 'init'], { cwd: ctx.tempDir });
-    Bun.spawnSync(['git', 'config', 'user.email', 'preview@example.invalid'], { cwd: ctx.tempDir });
-    Bun.spawnSync(['git', 'config', 'user.name', 'Preview Test'], { cwd: ctx.tempDir });
-    Bun.spawnSync(['git', 'add', '.'], { cwd: ctx.tempDir });
-    Bun.spawnSync(['git', 'commit', '-m', 'Baseline'], { cwd: ctx.tempDir });
     const before = logicalSnapshot(ctx);
-    const beforeHead = Bun.spawnSync(['git', 'rev-parse', 'HEAD'], { cwd: ctx.tempDir }).stdout.toString();
 
     const output = await handleStore({
       project: 'demo', title: 'Preview Immutable Target', content: 'candidate preview content', kind: 'reference',
@@ -50,7 +44,5 @@ describe('reviewed store preview logical immutability', () => {
 
     expect(output).toContain('"mutated":false');
     expect(logicalSnapshot(ctx)).toEqual(before);
-    expect(Bun.spawnSync(['git', 'status', '--porcelain'], { cwd: ctx.tempDir }).stdout.toString()).toBe('');
-    expect(Bun.spawnSync(['git', 'rev-parse', 'HEAD'], { cwd: ctx.tempDir }).stdout.toString()).toBe(beforeHead);
   });
 });

@@ -53,13 +53,15 @@ describe('local tool telemetry', () => {
     unknownObserver.close();
   });
 
-  it('allowlists public model names without retaining provider or deployment namespaces', () => {
-    expect(normalizeTelemetryModel('private-customer/claude-sonnet-4')).toBe('claude-sonnet-4');
-    expect(normalizeTelemetryModel('anthropic/claude-sonnet-4')).toBe('claude-sonnet-4');
-    expect(normalizeTelemetryModel('openai/gpt-5')).toBe('gpt-5');
-    expect(normalizeTelemetryModel('google/gemini-2.5-pro')).toBe('gemini-2.5-pro');
-    expect(normalizeTelemetryModel('moonshot/kimi-k2')).toBe('kimi-k2');
-    expect(normalizeTelemetryModel('minimax/minimax-m2')).toBe('minimax-m2');
+  it('buckets model families without retaining provider, deployment, or model suffixes', () => {
+    expect(normalizeTelemetryModel('private-customer/claude-sonnet-4')).toBe('claude');
+    expect(normalizeTelemetryModel('anthropic/claude-sonnet-4')).toBe('claude');
+    expect(normalizeTelemetryModel('openai/gpt-5')).toBe('gpt');
+    expect(normalizeTelemetryModel('openai/chatgpt-4o-latest')).toBe('gpt');
+    expect(normalizeTelemetryModel('openai/o3-mini')).toBe('openai-o');
+    expect(normalizeTelemetryModel('google/gemini-2.5-pro')).toBe('gemini');
+    expect(normalizeTelemetryModel('moonshot/kimi-k2')).toBe('kimi');
+    expect(normalizeTelemetryModel('minimax/minimax-m2')).toBe('minimax');
     expect(normalizeTelemetryModel('private-deployment-customer-42')).toBe('other');
     expect(normalizeTelemetryModel('private//claude-sonnet-4')).toBe('other');
     expect(normalizeTelemetryModel('unknown/model-1')).toBe('other');
@@ -196,6 +198,7 @@ describe('local tool telemetry', () => {
 
   describe('all-ten canonical tool matrix', () => {
     const MODEL = 'claude-sonnet-4';
+    const MODEL_BUCKET = 'claude';
     const MODEL_CAPABLE = TELEMETRY_TOOL_NAMES.filter(name => name !== 'open');
 
     it('records each canonical handler exactly once with models, session counts, and a sum-consistent total', async () => {
@@ -256,7 +259,7 @@ describe('local tool telemetry', () => {
       const byName = new Map(rows.map(row => [row.tool_name, row]));
       expect(rows.every(row => row.session_id === ctx.engine.getSessionId())).toBe(true);
       for (const toolName of MODEL_CAPABLE) {
-        expect(byName.get(toolName)?.model, `model for ${toolName}`).toBe(MODEL);
+        expect(byName.get(toolName)?.model, `model for ${toolName}`).toBe(MODEL_BUCKET);
       }
       expect(byName.get('open')?.model).toBeNull();
 
@@ -270,7 +273,7 @@ describe('local tool telemetry', () => {
       expect(session.tool_counts).toEqual(expectedCounts);
       expect(session.total_invocations).toBe(10);
       expect(session.total_invocations).toBe(Object.values(session.tool_counts).reduce((sum, count) => sum + count, 0));
-      expect(session.models).toEqual([MODEL]);
+      expect(session.models).toEqual([MODEL_BUCKET]);
     });
   });
 

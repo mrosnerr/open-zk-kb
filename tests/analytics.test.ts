@@ -235,7 +235,7 @@ describe('analytics', () => {
       }
     });
 
-    it('normalizes model values and bounds the shared model array', async () => {
+    it('buckets model values into stable families and bounds the shared model array', async () => {
       const env = createIsolatedEnv();
       writeConfig(env.configPath, 'telemetry:\n  enabled: true\n  share: true\n  id: "test-uuid"\n');
       const models = Array.from({ length: 40 }, (_, index) => `openai/gpt-5-${index}`);
@@ -251,9 +251,9 @@ describe('analytics', () => {
         await reportPreviousSessions(repo);
         const batch = body?.batch as Array<Record<string, unknown>>;
         const sharedModels = (batch[0].properties as Record<string, unknown>).models as string[];
-        expect(sharedModels).toHaveLength(32);
-        expect(sharedModels.every(model => model === 'other' || model.startsWith('gpt-5-'))).toBe(true);
-        expect(sharedModels).toContain('gpt-5-0');
+        // Family bucketing collapses versions and namespaces well below the cap.
+        expect(sharedModels.length).toBeLessThanOrEqual(32);
+        expect([...sharedModels].sort()).toEqual(['gpt', 'other']);
         expect(new Set(sharedModels).size).toBe(sharedModels.length);
         expect(sharedModels.every(model => !model.includes('/'))).toBe(true);
         expect(sharedModels).not.toContain('contains private whitespace');
@@ -390,7 +390,7 @@ describe('analytics', () => {
         // Correlation
         expect(props.session_id).toBe('test-session-123');
         // Models
-        expect(props.models).toEqual(['claude-sonnet-4']);
+        expect(props.models).toEqual(['claude']);
         // Metadata
         expect(props.$lib).toBe('open-zk-kb');
         expect(props.$geoip_disable).toBe(true);

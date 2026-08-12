@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { Database } from 'bun:sqlite';
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import { createTestHarness, cleanupTestHarness, type TestContext } from './harness';
+import { ABSOLUTE_WARN_THRESHOLD, atomicityWarnThreshold, KIND_WORD_GUIDELINES } from '../src/content-guidelines';
 import { buildReviewSnapshot } from '../src/review/facts';
 import { canonicalFingerprint } from '../src/review/fingerprint';
 import { createRepositoryReviewReader } from '../src/review/reader';
@@ -142,7 +143,25 @@ describe('vault-review core: fingerprints', () => {
     expect(result.groups[0].findings.find(f => f.primary.id === b.id)).toBeDefined();
   });
 
-  it('changes the fingerprint when lifecycle.review-due status changes but not on age/backlink/access changes alone', () => {
+  it('changes the lifecycle.review-due fingerprint when the note status changes', () => {
+    const note = ctx.engine.store('body', { title: 'Promoting', kind: 'observation', status: 'fleeting', tags: ['project:demo'] });
+    updateTimes(ctx, note.id, Date.now() - 20 * 24 * 60 * 60 * 1000);
+
+    const now = Date.now();
+    const reader = createRepositoryReviewReader(ctx.engine);
+    const options = { scope: FULL, ruleIds: ['lifecycle.review-due'], now, policy: { exemptKinds: [] } };
+    const asFleeting = evaluateReview(options, buildReviewSnapshot(reader, FULL, now));
+    expect(ctx.engine.promoteToPermanent(note.id)).toBe(true);
+    updateTimes(ctx, note.id, Date.now() - 20 * 24 * 60 * 60 * 1000);
+    const asPermanent = evaluateReview(options, buildReviewSnapshot(reader, FULL, now));
+
+    expect(asFleeting.groups[0].findings).toHaveLength(1);
+    expect(asPermanent.groups[0].findings).toHaveLength(1);
+    expect(asPermanent.groups[0].findings[0].primary.id).toBe(note.id);
+    expect(asPermanent.groups[0].findings[0].fingerprint).not.toBe(asFleeting.groups[0].findings[0].fingerprint);
+  });
+
+  it('keeps the lifecycle.review-due fingerprint stable across access-count changes alone', () => {
     const note = ctx.engine.store('body', { title: 'Cycling', kind: 'observation', status: 'fleeting', tags: ['project:demo'] });
     const daysAgo = (days: number) => Date.now() - days * 24 * 60 * 60 * 1000;
     updateTimes(ctx, note.id, daysAgo(20));
@@ -165,6 +184,17 @@ describe('vault-review core: fingerprints', () => {
   });
 });
 
+describe('shared content guidelines', () => {
+  it('warns exactly at each kind\u2019s own guideline word count', () => {
+    for (const [kind, guide] of Object.entries(KIND_WORD_GUIDELINES)) {
+      expect(atomicityWarnThreshold(kind as keyof typeof KIND_WORD_GUIDELINES)).toBe(guide.warn);
+    }
+    // Large-document kinds keep their higher guideline instead of the baseline.
+    expect(atomicityWarnThreshold('domain')).toBeGreaterThan(ABSOLUTE_WARN_THRESHOLD);
+    expect(atomicityWarnThreshold('personalization')).toBeLessThan(ABSOLUTE_WARN_THRESHOLD);
+  });
+});
+
 describe('vault-review core: preference eligibility', () => {
   let ctx: TestContext;
   beforeEach(() => { ctx = createTestHarness(); });
@@ -181,6 +211,18 @@ describe('vault-review core: preference eligibility', () => {
     const ids = new Set(result.groups.flatMap(g => g.findings.map(f => f.primary.id)));
     expect(ids.has(eligible.id)).toBe(true);
     expect(ids.size).toBe(1);
+  });
+
+  it('treats scope:global as declared applicability for preference.missing-applicability', () => {
+    const global = ctx.engine.store('Prefer TypeScript for new modules.', { title: 'Global Pref', kind: 'personalization', status: 'permanent', tags: ['scope:global'] });
+    const untagged = ctx.engine.store('Prefer TypeScript for new modules.', { title: 'Untagged Pref', kind: 'personalization', status: 'permanent', tags: [] });
+
+    const now = Date.now();
+    const reader = createRepositoryReviewReader(ctx.engine);
+    const result = evaluateReview({ scope: FULL, ruleIds: ['preference.missing-applicability'], now }, buildReviewSnapshot(reader, FULL, now));
+    const ids = result.groups[0].findings.map(f => f.primary.id);
+    expect(ids).toContain(untagged.id);
+    expect(ids).not.toContain(global.id);
   });
 
   it('excludes fingerprint identity from evidence excerpts (identity is note id + signal type only)', () => {

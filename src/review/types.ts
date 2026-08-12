@@ -69,7 +69,6 @@ export interface EvaluationRequest {
   readonly profile?: string;
   readonly ruleIds?: readonly string[];
   readonly now: number;
-  readonly limit?: number;
   readonly policy?: Readonly<{
     reviewAfterDays?: number;
     archiveAfterDays?: number;

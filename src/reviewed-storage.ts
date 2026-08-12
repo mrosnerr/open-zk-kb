@@ -199,31 +199,50 @@ export function reviewedOperationToken(input: Parameters<typeof serializeReviewe
   return createHash('sha256').update(serializeReviewedOperation(input)).digest('hex');
 }
 
-export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeReviewedOperation>[0], 'operation' | 'target'>): {
+/** Build the effective update candidate used consistently by preview and apply tokens. */
+export function reviewedUpdateCandidate(
+  candidate: ScreeningCandidate,
+  target: Pick<ScreeningNote, 'status' | 'lifecycle' | 'tags' | 'related'>,
+  preserve: { tags: boolean; related: boolean },
+): ScreeningCandidate {
+  return {
+    ...candidate,
+    status: target.status,
+    lifecycle: target.lifecycle,
+    tags: preserve.tags ? [...target.tags] : candidate.tags,
+    related: preserve.related ? [...target.related] : candidate.related,
+  };
+}
+
+export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeReviewedOperation>[0], 'operation' | 'target'> & {
+  targetId?: string;
+  updateCandidate?: (candidate: ScreeningCandidate, match: ScreeningEvaluation['matches'][number]) => ScreeningCandidate;
+}): {
   createToken: string;
   updateTokens: Array<{ id: string; expectedUpdatedAt: number; token: string }>;
 } {
+  const { targetId, updateCandidate: buildUpdateCandidate, ...operationInput } = input;
+  const scope = (tags: string[]) => tags
+    .filter(tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global')
+    .sort();
   return {
-    createToken: reviewedOperationToken({ ...input, operation: 'create' }),
-    updateTokens: input.evaluation.matches
-      .filter(match => {
-        const scope = (tags: string[]) => tags
-          .filter(tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global')
-          .sort();
-        return match.highConfidence
-          && match.status !== 'archived'
-          && match.lifecycle !== 'snapshot'
-          && match.kind === input.candidate.kind
-          && JSON.stringify(scope(match.tags)) === JSON.stringify(scope(input.candidate.tags));
-      })
+    createToken: reviewedOperationToken({ ...operationInput, operation: 'create' }),
+    updateTokens: operationInput.evaluation.matches
+      .filter(match => (match.highConfidence || match.id === targetId)
+        && match.status !== 'archived'
+        && match.lifecycle !== 'snapshot'
+        && match.kind === operationInput.candidate.kind
+        && JSON.stringify(scope(match.tags)) === JSON.stringify(scope(operationInput.candidate.tags)))
       .map(match => {
-        const updateCandidate = { ...input.candidate, status: match.status, lifecycle: match.lifecycle };
+        const candidate = buildUpdateCandidate
+          ? buildUpdateCandidate(operationInput.candidate, match)
+          : { ...operationInput.candidate, status: match.status, lifecycle: match.lifecycle };
         return {
           id: match.id,
           expectedUpdatedAt: match.updatedAt,
           token: reviewedOperationToken({
-            ...input,
-            candidate: updateCandidate,
+            ...operationInput,
+            candidate,
             operation: 'update',
             target: { id: match.id, updatedAt: match.updatedAt },
           }),

@@ -224,6 +224,23 @@ describe('MCP Tool: knowledge-store', () => {
     expect(output).toContain('splitting into separate atomic notes');
   });
 
+  it('should not warn a large-document kind below its own higher guideline', async () => {
+    // domain warn threshold is 1000 words, so 350 words must not be flagged.
+    const content = Array(350).fill('word').join(' ');
+    ctx.engine.store('domain seed', { tags: ['project:domain-project'], title: 'Domain Seed', kind: 'observation' });
+    const output = await handleStore({
+      project: 'domain-project',
+      title: 'Domain Manual',
+      content,
+      kind: 'domain',
+      summary: 'Test large-document kind',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).not.toContain('splitting into separate atomic notes');
+    expect(output).not.toContain('captures more than one concept');
+  });
+
   it('should warn for resource kind at its lower threshold', async () => {
     // resource warn threshold: 100
     const content = Array(110).fill('word').join(' ');
@@ -664,6 +681,22 @@ describe('MCP Tool: knowledge-search', () => {
   it('should return no results message with hint', () => {
     const output = handleSearch({ project: 'test-project', query: 'xyznonexistent' }, ctx.engine);
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
+  });
+
+  it('should keep compact mode parseable and carry client warnings inside the payload', () => {
+    ctx.engine.store('compact-warning-keyword body', { tags: ['project:test-project'], title: 'Compact Warning', kind: 'reference', summary: 'Compact warning summary.' });
+
+    const warned = handleSearch({ project: 'test-project', query: 'compact-warning-keyword', mode: 'compact', client: 'not-a-client' }, ctx.engine);
+    const parsedWarned = JSON.parse(warned) as { warnings: string[]; results: unknown[] };
+    expect(warned.trimEnd().endsWith('}')).toBe(true);
+    expect(parsedWarned.results).toHaveLength(1);
+    expect(parsedWarned.warnings).toHaveLength(1);
+    expect(parsedWarned.warnings[0]).toContain('Unrecognized client');
+
+    const empty = JSON.parse(handleSearch({ project: 'test-project', query: 'xyznonexistent', mode: 'compact' }, ctx.engine)) as { count: number; results: unknown[]; warnings: string[] };
+    expect(empty.count).toBe(0);
+    expect(empty.results).toEqual([]);
+    expect(empty.warnings).toEqual([]);
   });
 });
 
@@ -2955,7 +2988,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     setCreatedAt(r2.id, daysAgo(100));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
-    expect(output).toContain('Stale Fleeting Notes (2');
+    expect(output).toContain('Stale Fleeting Notes (showing 2 of 2');
     expect(output).toContain('All Stale A');
     expect(output).toContain('All Stale B');
     // No candidates section when all notes are stale

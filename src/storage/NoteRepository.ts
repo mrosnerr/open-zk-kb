@@ -10,6 +10,7 @@ import * as path from 'path';
 import YAML from 'yaml';
 import { expandPath } from '../utils/path.js';
 import { logToFile } from '../logger.js';
+import { stripGeneratedRelatedSection } from '../related-section.js';
 import { extractWikiLinks as parseAllWikiLinks, parseWikiLink } from '../utils/wikilink.js';
 import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
@@ -28,6 +29,7 @@ import type { ConformanceRecord, ConformanceAggregates } from '../template-handl
 import { parseKnowledgeApplicability, type VisibilityOptions } from '../knowledge-scope.js';
 import { computeSimHash } from '../utils/simhash.js';
 import { normalizeScreeningTitle, type ScreeningSnapshot } from '../reviewed-storage.js';
+import { normalizeComparableTitle } from '../maintenance/duplicates.js';
 import { TOOL_DEFINITIONS } from '../tool-meta.js';
 
 export class LifecycleViolationError extends Error {
@@ -106,7 +108,6 @@ if (new Set(TELEMETRY_TOOL_NAMES).size !== TOOL_DEFINITIONS.length) {
 
 const TELEMETRY_TOOL_NAME_SET = new Set<string>(TELEMETRY_TOOL_NAMES);
 const MAX_MODEL_ID_LENGTH = 128;
-const MAX_PUBLIC_MODEL_NAME_LENGTH = 64;
 const MAX_CLIENT_VERSION_LENGTH = 32;
 export const CANONICAL_TELEMETRY_CLIENTS = ['pi', 'claude-code', 'opencode', 'cursor', 'windsurf', 'zed', 'omp', 'other'] as const;
 export type CanonicalTelemetryClient = typeof CANONICAL_TELEMETRY_CLIENTS[number];
@@ -148,10 +149,16 @@ export function normalizeTelemetryModel(model: string | undefined): string | und
   const segments = normalized.split('/');
   if (segments.some(segment => !segment)) return 'other';
 
-  // Discard provider/deployment namespaces and retain only a bounded public model name.
+  // Discard provider/deployment namespaces and retain only a stable family bucket.
   const modelName = segments.at(-1) ?? normalized;
-  const allowedFamily = /^(?:claude|gpt|chatgpt|o[134](?:-|$)|gemini|gemma|llama|mistral|mixtral|codestral|command-r|deepseek|qwen|grok|phi|kimi|minimax)[a-z0-9._:+-]*$/;
-  return modelName.length <= MAX_PUBLIC_MODEL_NAME_LENGTH && allowedFamily.test(modelName) ? modelName : 'other';
+  if (modelName.startsWith('chatgpt-') || modelName.startsWith('gpt-')) return 'gpt';
+  if (/^o[134](?:-|$)/.test(modelName)) return 'openai-o';
+
+  const stableFamilies = [
+    'claude', 'gemini', 'gemma', 'llama', 'mistral', 'mixtral', 'codestral',
+    'command-r', 'deepseek', 'qwen', 'grok', 'phi', 'kimi', 'minimax',
+  ] as const;
+  return stableFamilies.find(family => modelName.startsWith(family)) ?? 'other';
 }
 
 export interface UnreportedSession {
@@ -208,10 +215,6 @@ function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
     }
   }
   throw new Error('unreachable');
-}
-
-function stripGeneratedRelatedSection(content: string): string {
-  return content.replace(/\n\n## Related\n(?:- .*\n?)+$/u, '');
 }
 
 function computeEmbeddingSourceHash(title: string, summary: string, content: string): string {
@@ -1380,8 +1383,12 @@ export class NoteRepository {
     try {
       const actual = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8')) as { owner?: string };
       if (actual.owner === expected) fs.rmSync(lockPath, { recursive: true, force: true });
-    } catch {
-      throw new KnowledgeMutationLockError('release');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        logToFile('WARN', 'Knowledge mutation lock already absent during release');
+      } else {
+        throw new KnowledgeMutationLockError('release');
+      }
     } finally {
       this.mutationLockOwners.delete(lockPath);
     }
@@ -3213,7 +3220,8 @@ export class NoteRepository {
         tags: JSON.parse(r.tags as unknown as string),
       };
       
-      const baseTitle = this.normalizeTitle(note.title);
+      const baseTitle = normalizeComparableTitle(note.title);
+      if (!baseTitle) continue;
       if (!groups.has(baseTitle)) {
         groups.set(baseTitle, []);
       }
@@ -3230,14 +3238,7 @@ export class NoteRepository {
     return groups;
   }
 
-  private normalizeTitle(title: string): string {
-    return title
-      .toLowerCase()
-      .replace(/^(reference|action|decision|research):\s*/i, '')
-      .replace(/\.md$/i, '')
-      .replace(/[^a-z0-9]/g, '')
-      .substring(0, 50);
-  }
+
 
   clearAll(): void {
     this.db.run('DELETE FROM note_links');

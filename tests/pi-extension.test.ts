@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import { createOpenZkKbPiExtension, FALLBACK_KNOWLEDGE_GUIDANCE } from '../src/pi/extension.js';
+import { createOpenZkKbPiExtension, FALLBACK_KNOWLEDGE_GUIDANCE, preferenceText } from '../src/pi/extension.js';
 import { ICONS } from '../src/pi/renderer/constants.js';
 import { RENDER_RESULTS } from '../src/pi/renderers.js';
 
@@ -92,6 +92,14 @@ describe('Pi extension', () => {
   it('keeps fallback knowledge guidance direct and at most 60 words', () => {
     expect(FALLBACK_KNOWLEDGE_GUIDANCE).toContain('Exclude plans, task status, progress logs, backlogs');
     expect(FALLBACK_KNOWLEDGE_GUIDANCE.trim().split(/\s+/).length).toBeLessThanOrEqual(60);
+  });
+
+  it('continues preference selection after an oversized line', () => {
+    const text = preferenceText({
+      content: [],
+      details: { structuredContent: { preferenceCapsule: { text: `${'x'.repeat(3201)}\n- [universal] Keep this short.` } } },
+    });
+    expect(text).toBe('- [universal] Keep this short.');
   });
 
   it('registers knowledge tools and forwards calls through an MCP stdio bridge', async () => {
@@ -459,7 +467,7 @@ Related notes:
     const review = JSON.stringify({
       mutated: false,
       state: 'review-required',
-      evidence: { matches: [{ id: '2026071801234500' }] },
+      evidence: { matches: [{ id: '2026071801234500', highConfidence: true }] },
       createToken: 'create-token',
       updateTokens: [{ id: '2026071801234500', token: 'update-token' }],
     });
@@ -471,6 +479,20 @@ Related notes:
     expect(collapsedPreview).toContain('Preview complete · no mutation');
     expect(collapsedPreview).not.toContain('clean-create-token');
     expect(render('knowledge-store', cleanPreview, true, storeArgs)).toContain('create token: clean-create-token');
+
+    const mixedConfidence = JSON.stringify({
+      mutated: false,
+      state: 'review-required',
+      evidence: { matches: [{ highConfidence: true }, { highConfidence: false }] },
+    });
+    expect(render('knowledge-store', mixedConfidence, false, storeArgs)).toContain('1 collision');
+    const truncatedEvidence = JSON.stringify({
+      mutated: false,
+      state: 'review-required',
+      evidence: { matches: Array.from({ length: 20 }, () => ({ highConfidence: true })) },
+    });
+    expect(render('knowledge-store', truncatedEvidence, false, storeArgs)).toContain('Review required · no mutation');
+    expect(render('knowledge-store', truncatedEvidence, false, storeArgs)).not.toContain('collision');
 
     const expandedStore = render('knowledge-store', review, true, storeArgs);
     expect(expandedStore).toContain('create token: create-token');
@@ -492,6 +514,9 @@ Related notes:
   });
 
   it('preserves complete malformed and error responses', () => {
+    expect(render('knowledge-store', 'null', false, storeArgs)).toBe('null');
+    expect(render('knowledge-store', '[]', false, storeArgs)).toBe('[]');
+
     const malformed = 'raw response for Array<T> and literal <Component>\nsecond line\nfinal diagnostic';
     expect(render('knowledge-search', malformed, false)).toContain(malformed);
     expect(render('knowledge-context', malformed, false)).toContain(malformed);

@@ -232,7 +232,11 @@ const preferenceMissingApplicability: ReviewRule = {
   order: byOrdinal,
   evaluate: f => {
     if (!isPreferenceEligible(f)) return [];
-    const hasApplicability = f.note.tags.some(tag => tag.startsWith('project:') || tag.startsWith('client:'));
+    // `scope:global` is an explicit applicability declaration (see
+    // `parseKnowledgeApplicability`), not a missing one.
+    const hasApplicability = f.note.tags.some(
+      tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global',
+    );
     if (hasApplicability) return [];
     const evidence = collectEvidence(preferenceText(f), MISSING_APPLICABILITY_PATTERN);
     if (evidence.length === 0) return [];

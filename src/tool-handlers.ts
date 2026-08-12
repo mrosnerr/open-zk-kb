@@ -42,7 +42,8 @@ import {
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
-import { evaluateScreeningCandidate, reviewedOperationToken, screeningEvidenceDigest, type ScreeningCandidate } from './reviewed-storage.js';
+import { evaluateScreeningCandidate, reviewedOperationToken, reviewedOperationTokens, reviewedUpdateCandidate, screeningEvidenceDigest, type ScreeningCandidate } from './reviewed-storage.js';
+import { stripGeneratedRelatedSection } from './related-section.js';
 import { evaluateDuplicates } from './maintenance/duplicates.js';
 import type { EmbeddingConfig, EmbeddingResult } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
@@ -72,20 +73,23 @@ import type { ContextualScanTotals } from './link-health/types.js';
 
 // ---- Constants ----
 
-import { KIND_WORD_GUIDELINES, ABSOLUTE_WARN_THRESHOLD, TITLE_SOFT_WARN_WORDS, TITLE_HARD_LIMIT_WORDS, TITLE_HARD_LIMIT_CHARS } from './content-guidelines.js';
+import { KIND_WORD_GUIDELINES, ABSOLUTE_WARN_THRESHOLD, atomicityWarnThreshold, TITLE_SOFT_WARN_WORDS, TITLE_HARD_LIMIT_WORDS, TITLE_HARD_LIMIT_CHARS } from './content-guidelines.js';
 export { KIND_WORD_GUIDELINES, ABSOLUTE_WARN_THRESHOLD, TITLE_SOFT_WARN_WORDS, TITLE_HARD_LIMIT_WORDS, TITLE_HARD_LIMIT_CHARS };
 
 const EMBEDDING_BACKFILL_BATCH_SIZE = 50;
 const EMBEDDING_FOREGROUND_TIMEOUT_MS = 10_000;
 const REVIEW_EVIDENCE_MAX_CHARS = 240;
 
-function boundedReviewEvidence(value: string | undefined, maxChars = REVIEW_EVIDENCE_MAX_CHARS): string | undefined {
-  if (!value) return undefined;
+function normalizeAndTruncate(value: string | undefined, maxChars = REVIEW_EVIDENCE_MAX_CHARS): { value?: string; truncated: boolean } {
+  if (!value || maxChars <= 0) return { truncated: false };
   const normalized = value.replace(/\s+/g, ' ').trim();
-  if (maxChars <= 0) return undefined;
-  return normalized.length <= maxChars
-    ? normalized
-    : `${normalized.slice(0, maxChars - 1).trimEnd()}…`;
+  const points = Array.from(normalized);
+  if (points.length <= maxChars) return { value: normalized, truncated: false };
+  return { value: `${points.slice(0, maxChars - 1).join('').trimEnd()}…`, truncated: true };
+}
+
+function boundedReviewEvidence(value: string | undefined, maxChars = REVIEW_EVIDENCE_MAX_CHARS): string | undefined {
+  return normalizeAndTruncate(value, maxChars).value;
 }
 
 // ---- Helper functions ----
@@ -104,13 +108,13 @@ function titleWarning(title: string): { error: string } | { warning: string } | 
 
 function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
   const guide = KIND_WORD_GUIDELINES[kind];
+  // The absolute-tier message only applies once the kind's own guideline is
+  // already exceeded, so large-document kinds are never told to split at 300.
+  if (wordCount <= atomicityWarnThreshold(kind)) return null;
   if (wordCount > ABSOLUTE_WARN_THRESHOLD) {
     return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider splitting into separate atomic notes — each note should capture one concept.`;
   }
-  if (wordCount > guide.warn) {
-    return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider whether it captures more than one concept.`;
-  }
-  return null;
+  return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider whether it captures more than one concept.`;
 }
 
 type BrokenLink = {
@@ -1179,13 +1183,15 @@ async function persistSemanticMetadata(
   return null;
 }
 
-export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null, lockedContext?: KnowledgeMutationContext): Promise<string> {
+export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null, lockedContext?: KnowledgeMutationContext, internal?: { embeddingPromise?: Promise<EmbeddingResult | null>; suppressTelemetry?: boolean }): Promise<string> {
   const project = validateCurrentProject(args.project);
   if (!project) {
     return 'Error: A valid project is required for routine knowledge storage.';
   }
   const recordStoreOutcome = (outcome: 'preview' | 'collision-review' | 'create' | 'update' | 'skip' | 'stale' | 'reconciliation') => {
-    scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', `${args.kind}:${outcome}`, outcome === 'create' || outcome === 'update' ? 1 : 0, args.model));
+    if (!internal?.suppressTelemetry) {
+      scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', `${args.kind}:${outcome}`, outcome === 'create' || outcome === 'update' ? 1 : 0, args.model));
+    }
   };
   const suppliedTags = args.tags || [];
   const projectTags = suppliedTags.filter(tag => tag.startsWith('project:'));
@@ -1200,15 +1206,16 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   // than silently applying create defaults. This read is query-only; the locked
   // read below remains authoritative for optimistic concurrency.
   const visibility = { project, client: args.client || undefined };
-  const preflightTarget = args.disposition === 'update' && args.noteId
-    ? repo.getByIdVisible(args.noteId, visibility)
+  const preflightSnapshot = repo.getScreeningSnapshot(visibility);
+  const preflightScreeningNote = args.disposition === 'update' && args.noteId
+    ? preflightSnapshot.notes.find(note => note.id === args.noteId)
+    : undefined;
+  const preflightTarget = preflightScreeningNote
+    ? repo.getByIdVisible(preflightScreeningNote.id, visibility)
     : null;
   if (args.disposition === 'update' && !preflightTarget) {
     return 'Error: Update target is not active and visible.';
   }
-  const preflightScreeningNote = preflightTarget
-    ? repo.getScreeningSnapshot(visibility).notes.find(note => note.id === preflightTarget.id)
-    : undefined;
   const updateKind = preflightTarget ? preflightTarget.kind : args.kind;
   const updateStatus = preflightTarget && args.status === undefined ? preflightTarget.status : undefined;
   const updateLifecycle = preflightTarget && args.lifecycle === undefined ? preflightTarget.lifecycle : undefined;
@@ -1255,7 +1262,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   }
 
   const effectiveRelated = [...new Set(args.related ?? preflightScreeningNote?.related ?? [])];
-  let content = args.content;
+  let content = stripGeneratedRelatedSection(args.content);
   if (effectiveRelated.length > 0) {
     const relatedNotes = effectiveRelated.map(id => repo.getByIdVisible(id, { project, client: resolvedClient || undefined }));
     const hiddenIndex = relatedNotes.findIndex(note => note === null);
@@ -1274,15 +1281,18 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     return titleCheck.error;
   }
 
-  const candidateEmbeddingPromise = embeddingConfig
+  const candidateEmbeddingPromise = internal?.embeddingPromise ?? (embeddingConfig
     ? generateEmbedding(buildEmbeddingText(args.title, args.summary, args.content), embeddingConfig)
-    : undefined;
+    : undefined);
   let previewEmbedding: EmbeddingResult | null = null;
   if (candidateEmbeddingPromise) {
     let previewTimer: ReturnType<typeof setTimeout> | undefined;
     try {
       previewEmbedding = await Promise.race([
-        candidateEmbeddingPromise,
+        candidateEmbeddingPromise.catch(error => {
+          logToFile('WARN', 'Preview embedding generation failed', { error: error instanceof Error ? error.message : String(error) }, config);
+          return null;
+        }),
         new Promise<null>(resolve => { previewTimer = setTimeout(() => resolve(null), 500); }),
       ]);
     } finally {
@@ -1305,46 +1315,31 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   };
   const reviewedVisibility = { project, client: resolvedClient || undefined };
   const configVersion = 'reviewed-storage-v1';
-  const screen = (snapshot = repo.getScreeningSnapshot(reviewedVisibility)) => {
+  const screen = (snapshot: ReturnType<NoteRepository['getScreeningSnapshot']>) => {
     const evaluation = evaluateScreeningCandidate(screeningCandidate, snapshot);
-    const createToken = reviewedOperationToken({
+    const tokens = reviewedOperationTokens({
       candidate: screeningCandidate,
       evaluation,
-      operation: 'create',
       snapshotVersion: snapshot.schemaVersion,
       configVersion,
+      targetId: preflightTarget?.id,
+      updateCandidate: (candidate, match) => {
+        const note = snapshot.notes.find(item => item.id === match.id);
+        return note ? reviewedUpdateCandidate(candidate, note, {
+          tags: args.tags === undefined,
+          related: args.related === undefined,
+        }) : candidate;
+      },
     });
-    const scopeTags = (values: string[]) => values
-      .filter(tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global')
-      .sort();
-    const updateTokens = evaluation.matches.flatMap(match => {
-      const note = snapshot.notes.find(item => item.id === match.id);
-      if (!note || (!match.highConfidence && note.id !== preflightTarget?.id) || note.status === 'archived' || note.lifecycle === 'snapshot'
-        || note.kind !== screeningCandidate.kind
-        || JSON.stringify(scopeTags(note.tags)) !== JSON.stringify(scopeTags(screeningCandidate.tags))) return [];
-      const updateCandidate: ScreeningCandidate = {
-        ...screeningCandidate,
-        status: note.status,
-        lifecycle: note.lifecycle,
-        tags: args.tags === undefined ? note.tags : screeningCandidate.tags,
-        related: args.related === undefined ? note.related : effectiveRelated,
-      };
-      return [{
-        id: note.id,
-        expectedUpdatedAt: note.updatedAt,
-        token: reviewedOperationToken({
-          candidate: updateCandidate,
-          evaluation,
-          operation: 'update',
-          target: { id: note.id, updatedAt: note.updatedAt },
-          snapshotVersion: snapshot.schemaVersion,
-          configVersion,
-        }),
-      }];
-    });
-    return { snapshot, evaluation, tokens: { createToken, updateTokens } };
+    return { snapshot, evaluation, tokens };
   };
-  const initial = screen();
+  // The preflight snapshot already reflects the reviewed visibility unless the
+  // resolved client differs from the supplied one, so it is reused for the
+  // initial evaluation. Only the locked re-evaluation refreshes the snapshot.
+  const initialSnapshot = reviewedVisibility.client === visibility.client
+    ? preflightSnapshot
+    : repo.getScreeningSnapshot(reviewedVisibility);
+  const initial = screen(initialSnapshot);
   const collisions = initial.evaluation.matches.filter(match => match.highConfidence);
   const previewResult = (review = initial) => JSON.stringify({
     mutated: false,
@@ -1406,14 +1401,19 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
           if (!repo.getByIdVisible(relatedId, reviewedVisibility)) throw new Error(`Related note ${relatedId} is not active and visible.`);
         }
         if (target.lifecycle === 'append-only') {
-          const oldContent = target.content.replace(/\n\n## Related\n(?:- .*\n?)+$/u, '').trimEnd();
+          const oldContent = stripGeneratedRelatedSection(target.content);
           const newContent = args.content.trimEnd();
           const sameMetadata = target.title === args.title && (target.summary || '') === args.summary && (target.guidance || '') === args.guidance
             && JSON.stringify([...target.tags].sort()) === JSON.stringify([...tags].sort())
             && JSON.stringify(currentTargetFacts?.related ?? []) === JSON.stringify(effectiveRelated);
           if (!sameMetadata || newContent.length <= oldContent.length || !newContent.startsWith(oldContent)) throw new Error('Append-only update must be an exact metadata-preserving content extension.');
         }
-        const expected = reviewedOperationToken({ candidate: screeningCandidate, evaluation: currentEvaluation, operation: 'update', target: { id: target.id, updatedAt: target.updated_at }, snapshotVersion: currentSnapshot.schemaVersion, configVersion });
+        if (!currentTargetFacts) throw new Error('Current reviewed update target is unavailable.');
+        const updateCandidate = reviewedUpdateCandidate(screeningCandidate, currentTargetFacts, {
+          tags: args.tags === undefined,
+          related: args.related === undefined,
+        });
+        const expected = reviewedOperationToken({ candidate: updateCandidate, evaluation: currentEvaluation, operation: 'update', target: { id: target.id, updatedAt: target.updated_at }, snapshotVersion: currentSnapshot.schemaVersion, configVersion });
         if (args.token !== expected) throw new Error('Reviewed update token is stale or bound to another target; reconcile with a fresh preview.');
         existingId = target.id;
       }
@@ -1633,33 +1633,14 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   scheduleTelemetryWrite('search access update', () => repo.updateLastAccessed(accessedIds));
 
   if (results.length === 0 && !domainNote) {
+    // Compact callers parse JSON, so the empty result stays structured.
+    if (args.mode === 'compact') return compactSearchPayload([], availableCount, project, args, clientWarning);
     return 'No matching notes found. Try broader keywords or remove filters.' + clientWarning;
   }
 
   const totalCount = results.length + (domainNote ? 1 : 0);
   if (args.mode === 'compact') {
-    const compactNotes = [...(domainNote ? [domainNote] : []), ...results].map(note => ({
-      identity: { id: note.id, title: note.title },
-      scope: parseKnowledgeApplicability(note.tags),
-      kind: note.kind,
-      status: note.status,
-      lifecycle: note.lifecycle,
-      ...compactSearchField('summary', note.summary || note.title),
-      ...compactSearchField('guidance', note.guidance || ''),
-      get: {
-        tool: 'knowledge-get',
-        noteId: note.id,
-        project,
-        ...(args.client ? { client: args.client } : {}),
-      },
-    }));
-    return JSON.stringify({
-      mode: 'compact',
-      count: compactNotes.length,
-      availableCount,
-      truncated: compactNotes.length < availableCount,
-      results: compactNotes,
-    }, null, 2) + clientWarning;
+    return compactSearchPayload([...(domainNote ? [domainNote] : []), ...results], availableCount, project, args, clientWarning);
   }
 
   let output = `Found ${totalCount} note(s):\n\n`;
@@ -1674,13 +1655,38 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   return output + clientWarning;
 }
 
+/** Compact mode is machine-read, so warnings stay inside the JSON payload. */
+function compactSearchPayload(notes: NoteMetadata[], availableCount: number, project: string, args: SearchArgs, clientWarning: string): string {
+  const compactNotes = notes.map(note => ({
+    identity: { id: note.id, title: note.title },
+    scope: parseKnowledgeApplicability(note.tags),
+    kind: note.kind,
+    status: note.status,
+    lifecycle: note.lifecycle,
+    ...compactSearchField('summary', note.summary || note.title),
+    ...compactSearchField('guidance', note.guidance || ''),
+    get: {
+      tool: 'knowledge-get',
+      noteId: note.id,
+      project,
+      ...(args.client ? { client: args.client } : {}),
+    },
+  }));
+  return JSON.stringify({
+    mode: 'compact',
+    count: compactNotes.length,
+    availableCount,
+    truncated: compactNotes.length < availableCount,
+    results: compactNotes,
+    warnings: clientWarning ? [clientWarning.trim()] : [],
+  }, null, 2);
+}
+
 function compactSearchField(name: 'summary' | 'guidance', value: string): Record<string, string | boolean> {
-  const normalized = value.trim().replace(/\s+/g, ' ');
-  const points = Array.from(normalized);
-  const truncated = points.length > 240;
+  const normalized = normalizeAndTruncate(value);
   return {
-    [name]: truncated ? points.slice(0, 239).join('') + '…' : normalized,
-    [`${name}Truncated`]: truncated,
+    [name]: normalized.value ?? '',
+    [`${name}Truncated`]: normalized.truncated,
   };
 }
 
@@ -2249,23 +2255,26 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
 
         const oversized = (contentEvaluation.groups.find(group => group.ruleId === 'content.oversized')?.findings ?? [])
           .filter(finding => !candidateIds.has(finding.primary.id));
+        const displayedOversized = limitQueue(oversized);
         if (oversized.length > 0) {
-          output += `### Oversized Notes (${oversized.length} may need splitting)\n`;
-          for (const finding of oversized) {
+          output += `### Oversized Notes (showing ${displayedOversized.length} of ${oversized.length})\n`;
+          for (const finding of displayedOversized) {
             const fact = factsById.get(finding.primary.id);
             if (!fact) continue;
-            output += `- "${fact.note.title}" (${fact.note.kind}) — ${fact.contentWords} words (target: ~${fact.wordGuidance.target}) [${fact.note.id}]\n`;
+            output += `- "${boundedReviewEvidence(fact.note.title)}" (${fact.note.kind}) — ${fact.contentWords} words (target: ~${fact.wordGuidance.target}) [${fact.note.id}] — Evidence: ${boundedReviewEvidence(fact.note.summary) ?? boundedReviewEvidence(fact.note.content) ?? '(no textual evidence)'}\n`;
           }
           output += '\n';
         }
 
-        const longTitles = contentEvaluation.groups.find(group => group.ruleId === 'title.too-long')?.findings ?? [];
+        const longTitles = (contentEvaluation.groups.find(group => group.ruleId === 'title.too-long')?.findings ?? [])
+          .filter(finding => !candidateIds.has(finding.primary.id));
+        const displayedLongTitles = limitQueue(longTitles);
         if (longTitles.length > 0) {
-          output += `### Long Titles (${longTitles.length} exceed ${TITLE_SOFT_WARN_WORDS}-word target)\n`;
-          for (const finding of longTitles) {
+          output += `### Long Titles (showing ${displayedLongTitles.length} of ${longTitles.length}; exceed ${TITLE_SOFT_WARN_WORDS}-word target)\n`;
+          for (const finding of displayedLongTitles) {
             const fact = factsById.get(finding.primary.id);
             if (!fact) continue;
-            output += `- "${fact.note.title}" (${fact.note.kind}) — ${fact.titleWords} words [${fact.note.id}]\n`;
+            output += `- "${boundedReviewEvidence(fact.note.title)}" (${fact.note.kind}) — ${fact.titleWords} words [${fact.note.id}] — Evidence: ${boundedReviewEvidence(fact.note.summary) ?? boundedReviewEvidence(fact.note.content) ?? '(no textual evidence)'}\n`;
           }
           output += '\n';
         }
@@ -2277,9 +2286,10 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
       }
 
       if (staleForArchive.length > 0) {
-        output += `### Stale Fleeting Notes (${staleForArchive.length} older than ${archiveDays} days)\n`;
+        const displayedStale = limitQueue(staleForArchive);
+        output += `### Stale Fleeting Notes (showing ${displayedStale.length} of ${staleForArchive.length}; older than ${archiveDays} days)\n`;
         output += 'These fleeting notes were never promoted. Consider archiving:\n\n';
-        for (const finding of staleForArchive) {
+        for (const finding of displayedStale) {
           const fact = factsById.get(finding.primary.id);
           if (!fact) continue;
           const evidence = boundedReviewEvidence(fact.note.summary)
@@ -2440,7 +2450,7 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
         .sort((a, b) => a.id.localeCompare(b.id));
 
       const scope: ReviewScope = { kind: 'full' };
-      const now = Date.now();
+      const now = nowProvider();
       const snapshot = buildReviewSnapshot(createRepositoryReviewReader(repo), scope, now);
       const evaluation = evaluateReview({ scope, profile: 'preference', now }, snapshot);
       const findingsByNote = new Map<string, Finding[]>();
@@ -2686,6 +2696,7 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
       output += `\n## Broken Wikilinks (${brokenGroup.total})\n\n`;
       output += 'Links pointing to non-existent notes:\n\n';
       output += renderContextualBrokenFindings(brokenGroup.findings, contextualDisplayLimit(args.limit));
+      if (result.incompleteGraph) output += INCOMPLETE_GRAPH_NOTICE;
       output += '\n## Next Steps\n';
       output += '[A] Create the missing target notes\n';
       output += '[B] Update or remove the broken links\n';
@@ -3287,14 +3298,14 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
   const dispositions = args.dispositions ?? [];
   const dryRun = args.dry_run ?? true;
   const embeddingTexts = args.candidates.map(candidate => buildEmbeddingText(candidate.title, candidate.summary, candidate.content));
-  let embeddings: Array<{ embedding: number[] } | null> = args.candidates.map(() => null);
+  let embeddings: Array<EmbeddingResult | null> = args.candidates.map(() => null);
   let embeddingsAvailable = false;
 
   if (embeddingConfig) {
     try {
       const batchTimeout = Math.max(60000, args.candidates.length * 2000);
       const batchResults = await generateEmbeddingBatch(embeddingTexts, embeddingConfig, batchTimeout);
-      embeddings = batchResults.map(result => result ? { embedding: result.embedding } : null);
+      embeddings = batchResults;
       embeddingsAvailable = embeddings.some(Boolean);
     } catch (error) {
       logToFile('WARN', 'Mining batch embedding failed', {
@@ -3378,8 +3389,17 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
   }
 
   const storeArgsFor = (result: MineResult, disposition: MineDisposition): StoreArgs => {
-    const tags = [...(result.candidate.tags || [])];
-    if (result.candidate.source) tags.push(`mined:${result.candidate.source}`);
+    let tags = result.candidate.tags ? [...result.candidate.tags] : undefined;
+    if (result.candidate.source) {
+      const sourceTag = `mined:${result.candidate.source}`;
+      if (tags) tags.push(sourceTag);
+      else if (disposition.action === 'update' && disposition.noteId) {
+        const target = repo.getByIdVisible(disposition.noteId, { project, client: args.client });
+        if (target) tags = [...target.tags, sourceTag];
+      } else {
+        tags = [sourceTag];
+      }
+    }
     return {
       title: result.candidate.title,
       content: result.candidate.content,
@@ -3409,7 +3429,11 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
       if (disposition.action === 'update' && (!disposition.noteId || disposition.expectedUpdatedAt === undefined)) {
         return { error: `Update disposition for ${disposition.candidateKey} requires noteId and expectedUpdatedAt.` };
       }
-      const preview = await handleStore(storeArgsFor(result, disposition), repo, embeddingConfig, config, gitVersioning, lockedContext);
+      const preparedEmbedding = embeddings[result.index - 1];
+      const preview = await handleStore(storeArgsFor(result, disposition), repo, embeddingConfig, config, gitVersioning, lockedContext, {
+        embeddingPromise: Promise.resolve(preparedEmbedding),
+        suppressTelemetry: true,
+      });
       let review: { evidence?: { digest?: string }; createToken?: string; updateTokens?: Array<{ id: string; token: string }> };
       try {
         review = JSON.parse(preview) as typeof review;
@@ -3461,7 +3485,9 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
           continue;
         }
         try {
-          const freshPreviewText = await handleStore(storeArgsFor(result, disposition), repo, embeddingConfig, config, gitVersioning, lockedContext);
+          const preparedEmbedding = embeddings[result.index - 1];
+          const mineStoreInternal = { embeddingPromise: Promise.resolve(preparedEmbedding), suppressTelemetry: true };
+          const freshPreviewText = await handleStore(storeArgsFor(result, disposition), repo, embeddingConfig, config, gitVersioning, lockedContext, mineStoreInternal);
           const freshPreview = JSON.parse(freshPreviewText) as { createToken?: string; updateTokens?: Array<{ id: string; token: string }> };
           const operationToken = disposition.action === 'store'
             ? freshPreview.createToken
@@ -3472,7 +3498,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
             dryRun: false,
             confirm: true,
             token: operationToken,
-          }, repo, embeddingConfig, config, gitVersioning, lockedContext);
+          }, repo, embeddingConfig, config, gitVersioning, lockedContext, mineStoreInternal);
           const storedId = extractStoredId(storeResult);
           if (!storedId) throw new Error(storeResult);
           result.storedId = storedId;

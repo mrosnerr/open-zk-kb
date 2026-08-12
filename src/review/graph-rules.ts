@@ -90,7 +90,9 @@ const reciprocal: GraphRule = {
         const targetType = applicabilityById.get(edge.targetId);
         return !(sourceType === 'project-local' && targetType === 'global');
       })
-      .sort((a, b) => a.sourceTitle.localeCompare(b.sourceTitle) || a.targetTitle.localeCompare(b.targetTitle))
+      // Deduplicated edges already arrive in authored occurrence order from
+      // `buildGraphEdgeFacts`; re-sorting by title would discard that
+      // deterministic provider order for a display-only one.
       .map(edge => ({
         primary: { id: edge.sourceId, role: 'primary' as const },
         related: [{ id: edge.targetId, role: 'related' as const }],

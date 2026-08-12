@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { evaluateDuplicates } from '../src/maintenance/duplicates.js';
+import { evaluateDuplicates, normalizeComparableTitle } from '../src/maintenance/duplicates.js';
 import type { NoteMetadata } from '../src/storage/NoteRepository.js';
 import { handleMaintain } from '../src/tool-handlers.js';
 import { computeSimHash } from '../src/utils/simhash.js';
@@ -59,6 +59,31 @@ describe('duplicate audit evaluation', () => {
     expect(first.titleGroups.some(group => group.notes.map(item => item.id).join(',') === `${notes[500].id},${notes[501].id}`)).toBe(true);
     expect(first.simhashGroups.some(group => group.evidence.some(item => item.distanceFromSeed === 0))).toBe(true);
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
+  });
+
+  it('preserves word boundaries when normalizing titles and skips titles without alphanumeric content', () => {
+    expect(normalizeComparableTitle('Note Book')).toBe('note book');
+    expect(normalizeComparableTitle('Notebook')).toBe('notebook');
+    expect(normalizeComparableTitle('Reference: note-book.md')).toBe('note book');
+    expect(normalizeComparableTitle('  ***  ')).toBe('');
+
+    const sharedPrefix = 'A title prefix that is exactly long enough to cross the old fifty character boundary';
+    const laterAlpha = `${sharedPrefix} alpha`;
+    const laterBeta = `${sharedPrefix} beta`;
+    expect(normalizeComparableTitle(laterAlpha)).not.toBe(normalizeComparableTitle(laterBeta));
+    expect(evaluateDuplicates([
+      note(10, { title: laterAlpha }),
+      note(11, { title: laterBeta }),
+    ]).titleGroups).toHaveLength(0);
+
+    const spaced = note(1, { title: 'Note Book', content: 'first distinct body about paging' });
+    const joined = note(2, { title: 'Notebook', content: 'second distinct body about indexing' });
+    const symbolic = note(3, { title: '***', content: 'third distinct body about symbols' });
+    const symbolicToo = note(4, { title: '---', content: 'fourth distinct body about dashes' });
+
+    const evaluation = evaluateDuplicates([spaced, joined, symbolic, symbolicToo]);
+
+    expect(evaluation.titleGroups).toEqual([]);
   });
 });
 

@@ -52,7 +52,8 @@ text node is missing source offsets), the function returns a typed
 
 ## Status
 
-This module has no production consumer yet. It is not called from any
-store, update, rebuild, link-synchronization, startup, health, or
-maintenance path. It is a groundwork layer for a later, separately reviewed
-link-health migration.
+The only production consumer is `buildContextualLinkFacts` in
+`src/review/graph-providers.ts`, which parses supplied source bytes for the
+contextual link-graph review. It is still not called from any store, update,
+rebuild, link-synchronization, or startup path, and it never reads the
+filesystem or repository itself.

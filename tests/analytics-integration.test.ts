@@ -133,7 +133,7 @@ describe('analytics integration', () => {
     expect(props.total_invocations).toBe(10);
     expect(props.total_invocations).toBe(toolTotal);
 
-    expect(props.models).toEqual(['claude-3-5-sonnet']);
+    expect(props.models).toEqual(['claude']);
     expect(JSON.stringify(props.models)).not.toContain(identifyingNamespace);
 
     const db2 = new Database(dbPath(), { readonly: true });

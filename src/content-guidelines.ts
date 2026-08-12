@@ -20,8 +20,19 @@ export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: numb
   log:             { target: 500, warn: 5000 },
 };
 
-/** Absolute word-count ceiling — warns regardless of kind. */
+/** Baseline word-count ceiling, used when a kind has no (or a lower) guideline. */
 export const ABSOLUTE_WARN_THRESHOLD = 300;
+
+/**
+ * Effective atomicity warning threshold for a kind: the kind's own documented
+ * warn level. Kinds whose guideline legitimately exceeds the baseline
+ * (`domain`, `index`, `log`) must not be warned at 300 words while their
+ * documented warn level is higher — the two thresholds would otherwise
+ * contradict each other. Unknown kinds fall back to the baseline.
+ */
+export function atomicityWarnThreshold(kind: NoteKind): number {
+  return KIND_WORD_GUIDELINES[kind]?.warn ?? ABSOLUTE_WARN_THRESHOLD;
+}
 
 export const TITLE_SOFT_WARN_WORDS = 6;
 export const TITLE_HARD_LIMIT_WORDS = 10;

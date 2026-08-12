@@ -40,8 +40,12 @@ export function orderFactKeys(
   const visiting = new Set<GraphFactKey>();
   const order: GraphFactKey[] = [];
 
+  const declares = (key: GraphFactKey): boolean => Object.hasOwn(dependencies, key);
+
   const visit = (key: GraphFactKey): void => {
-    if (!(key in dependencies)) throw new Error(`Unknown graph fact key: ${key}`);
+    // Own-property check only: an inherited `Object.prototype` name (e.g.
+    // `toString`) is not a declared fact key and must be rejected.
+    if (!declares(key)) throw new Error(`Unknown graph fact key: ${key}`);
     if (done.has(key)) return;
     if (visiting.has(key)) throw new Error(`Graph fact dependency cycle at: ${key}`);
     visiting.add(key);
@@ -62,8 +66,12 @@ export function orderFactKeys(
  * there is no process-global or persisted plan cache.
  */
 export function planGraphFacts(ruleIds: readonly string[]): GraphPlan {
-  const unknown = ruleIds.find(id => !BUILTIN_GRAPH_RULES.some(rule => rule.id === id));
-  if (unknown) throw new Error(`Unknown graph rule: ${unknown}`);
+  if (ruleIds.length === 0) throw new Error('No graph rules requested');
+  for (const id of ruleIds) {
+    // Explicit per-id check: an empty or otherwise falsy id must be rejected
+    // as unknown rather than skipped by a truthiness test.
+    if (!BUILTIN_GRAPH_RULES.some(rule => rule.id === id)) throw new Error(`Unknown graph rule: ${id}`);
+  }
 
   const selected = BUILTIN_GRAPH_RULES.filter(rule => ruleIds.includes(rule.id));
   const requiredKeys = selected.flatMap(rule => rule.requiredFacts);

@@ -12,7 +12,7 @@ When sharing is enabled, each completed session is reported as one `session` eve
   "properties": {
     "client": "claude-code",
     "client_version": "1.0.27",
-    "version": "1.4.2",
+    "version": "1.4.3",
     "os_platform": "darwin",
     "vault_size": 42,
     "duration_ms": 300000,
@@ -30,7 +30,7 @@ When sharing is enabled, each completed session is reported as one `session` eve
     "models": ["claude-sonnet-4"],
     "session_id": "550e8400-e29b-41d4-a716-446655440000",
     "$lib": "open-zk-kb",
-    "$lib_version": "1.4.2",
+    "$lib_version": "1.4.3",
     "$lib_env": "production",
     "$geoip_disable": true
   }
@@ -63,7 +63,7 @@ When sharing is enabled, each completed session is reported as one `session` eve
 | `$lib_env` | enum | `dev` (source checkout), `test` (explicit synthetic validation), or `production` (installed package) |
 | `$geoip_disable` | boolean | Always `true`; disables geographic enrichment |
 
-Known runtime aliases are normalized to the canonical client vocabulary; unknown or malformed names become `other`, and raw client names are not shared. For adoption analysis, filter to `$lib_env = "production"`; manual synthetic validation must use `$lib_env = "test"` even when run from a packaged install.
+Known runtime aliases are normalized to the canonical client vocabulary; unknown or malformed names become `other`, and raw client names are not shared. Recognized model identifiers discard provider and deployment namespaces; `chatgpt-*` identifiers are reduced to the stable `gpt` bucket, and unrecognized identifiers are not shared. For adoption analysis, filter to `$lib_env = "production"`; manual synthetic validation must use `$lib_env = "test"` even when run from a packaged install.
 
 ## Analysis boundaries
 

@@ -60,6 +60,20 @@ describe('graph registry and planning', () => {
     expect(() => orderFactKeys(['contextual-links'], cyclic)).toThrow('Graph fact dependency cycle at: contextual-links');
   });
 
+  it('rejects an inherited prototype fact key, an empty rule id, and an empty rule selection', () => {
+    const declared = {
+      'contextual-links': [],
+      'resolved-links': [],
+      'graph-edges': [],
+      'document-applicability': [],
+    } satisfies Readonly<Record<GraphFactKey, readonly GraphFactKey[]>>;
+    expect(() => orderFactKeys(['toString' as GraphFactKey], declared)).toThrow('Unknown graph fact key: toString');
+    expect(() => orderFactKeys(['contextual-links'], { ...declared, 'contextual-links': ['constructor' as GraphFactKey] }))
+      .toThrow('Unknown graph fact key: constructor');
+    expect(() => planGraphFacts([''])).toThrow('Unknown graph rule: ');
+    expect(() => planGraphFacts([])).toThrow('No graph rules requested');
+  });
+
   it('materializes only the selected provider closure in deterministic order', () => {
     expect(planGraphFacts(['links.broken']).providerKeys).toEqual(['contextual-links', 'resolved-links']);
     expect(planGraphFacts(['links.unlinked']).providerKeys).toEqual(['contextual-links', 'resolved-links', 'graph-edges']);
@@ -105,6 +119,22 @@ describe('graph materialization and formal findings', () => {
     expect(reciprocal).toMatchObject({
       primary: { id: alpha.id }, related: [{ id: beta.id, role: 'related' }], identity: [alpha.id, beta.id],
     });
+  });
+
+  it('preserves provider edge order for reciprocal findings instead of re-sorting by title', () => {
+    const zulu = document('1000000000000004', 'Zulu');
+    const middle = document('1000000000000005', 'Middle');
+    const anchor = document('1000000000000006', 'Anchor');
+    const resolve = (slug: string) => [zulu, middle, anchor].some(doc => doc.id === slug)
+      ? { kind: 'document' as const, id: slug }
+      : { kind: 'unresolved' as const };
+    // Authored order is Zulu -> Middle -> Anchor; alphabetical title order would be the reverse.
+    const result = materializeGraphReview([
+      readable(zulu, `[[${middle.id}]]`),
+      readable(middle, `[[${anchor.id}]]`),
+      readable(anchor, ''),
+    ], resolve, ['links.reciprocal-missing']);
+    expect(result.review.groups[0].findings.map(finding => finding.primary.id)).toEqual([zulu.id, middle.id]);
   });
 
   it('treats vault-target as a valid discriminated target without creating an edge or broken finding', () => {

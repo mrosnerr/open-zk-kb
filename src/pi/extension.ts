@@ -32,7 +32,7 @@ const ROUTINE_STORED_KNOWLEDGE_TOOLS = new Set<ToolName>([
   'knowledge-mine',
 ]);
 
-function preferenceText(result: AgentToolResult<Record<string, unknown> | undefined>): string | undefined {
+export function preferenceText(result: AgentToolResult<Record<string, unknown> | undefined>): string | undefined {
   const structured = result.details?.structuredContent;
   if (!structured || typeof structured !== 'object') return undefined;
   const capsule = (structured as Record<string, unknown>).preferenceCapsule;
@@ -42,9 +42,10 @@ function preferenceText(result: AgentToolResult<Record<string, unknown> | undefi
 
   const selected: string[] = [];
   for (const line of text.trim().split('\n')) {
-    if (!line.trim() || selected.length === 12) continue;
+    if (selected.length === 12) break;
+    if (!line.trim()) continue;
     const candidate = [...selected, line].join('\n');
-    if (Math.ceil(candidate.length / 4) > 800) break;
+    if (Math.ceil(candidate.length / 4) > 800) continue;
     selected.push(line);
   }
   return selected.length > 0 ? selected.join('\n') : undefined;

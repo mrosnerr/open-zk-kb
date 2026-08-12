@@ -209,7 +209,9 @@ function reviewedOperationResult(
 ): Component | undefined {
   let payload: Record<string, unknown>;
   try {
-    payload = JSON.parse(text) as Record<string, unknown>;
+    const parsed: unknown = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    payload = parsed as Record<string, unknown>;
   } catch {
     return undefined;
   }
@@ -217,13 +219,20 @@ function reviewedOperationResult(
   if (!state) return undefined;
   const plan = Array.isArray(payload.plan) ? payload.plan : [];
   const completed = Array.isArray(payload.completed) ? payload.completed : [];
-  const evidence = payload.evidence && typeof payload.evidence === 'object'
+  const evidence = payload.evidence && typeof payload.evidence === 'object' && !Array.isArray(payload.evidence)
     ? payload.evidence as { matches?: unknown[] }
     : undefined;
-  const matchCount = Array.isArray(evidence?.matches) ? evidence.matches.length : 0;
+  const evidenceMatches = Array.isArray(evidence?.matches) ? evidence.matches : undefined;
+  const collisionCount = evidenceMatches && evidenceMatches.length < 20
+    ? evidenceMatches.filter((match) => match && typeof match === 'object' && !Array.isArray(match)
+      && (match as Record<string, unknown>).highConfidence === true).length
+    : undefined;
+  const collisionLabel = collisionCount === undefined
+    ? 'Review required · no mutation'
+    : `Review required · no mutation · ${collisionCount} collision${collisionCount === 1 ? '' : 's'}`;
   const labels: Record<string, string> = {
     'preview': 'Preview complete · no mutation',
-    'review-required': `Review required · no mutation · ${matchCount} collision${matchCount === 1 ? '' : 's'}`,
+    'review-required': collisionLabel,
     'skipped': 'Skipped · no mutation',
     'plan-ready': `Reviewed plan ready · ${plan.length} disposition${plan.length === 1 ? '' : 's'}`,
     'migration-required': 'Explicit reviewed plan required',

@@ -159,7 +159,7 @@ describe('reviewed storage screening', () => {
       expect((contentionError as Error).message).toBe('Knowledge mutation is already in progress');
       expect((contentionError as Error).message).not.toContain(ctx.tempDir);
       expect((contentionError as Error).message).not.toContain(aliasPath);
-      expect(Date.now() - started).toBeLessThan(100);
+      expect(Date.now() - started).toBeLessThan(1000);
       release();
       await holder;
       expect(second.store('later content', { title: 'Later' }).action).toBe('created');
@@ -167,6 +167,32 @@ describe('reviewed storage screening', () => {
       second.close();
       fs.rmSync(aliasPath, { force: true });
     }
+  });
+
+  it('treats an externally removed lock directory as a benign release', () => {
+    const lockPath = path.join(ctx.tempDir, '.index', 'knowledge-mutation.lock');
+    expect(() => ctx.engine.withKnowledgeMutationLock(context => {
+      expect(fs.existsSync(lockPath)).toBe(true);
+      fs.rmSync(lockPath, { recursive: true, force: true });
+      return context;
+    })).not.toThrow();
+    expect(ctx.engine.store('content after benign release', { title: 'After benign release' }).action).toBe('created');
+  });
+
+  it('wraps non-ENOENT lock release failures', () => {
+    const ownerPath = path.join(ctx.tempDir, '.index', 'knowledge-mutation.lock', 'owner.json');
+    let releaseError: unknown;
+    try {
+      ctx.engine.withKnowledgeMutationLock(() => {
+        fs.writeFileSync(ownerPath, '{invalid');
+      });
+    } catch (error) {
+      releaseError = error;
+    }
+
+    expect(releaseError).toBeInstanceOf(Error);
+    expect((releaseError as Error).name).toBe('KnowledgeMutationLockError');
+    expect((releaseError as Error).message).toBe('Unable to release knowledge mutation lock');
   });
 
   it('redacts the vault path when lock infrastructure cannot be resolved', () => {

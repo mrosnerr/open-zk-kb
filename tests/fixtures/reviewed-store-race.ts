@@ -4,6 +4,7 @@ import { handleStore, type StoreArgs } from '../../src/tool-handlers.js';
 
 const [vault, mode, lane, barrier, targetId, expectedText] = process.argv.slice(2);
 if (!vault || !mode || !lane || !barrier) throw new Error('Missing race fixture arguments');
+const resultPath = `${barrier}.${lane}.result`;
 const repo = createNoteRepository(vault, { telemetryEnabled: false });
 
 const base: StoreArgs = {
@@ -25,9 +26,17 @@ try {
   const token = mode === 'create' ? preview.createToken : preview.updateTokens?.find(item => item.id === targetId)?.token;
   if (!token) throw new Error(`Missing operation token: ${previewText}`);
   fs.writeFileSync(`${barrier}.${lane}.ready`, 'ready');
-  while (!fs.existsSync(barrier)) Bun.sleepSync(2);
+  const deadline = Date.now() + 10_000;
+  while (!fs.existsSync(barrier)) {
+    if (Date.now() >= deadline) throw new Error('Timed out waiting for race barrier');
+    Bun.sleepSync(2);
+  }
   const result = await handleStore({ ...base, dryRun: false, confirm: true, token }, repo, null);
-  fs.writeFileSync(`${barrier}.${lane}.result`, result);
+  fs.writeFileSync(resultPath, result);
+} catch (error) {
+  const message = error instanceof Error ? error.message : String(error);
+  fs.writeFileSync(resultPath, `Error: ${message}`);
+  process.exitCode = 1;
 } finally {
   repo.close();
 }

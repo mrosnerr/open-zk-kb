@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
-import { handleStore, type StoreArgs } from '../src/tool-handlers.js';
+import { handleGet, handleStore, type StoreArgs } from '../src/tool-handlers.js';
+import { evaluateScreeningCandidate, reviewedOperationTokens, reviewedUpdateCandidate, type ScreeningCandidate } from '../src/reviewed-storage.js';
 import { cleanupTestHarness, createTestHarness, listAllNoteFiles, type TestContext } from './harness.js';
 
 function args(overrides: Partial<StoreArgs> = {}): StoreArgs {
@@ -104,6 +105,129 @@ describe('reviewed knowledge-store handler', () => {
     expect(updated?.content.match(/## Related/g)?.length).toBe(1);
   });
 
+  it('strips generated Related sections for append-only content at the start or after body text', async () => {
+    const linked = ctx.engine.store('linked content', { title: 'Related append target', kind: 'reference', status: 'fleeting', lifecycle: 'living', tags: ['project:demo'], summary: 'Linked summary.', guidance: 'Keep linked.' });
+    for (const [title, content] of [['Body plus Related', 'body'], ['Related only', '']] as const) {
+      const note = ctx.engine.store(content, { title, kind: 'reference', status: 'fleeting', lifecycle: 'append-only', tags: ['project:demo'], related: [linked.id], summary: 'Append summary.', guidance: 'Append safely.' });
+      const target = getNote(ctx, note.id);
+      const candidate = args({ title, content: `${content} appended`, summary: target.summary, guidance: target.guidance, disposition: 'update', noteId: note.id, expectedUpdatedAt: target.updated_at, dryRun: true });
+      const preview = parsed(await handleStore(candidate, ctx.engine, null, ctx.config));
+      const token = (preview.updateTokens as Array<{ token: string }>).find(item => item.id === note.id)?.token;
+      expect(await handleStore({ ...candidate, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config)).toContain('Updated reference');
+      expect(ctx.engine.getById(note.id)?.content.match(/## Related/g)?.length).toBe(1);
+    }
+  });
+
+  it('derives handler update tokens from the shared helper for omitted metadata and an explicit low-confidence target', async () => {
+    const relatedId = storedId(await handleStore(args({ title: 'Related for parity', content: 'related parity content', summary: 'Related parity summary.' }), ctx.engine, null, ctx.config));
+    const id = storedId(await handleStore(args({ title: 'Parity target', tags: ['topic'], related: [relatedId] }), ctx.engine, null, ctx.config));
+    const target = getNote(ctx, id);
+
+    // Title and content diverge, so the target is only reachable as an explicit
+    // low-confidence update target; tags and related are omitted to preserve.
+    const updateArgs = args({
+      title: 'Wholly different parity title',
+      content: 'wholly different parity content',
+      disposition: 'update',
+      noteId: id,
+      expectedUpdatedAt: target.updated_at,
+      dryRun: true,
+    });
+    const preview = parsed(await handleStore(updateArgs, ctx.engine, null, ctx.config));
+
+    const snapshot = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    const note = snapshot.notes.find(item => item.id === id);
+    if (!note) throw new Error('Expected screening note');
+    const candidate: ScreeningCandidate = {
+      title: updateArgs.title,
+      content: updateArgs.content,
+      summary: updateArgs.summary ?? '',
+      guidance: updateArgs.guidance ?? '',
+      kind: target.kind,
+      status: target.status,
+      lifecycle: target.lifecycle,
+      tags: [...target.tags],
+      related: [...note.related],
+    };
+    const helper = reviewedOperationTokens({
+      candidate,
+      evaluation: evaluateScreeningCandidate(candidate, snapshot),
+      snapshotVersion: snapshot.schemaVersion,
+      configVersion: 'reviewed-storage-v1',
+      targetId: id,
+      updateCandidate: (input, match) => {
+        const matched = snapshot.notes.find(item => item.id === match.id);
+        return matched ? reviewedUpdateCandidate(input, matched, { tags: true, related: true }) : input;
+      },
+    });
+
+    expect(helper.updateTokens.map(token => token.id)).toContain(id);
+    expect(preview.updateTokens).toEqual(helper.updateTokens);
+    expect(preview.createToken).toBe(helper.createToken);
+
+    const token = helper.updateTokens.find(item => item.id === id)?.token;
+    expect(await handleStore({ ...updateArgs, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config)).toContain('Updated reference');
+    expect(ctx.engine.getById(id)?.tags).toContain('topic');
+  });
+
+  it('reuses a single visibility-aligned screening snapshot for preview and refreshes it only under the lock', async () => {
+    const id = storedId(await handleStore(args({ title: 'Snapshot reuse target' }), ctx.engine, null, ctx.config));
+    const target = getNote(ctx, id);
+    const original = ctx.engine.getScreeningSnapshot.bind(ctx.engine);
+    let calls = 0;
+    const spied = ctx.engine as unknown as { getScreeningSnapshot: typeof original };
+    spied.getScreeningSnapshot = visibility => { calls += 1; return original(visibility); };
+    const updateArgs = args({ title: 'Snapshot reuse target', content: 'snapshot reuse update', disposition: 'update', noteId: id, expectedUpdatedAt: target.updated_at, dryRun: true });
+    try {
+      await handleStore(args({ title: 'Snapshot reuse create', dryRun: true }), ctx.engine, null, ctx.config);
+      expect(calls).toBe(1);
+
+      calls = 0;
+      const preview = parsed(await handleStore(updateArgs, ctx.engine, null, ctx.config));
+      expect(calls).toBe(1);
+
+      calls = 0;
+      const token = (preview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === id)?.token;
+      expect(await handleStore({ ...updateArgs, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config)).toContain('Updated reference');
+      // One preflight/initial snapshot plus one locked re-evaluation snapshot.
+      expect(calls).toBe(2);
+    } finally {
+      spied.getScreeningSnapshot = original;
+    }
+  });
+
+  it('does not duplicate the Related section when reviewed update content comes from knowledge-get', async () => {
+    const relatedId = storedId(await handleStore(args({ title: 'Related for round trip', content: 'round trip related content', summary: 'Round trip related summary.' }), ctx.engine, null, ctx.config));
+    const id = storedId(await handleStore(args({ title: 'Round trip target', related: [relatedId] }), ctx.engine, null, ctx.config));
+
+    const rendered = handleGet({ noteId: id, project: 'demo' }, ctx.engine);
+    const fetchedContent = /<content>([\s\S]*?)<\/content>/.exec(rendered)?.[1];
+    if (!fetchedContent) throw new Error(`Expected content in: ${rendered}`);
+    expect(fetchedContent).toContain('## Related');
+
+    // Agents resubmit fetched content verbatim, or extend the body above the
+    // generated trailing Related section; both must stay single-sectioned.
+    const body = fetchedContent.split('\n\n## Related\n')[0];
+    const extended = fetchedContent.replace(body, `${body}\n\nadded round trip line`);
+    for (const content of [fetchedContent, extended]) {
+      const current = getNote(ctx, id);
+      const roundTripArgs = args({
+        title: 'Round trip target',
+        content,
+        disposition: 'update',
+        noteId: id,
+        expectedUpdatedAt: current.updated_at,
+        dryRun: true,
+      });
+      const roundTripPreview = parsed(await handleStore(roundTripArgs, ctx.engine, null, ctx.config));
+      const roundTripToken = (roundTripPreview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === id)?.token;
+      expect(await handleStore({ ...roundTripArgs, dryRun: false, confirm: true, token: roundTripToken }, ctx.engine, null, ctx.config)).toContain('Updated reference');
+      expect(ctx.engine.getById(id)?.content.match(/## Related/g)?.length).toBe(1);
+    }
+
+    expect(ctx.engine.getById(id)?.content).toContain('added round trip line');
+  });
+
   it('rejects stale, hidden, archived, snapshot, and protected-field updates without mutation', async () => {
     const created = await handleStore(args(), ctx.engine, null, ctx.config);
     const id = storedId(created);
@@ -166,14 +290,17 @@ describe('reviewed knowledge-store handler', () => {
     });
     await entered;
     let settled = false;
-    const pendingStore = handleStore(args({ title: 'Queued memory' }), second, null, ctx.config)
-      .finally(() => { settled = true; });
-    await Bun.sleep(10);
-    expect(settled).toBe(false);
-    release();
-    await holder;
-    expect(await pendingStore).toContain('Stored reference: "Queued memory"');
-    second.close();
+    try {
+      const pendingStore = handleStore(args({ title: 'Queued memory' }), second, null, ctx.config)
+        .finally(() => { settled = true; });
+      await Bun.sleep(10);
+      expect(settled).toBe(false);
+      release();
+      await holder;
+      expect(await pendingStore).toContain('Stored reference: "Queued memory"');
+    } finally {
+      second.close();
+    }
   });
 
   it('releases the lock and preserves rebuild recovery after an accepted filesystem failure', async () => {
@@ -183,12 +310,15 @@ describe('reviewed knowledge-store handler', () => {
     const candidate = args({ content: 'reviewed content that will fail to write' });
     const preview = parsed(await handleStore(candidate, ctx.engine, null, ctx.config));
     const directory = path.dirname(originalNote.path);
-    fs.chmodSync(directory, 0o500);
+    const heldDirectory = `${directory}.held`;
+    fs.renameSync(directory, heldDirectory);
+    fs.writeFileSync(directory, 'deterministic write obstruction');
     let failed: string;
     try {
       failed = await handleStore({ ...candidate, disposition: 'create', confirm: true, token: preview.createToken as string }, ctx.engine, null, ctx.config);
     } finally {
-      fs.chmodSync(directory, 0o700);
+      fs.rmSync(directory, { force: true });
+      fs.renameSync(heldDirectory, directory);
     }
     expect(failed).toContain('Error:');
     ctx.engine.rebuildFromFiles();
@@ -211,8 +341,16 @@ describe('reviewed knowledge-store handler', () => {
       expect(['a', 'b'].every(lane => fs.existsSync(`${barrier}.${lane}.ready`))).toBe(true);
       fs.writeFileSync(barrier, 'go');
       const exitCodes = await Promise.all(processes.map(process => process.exited));
-      expect(exitCodes).toEqual([0, 0]);
-      return ['a', 'b'].map(lane => fs.readFileSync(`${barrier}.${lane}.result`, 'utf8'));
+      const errors = await Promise.all(processes.map(process => new Response(process.stderr).text()));
+      const results = ['a', 'b'].map((lane, index) => {
+        const resultPath = `${barrier}.${lane}.result`;
+        if (fs.existsSync(resultPath)) return fs.readFileSync(resultPath, 'utf8');
+        return `Error: child exited ${exitCodes[index]} without a result${errors[index] ? `: ${errors[index].trim()}` : ''}`;
+      });
+      for (const [index, exitCode] of exitCodes.entries()) {
+        if (exitCode !== 0) expect(results[index]).toStartWith('Error:');
+      }
+      return results;
     };
 
     const createResults = await runRace('create');

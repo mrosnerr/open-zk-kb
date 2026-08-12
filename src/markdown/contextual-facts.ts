@@ -12,9 +12,9 @@
 // The Markdown syntax tree (remark/mdast) used internally is never exposed
 // to callers: the function receives only a string and returns only plain
 // data, with no path, filesystem, repository, database, clock, telemetry,
-// navigation, or mutation capability. It has no production consumer in this
-// change; see `src/markdown/README.md` for the fact boundary this module
-// establishes for a later link-health migration.
+// navigation, or mutation capability. Its production consumer is the
+// contextual-link fact provider in `src/review/graph-providers.ts`; see
+// `src/markdown/README.md` for the fact boundary this module establishes.
 
 import remarkFrontmatter from 'remark-frontmatter';
 import remarkParse from 'remark-parse';

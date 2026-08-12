@@ -30,12 +30,21 @@ export interface DuplicateEvaluation {
   readonly threshold: number;
 }
 
-function normalizeTitle(title: string): string {
+/**
+ * Canonical comparison key for duplicate-title grouping, shared with the
+ * repository's title-collision detection. Applies kind-prefix and `.md`
+ * stripping and lowercasing to the full title, and collapses runs of
+ * non-alphanumeric characters to a single space instead of
+ * deleting them, so distinct word sequences (`note book` vs `notebook`) stay
+ * distinct keys. Returns `''` for a title with no alphanumeric content;
+ * callers skip empty keys rather than grouping unrelated notes together.
+ */
+export function normalizeComparableTitle(title: string): string {
   return title.toLowerCase()
     .replace(/^(reference|action|decision|research):\s*/i, '')
     .replace(/\.md$/i, '')
-    .replace(/[^a-z0-9]/g, '')
-    .substring(0, 50);
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
 }
 
 export function evaluateDuplicates(
@@ -56,7 +65,8 @@ export function evaluateDuplicates(
 
   const byTitle = new Map<string, NoteMetadata[]>();
   for (const item of snapshot) {
-    const key = normalizeTitle(item.note.title);
+    const key = normalizeComparableTitle(item.note.title);
+    if (!key) continue;
     const notes = byTitle.get(key) ?? [];
     notes.push(item.note);
     byTitle.set(key, notes);

@@ -23,7 +23,6 @@ import { NoteRepository, type NoteMetadata } from '../src/storage/NoteRepository
 import { createTestHarness, cleanupTestHarness, type TestContext } from './harness';
 import { computeSimHash } from '../src/utils/simhash';
 import { extractWikiLinks } from '../src/utils/wikilink';
-import './reviewed-storage-benchmarks.test.js';
 
 const BENCH = !!process.env.BENCH;
 

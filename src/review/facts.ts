@@ -1,4 +1,4 @@
-import { ABSOLUTE_WARN_THRESHOLD, KIND_WORD_GUIDELINES } from '../content-guidelines.js';
+import { atomicityWarnThreshold, KIND_WORD_GUIDELINES } from '../content-guidelines.js';
 import { parseKnowledgeApplicability } from '../knowledge-scope.js';
 import type { NoteMetadata } from '../storage/NoteRepository.js';
 import type { ReviewReader } from './reader.js';
@@ -53,7 +53,7 @@ export function buildReviewSnapshot(reader: ReviewReader, scope: ReviewScope, no
       titleWordsRaw: note.title.split(/\s+/).length,
       wordGuidance: Object.freeze({
         target: guide ? guide.target : ('?' as const),
-        warn: guide ? guide.warn : ABSOLUTE_WARN_THRESHOLD,
+        warn: guide ? guide.warn : atomicityWarnThreshold(note.kind),
       }),
     });
   }));
