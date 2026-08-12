@@ -327,7 +327,11 @@ export class KnowledgeMutationBusyError extends Error {
 }
 
 type CanonicalMetadataBaseline = { metadata: string | undefined; indexedVersion: number };
-type CanonicalMetadataVault = { baselines: Map<string, CanonicalMetadataBaseline>; references: number };
+type CanonicalMetadataVault = {
+  baselines: Map<string, CanonicalMetadataBaseline>;
+  references: number;
+  baselineUnavailable: boolean;
+};
 const canonicalMetadataByVault = new Map<string, CanonicalMetadataVault>();
 
 export class NoteRepository {
@@ -340,6 +344,7 @@ export class NoteRepository {
   private readonly mutationLockOwners = new Map<string, string>();
   private readonly mutationLockContext = new AsyncLocalStorage<KnowledgeMutationContext>();
   private indexedCanonicalMetadata = new Map<string, CanonicalMetadataBaseline>();
+  private baselineState: CanonicalMetadataVault | undefined;
   private canonicalMetadataVaultKey: string | undefined;
 
   constructor(docsPath: string = '~/.local/share/open-zk-kb', options: { telemetryEnabled?: boolean; readonly?: boolean } = {}) {
@@ -351,7 +356,6 @@ export class NoteRepository {
       this.sessionId = crypto.randomUUID();
       const originalPath = docsPath;
       this.docsPath = expandPath(docsPath);
-      const vaultKey = path.resolve(this.docsPath);
 
       if (!this.docsPath || !path.isAbsolute(this.docsPath)) {
         throw new Error(
@@ -403,6 +407,10 @@ export class NoteRepository {
         );
       }
 
+      // Resolve only after creation so aliases of the same vault share baseline state.
+      this.docsPath = fs.realpathSync(this.docsPath);
+      this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
+      const vaultKey = this.docsPath;
       this.db = new Database(this.dbPath);
       this.db.run('PRAGMA journal_mode = WAL');
 
@@ -412,9 +420,16 @@ export class NoteRepository {
       if (sharedMetadata) {
         this.indexedCanonicalMetadata = sharedMetadata.baselines;
         sharedMetadata.references++;
+        this.baselineState = sharedMetadata;
       } else {
+        const state: CanonicalMetadataVault = {
+          baselines: this.indexedCanonicalMetadata,
+          references: 1,
+          baselineUnavailable: false,
+        };
+        this.baselineState = state;
         this.refreshIndexedCanonicalMetadata();
-        canonicalMetadataByVault.set(vaultKey, { baselines: this.indexedCanonicalMetadata, references: 1 });
+        canonicalMetadataByVault.set(vaultKey, state);
       }
       this.canonicalMetadataVaultKey = vaultKey;
     } catch (error) {
@@ -435,21 +450,82 @@ export class NoteRepository {
     }
   }
 
+  private canonicalBaselinePath(filePath: string): string {
+    const key = createHash('sha256').update(normalizeWikilinkPath(path.relative(this.docsPath, filePath))).digest('hex');
+    return path.join(this.docsPath, '.index', 'canonical-baselines', `${key}.json`);
+  }
+
+  private markBaselineUnavailable(operation: string, filePath?: string): void {
+    if (this.baselineState) this.baselineState.baselineUnavailable = true;
+    logToFile('WARN', 'Canonical baseline storage is unavailable', {
+      operation,
+      path: filePath ? path.relative(this.docsPath, filePath) : undefined,
+    });
+  }
+
+  private writeCanonicalBaseline(filePath: string, baseline: CanonicalMetadataBaseline): boolean {
+    const baselinePath = this.canonicalBaselinePath(filePath);
+    const tempPath = `${baselinePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    try {
+      fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
+      fs.writeFileSync(tempPath, JSON.stringify(baseline), { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(tempPath, baselinePath);
+      return true;
+    } catch {
+      try { fs.rmSync(tempPath, { force: true }); } catch { /* best effort */ }
+      this.markBaselineUnavailable('write', filePath);
+      return false;
+    }
+  }
+
   private updateCanonicalMetadataBaseline(filePath: string, indexedVersion?: number): void {
     const version = indexedVersion ?? (
       this.db.prepare('SELECT updated_at FROM notes WHERE path = ?').get(filePath) as { updated_at: number } | undefined
     )?.updated_at;
     if (version === undefined) return;
-    this.indexedCanonicalMetadata.set(filePath, {
-      metadata: this.canonicalMetadata(filePath),
-      indexedVersion: version,
-    });
+    const baseline = { metadata: this.canonicalMetadata(filePath), indexedVersion: version };
+    if (this.writeCanonicalBaseline(filePath, baseline)) {
+      this.indexedCanonicalMetadata.set(filePath, baseline);
+    }
   }
 
-  private refreshIndexedCanonicalMetadata(): void {
+  private removeCanonicalMetadataBaseline(filePath: string): void {
+    try {
+      fs.rmSync(this.canonicalBaselinePath(filePath), { force: true });
+    } catch {
+      this.markBaselineUnavailable('remove', filePath);
+    }
+    this.indexedCanonicalMetadata.delete(filePath);
+  }
+
+  private refreshIndexedCanonicalMetadata(rebaseline = false): void {
+    if (rebaseline && this.baselineState) this.baselineState.baselineUnavailable = false;
     this.indexedCanonicalMetadata.clear();
+    const baselineDir = path.join(this.docsPath, '.index', 'canonical-baselines');
+    const initializedPath = path.join(baselineDir, '.initialized');
+    const initialized = fs.existsSync(initializedPath);
     const rows = this.db.prepare('SELECT path, updated_at FROM notes').all() as Array<{ path: string; updated_at: number }>;
-    for (const row of rows) this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
+    for (const row of rows) {
+      const baselinePath = this.canonicalBaselinePath(row.path);
+      if (rebaseline || (!initialized && !fs.existsSync(baselinePath))) {
+        this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf8')) as Partial<CanonicalMetadataBaseline>;
+        if (typeof parsed.indexedVersion !== 'number' || (typeof parsed.metadata !== 'string' && parsed.metadata !== undefined)) throw new Error('invalid');
+        this.indexedCanonicalMetadata.set(row.path, { metadata: parsed.metadata, indexedVersion: parsed.indexedVersion });
+      } catch {
+        this.markBaselineUnavailable('read', row.path);
+      }
+    }
+    try {
+      fs.mkdirSync(baselineDir, { recursive: true });
+      fs.writeFileSync(initializedPath, '', { encoding: 'utf8', mode: 0o600, flag: 'a' });
+      // A rebaseline clears fail-closed mode only when every sidecar operation succeeded.
+    } catch {
+      this.markBaselineUnavailable('initialize');
+    }
   }
 
   private initializeSchema(): void {
@@ -1160,7 +1236,7 @@ export class NoteRepository {
 
     this.syncLinksUnlocked(id, fullContent);
     this.updateCanonicalMetadataBaseline(filePath, versionedNow);
-    if (existingForVersion?.path && existingForVersion.path !== filePath) this.indexedCanonicalMetadata.delete(existingForVersion.path);
+    if (existingForVersion?.path && existingForVersion.path !== filePath) this.removeCanonicalMetadataBaseline(existingForVersion.path);
 
     return {
       action: isUpdate ? 'updated' : 'created',
@@ -1396,11 +1472,25 @@ export class NoteRepository {
     }
     // Evaluate every row so baselines rebaseline deterministically: a short-circuiting
     // predicate would leave later rows unbaselined once one row already drifted.
-    let canonicalDrift = false;
+    let canonicalDrift = this.baselineState?.baselineUnavailable === true;
     for (const row of copied.rows) {
       const baseline = this.indexedCanonicalMetadata.get(row.path);
       if (baseline?.indexedVersion !== row.updated_at) {
-        this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
+        // Another exact writer (including another process) may have advanced
+        // the durable record. Reload it, but never derive a new baseline here.
+        try {
+          const parsed = JSON.parse(fs.readFileSync(this.canonicalBaselinePath(row.path), 'utf8')) as Partial<CanonicalMetadataBaseline>;
+          if (parsed.indexedVersion !== row.updated_at || (typeof parsed.metadata !== 'string' && parsed.metadata !== undefined)) {
+            canonicalDrift = true;
+            continue;
+          }
+          const durable = { metadata: parsed.metadata, indexedVersion: parsed.indexedVersion };
+          this.indexedCanonicalMetadata.set(row.path, durable);
+          if (durable.metadata !== this.canonicalMetadata(row.path)) canonicalDrift = true;
+        } catch {
+          this.markBaselineUnavailable('read', row.path);
+          canonicalDrift = true;
+        }
         continue;
       }
       if (baseline.metadata !== this.canonicalMetadata(row.path)) canonicalDrift = true;
@@ -2186,7 +2276,7 @@ export class NoteRepository {
     this.db.prepare('DELETE FROM notes WHERE id = ?').run(id);
     this.ftsDelete(id);
     this.db.prepare('DELETE FROM note_links WHERE source_id = ? OR target_id = ?').run(id, id);
-    this.indexedCanonicalMetadata.delete(note.path);
+    this.removeCanonicalMetadataBaseline(note.path);
 
     return true;
   }
@@ -2273,7 +2363,7 @@ export class NoteRepository {
       if (newPath !== oldPath) {
         fs.mkdirSync(path.dirname(newPath), { recursive: true });
         fs.renameSync(oldPath, newPath);
-        this.indexedCanonicalMetadata.delete(oldPath);
+        this.removeCanonicalMetadataBaseline(oldPath);
         moved = true;
         if (!withBusyRetry(() => this.updatePathUnlocked(id, newPath))) throw new Error('Failed to update note path');
       }
@@ -2287,7 +2377,7 @@ export class NoteRepository {
       try {
         if (moved) {
           fs.renameSync(newPath, oldPath);
-          this.indexedCanonicalMetadata.delete(newPath);
+          this.removeCanonicalMetadataBaseline(newPath);
         }
         fs.writeFileSync(oldPath, oldFile, 'utf-8');
         withBusyRetry(() => {
@@ -2332,7 +2422,9 @@ export class NoteRepository {
       const userContent = bodySections.content;
       const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
       fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
-      this.updateCanonicalMetadataBaseline(note.path, merged.updated_at);
+      const persisted = this.db.prepare('SELECT updated_at FROM notes WHERE id = ?').get(note.id) as { updated_at: number } | undefined;
+      if (!persisted) throw new Error('Persisted note version is unavailable');
+      this.updateCanonicalMetadataBaseline(note.path, persisted.updated_at);
       return true;
     } catch (err) {
       logToFile('WARN', 'Failed to rewrite note file', { noteId: note.id, error: String(err) });
@@ -2872,7 +2964,7 @@ export class NoteRepository {
       logToFile('WARN', warning);
     }
 
-    this.refreshIndexedCanonicalMetadata();
+    this.refreshIndexedCanonicalMetadata(true);
     return { indexed: uniqueIds.size, errors, warnings };
   }
 

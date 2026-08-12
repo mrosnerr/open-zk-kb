@@ -379,6 +379,65 @@ describe('reviewed knowledge-store handler', () => {
     expect(fs.readFileSync(target.path, 'utf8')).toContain('Late external edit');
   });
 
+  it('persists canonical drift across restart and refuses reviewed create and update mutations', async () => {
+    const created = await handleStore(args(), ctx.engine, null, ctx.config);
+    const id = storedId(created);
+    const target = getNote(ctx, id);
+    const createCandidate = args({ title: 'Restart create candidate', content: 'restart create content', dryRun: true });
+    const createPreview = parsed(await handleStore(createCandidate, ctx.engine, null, ctx.config));
+    const updateCandidate = args({ content: 'restart update content', disposition: 'update', noteId: id, expectedUpdatedAt: target.updated_at, dryRun: true });
+    const updatePreview = parsed(await handleStore(updateCandidate, ctx.engine, null, ctx.config));
+    const updateToken = (updatePreview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === id)?.token;
+
+    ctx.engine.close();
+    fs.appendFileSync(target.path, '\noffline edit while repository is closed\n');
+    ctx.engine = new NoteRepository(ctx.tempDir, { telemetryEnabled: false });
+    try {
+      expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+      const createRejected = await handleStore({
+        ...createCandidate, dryRun: false, disposition: 'create', confirm: true, token: createPreview.createToken as string,
+      }, ctx.engine, null, ctx.config);
+      expect(createRejected).toContain('canonical files changed outside the index');
+      const updateRejected = await handleStore({
+        ...updateCandidate, dryRun: false, confirm: true, token: updateToken,
+      }, ctx.engine, null, ctx.config);
+      expect(updateRejected).toContain('canonical files changed outside the index');
+      expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes).toHaveLength(1);
+    } finally {
+      ctx.engine.close();
+    }
+  });
+
+  it('returns reconciliation preview for implicit create and rejects an unchanged update target when any note drifts', async () => {
+    const targetId = storedId(await handleStore(args({ title: 'Unchanged update target' }), ctx.engine, null, ctx.config));
+    const target = getNote(ctx, targetId);
+    const drifted = ctx.engine.store('unrelated drift body', {
+      title: 'Unrelated drift source', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'Unrelated drift summary.', guidance: 'Keep unrelated drift source.',
+    });
+    const updateCandidate = args({
+      title: target.title, content: 'replacement for unchanged target', disposition: 'update', noteId: targetId,
+      expectedUpdatedAt: target.updated_at, dryRun: true,
+    });
+    const updatePreview = parsed(await handleStore(updateCandidate, ctx.engine, null, ctx.config));
+    const updateToken = (updatePreview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === targetId)?.token;
+    fs.appendFileSync(drifted.path, '\nexternal unrelated drift\n');
+    const beforeFiles = listAllNoteFiles(ctx);
+
+    const implicit = parsed(await handleStore(args({
+      title: 'Would otherwise create immediately', content: 'unique implicit create body', summary: 'Unique implicit summary.',
+    }), ctx.engine, null, ctx.config));
+    expect(implicit.mutated).toBe(false);
+    expect(implicit.state).toBe('preview');
+    expect(implicit.validDispositions).toEqual(['skip']);
+    expect(listAllNoteFiles(ctx)).toEqual(beforeFiles);
+
+    const rejected = await handleStore({ ...updateCandidate, dryRun: false, confirm: true, token: updateToken }, ctx.engine, null, ctx.config);
+    expect(rejected).toContain('canonical files changed outside the index');
+    expect(ctx.engine.getById(targetId)?.content).toBe(target.content);
+    expect(listAllNoteFiles(ctx)).toEqual(beforeFiles);
+  });
+
   it('rejects a reviewed update after an out-of-band canonical Markdown edit', async () => {
     const created = await handleStore(args(), ctx.engine, null, ctx.config);
     const id = storedId(created);

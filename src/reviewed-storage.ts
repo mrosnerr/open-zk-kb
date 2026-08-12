@@ -249,7 +249,7 @@ export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeR
     createToken: createEvidenceAvailable
       ? reviewedOperationToken({ ...operationInput, operation: 'create' })
       : undefined,
-    updateTokens: operationInput.evaluation.matches
+    updateTokens: operationInput.snapshotCanonicalDrift === true ? [] : operationInput.evaluation.matches
       .filter(match => (match.highConfidence || match.id === targetId)
         && match.canonicalFileHash !== undefined
         && match.status !== 'archived'

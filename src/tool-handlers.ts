@@ -1382,7 +1382,9 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
       evidence: { ...review.evaluation, digest: screeningEvidenceDigest(review.evaluation), matches: evidenceMatches.slice(0, 20) },
       ...(review.tokens.createToken !== undefined ? { createToken: review.tokens.createToken } : {}),
       updateTokens: review.tokens.updateTokens.slice(0, 20),
-      validDispositions: [...(review.tokens.createToken !== undefined ? ['create'] : []), ...(review.tokens.updateTokens.length > 0 ? ['update'] : []), 'skip'],
+      validDispositions: review.snapshot.canonicalDrift
+        ? ['skip']
+        : [...(review.tokens.createToken !== undefined ? ['create'] : []), ...(review.tokens.updateTokens.length > 0 ? ['update'] : []), 'skip'],
     });
   };
   if (args.disposition === 'skip') {
@@ -1408,6 +1410,10 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
       const currentTargetFacts = args.noteId
         ? currentReview.snapshot.notes.find(note => note.id === args.noteId)
         : undefined;
+      if (currentSnapshot.canonicalDrift && !args.disposition) {
+        lockedPreview = previewResult(currentReview);
+        return null;
+      }
       if (!args.disposition && currentEvaluation.matches.some(match => match.highConfidence)) {
         lockedPreview = previewResult(currentReview);
         return null;
@@ -1416,14 +1422,13 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         if (currentEvaluation.matches.some(match => match.highConfidence && match.canonicalFileHash === undefined)) {
           throw new Error('Reviewed create evidence is unavailable; reconcile after canonical files are readable.');
         }
-        if (currentSnapshot.canonicalDrift) {
-          throw new Error('Reviewed create token is stale because canonical files changed outside the index; reconcile or rebuild.');
-        }
+        if (currentSnapshot.canonicalDrift) throw new Error('Reviewed create token is stale because canonical files changed outside the index; reconcile or rebuild.');
         const expected = reviewedOperationToken({ candidate: screeningCandidate, evaluation: currentEvaluation, operation: 'create', snapshotVersion: currentSnapshot.schemaVersion, configVersion });
         if (args.token !== expected) throw new Error('Reviewed create token is stale or does not match this operation; reconcile with a fresh preview.');
       }
       let existingId: string | undefined;
       if (args.disposition === 'update') {
+        if (currentSnapshot.canonicalDrift) throw new Error('Reviewed update token is stale because canonical files changed outside the index; reconcile or rebuild.');
         if (!args.noteId) throw new Error('Reviewed update target is required.');
         const target = repo.getByIdVisible(args.noteId, reviewedVisibility);
         if (!target) throw new Error('Update target is not active and visible.');

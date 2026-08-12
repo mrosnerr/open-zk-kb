@@ -92,9 +92,68 @@ describe('reviewed storage screening', () => {
     } finally { second.close(); }
   });
 
+  it('shares a legitimate update baseline between real and symlink vault paths', () => {
+    const aliasPath = `${ctx.tempDir}-baseline-alias`;
+    let realRepo: NoteRepository | undefined;
+    let aliasRepo: NoteRepository | undefined;
+    try {
+      fs.symlinkSync(ctx.tempDir, aliasPath, 'dir');
+      realRepo = new NoteRepository(ctx.tempDir, { telemetryEnabled: false });
+      aliasRepo = new NoteRepository(aliasPath, { telemetryEnabled: false });
+      const stored = realRepo.store('original alias content', { title: 'Alias baseline', tags: ['project:demo'] });
+      aliasRepo.store('legitimate alias update', {
+        existingId: stored.id, title: 'Alias baseline', tags: ['project:demo'],
+      });
+
+      expect(realRepo.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+      expect(aliasRepo.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+    } finally {
+      aliasRepo?.close();
+      realRepo?.close();
+      fs.rmSync(aliasPath, { force: true });
+    }
+  });
+
+  it('fails closed after baseline sidecar faults without misreporting canonical mutations and recovers on rebuild', () => {
+    const baselineDir = path.join(ctx.tempDir, '.index', 'canonical-baselines');
+    fs.rmSync(baselineDir, { recursive: true, force: true });
+    fs.writeFileSync(baselineDir, 'fault');
+
+    const created = ctx.engine.store('created while baseline storage is unavailable', {
+      title: 'Baseline fault create', tags: ['project:demo'],
+    });
+    const updated = ctx.engine.store('updated while baseline storage is unavailable', {
+      existingId: created.id, title: 'Baseline fault create', tags: ['project:demo'],
+    });
+    expect(updated.action).toBe('updated');
+    expect(ctx.engine.promoteToPermanent(created.id)).toBe(true);
+    expect(fs.readFileSync(created.path, 'utf8')).toContain('updated while baseline storage is unavailable');
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+
+    fs.rmSync(baselineDir, { force: true });
+    expect(ctx.engine.rebuildFromFiles().errors).toBe(0);
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
   it('reports an external canonical edit when the indexed version is unchanged', () => {
     const stored = ctx.engine.store('original content', { title: 'External', tags: ['project:demo'] });
     fs.appendFileSync(stored.path, '\nexternal edit');
+
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+  });
+
+  it('detects an immediate external edit after a persisted status rewrite', () => {
+    const stored = ctx.engine.store('status rewrite content', { title: 'Status rewrite', tags: ['project:demo'] });
+    expect(ctx.engine.promoteToPermanent(stored.id)).toBe(true);
+    fs.appendFileSync(stored.path, '\nexternal edit after status rewrite');
+
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+  });
+
+  it('detects an immediate external edit after a persisted summary rewrite', () => {
+    const stored = ctx.engine.store('summary rewrite content', { title: 'Summary rewrite', tags: ['project:demo'] });
+    expect(ctx.engine.updateSummaryGuidance(stored.id, 'Persisted summary.', 'Persisted guidance.')).toBe(true);
+    fs.appendFileSync(stored.path, '\nexternal edit after summary rewrite');
 
     expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
   });
