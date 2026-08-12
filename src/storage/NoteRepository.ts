@@ -327,8 +327,8 @@ export class KnowledgeMutationBusyError extends Error {
   }
 }
 
-/** Why a canonical Markdown file is unaccounted for by the index — never a path or content. */
-export type UnindexedCanonicalReason = 'unindexed' | 'unreadable' | 'traversal-incomplete';
+/** Why canonical inventory cannot safely account for a file — never a path or content. */
+export type UnindexedCanonicalReason = 'unindexed' | 'unreadable' | 'metadata-drift' | 'traversal-incomplete';
 
 type CanonicalMetadataBaseline = { metadata: string | undefined; indexedVersion: number };
 type CanonicalMetadataVault = {
@@ -579,7 +579,10 @@ export class NoteRepository {
    * identifiers are excluded, matching rebuild's convention. No path, title,
    * or file content ever leaves this method.
    */
-  private scanUnindexedCanonicalFiles(indexedPaths: readonly string[]): {
+  private scanUnindexedCanonicalFiles(
+    indexedPaths: readonly string[],
+    metadataRows?: ReadonlyArray<{ path: string; kind: string; status: string }>,
+  ): {
     entries: Array<{ id: string; reason: UnindexedCanonicalReason }>;
     traversalIncomplete: boolean;
     usedIds: Set<string>;
@@ -590,18 +593,36 @@ export class NoteRepository {
     const usedIds = new Set(indexedRows.map(row => row.id));
 
     const indexedFileIdentities = new Set<string>();
+    const candidates: Array<{ identity: string; reason: UnindexedCanonicalReason }> = [];
     for (const indexedPath of indexedPaths) {
       try {
         indexedFileIdentities.add(fs.realpathSync(indexedPath));
       } catch {
-        // A missing/unreadable indexed file is handled by metadata comparison, not here.
+        // A missing/unreadable indexed file has no stable identity to report here;
+        // canonical metadata baselines in screening cover that case.
+      }
+    }
+
+    // Contextual inventory must detect graph-inclusion metadata drift. Screening
+    // already has canonical metadata baselines, so it deliberately omits these reads.
+    for (const row of metadataRows ?? []) {
+      let identity: string | undefined;
+      try {
+        identity = fs.realpathSync(row.path);
+        const { frontmatter } = this.parseFrontmatter(fs.readFileSync(row.path, 'utf8'));
+        const canonicalKind = (frontmatter.kind as string) || 'observation';
+        const canonicalStatus = (frontmatter.status as string) || 'fleeting';
+        if (canonicalKind !== row.kind || canonicalStatus !== row.status) {
+          candidates.push({ identity, reason: 'metadata-drift' });
+        }
+      } catch {
+        if (identity) candidates.push({ identity, reason: 'unreadable' });
       }
     }
 
     const vaultFiles = walkMarkdownFiles(this.docsPath, {
       onError: () => { traversalIncomplete = true; },
     });
-    const candidates: Array<{ identity: string; reason: UnindexedCanonicalReason }> = [];
     for (const filePath of vaultFiles) {
       let identity: string;
       try {
@@ -644,9 +665,12 @@ export class NoteRepository {
    * itself reported as one entry.
    */
   getUnindexedCanonicalDocuments(): Array<{ id: string; reason: UnindexedCanonicalReason }> {
-    const indexedPaths = (this.db.prepare('SELECT path FROM notes ORDER BY id ASC')
-      .all() as Array<{ path: string }>).map(row => row.path);
-    const { entries, traversalIncomplete, usedIds } = this.scanUnindexedCanonicalFiles(indexedPaths);
+    const indexedRows = this.db.prepare('SELECT id, path, kind, status FROM notes ORDER BY id ASC')
+      .all() as Array<{ id: string; path: string; kind: string; status: string }>;
+    const { entries, traversalIncomplete, usedIds } = this.scanUnindexedCanonicalFiles(
+      indexedRows.map(row => row.path),
+      indexedRows,
+    );
     if (traversalIncomplete) {
       const baseId = `__graph-evidence-${createHash('sha256').update('vault-traversal-incomplete').digest('hex')}`;
       let id = baseId;
@@ -3324,7 +3348,11 @@ export class NoteRepository {
   public resolveLink(linkText: string): string | null {
     const parsed = parseWikiLink(linkText);
 
-    const byPath = this.db.prepare('SELECT id FROM notes WHERE path LIKE ?').get(`%/${parsed.slug}.md`) as { id: string } | undefined;
+    const portableSlug = parsed.slug.replaceAll('\\', '/');
+    const portableSuffix = `/${portableSlug}.md`;
+    const byPath = this.db.prepare(
+      "SELECT id FROM notes WHERE substr(replace(path, char(92), '/'), -length(?)) = ? ORDER BY id ASC",
+    ).get(portableSuffix, portableSuffix) as { id: string } | undefined;
     if (byPath) return byPath.id;
 
     const byId = this.db.prepare('SELECT id FROM notes WHERE id = ?').get(parsed.id) as { id: string } | undefined;

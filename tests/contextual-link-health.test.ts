@@ -192,6 +192,68 @@ describe('contextual link-health maintenance adapters', () => {
     expect(output).not.toContain(note.path);
   });
 
+  it('resolves portable links against indexed Windows path separators', () => {
+    const note = ctx.engine.store('Target body', { title: 'Portable Target', kind: 'reference', status: 'fleeting' });
+    const db = new Database(path.join(ctx.tempDir, '.index', 'knowledge.db'));
+    try {
+      db.query('UPDATE notes SET path = ? WHERE id = ?').run(note.path.replaceAll('/', '\\'), note.id);
+    } finally {
+      db.close();
+    }
+
+    expect(createRepositoryContextualLinkReader(ctx.engine).resolveTarget(path.basename(note.path, '.md')))
+      .toEqual({ kind: 'document', id: note.id });
+  });
+
+  it('treats SQL LIKE metacharacters in path-shaped links literally', () => {
+    // Insert collisions first so wildcard suffix matching deterministically selects
+    // the wrong row even if SQLite returns matching rows in insertion order.
+    const underscoreCollision = ctx.engine.store('Underscore collision', { title: 'Underscore Collision', kind: 'reference', status: 'fleeting' });
+    const percentCollision = ctx.engine.store('Percent collision', { title: 'Percent Collision', kind: 'reference', status: 'fleeting' });
+    const underscore = ctx.engine.store('Underscore body', { title: 'Underscore Target', kind: 'reference', status: 'fleeting' });
+    const percent = ctx.engine.store('Percent body', { title: 'Percent Target', kind: 'reference', status: 'fleeting' });
+    const db = new Database(path.join(ctx.tempDir, '.index', 'knowledge.db'));
+    try {
+      db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'exactXname.md'), underscoreCollision.id);
+      db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'rate-anything-name.md'), percentCollision.id);
+      db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'exact_name.md'), underscore.id);
+      db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'rate-%-name.md'), percent.id);
+    } finally {
+      db.close();
+    }
+
+    expect(ctx.engine.resolveLink('exact_name')).toBe(underscore.id);
+    expect(ctx.engine.resolveLink('rate-%-name')).toBe(percent.id);
+    expect(ctx.engine.resolveLink('missing_name')).toBeNull();
+  });
+
+  it('fails closed when canonical status changes across active graph inclusion', () => {
+    const indexedActive = ctx.engine.store('Active body', { title: 'Indexed Active', kind: 'reference', status: 'fleeting' });
+    const indexedArchived = ctx.engine.store('Archived body', { title: 'Indexed Archived', kind: 'reference', status: 'archived' });
+    fs.writeFileSync(indexedActive.path, fs.readFileSync(indexedActive.path, 'utf8').replace('status: fleeting', 'status: archived'));
+    fs.writeFileSync(indexedArchived.path, fs.readFileSync(indexedArchived.path, 'utf8').replace('status: archived', 'status: fleeting'));
+
+    const results = createRepositoryContextualLinkReader(ctx.engine).listDocuments();
+    const drift = results.filter(result => !result.ok && result.reason === 'metadata-drift');
+    expect(drift).toHaveLength(2);
+    expect(drift.every(result => result.document.id.startsWith('__graph-evidence-'))).toBe(true);
+    expect(JSON.stringify(drift)).not.toContain(indexedActive.path);
+    expect(JSON.stringify(drift)).not.toContain(indexedArchived.path);
+  });
+
+  it('fails closed when canonical kind changes across structural graph inclusion, but ignores formatting', () => {
+    const indexedDocument = ctx.engine.store('Document body', { title: 'Indexed Document', kind: 'reference', status: 'fleeting' });
+    const indexedStructural = ctx.engine.store('Structural body', { title: 'Indexed Structural', kind: 'index', status: 'fleeting' });
+    const formattingOnly = ctx.engine.store('Formatting body', { title: 'Formatting Only', kind: 'reference', status: 'fleeting' });
+    fs.writeFileSync(indexedDocument.path, fs.readFileSync(indexedDocument.path, 'utf8').replace('kind: reference', 'kind: index'));
+    fs.writeFileSync(indexedStructural.path, fs.readFileSync(indexedStructural.path, 'utf8').replace('kind: index', 'kind: reference'));
+    fs.writeFileSync(formattingOnly.path, fs.readFileSync(formattingOnly.path, 'utf8').replace('kind: reference', 'kind:    reference'));
+
+    const drift = createRepositoryContextualLinkReader(ctx.engine).listDocuments()
+      .filter(result => !result.ok && result.reason === 'metadata-drift');
+    expect(drift).toHaveLength(2);
+  });
+
   it('treats an externally added canonical note file as an incomplete graph', async () => {
     const alpha = ctx.engine.store('Alpha body', { title: 'Alpha', kind: 'reference', status: 'fleeting' });
     const externalPath = path.join(ctx.tempDir, '2026072500009999-external-note.md');
