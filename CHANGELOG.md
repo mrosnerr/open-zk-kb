@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.4.3
+
+### Added
+
+- **Vault review foundations** — added a read-only review core, contextual Markdown facts, and fact-driven graph rules for precise, auditable vault analysis
+- **Reviewed knowledge storage** — added preview-and-confirm storage flows that screen durable knowledge before mutation
+
+### Changed
+
+- **Precision-first knowledge guidance** — tightened capture and retrieval guidance to favor relevant, durable knowledge and keep project management in its authoritative systems
+- **Complete session telemetry** — the single next-startup `session` event now reports privacy-bounded counters for all ten canonical tools, with totals equal to their sum and canonical client labels
+- **Analytics traffic classification** — explicit synthetic/manual validation is labeled `$lib_env: "test"`, separate from source-checkout `dev` and installed-package `production` traffic
+- **GitHub Pages retirement** — removed the retired Pages site and deployment workflow while keeping package documentation authoritative
+
+### Fixed
+
+- **Mutation lock hardening** — prevented mutation lock deadlocks and strengthened maintenance audit integrity under concurrent and failure paths
+
 ## 1.4.2
 
 ### Added
@@ -10,8 +28,6 @@
 ### Changed
 
 - **Telemetry consent prompt** — interactive installations now preselect Yes when asking to share anonymous usage analytics. Sharing is still enabled only after confirmation; No, cancellation, `--no-telemetry`, and non-interactive installs remain disabled
-- **Complete session telemetry** — the single next-startup `session` event now reports counters for all ten canonical tools with totals equal to their sum and canonical client labels
-- **Analytics traffic classification** — explicit synthetic/manual validation is labeled `$lib_env: "test"`, separate from source-checkout `dev` and installed-package `production` traffic
 - **Project-aware navigation** — generated Obsidian indexes, logs, QuickAdd choices, and Pi context injection respect project/global boundaries and fail closed when project context is unavailable
 
 ### Fixed
