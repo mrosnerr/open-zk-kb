@@ -1536,7 +1536,10 @@ export class NoteRepository {
         // The metadata comparison below treats a missing/unreadable indexed file as drift.
       }
     }
-    for (const filePath of walkMarkdownFiles(this.docsPath)) {
+    const vaultFiles = walkMarkdownFiles(this.docsPath, {
+      onError: () => { canonicalDrift = true; },
+    });
+    for (const filePath of vaultFiles) {
       let identity: string;
       try {
         identity = fs.realpathSync(filePath);

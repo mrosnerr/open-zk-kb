@@ -297,6 +297,31 @@ knowledge added outside the index
     expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
   });
 
+  it('fails closed and withholds tokens when vault traversal cannot read a subtree', () => {
+    ctx.engine.store('indexed content', { title: 'Indexed', tags: ['project:demo'] });
+    const unreadableDir = path.join(ctx.tempDir, 'unreadable-subtree');
+    fs.mkdirSync(unreadableDir);
+    const originalReaddirSync = fs.readdirSync;
+    const readdirSync = spyOn(fs, 'readdirSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === unreadableDir) throw new Error('mock unreadable subtree');
+      return originalReaddirSync(target, options as never) as never;
+    });
+
+    try {
+      const snapshot = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+      expect(snapshot.canonicalDrift).toBe(true);
+      expect(reviewedOperationTokens({
+        candidate,
+        evaluation: evaluateScreeningCandidate(candidate, snapshot),
+        snapshotVersion: snapshot.schemaVersion,
+        configVersion: 'v1',
+        snapshotCanonicalDrift: snapshot.canonicalDrift,
+      }).createToken).toBeUndefined();
+    } finally {
+      readdirSync.mockRestore();
+    }
+  });
+
   it('detects external edits to archived or out-of-scope notes without exposing them', () => {
     const hidden = ctx.engine.store('hidden content', { title: 'Hidden', tags: ['project:other'] });
     const archived = ctx.engine.store('archived content', { title: 'Archived', tags: ['project:demo'], status: 'archived' });

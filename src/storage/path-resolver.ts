@@ -145,11 +145,16 @@ export function extractProjectFromTags(tags: string[]): string | null {
   return null;
 }
 
+export interface WalkMarkdownFilesOptions {
+  /** Called when a filesystem failure prevents traversal from being complete. */
+  onError?: (error: unknown, filePath: string) => void;
+}
+
 /**
  * Recursively collect all .md files from a directory tree.
  * Skips .index/, .obsidian/, templates/, .git/, node_modules/.
  */
-export function walkMarkdownFiles(dirPath: string): string[] {
+export function walkMarkdownFiles(dirPath: string, options: WalkMarkdownFilesOptions = {}): string[] {
   const results: string[] = [];
 
   const activeDirectoryIdentities = new Set<string>();
@@ -160,7 +165,8 @@ export function walkMarkdownFiles(dirPath: string): string[] {
     let directoryIdentity: string;
     try {
       directoryIdentity = fs.realpathSync(dir);
-    } catch {
+    } catch (error) {
+      options.onError?.(error, dir);
       return;
     }
     if (activeDirectoryIdentities.has(directoryIdentity)) return;
@@ -169,8 +175,9 @@ export function walkMarkdownFiles(dirPath: string): string[] {
     let entries: string[];
     try {
       entries = fs.readdirSync(dir);
-    } catch {
+    } catch (error) {
       activeDirectoryIdentities.delete(directoryIdentity);
+      options.onError?.(error, dir);
       return; // Directory doesn't exist or not readable
     }
 
@@ -180,10 +187,11 @@ export function walkMarkdownFiles(dirPath: string): string[] {
       // Skip known non-note directories
       if (SKIP_DIRS.has(entry)) continue;
 
-      let stat;
+      let stat: fs.Stats;
       try {
         stat = fs.statSync(fullPath);
-      } catch {
+      } catch (error) {
+        options.onError?.(error, fullPath);
         continue; // Broken symlink or permission issue
       }
 
