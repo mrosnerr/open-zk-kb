@@ -43,7 +43,7 @@ import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
 import { evaluateScreeningCandidate, reviewedOperationToken, reviewedOperationTokens, reviewedUpdateCandidate, screeningEvidenceDigest, type ScreeningCandidate } from './reviewed-storage.js';
-import { stripGeneratedRelatedSection } from './related-section.js';
+import { extractGeneratedRelatedIds, renderGeneratedRelatedSection, stripGeneratedRelatedSection } from './related-section.js';
 import { evaluateDuplicates } from './maintenance/duplicates.js';
 import type { EmbeddingConfig, EmbeddingResult } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
@@ -1146,7 +1146,10 @@ async function persistSemanticMetadata(
   backgroundAfterMs?: number,
   existingPromise?: Promise<EmbeddingResult | null>,
 ): Promise<number[] | null> {
-  repo.updateContentHash(noteId, computeSimHash(note.summary || note.content || note.title));
+  // Semantic metadata writes queue behind any in-flight knowledge mutation instead
+  // of failing fast, so ordinary contention never discards a hash or embedding.
+  const hash = computeSimHash(note.summary || note.content || note.title);
+  await repo.withKnowledgeMutationLockAsync(async () => { repo.updateContentHash(noteId, hash); });
   if (!embeddingConfig) return null;
 
   const embeddingPromise = existingPromise ?? generateEmbedding(buildEmbeddingText(note.title, note.summary, note.content), embeddingConfig);
@@ -1159,12 +1162,14 @@ async function persistSemanticMetadata(
         new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), backgroundAfterMs); }),
       ]);
     if (result) {
-      repo.storeEmbedding(noteId, result.embedding, result.model);
+      await repo.withKnowledgeMutationLockAsync(async () => { repo.storeEmbedding(noteId, result.embedding, result.model); });
       return result.embedding;
     }
     if (backgroundAfterMs !== undefined) {
-      void embeddingPromise.then(slowResult => {
-        if (slowResult) repo.storeEmbedding(noteId, slowResult.embedding, slowResult.model);
+      void embeddingPromise.then(async slowResult => {
+        if (slowResult) {
+          await repo.withKnowledgeMutationLockAsync(async () => { repo.storeEmbedding(noteId, slowResult.embedding, slowResult.model); });
+        }
       }).catch(error => {
         logToFile('WARN', 'Background embedding generation failed', {
           noteId,
@@ -1261,19 +1266,31 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     }
   }
 
-  const effectiveRelated = [...new Set(args.related ?? preflightScreeningNote?.related ?? [])];
+  // Omitted `related` preserves only the marked system-generated relations of the
+  // stored target (or of the submitted content on create). Generic note links are
+  // never promoted into the managed Related section.
+  const explicitRelated = args.related !== undefined;
+  const effectiveRelated = [...new Set(args.related
+    ?? (preflightTarget
+      ? repo.getGeneratedRelatedIds(preflightTarget.id)
+      : extractGeneratedRelatedIds(args.content)))];
   let content = stripGeneratedRelatedSection(args.content);
   if (effectiveRelated.length > 0) {
     const relatedNotes = effectiveRelated.map(id => repo.getByIdVisible(id, { project, client: resolvedClient || undefined }));
-    const hiddenIndex = relatedNotes.findIndex(note => note === null);
-    if (hiddenIndex >= 0) {
-      return `Error: Related note not found or not visible: ${effectiveRelated[hiddenIndex]}`;
+    // Explicit relations are boundary input and must resolve visibly. Inherited
+    // generated relations may be temporarily unresolved or unreadable, so retain
+    // their bare IDs rather than making an unrelated update fail.
+    if (explicitRelated) {
+      const hiddenIndex = relatedNotes.indexOf(null);
+      if (hiddenIndex >= 0) {
+        return `Error: Related note not found or not visible: ${effectiveRelated[hiddenIndex]}`;
+      }
     }
     const links = effectiveRelated.map((id, index) => {
       const existing = relatedNotes[index];
       return formatWikiLink({ id, display: existing?.title });
     });
-    content += '\n\n## Related\n' + links.map(l => `- ${l}`).join('\n');
+    content += `\n\n${renderGeneratedRelatedSection(links)}`;
   }
 
   const titleCheck = titleWarning(args.title);
@@ -1327,7 +1344,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         const note = snapshot.notes.find(item => item.id === match.id);
         return note ? reviewedUpdateCandidate(candidate, note, {
           tags: args.tags === undefined,
-          related: args.related === undefined,
+          related: false,
         }) : candidate;
       },
     });
@@ -1397,21 +1414,24 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
           || target.kind !== updateKind || target.status !== effectiveStatus || target.lifecycle !== effectiveLifecycle) {
           throw new Error('Update cannot change kind, status, lifecycle, project, or client applicability.');
         }
-        for (const relatedId of effectiveRelated) {
-          if (!repo.getByIdVisible(relatedId, reviewedVisibility)) throw new Error(`Related note ${relatedId} is not active and visible.`);
+        if (explicitRelated) {
+          for (const relatedId of effectiveRelated) {
+            if (!repo.getByIdVisible(relatedId, reviewedVisibility)) throw new Error(`Related note ${relatedId} is not active and visible.`);
+          }
         }
         if (target.lifecycle === 'append-only') {
           const oldContent = stripGeneratedRelatedSection(target.content);
-          const newContent = args.content.trimEnd();
+          const newContent = stripGeneratedRelatedSection(args.content);
+          const targetGeneratedRelated = [...new Set(repo.getGeneratedRelatedIds(target.id))].sort();
           const sameMetadata = target.title === args.title && (target.summary || '') === args.summary && (target.guidance || '') === args.guidance
             && JSON.stringify([...target.tags].sort()) === JSON.stringify([...tags].sort())
-            && JSON.stringify(currentTargetFacts?.related ?? []) === JSON.stringify(effectiveRelated);
+            && JSON.stringify(targetGeneratedRelated) === JSON.stringify([...effectiveRelated].sort());
           if (!sameMetadata || newContent.length <= oldContent.length || !newContent.startsWith(oldContent)) throw new Error('Append-only update must be an exact metadata-preserving content extension.');
         }
         if (!currentTargetFacts) throw new Error('Current reviewed update target is unavailable.');
         const updateCandidate = reviewedUpdateCandidate(screeningCandidate, currentTargetFacts, {
           tags: args.tags === undefined,
-          related: args.related === undefined,
+          related: false,
         });
         const expected = reviewedOperationToken({ candidate: updateCandidate, evaluation: currentEvaluation, operation: 'update', target: { id: target.id, updatedAt: target.updated_at }, snapshotVersion: currentSnapshot.schemaVersion, configVersion });
         if (args.token !== expected) throw new Error('Reviewed update token is stale or bound to another target; reconcile with a fresh preview.');
@@ -1968,55 +1988,72 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
     }
     case 'publish-global': {
       if (!args.noteId) return 'Error: noteId is required for publish-global action.';
-      const source = repo.getById(args.noteId);
-      const evidence = publicationValidation(source, args.candidate, repo);
+      const previewSource = repo.getById(args.noteId);
+      const evidence = publicationValidation(previewSource, args.candidate, repo);
       const isPreview = args.dryRun !== false;
-      if (!source || !args.candidate) {
+      if (!previewSource || !args.candidate) {
         return JSON.stringify({ action: 'publish-global', mode: isPreview ? 'preview' : 'apply', valid: false, ...evidence }, null, 2);
       }
-      const token = publicationToken(source, args.candidate);
+      const candidate = args.candidate;
       const valid = evidence.errors.length === 0 && evidence.duplicates.length === 0;
       if (isPreview) {
-        const preview = { action: 'publish-global', mode: 'preview', valid, source: { id: source.id, updated_at: source.updated_at }, targetScope: 'global', targetTags: resolvedPublishTags(args.candidate), candidateHash: createHash('sha256').update(canonicalPublishCandidate(args.candidate)).digest('hex'), ...evidence };
+        const token = publicationToken(previewSource, candidate);
+        const preview = { action: 'publish-global', mode: 'preview', valid, source: { id: previewSource.id, updated_at: previewSource.updated_at }, targetScope: 'global', targetTags: resolvedPublishTags(candidate), candidateHash: createHash('sha256').update(canonicalPublishCandidate(candidate)).digest('hex'), ...evidence };
         return JSON.stringify(valid ? { ...preview, confirmationToken: token } : preview, null, 2);
       }
       if (!args.confirm) return 'Error: confirm=true is required to apply publish-global.';
       if (!args.token) return 'Error: confirmation token is required to apply publish-global.';
-      if (args.token !== token) return 'Error: confirmation token is stale or does not match the source and canonical candidate.';
-      if (!valid) {
-        return JSON.stringify({ action: 'publish-global', mode: 'apply', valid: false, ...evidence }, null, 2);
-      }
-
-      const candidateTags = resolvedPublishTags(args.candidate);
-      const derivative = repo.store(args.candidate.content.trim(), {
-        title: args.candidate.title.trim(),
-        kind: args.candidate.kind,
-        status: 'permanent',
-        lifecycle: KIND_DEFAULT_LIFECYCLE[args.candidate.kind],
-        tags: candidateTags,
-        summary: args.candidate.summary.trim(),
-        guidance: args.candidate.guidance.trim(),
+      const noteId = args.noteId;
+      const suppliedToken = args.token;
+      // One lease covers the fresh source lookup, revalidation, token check, the
+      // derivative write, the source relation edit, and rollback, so a concurrent
+      // mutation cannot invalidate the publication between validation and write.
+      // Embeddings, navigation, and git run afterwards without the lock.
+      const application = await repo.withKnowledgeMutationLockAsync(async (): Promise<{ error: string } | { source: NoteMetadata; derivative: StoreResult }> => {
+        const source = repo.getById(noteId);
+        const freshEvidence = publicationValidation(source, candidate, repo);
+        if (!source) {
+          return { error: JSON.stringify({ action: 'publish-global', mode: 'apply', valid: false, ...freshEvidence }, null, 2) };
+        }
+        if (suppliedToken !== publicationToken(source, candidate)) {
+          return { error: 'Error: confirmation token is stale or does not match the source and canonical candidate.' };
+        }
+        if (freshEvidence.errors.length > 0 || freshEvidence.duplicates.length > 0) {
+          return { error: JSON.stringify({ action: 'publish-global', mode: 'apply', valid: false, ...freshEvidence }, null, 2) };
+        }
+        const created = repo.store(candidate.content.trim(), {
+          title: candidate.title.trim(),
+          kind: candidate.kind,
+          status: 'permanent',
+          lifecycle: KIND_DEFAULT_LIFECYCLE[candidate.kind],
+          tags: resolvedPublishTags(candidate),
+          summary: candidate.summary.trim(),
+          guidance: candidate.guidance.trim(),
+        });
+        try {
+          repo.addLocalToGlobalRelation(source.id, created.id);
+        } catch (error) {
+          repo.remove(created.id);
+          return { error: `Error: Failed to link the local source to its global derivative; publication was rolled back (${error instanceof Error ? error.message : String(error)}).` };
+        }
+        return { source, derivative: created };
       });
-      try {
-        repo.addLocalToGlobalRelation(source.id, derivative.id);
-      } catch (error) {
-        repo.remove(derivative.id);
-        return `Error: Failed to link the local source to its global derivative; publication was rolled back (${error instanceof Error ? error.message : String(error)}).`;
-      }
+      if ('error' in application) return application.error;
+      const { source, derivative } = application;
       await persistSemanticMetadata(derivative.id, {
-        title: args.candidate.title.trim(),
-        summary: args.candidate.summary.trim(),
-        content: args.candidate.content.trim(),
+        title: candidate.title.trim(),
+        summary: candidate.summary.trim(),
+        content: candidate.content.trim(),
       }, repo, embeddingConfig, EMBEDDING_FOREGROUND_TIMEOUT_MS);
       const projectScope = parseKnowledgeApplicability(source.tags);
       const changedPaths = [source.path, derivative.path];
       if (projectScope.type === 'project-local') {
-        changedPaths.push(...updateProjectNavigation(projectScope.project, `Published global derivative "${args.candidate.title.trim()}" from "${source.title}"`, repo, config));
+        changedPaths.push(...updateProjectNavigation(projectScope.project, `Published global derivative "${candidate.title.trim()}" from "${source.title}"`, repo, config));
       }
-      changedPaths.push(...updateGlobalNavigation(null, `Published global note "${args.candidate.title.trim()}"`, repo, config, { appendLog: false }));
+      changedPaths.push(...updateGlobalNavigation(null, `Published global note "${candidate.title.trim()}"`, repo, config, { appendLog: false }));
       logToFile('INFO', 'Published global derivative', { sourceId: source.id, derivativeId: derivative.id });
       if (gitVersioning) {
-        await gitVersioning.recordImmediate({ op: 'publish-global', noteId: source.id, title: args.candidate.title.trim(), kind: args.candidate.kind, project: projectScope.type === 'project-local' ? projectScope.project : undefined }, changedPaths);
+        await gitVersioning.recordImmediate({ op: 'publish-global', noteId: source.id, title: candidate.title.trim(), kind: candidate.kind, project: projectScope.type === 'project-local' ? projectScope.project : undefined }, changedPaths);
       }
       return JSON.stringify({ action: 'publish-global', mode: 'apply', created: derivative.id, source: source.id, relation: `${source.id}->${derivative.id}` }, null, 2);
     }

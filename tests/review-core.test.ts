@@ -3,13 +3,13 @@
 import * as path from 'node:path';
 import { Database } from 'bun:sqlite';
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
-import { createTestHarness, cleanupTestHarness, type TestContext } from './harness';
-import { ABSOLUTE_WARN_THRESHOLD, atomicityWarnThreshold, KIND_WORD_GUIDELINES } from '../src/content-guidelines';
-import { buildReviewSnapshot } from '../src/review/facts';
-import { canonicalFingerprint } from '../src/review/fingerprint';
-import { createRepositoryReviewReader } from '../src/review/reader';
-import { evaluateReview, BUILTIN_RULES } from '../src/review/registry';
-import type { ReviewScope } from '../src/review/types';
+import { createTestHarness, cleanupTestHarness, type TestContext } from './harness.js';
+import { ABSOLUTE_WARN_THRESHOLD, atomicityWarnThreshold, KIND_WORD_GUIDELINES } from '../src/content-guidelines.js';
+import { buildReviewSnapshot } from '../src/review/facts.js';
+import { canonicalFingerprint } from '../src/review/fingerprint.js';
+import { createRepositoryReviewReader } from '../src/review/reader.js';
+import { evaluateReview, BUILTIN_RULES } from '../src/review/registry.js';
+import type { ReviewScope } from '../src/review/types.js';
 
 const FULL: ReviewScope = { kind: 'full' };
 

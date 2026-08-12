@@ -10,7 +10,7 @@ import * as path from 'path';
 import YAML from 'yaml';
 import { expandPath } from '../utils/path.js';
 import { logToFile } from '../logger.js';
-import { stripGeneratedRelatedSection } from '../related-section.js';
+import { isGeneratedRelatedBody, renderGeneratedRelatedSection, stripGeneratedRelatedSection } from '../related-section.js';
 import { extractWikiLinks as parseAllWikiLinks, parseWikiLink } from '../utils/wikilink.js';
 import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
@@ -363,7 +363,7 @@ export class NoteRepository {
 
     if (needsRebuild) {
       logToFile('INFO', 'Schema migration requires full rebuild from files');
-      this.rebuildFromFiles();
+      this.rebuildFromFilesUnlocked();
     }
 
     this.selfHealIfNeeded();
@@ -391,7 +391,7 @@ export class NoteRepository {
       dbNoteCount: noteCount,
       vaultNoteFiles: noteFiles.length,
     });
-    const result = this.rebuildFromFiles();
+    const result = this.rebuildFromFilesUnlocked();
     logToFile('INFO', 'Self-heal rebuild complete', {
       indexed: result.indexed,
       errors: result.errors,
@@ -557,18 +557,22 @@ export class NoteRepository {
     if (options.relatedContent) {
       parts.push(`## Related\n\n${options.relatedContent}`);
     } else if (options.relatedIds && options.relatedIds.length > 0) {
-      const links = options.relatedIds.map(id => {
-        const note = this.getById(id);
-        if (note) {
-          const relativePath = path.relative(this.docsPath, note.path).replace(/\.md$/, '');
-          return `- [[${relativePath}|${note.title}]]`;
-        }
-        return `- [[${id}]]`;
-      }).join('\n');
-      parts.push(`## Related\n\n${links}`);
+      const links = options.relatedIds.map(id => this.renderRelationLink(id));
+      parts.push(renderGeneratedRelatedSection(links));
     }
 
     return parts.filter(Boolean).join('\n\n') + '\n';
+  }
+
+  /**
+   * Wiki-link for a relation target. Unresolvable IDs keep a bare link so an
+   * unreadable or removed target never drops the recorded relation.
+   */
+  private renderRelationLink(id: string): string {
+    const note = this.getById(id);
+    if (!note) return `[[${id}]]`;
+    const relativePath = path.relative(this.docsPath, note.path).replace(/\.md$/, '');
+    return `[[${relativePath}|${note.title}]]`;
   }
 
   protected parseBodySections(bodyAfterTitle: string): {
@@ -593,7 +597,9 @@ export class NoteRepository {
 
     for (const chunk of chunks) {
       const headingMatch = chunk.match(/^## ([^\n]+)\n\n?([\s\S]*)/);
-      if (headingMatch && NoteRepository.MANAGED_SECTIONS.has(headingMatch[1].trim())) {
+      // An unmarked "## Related" section is authored content, so it stays in the
+      // content chunks and round-trips verbatim through rewrites.
+      if (headingMatch && this.isManagedSection(headingMatch[1].trim(), headingMatch[2].trim())) {
         sections[headingMatch[1].trim()] = headingMatch[2].trim();
       } else {
         contentChunks.push(chunk);
@@ -607,6 +613,11 @@ export class NoteRepository {
       related: sections['Related'] || '',
       content: contentChunks.join('\n').trim(),
     };
+  }
+
+  private isManagedSection(heading: string, body: string): boolean {
+    if (!NoteRepository.MANAGED_SECTIONS.has(heading)) return false;
+    return heading !== 'Related' || isGeneratedRelatedBody(body);
   }
 
   private computeUpLink(kind: string, tags: string[]): string | null {
@@ -1032,7 +1043,7 @@ export class NoteRepository {
     // Insert into FTS
     this.ftsInsert(id, title, content, tagsJson, contextStr);
 
-    this.syncLinks(id, fullContent);
+    this.syncLinksUnlocked(id, fullContent);
 
     return {
       action: isUpdate ? 'updated' : 'created',
@@ -1398,6 +1409,10 @@ export class NoteRepository {
    * Store an embedding for a note. Called after store() when embedding is available.
    */
   storeEmbedding(noteId: string, embedding: number[], model: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.storeEmbeddingUnlocked(noteId, embedding, model));
+  }
+
+  private storeEmbeddingUnlocked(noteId: string, embedding: number[], model: string): boolean {
     const blob = embeddingToBlob(embedding);
     const result = this.db.prepare(
       'UPDATE notes SET embedding = ?, embedding_model = ? WHERE id = ?'
@@ -1406,7 +1421,9 @@ export class NoteRepository {
   }
 
   updateContentHash(noteId: string, hash: string): void {
-    this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(hash, noteId);
+    this.withKnowledgeMutationLock(() => {
+      this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(hash, noteId);
+    });
   }
 
   /** Query-only canonical input for one duplicate audit invocation. */
@@ -1980,6 +1997,10 @@ export class NoteRepository {
   }
 
   remove(id: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.removeUnlocked(id));
+  }
+
+  private removeUnlocked(id: string): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -1995,6 +2016,10 @@ export class NoteRepository {
   }
 
   archive(id: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.archiveUnlocked(id));
+  }
+
+  private archiveUnlocked(id: string): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -2006,6 +2031,10 @@ export class NoteRepository {
   }
 
   promoteToPermanent(id: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.promoteToPermanentUnlocked(id));
+  }
+
+  private promoteToPermanentUnlocked(id: string): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -2017,11 +2046,19 @@ export class NoteRepository {
   }
 
   updatePath(id: string, newPath: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.updatePathUnlocked(id, newPath));
+  }
+
+  private updatePathUnlocked(id: string, newPath: string): boolean {
     const result = this.db.prepare('UPDATE notes SET path = ? WHERE id = ?').run(newPath, id);
     return result.changes > 0;
   }
 
   updateTags(id: string, tags: string[]): boolean {
+    return this.withKnowledgeMutationLock(() => this.updateTagsUnlocked(id, tags));
+  }
+
+  private updateTagsUnlocked(id: string, tags: string[]): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -2038,6 +2075,10 @@ export class NoteRepository {
   }
 
   assignProject(id: string, project: string, tags: string[]): { oldPath: string; newPath: string } | null {
+    return this.withKnowledgeMutationLock(() => this.assignProjectUnlocked(id, project, tags));
+  }
+
+  private assignProjectUnlocked(id: string, project: string, tags: string[]): { oldPath: string; newPath: string } | null {
     const note = this.getById(id);
     if (!note) return null;
     const newPath = resolveNotePath(this.docsPath, note.kind, project, note.id, this.slugify(note.title));
@@ -2057,9 +2098,9 @@ export class NoteRepository {
         fs.mkdirSync(path.dirname(newPath), { recursive: true });
         fs.renameSync(oldPath, newPath);
         moved = true;
-        if (!withBusyRetry(() => this.updatePath(id, newPath))) throw new Error('Failed to update note path');
+        if (!withBusyRetry(() => this.updatePathUnlocked(id, newPath))) throw new Error('Failed to update note path');
       }
-      if (!withBusyRetry(() => this.updateTags(id, tags))) throw new Error('Failed to update note tags');
+      if (!withBusyRetry(() => this.updateTagsUnlocked(id, tags))) throw new Error('Failed to update note tags');
       return { oldPath, newPath };
     } catch (error) {
       // A failed initial rename has not changed note bytes or indexed metadata.
@@ -2523,6 +2564,10 @@ export class NoteRepository {
   }
 
   rebuildFromFiles(): { indexed: number; errors: number; warnings: string[] } {
+    return this.withKnowledgeMutationLock(() => this.rebuildFromFilesUnlocked());
+  }
+
+  private rebuildFromFilesUnlocked(): { indexed: number; errors: number; warnings: string[] } {
     const uniqueIds = new Set<string>();
     const domainNotes = new Map<string, string>();
     const indexNotes = new Map<string, string>();
@@ -2617,7 +2662,7 @@ export class NoteRepository {
     // Resolve links only after every note is loaded. This makes link rebuilding
     // independent of filesystem traversal order and applies scope validation
     // against the complete persisted note set.
-    for (const [id, rawContent] of rawLinkSources) this.syncLinks(id, rawContent);
+    for (const [id, rawContent] of rawLinkSources) this.syncLinksUnlocked(id, rawContent);
 
     if (savedEmbeddings.length > 0) {
       const restoreStmt = this.db.prepare(
@@ -2649,6 +2694,10 @@ export class NoteRepository {
   }
 
   formatAllFiles(): { formatted: number; skipped: number; errors: number } {
+    return this.withKnowledgeMutationLock(() => this.formatAllFilesUnlocked());
+  }
+
+  private formatAllFilesUnlocked(): { formatted: number; skipped: number; errors: number } {
     const SKIP_KINDS = ['index'];
     const allNotes = this.db.prepare('SELECT * FROM notes').all() as NoteMetadata[];
     let formatted = 0;
@@ -2755,7 +2804,38 @@ export class NoteRepository {
     return null;
   }
 
+  /**
+   * Relation IDs from a note's marked system-generated Related section, read from
+   * its canonical file. Unmarked authored Related sections yield no relations.
+   */
+  getGeneratedRelatedIds(id: string): string[] {
+    const note = this.getById(id);
+    if (!note) return [];
+    let relatedBody: string;
+    try {
+      const { body } = this.parseFrontmatter(fs.readFileSync(note.path, 'utf-8'));
+      const isStructural = note.kind === 'index' || note.kind === 'log';
+      const bodyAfterTitle = isStructural ? body : body.replace(NoteRepository.TITLE_PATTERN, '');
+      relatedBody = this.parseBodySections(bodyAfterTitle).related;
+    } catch {
+      return [];
+    }
+    if (!isGeneratedRelatedBody(relatedBody)) return [];
+    const ids: string[] = [];
+    for (const linkText of this.extractWikiLinks(relatedBody)) {
+      // Keep unresolved targets too: a temporarily missing or unreadable note must
+      // not make an existing generated relation disappear on the next rewrite.
+      const relationId = this.resolveLink(linkText) ?? linkText;
+      if (!ids.includes(relationId)) ids.push(relationId);
+    }
+    return ids;
+  }
+
   syncLinks(noteId: string, content: string): void {
+    this.withKnowledgeMutationLock(() => this.syncLinksUnlocked(noteId, content));
+  }
+
+  private syncLinksUnlocked(noteId: string, content: string): void {
     this.db.prepare('DELETE FROM note_links WHERE source_id = ?').run(noteId);
 
     const source = this.getById(noteId);
@@ -2997,6 +3077,10 @@ export class NoteRepository {
   }
 
   updateSummaryGuidance(id: string, summary: string, guidance: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.updateSummaryGuidanceUnlocked(id, summary, guidance));
+  }
+
+  private updateSummaryGuidanceUnlocked(id: string, summary: string, guidance: string): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -3241,6 +3325,10 @@ export class NoteRepository {
 
 
   clearAll(): void {
+    this.withKnowledgeMutationLock(() => this.clearAllUnlocked());
+  }
+
+  private clearAllUnlocked(): void {
     this.db.run('DELETE FROM note_links');
     this.db.run('DELETE FROM notes');
     this.db.run('DELETE FROM notes_fts');
@@ -3298,6 +3386,10 @@ export class NoteRepository {
   }
 
   addLocalToGlobalRelation(sourceId: string, globalId: string): void {
+    this.withKnowledgeMutationLock(() => this.addLocalToGlobalRelationUnlocked(sourceId, globalId));
+  }
+
+  private addLocalToGlobalRelationUnlocked(sourceId: string, globalId: string): void {
     const sourceNote = this.getById(sourceId);
     if (!sourceNote) throw new Error('Source note not found');
     const globalNote = this.getById(globalId);
@@ -3311,33 +3403,26 @@ export class NoteRepository {
     }
 
     const originalContent = fs.readFileSync(sourceNote.path, 'utf-8');
+    // Authored content, including any unmarked authored "## Related" section, is
+    // never edited. Only the trailing marked generated section is rewritten.
+    const authoredContent = stripGeneratedRelatedSection(originalContent);
     const globalRelativePath = path.relative(this.docsPath, globalNote.path).replace(/\.md$/, '');
-    if (originalContent.includes(`[[${globalRelativePath}|`) || originalContent.includes(`[[${globalNote.id}`)) return;
+    if (authoredContent.includes(`[[${globalRelativePath}`) || authoredContent.includes(`[[${globalNote.id}`)) return;
 
-    const globalLink = `- [[${globalRelativePath}|${globalNote.title}]]`;
-    const relatedHeading = /^## Related\s*$/m.exec(originalContent);
-    let updatedContent: string;
-    if (relatedHeading?.index !== undefined) {
-      const sectionStart = relatedHeading.index + relatedHeading[0].length;
-      const nextHeadingOffset = originalContent.slice(sectionStart).search(/\n## /);
-      const insertAt = nextHeadingOffset >= 0 ? sectionStart + nextHeadingOffset : originalContent.length;
-      const before = originalContent.slice(0, insertAt);
-      const after = originalContent.slice(insertAt);
-      updatedContent = `${before}${before.endsWith('\n') ? '' : '\n'}${globalLink}\n${after}`;
-    } else {
-      const separator = originalContent.endsWith('\n\n') ? '' : originalContent.endsWith('\n') ? '\n' : '\n\n';
-      updatedContent = `${originalContent}${separator}## Related\n\n${globalLink}\n`;
-    }
+    const existingRelated = this.getGeneratedRelatedIds(sourceId);
+    if (existingRelated.includes(globalNote.id)) return;
+    const links = [...existingRelated, globalNote.id].map(id => this.renderRelationLink(id));
+    const updatedContent = `${authoredContent}\n\n${renderGeneratedRelatedSection(links)}\n`;
 
     const updatedAt = Math.max(Date.now(), sourceNote.updated_at + 1);
     try {
       fs.writeFileSync(sourceNote.path, updatedContent, 'utf-8');
       this.db.prepare('UPDATE notes SET updated_at = ? WHERE id = ?').run(updatedAt, sourceId);
-      this.syncLinks(sourceId, updatedContent);
+      this.syncLinksUnlocked(sourceId, updatedContent);
     } catch (error) {
       fs.writeFileSync(sourceNote.path, originalContent, 'utf-8');
       this.db.prepare('UPDATE notes SET updated_at = ? WHERE id = ?').run(sourceNote.updated_at, sourceId);
-      this.syncLinks(sourceId, originalContent);
+      this.syncLinksUnlocked(sourceId, originalContent);
       throw error;
     }
   }

@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
 import { handleGet, handleStore, type StoreArgs } from '../src/tool-handlers.js';
+import { extractGeneratedRelatedIds, renderGeneratedRelatedSection } from '../src/related-section.js';
 import { evaluateScreeningCandidate, reviewedOperationTokens, reviewedUpdateCandidate, type ScreeningCandidate } from '../src/reviewed-storage.js';
 import { cleanupTestHarness, createTestHarness, listAllNoteFiles, type TestContext } from './harness.js';
 
@@ -127,7 +128,7 @@ describe('reviewed knowledge-store handler', () => {
     // low-confidence update target; tags and related are omitted to preserve.
     const updateArgs = args({
       title: 'Wholly different parity title',
-      content: 'wholly different parity content',
+      content: 'wholly different parity content with authored [[2026081217215097|inline link]]',
       disposition: 'update',
       noteId: id,
       expectedUpdatedAt: target.updated_at,
@@ -147,7 +148,7 @@ describe('reviewed knowledge-store handler', () => {
       status: target.status,
       lifecycle: target.lifecycle,
       tags: [...target.tags],
-      related: [...note.related],
+      related: extractGeneratedRelatedIds(target.content),
     };
     const helper = reviewedOperationTokens({
       candidate,
@@ -157,7 +158,7 @@ describe('reviewed knowledge-store handler', () => {
       targetId: id,
       updateCandidate: (input, match) => {
         const matched = snapshot.notes.find(item => item.id === match.id);
-        return matched ? reviewedUpdateCandidate(input, matched, { tags: true, related: true }) : input;
+        return matched ? reviewedUpdateCandidate(input, matched, { tags: true, related: false }) : input;
       },
     });
 
@@ -168,6 +169,40 @@ describe('reviewed knowledge-store handler', () => {
     const token = helper.updateTokens.find(item => item.id === id)?.token;
     expect(await handleStore({ ...updateArgs, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config)).toContain('Updated reference');
     expect(ctx.engine.getById(id)?.tags).toContain('topic');
+  });
+
+  it('preserves unresolved inherited generated relations but rejects them when explicit', async () => {
+    const unresolvedId = '2026081217215099';
+    const inlineId = '2026081217215098';
+    const content = `body with authored [[${inlineId}|inline link]]\n\n${renderGeneratedRelatedSection([`[[${unresolvedId}]]`])}`;
+    const stored = ctx.engine.store(content, {
+      title: 'Inherited unresolved relation', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'Inherited relation summary.', guidance: 'Keep inherited relation.',
+    });
+    const target = getNote(ctx, stored.id);
+    const updateArgs = args({
+      title: target.title,
+      content: `updated body with authored [[${inlineId}|inline link]]`,
+      summary: target.summary,
+      guidance: target.guidance,
+      disposition: 'update',
+      noteId: target.id,
+      expectedUpdatedAt: target.updated_at,
+      dryRun: true,
+    });
+    const preview = parsed(await handleStore(updateArgs, ctx.engine, null, ctx.config));
+    const token = (preview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === target.id)?.token;
+    expect(await handleStore({ ...updateArgs, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config)).toContain('Updated reference');
+
+    const updated = getNote(ctx, target.id);
+    expect(extractGeneratedRelatedIds(updated.content)).toEqual([unresolvedId]);
+    expect(updated.content).toContain(`- [[${unresolvedId}]]`);
+    expect(updated.content).toContain(`[[${inlineId}|inline link]]`);
+    expect(extractGeneratedRelatedIds(updated.content)).not.toContain(inlineId);
+    expect(updated.content.match(/<!-- zk:related -->/g)).toHaveLength(1);
+
+    const rejected = await handleStore({ ...updateArgs, related: [unresolvedId], expectedUpdatedAt: updated.updated_at }, ctx.engine, null, ctx.config);
+    expect(rejected).toContain(`Related note not found or not visible: ${unresolvedId}`);
   });
 
   it('reuses a single visibility-aligned screening snapshot for preview and refreshes it only under the lock', async () => {
@@ -301,6 +336,84 @@ describe('reviewed knowledge-store handler', () => {
     } finally {
       second.close();
     }
+  });
+
+  it('fails screening-relevant writers from another instance while an async holder owns the lock', async () => {
+    const note = ctx.engine.store('lock race content', { title: 'Lock race target', kind: 'reference', status: 'fleeting', lifecycle: 'living', tags: ['project:demo'], summary: 'Lock race summary.', guidance: 'Keep it.' });
+    const second = new NoteRepository(ctx.tempDir);
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    let acquired!: () => void;
+    const entered = new Promise<void>(resolve => { acquired = resolve; });
+    const holder = ctx.engine.withKnowledgeMutationLockAsync(async () => {
+      acquired();
+      await barrier;
+    });
+    await entered;
+    try {
+      const writers: Array<[string, () => unknown]> = [
+        ['archive', () => second.archive(note.id)],
+        ['remove', () => second.remove(note.id)],
+        ['updatePath', () => second.updatePath(note.id, `${note.path}.raced`)],
+        ['updateTags', () => second.updateTags(note.id, ['project:demo', 'raced'])],
+        ['updateContentHash', () => second.updateContentHash(note.id, 'deadbeef')],
+        ['updateSummaryGuidance', () => second.updateSummaryGuidance(note.id, 'Raced.', 'Raced.')],
+        ['rebuildFromFiles', () => second.rebuildFromFiles()],
+      ];
+      for (const [name, writer] of writers) {
+        expect(writer, name).toThrow('Knowledge mutation is already in progress');
+      }
+      // No writer observed the vault, so the note is untouched.
+      expect(second.getById(note.id)?.status).toBe('fleeting');
+      expect(second.getById(note.id)?.tags).not.toContain('raced');
+    } finally {
+      release();
+      await holder;
+      second.close();
+    }
+  });
+
+  it('queues semantic metadata writes behind an async lock holder instead of discarding them', async () => {
+    const second = new NoteRepository(ctx.tempDir);
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    let acquired!: () => void;
+    const entered = new Promise<void>(resolve => { acquired = resolve; });
+    const holder = ctx.engine.withKnowledgeMutationLockAsync(async () => {
+      acquired();
+      await barrier;
+    });
+    await entered;
+    try {
+      const pending = handleStore(args(), second, null, ctx.config);
+      // Give the queued store time to contend for the lock before it is released.
+      await new Promise(resolve => setTimeout(resolve, 20));
+      release();
+      await holder;
+      const output = await pending;
+      const id = storedId(output);
+      expect(second.getAllContentHashes().map(item => item.id)).toContain(id);
+    } finally {
+      release();
+      await holder;
+      second.close();
+    }
+  });
+
+  it('invalidates a reviewed update token after an archive mutation of unrelated visible evidence', async () => {
+    const created = await handleStore(args(), ctx.engine, null, ctx.config);
+    const id = storedId(created);
+    const target = getNote(ctx, id);
+    const decoy = ctx.engine.store('decoy evidence content', { title: 'Decoy evidence', kind: 'reference', status: 'fleeting', lifecycle: 'living', tags: ['project:demo'], summary: 'Decoy summary.', guidance: 'Keep decoy.' });
+    const candidate = args({ content: 'reviewed content after archive', disposition: 'update', noteId: id, expectedUpdatedAt: target.updated_at, dryRun: true });
+    const preview = parsed(await handleStore(candidate, ctx.engine, null, ctx.config));
+    const token = (preview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === id)?.token;
+    expect(token).toBeDefined();
+
+    expect(ctx.engine.archive(decoy.id)).toBe(true);
+    const stale = await handleStore({ ...candidate, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config);
+    expect(stale).toContain('token is stale');
+    expect(ctx.engine.getById(id)?.content).toBe('durable canonical content');
   });
 
   it('releases the lock and preserves rebuild recovery after an accepted filesystem failure', async () => {
