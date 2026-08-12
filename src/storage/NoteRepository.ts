@@ -1449,8 +1449,8 @@ export class NoteRepository {
 
     if (options.tags && options.tags.length > 0) {
       for (const tag of options.tags) {
-        sql += ' AND n.tags LIKE ?';
-        params.push(`%"${tag}"%`);
+        sql += ' AND EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)';
+        params.push(tag);
       }
     }
 

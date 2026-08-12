@@ -684,6 +684,32 @@ describe('MCP Tool: knowledge-search', () => {
     expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'full', limit: 1 }, ctx.engine)).toContain('<content>');
   });
 
+  it('keeps compact results and availability exact for LIKE metacharacter tags', () => {
+    for (const [title, tag] of [
+      ['Exact Percent', 'topic:rate%'],
+      ['Percent Prefix', 'topic:rate%extra'],
+      ['Percent Lookalike', 'topic:rate-value'],
+      ['Exact Underscore', 'topic:item_1'],
+      ['Underscore Lookalike', 'topic:itemX1'],
+    ]) {
+      ctx.engine.store('compact exact tag keyword', {
+        title, kind: 'reference', tags: ['project:test-project', tag],
+      });
+    }
+
+    for (const [tag, title] of [
+      ['topic:rate%', 'Exact Percent'],
+      ['topic:item_1', 'Exact Underscore'],
+    ]) {
+      const compact = JSON.parse(handleSearch({
+        project: 'test-project', query: 'compact exact tag', mode: 'compact', tags: [tag],
+      }, ctx.engine)) as { availableCount: number; results: Array<{ identity: { title: string } }> };
+
+      expect(compact.availableCount).toBe(1);
+      expect(compact.results.map(result => result.identity.title)).toEqual([title]);
+    }
+  });
+
   it('reports exact compact hybrid availability after all search filters', () => {
     const embedding = [1, 0, 0];
     const addVectorNote = (title: string, options: Parameters<typeof ctx.engine.store>[1]) => {

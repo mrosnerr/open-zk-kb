@@ -339,6 +339,29 @@ Project operating manual.
         expect(r.status).toBe('fleeting');
       }
     });
+
+    it('matches tags exactly when they contain LIKE metacharacters', () => {
+      context.engine.store('exact tag regression keyword', {
+        title: 'Exact Percent Tag', tags: ['topic:rate%'],
+      });
+      context.engine.store('exact tag regression keyword', {
+        title: 'Percent Prefix Tag', tags: ['topic:rate%extra'],
+      });
+      context.engine.store('exact tag regression keyword', {
+        title: 'Percent Wildcard Lookalike', tags: ['topic:rate-value'],
+      });
+      context.engine.store('exact tag regression keyword', {
+        title: 'Exact Underscore Tag', tags: ['topic:item_1'],
+      });
+      context.engine.store('exact tag regression keyword', {
+        title: 'Underscore Wildcard Lookalike', tags: ['topic:itemX1'],
+      });
+
+      expect(context.engine.search('exact tag regression', { tags: ['topic:rate%'] }).map(note => note.title))
+        .toEqual(['Exact Percent Tag']);
+      expect(context.engine.search('exact tag regression', { tags: ['topic:item_1'] }).map(note => note.title))
+        .toEqual(['Exact Underscore Tag']);
+    });
   });
 
   describe('Get by Kind', () => {
