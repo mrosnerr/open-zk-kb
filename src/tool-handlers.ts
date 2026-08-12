@@ -1353,6 +1353,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
       evaluation,
       snapshotVersion: snapshot.schemaVersion,
       configVersion,
+      snapshotCanonicalDrift: snapshot.canonicalDrift,
       targetId: preflightTarget?.id,
       updateCandidate: (candidate, match) => {
         const note = snapshot.notes.find(item => item.id === match.id);
@@ -1414,6 +1415,9 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
       if (args.disposition === 'create') {
         if (currentEvaluation.matches.some(match => match.highConfidence && match.canonicalFileHash === undefined)) {
           throw new Error('Reviewed create evidence is unavailable; reconcile after canonical files are readable.');
+        }
+        if (currentSnapshot.canonicalDrift) {
+          throw new Error('Reviewed create token is stale because canonical files changed outside the index; reconcile or rebuild.');
         }
         const expected = reviewedOperationToken({ candidate: screeningCandidate, evaluation: currentEvaluation, operation: 'create', snapshotVersion: currentSnapshot.schemaVersion, configVersion });
         if (args.token !== expected) throw new Error('Reviewed create token is stale or does not match this operation; reconcile with a fresh preview.');
@@ -3370,7 +3374,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     summary: candidate.summary,
     guidance: candidate.guidance,
     project: candidate.project ?? null,
-    tags: candidate.tags ?? null,
+    tags: candidate.tags === undefined ? null : [...new Set(candidate.tags)].sort(),
     source: candidate.source ?? null,
   });
   const canonicalCandidates = args.candidates.map((candidate, index) => ({ index, candidate: canonicalCandidate(candidate) }));

@@ -641,6 +641,34 @@ describe('reviewed knowledge-store handler', () => {
     expect(updateResults.filter(result => result.includes('version is stale'))).toHaveLength(1);
   });
 
+  it('withholds and rejects create after a low-confidence canonical note changes outside the index', async () => {
+    const candidate = args();
+    const unrelated = ctx.engine.store('initial unrelated body', {
+      title: 'Initially Unrelated', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'Initially unrelated summary.', guidance: 'Keep unrelated evidence.',
+    });
+    const oldPreview = parsed(await handleStore({ ...candidate, dryRun: true }, ctx.engine, null, ctx.config));
+    expect(typeof oldPreview.createToken).toBe('string');
+
+    // Simulate an editor turning stale, low-confidence evidence into the candidate.
+    const canonical = fs.readFileSync(unrelated.path, 'utf8');
+    fs.writeFileSync(unrelated.path, `${canonical}
+${candidate.title}
+${candidate.content}
+${candidate.summary}
+`);
+
+    const freshPreview = parsed(await handleStore({ ...candidate, dryRun: true }, ctx.engine, null, ctx.config));
+    expect(freshPreview.createToken).toBeUndefined();
+    expect(freshPreview.validDispositions).not.toContain('create');
+
+    const rejected = await handleStore({
+      ...candidate, disposition: 'create', confirm: true, token: oldPreview.createToken as string,
+    }, ctx.engine, null, ctx.config);
+    expect(rejected).toContain('canonical files changed outside the index');
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes).toHaveLength(1);
+  });
+
   it('rejects an old reviewed create after low-confidence visible evidence changes', async () => {
     const candidate = args();
     const preview = parsed(await handleStore({ ...candidate, dryRun: true }, ctx.engine, null, ctx.config));

@@ -285,7 +285,7 @@ describe('knowledge-mine: reviewed apply mode', () => {
     });
     const reordered: MineCandidate = {
       source: candidate.source,
-      tags: candidate.tags,
+      tags: ['beta', 'alpha', 'alpha'],
       project: candidate.project,
       guidance: candidate.guidance,
       summary: candidate.summary,
@@ -305,7 +305,7 @@ describe('knowledge-mine: reviewed apply mode', () => {
 
     for (const changed of [
       { ...candidate, content: 'Changed canonical candidate content' },
-      { ...candidate, tags: [...(candidate.tags ?? [])].reverse() },
+      { ...candidate, tags: [...(candidate.tags ?? []), 'gamma'] },
     ]) {
       const changedKey = keys(await handleMine({ project: 'test-project', candidates: [changed] }, ctx.engine, null, ctx.config))[0];
       const stale = json(await handleMine({

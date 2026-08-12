@@ -30,6 +30,8 @@ export interface ScreeningNote {
 export interface ScreeningSnapshot {
   schemaVersion: number;
   notes: ScreeningNote[];
+  /** True when canonical file metadata no longer matches the indexed baseline. */
+  canonicalDrift?: boolean;
 }
 
 export interface ScreeningCandidate {
@@ -230,6 +232,7 @@ export function targetFirstComparator<T extends { id: string }>(targetId?: strin
 
 export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeReviewedOperation>[0], 'operation' | 'target'> & {
   targetId?: string;
+  snapshotCanonicalDrift?: boolean;
   updateCandidate?: (candidate: ScreeningCandidate, match: ScreeningEvaluation['matches'][number]) => ScreeningCandidate;
 }): {
   createToken?: string;
@@ -239,8 +242,9 @@ export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeR
   const scope = (tags: string[]) => tags
     .filter(tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global')
     .sort();
-  const createEvidenceAvailable = operationInput.evaluation.matches
-    .every(match => !match.highConfidence || match.canonicalFileHash !== undefined);
+  const createEvidenceAvailable = operationInput.snapshotCanonicalDrift !== true
+    && operationInput.evaluation.matches
+      .every(match => !match.highConfidence || match.canonicalFileHash !== undefined);
   return {
     createToken: createEvidenceAvailable
       ? reviewedOperationToken({ ...operationInput, operation: 'create' })

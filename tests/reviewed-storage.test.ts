@@ -70,6 +70,44 @@ describe('reviewed storage screening', () => {
     expect(reviewedOperationToken({ ...input, candidate: reorderedTags, operation: 'create' })).toBe(reviewedOperationToken({ ...input, operation: 'create' }));
   });
 
+  it('does not report drift after legitimate metadata rewrites and a subsequent store', () => {
+    const stored = ctx.engine.store('original content', { title: 'Original', tags: ['project:demo'] });
+    expect(ctx.engine.promoteToPermanent(stored.id)).toBe(true);
+    expect(ctx.engine.updateTags(stored.id, ['project:demo', 'topic:updated'])).toBe(true);
+    expect(ctx.engine.formatAllFiles().errors).toBe(0);
+    ctx.engine.store('other content', { title: 'Other', tags: ['project:demo'] });
+
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
+  it('shares legitimate indexed file updates across repository instances', () => {
+    const stored = ctx.engine.store('original content', { title: 'Shared', tags: ['project:demo'] });
+    const second = new NoteRepository(ctx.tempDir, { telemetryEnabled: false });
+    try {
+      second.store('updated by second repository', {
+        existingId: stored.id, title: 'Shared', tags: ['project:demo'],
+      });
+
+      expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+    } finally { second.close(); }
+  });
+
+  it('reports an external canonical edit when the indexed version is unchanged', () => {
+    const stored = ctx.engine.store('original content', { title: 'External', tags: ['project:demo'] });
+    fs.appendFileSync(stored.path, '\nexternal edit');
+
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+  });
+
+  it('withholds create tokens when canonical metadata has drifted from the index', () => {
+    const snapshot = { schemaVersion: 8, notes: [] };
+    const evaluation = evaluateScreeningCandidate(candidate, snapshot);
+    const tokens = reviewedOperationTokens({
+      candidate, evaluation, snapshotVersion: 8, configVersion: 'v1', snapshotCanonicalDrift: true,
+    });
+    expect(tokens.createToken).toBeUndefined();
+  });
+
   it('withholds create tokens when high-confidence canonical evidence is unavailable', () => {
     const evaluation = evaluateScreeningCandidate(candidate, {
       schemaVersion: 8,

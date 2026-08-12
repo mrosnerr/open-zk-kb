@@ -326,6 +326,10 @@ export class KnowledgeMutationBusyError extends Error {
   }
 }
 
+type CanonicalMetadataBaseline = { metadata: string | undefined; indexedVersion: number };
+type CanonicalMetadataVault = { baselines: Map<string, CanonicalMetadataBaseline>; references: number };
+const canonicalMetadataByVault = new Map<string, CanonicalMetadataVault>();
+
 export class NoteRepository {
   protected db: Database;
   protected docsPath: string;
@@ -335,6 +339,8 @@ export class NoteRepository {
   private readonly telemetryEnabled: boolean;
   private readonly mutationLockOwners = new Map<string, string>();
   private readonly mutationLockContext = new AsyncLocalStorage<KnowledgeMutationContext>();
+  private indexedCanonicalMetadata = new Map<string, CanonicalMetadataBaseline>();
+  private canonicalMetadataVaultKey: string | undefined;
 
   constructor(docsPath: string = '~/.local/share/open-zk-kb', options: { telemetryEnabled?: boolean; readonly?: boolean } = {}) {
     try {
@@ -345,6 +351,7 @@ export class NoteRepository {
       this.sessionId = crypto.randomUUID();
       const originalPath = docsPath;
       this.docsPath = expandPath(docsPath);
+      const vaultKey = path.resolve(this.docsPath);
 
       if (!this.docsPath || !path.isAbsolute(this.docsPath)) {
         throw new Error(
@@ -401,6 +408,15 @@ export class NoteRepository {
 
       this.schemaManager = new SchemaManager(this.db);
       this.initializeSchema();
+      const sharedMetadata = canonicalMetadataByVault.get(vaultKey);
+      if (sharedMetadata) {
+        this.indexedCanonicalMetadata = sharedMetadata.baselines;
+        sharedMetadata.references++;
+      } else {
+        this.refreshIndexedCanonicalMetadata();
+        canonicalMetadataByVault.set(vaultKey, { baselines: this.indexedCanonicalMetadata, references: 1 });
+      }
+      this.canonicalMetadataVaultKey = vaultKey;
     } catch (error) {
       logToFile('ERROR', 'Constructor failed', {
         error: error instanceof Error ? error.message : String(error),
@@ -408,6 +424,32 @@ export class NoteRepository {
       });
       throw error;
     }
+  }
+
+  private canonicalMetadata(filePath: string): string | undefined {
+    try {
+      const stat = fs.statSync(filePath);
+      return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private updateCanonicalMetadataBaseline(filePath: string, indexedVersion?: number): void {
+    const version = indexedVersion ?? (
+      this.db.prepare('SELECT updated_at FROM notes WHERE path = ?').get(filePath) as { updated_at: number } | undefined
+    )?.updated_at;
+    if (version === undefined) return;
+    this.indexedCanonicalMetadata.set(filePath, {
+      metadata: this.canonicalMetadata(filePath),
+      indexedVersion: version,
+    });
+  }
+
+  private refreshIndexedCanonicalMetadata(): void {
+    this.indexedCanonicalMetadata.clear();
+    const rows = this.db.prepare('SELECT path, updated_at FROM notes').all() as Array<{ path: string; updated_at: number }>;
+    for (const row of rows) this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
   }
 
   private initializeSchema(): void {
@@ -1117,6 +1159,8 @@ export class NoteRepository {
     this.ftsInsert(id, title, content, tagsJson, contextStr);
 
     this.syncLinksUnlocked(id, fullContent);
+    this.updateCanonicalMetadataBaseline(filePath, versionedNow);
+    if (existingForVersion?.path && existingForVersion.path !== filePath) this.indexedCanonicalMetadata.delete(existingForVersion.path);
 
     return {
       action: isUpdate ? 'updated' : 'created',
@@ -1350,8 +1394,20 @@ export class NoteRepository {
       related.push(link.target_id);
       relatedBySource.set(link.source_id, related);
     }
+    // Evaluate every row so baselines rebaseline deterministically: a short-circuiting
+    // predicate would leave later rows unbaselined once one row already drifted.
+    let canonicalDrift = false;
+    for (const row of copied.rows) {
+      const baseline = this.indexedCanonicalMetadata.get(row.path);
+      if (baseline?.indexedVersion !== row.updated_at) {
+        this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
+        continue;
+      }
+      if (baseline.metadata !== this.canonicalMetadata(row.path)) canonicalDrift = true;
+    }
     return {
       schemaVersion: copied.schemaVersion,
+      canonicalDrift,
       notes: copied.rows.map(row => {
         const contentHash = row.content_hash || computeSimHash(row.summary || row.content || row.title);
         return {
@@ -2130,6 +2186,7 @@ export class NoteRepository {
     this.db.prepare('DELETE FROM notes WHERE id = ?').run(id);
     this.ftsDelete(id);
     this.db.prepare('DELETE FROM note_links WHERE source_id = ? OR target_id = ?').run(id, id);
+    this.indexedCanonicalMetadata.delete(note.path);
 
     return true;
   }
@@ -2216,6 +2273,7 @@ export class NoteRepository {
       if (newPath !== oldPath) {
         fs.mkdirSync(path.dirname(newPath), { recursive: true });
         fs.renameSync(oldPath, newPath);
+        this.indexedCanonicalMetadata.delete(oldPath);
         moved = true;
         if (!withBusyRetry(() => this.updatePathUnlocked(id, newPath))) throw new Error('Failed to update note path');
       }
@@ -2227,13 +2285,17 @@ export class NoteRepository {
       // must still restore the original file and index state.
       if (!moved && newPath !== oldPath) return null;
       try {
-        if (moved) fs.renameSync(newPath, oldPath);
+        if (moved) {
+          fs.renameSync(newPath, oldPath);
+          this.indexedCanonicalMetadata.delete(newPath);
+        }
         fs.writeFileSync(oldPath, oldFile, 'utf-8');
         withBusyRetry(() => {
           this.db.prepare('UPDATE notes SET path = ?, tags = ?, updated_at = ? WHERE id = ?')
             .run(oldPath, oldTagsJson, note.updated_at, id);
           this.ftsUpdate(id, note.title, note.content, oldTagsJson, note.context || '');
         });
+        this.updateCanonicalMetadataBaseline(oldPath, note.updated_at);
       } catch (rollbackError) {
         logToFile('ERROR', 'Failed to roll back project assignment', {
           noteId: id, error: String(rollbackError), originalError: String(error),
@@ -2270,6 +2332,7 @@ export class NoteRepository {
       const userContent = bodySections.content;
       const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
       fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
+      this.updateCanonicalMetadataBaseline(note.path, merged.updated_at);
       return true;
     } catch (err) {
       logToFile('WARN', 'Failed to rewrite note file', { noteId: note.id, error: String(err) });
@@ -2809,6 +2872,7 @@ export class NoteRepository {
       logToFile('WARN', warning);
     }
 
+    this.refreshIndexedCanonicalMetadata();
     return { indexed: uniqueIds.size, errors, warnings };
   }
 
@@ -2868,6 +2932,7 @@ export class NoteRepository {
         const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
 
         fs.writeFileSync(row.path, frontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
+        this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
         formatted++;
       } catch (err) {
         logToFile('WARN', 'Failed to format note file', { noteId: row.id, error: String(err) });
@@ -3459,6 +3524,13 @@ export class NoteRepository {
     if (this._closed) return;
     this._closed = true;
     this.db.close();
+    if (this.canonicalMetadataVaultKey) {
+      const sharedMetadata = canonicalMetadataByVault.get(this.canonicalMetadataVaultKey);
+      if (sharedMetadata && --sharedMetadata.references === 0) {
+        canonicalMetadataByVault.delete(this.canonicalMetadataVaultKey);
+      }
+      this.canonicalMetadataVaultKey = undefined;
+    }
   }
 
   // ---- Global scope helpers ----
@@ -3540,10 +3612,12 @@ export class NoteRepository {
       fs.writeFileSync(sourceNote.path, updatedContent, 'utf-8');
       this.db.prepare('UPDATE notes SET updated_at = ? WHERE id = ?').run(updatedAt, sourceId);
       this.syncLinksUnlocked(sourceId, updatedContent);
+      this.updateCanonicalMetadataBaseline(sourceNote.path, updatedAt);
     } catch (error) {
       fs.writeFileSync(sourceNote.path, originalContent, 'utf-8');
       this.db.prepare('UPDATE notes SET updated_at = ? WHERE id = ?').run(sourceNote.updated_at, sourceId);
       this.syncLinksUnlocked(sourceId, originalContent);
+      this.updateCanonicalMetadataBaseline(sourceNote.path, sourceNote.updated_at);
       throw error;
     }
   }
