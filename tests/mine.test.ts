@@ -257,6 +257,50 @@ describe('knowledge-mine: reviewed apply mode', () => {
     expect(ctx.engine.getStats()).toEqual(before);
   });
 
+  it('keeps reviewed candidate identity stable across object member insertion order', async () => {
+    const candidate = makeCandidate({
+      title: 'Canonical Candidate',
+      content: 'Canonical candidate content',
+      kind: 'procedure',
+      summary: 'Canonical candidate summary',
+      guidance: 'Use the canonical candidate.',
+      project: 'test-project',
+      tags: ['alpha', 'beta'],
+      source: 'ses_canonical',
+    });
+    const reordered: MineCandidate = {
+      source: candidate.source,
+      tags: candidate.tags,
+      project: candidate.project,
+      guidance: candidate.guidance,
+      summary: candidate.summary,
+      kind: candidate.kind,
+      content: candidate.content,
+      title: candidate.title,
+    };
+    const candidateKey = keys(await handleMine({ project: 'test-project', candidates: [candidate] }, ctx.engine, null, ctx.config))[0];
+    const dispositions = [{ candidateKey, action: 'store' as const }];
+    const plan = json(await handleMine({ project: 'test-project', candidates: [candidate], dispositions }, ctx.engine, null, ctx.config));
+    const applied = await handleMine({
+      project: 'test-project', candidates: [reordered], dispositions, dry_run: false, confirm: true, batchToken: plan.batchToken as string,
+    }, ctx.engine, null, ctx.config);
+
+    expect(applied).toContain('✅ Stored as');
+    expect(ctx.engine.search('Canonical Candidate').some(note => note.title === 'Canonical Candidate')).toBe(true);
+
+    for (const changed of [
+      { ...candidate, content: 'Changed canonical candidate content' },
+      { ...candidate, tags: [...(candidate.tags ?? [])].reverse() },
+    ]) {
+      const changedKey = keys(await handleMine({ project: 'test-project', candidates: [changed] }, ctx.engine, null, ctx.config))[0];
+      const stale = json(await handleMine({
+        project: 'test-project', candidates: [changed], dispositions: [{ candidateKey: changedKey, action: 'skip' }],
+        dry_run: false, confirm: true, batchToken: plan.batchToken as string,
+      }, ctx.engine, null, ctx.config));
+      expect(stale.state).toBe('stale-plan');
+    }
+  });
+
   it('stores, skips, and leaves unspecified candidates unchanged in original order', async () => {
     const candidates = [
       makeCandidate({ title: 'Stored Mining Candidate', summary: 'Unique stored candidate', source: 'ses_abc123' }),

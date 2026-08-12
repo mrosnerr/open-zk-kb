@@ -3332,9 +3332,19 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     scheduleTelemetryWrite('mine', () => repo.recordToolInvocation('mine', outcome, args.candidates.length, args.model));
   };
 
-  const canonicalCandidates = args.candidates.map((candidate, index) => ({ index, candidate }));
+  const canonicalCandidate = (candidate: MineCandidate) => ({
+    title: candidate.title,
+    content: candidate.content,
+    kind: candidate.kind,
+    summary: candidate.summary,
+    guidance: candidate.guidance,
+    project: candidate.project ?? null,
+    tags: candidate.tags ?? null,
+    source: candidate.source ?? null,
+  });
+  const canonicalCandidates = args.candidates.map((candidate, index) => ({ index, candidate: canonicalCandidate(candidate) }));
   const batchHash = createHash('sha256').update(JSON.stringify(canonicalCandidates)).digest('hex');
-  const candidateKeys = args.candidates.map((candidate, index) => createHash('sha256').update(`${batchHash}:${index}:${JSON.stringify(candidate)}`).digest('hex'));
+  const candidateKeys = args.candidates.map((candidate, index) => createHash('sha256').update(`${batchHash}:${index}:${JSON.stringify(canonicalCandidate(candidate))}`).digest('hex'));
   const dispositions = args.dispositions ?? [];
   const dryRun = args.dry_run ?? true;
   const embeddingTexts = args.candidates.map(candidate => buildEmbeddingText(candidate.title, candidate.summary, candidate.content));
