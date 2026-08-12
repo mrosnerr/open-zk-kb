@@ -1199,6 +1199,10 @@ async function persistSemanticMetadata(
   return null;
 }
 
+export function buildStoreEmbeddingText(title: string, summary: string, content: string): string {
+  return buildEmbeddingText(title, summary, stripGeneratedRelatedSection(content));
+}
+
 export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null, lockedContext?: KnowledgeMutationContext, internal?: { embeddingPromise?: Promise<EmbeddingResult | null>; suppressTelemetry?: boolean }): Promise<string> {
   const project = validateCurrentProject(args.project);
   if (!project) {
@@ -1297,7 +1301,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   }
 
   const candidateEmbeddingPromise = internal?.embeddingPromise ?? (embeddingConfig
-    ? generateEmbedding(buildEmbeddingText(args.title, args.summary, args.content), embeddingConfig)
+    ? generateEmbedding(buildStoreEmbeddingText(args.title, args.summary, content), embeddingConfig)
     : undefined);
   let previewEmbedding: EmbeddingResult | null = null;
   if (candidateEmbeddingPromise) {

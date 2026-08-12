@@ -4,7 +4,7 @@ import {
   cleanupTestHarness,
 } from './harness.js';
 import type { TestContext } from './harness.js';
-import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
+import { buildStoreEmbeddingText, handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
 import { parseWikiLink } from '../src/utils/wikilink.js';
 
 describe('FTS5 Edge Cases', () => {
@@ -542,6 +542,16 @@ describe('handleStore embedding handling', () => {
 
   afterEach(() => {
     cleanupTestHarness(ctx);
+  });
+
+  it('builds embedding text without a marked trailing Related section', () => {
+    const embeddingText = buildStoreEmbeddingText(
+      'Authored title',
+      'Authored summary',
+      'Authored content\n\n## Related\n\n<!-- zk:related -->\n- [[2026010100000000]]',
+    );
+
+    expect(embeddingText).toBe('Authored title\n\nAuthored summary\n\nAuthored content');
   });
 
   it('should return successfully without embedding config', async () => {
