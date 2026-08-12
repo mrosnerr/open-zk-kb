@@ -65,6 +65,8 @@ describe('duplicate audit evaluation', () => {
     expect(normalizeComparableTitle('Note Book')).toBe('note book');
     expect(normalizeComparableTitle('Notebook')).toBe('notebook');
     expect(normalizeComparableTitle('Reference: note-book.md')).toBe('note book');
+    expect(normalizeComparableTitle('CAFÉ—Résumé.md')).toBe('café résumé');
+    expect(normalizeComparableTitle('研究：知识图谱.md')).toBe('研究 知识图谱');
     expect(normalizeComparableTitle('  ***  ')).toBe('');
 
     const sharedPrefix = 'A title prefix that is exactly long enough to cross the old fifty character boundary';

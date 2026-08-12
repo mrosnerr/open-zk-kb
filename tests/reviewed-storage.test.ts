@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { KnowledgeMutationBusyError, NoteRepository, type KnowledgeMutationContext } from '../src/storage/NoteRepository.js';
+import { KnowledgeMutationBusyError, NoteRepository, shouldRecoverStaleLock, type KnowledgeMutationContext } from '../src/storage/NoteRepository.js';
 import {
   evaluateScreeningCandidate,
   normalizeScreeningTitle,
@@ -87,6 +87,34 @@ describe('reviewed storage screening', () => {
     const base = { candidate, snapshotVersion: 8, configVersion: 'v1' };
     expect(reviewedOperationToken({ ...base, evaluation: emptyEvaluation, operation: 'create' }))
       .not.toBe(reviewedOperationToken({ ...base, evaluation: lowEvaluation, operation: 'create' }));
+  });
+
+  it('keeps an explicit low-confidence target first when more than 20 matches qualify', () => {
+    const matches = Array.from({ length: 21 }, (_, index) => ({
+      id: `high-${String(index).padStart(2, '0')}`, updatedAt: index, title: `High ${index}`,
+      lifecycle: 'living' as const, status: 'fleeting' as const, kind: 'observation' as const,
+      tags: [...candidate.tags], related: [], exactTitle: true, simHashDistance: 0, highConfidence: true,
+    }));
+    matches.push({
+      id: 'target', updatedAt: 99, title: 'Target', lifecycle: 'living', status: 'fleeting',
+      kind: 'observation', tags: [...candidate.tags], related: [], exactTitle: false,
+      simHashDistance: 64, highConfidence: false,
+    });
+    const evaluation = {
+      candidateHash: '0000000000000000', matches,
+      coverage: { notes: 22, exactTitle: 22, simHash: 22, storedHashes: 22, ephemeralHashes: 0, semanticAvailable: 0, semanticUnavailable: 22 },
+    };
+    const tokens = reviewedOperationTokens({ candidate, evaluation, snapshotVersion: 8, configVersion: 'v1', targetId: 'target' });
+    expect(tokens.updateTokens[0].id).toBe('target');
+    expect(tokens.updateTokens.slice(0, 20).some(item => item.id === 'target')).toBe(true);
+    expect(tokens.updateTokens.slice(1).map(item => item.id)).toEqual(matches.slice(0, 21).map(item => item.id));
+  });
+
+  it('makes conservative stale-lock recovery decisions for process identities', () => {
+    expect(shouldRecoverStaleLock({ pidAlive: true, recordedIdentity: 'same', currentIdentity: 'same' })).toBe(false);
+    expect(shouldRecoverStaleLock({ pidAlive: true, recordedIdentity: 'old', currentIdentity: 'new' })).toBe(true);
+    expect(shouldRecoverStaleLock({ pidAlive: false, recordedIdentity: 'old' })).toBe(true);
+    expect(shouldRecoverStaleLock({ pidAlive: true, recordedIdentity: 'old' })).toBe(false);
   });
 
   it('only compares semantic vectors produced by the same identified model', () => {

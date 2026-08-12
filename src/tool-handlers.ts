@@ -42,7 +42,7 @@ import {
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
-import { evaluateScreeningCandidate, reviewedOperationToken, reviewedOperationTokens, reviewedUpdateCandidate, screeningEvidenceDigest, type ScreeningCandidate } from './reviewed-storage.js';
+import { evaluateScreeningCandidate, reviewedOperationToken, reviewedOperationTokens, reviewedUpdateCandidate, screeningEvidenceDigest, targetFirstComparator, type ScreeningCandidate } from './reviewed-storage.js';
 import { extractGeneratedRelatedIds, renderGeneratedRelatedSection, stripGeneratedRelatedSection } from './related-section.js';
 import { evaluateDuplicates } from './maintenance/duplicates.js';
 import type { EmbeddingConfig, EmbeddingResult } from './embeddings.js';
@@ -1358,14 +1358,18 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     : repo.getScreeningSnapshot(reviewedVisibility);
   const initial = screen(initialSnapshot);
   const collisions = initial.evaluation.matches.filter(match => match.highConfidence);
-  const previewResult = (review = initial) => JSON.stringify({
-    mutated: false,
-    state: review.evaluation.matches.some(match => match.highConfidence) ? 'review-required' : 'preview',
-    evidence: { ...review.evaluation, digest: screeningEvidenceDigest(review.evaluation), matches: review.evaluation.matches.slice(0, 20) },
-    createToken: review.tokens.createToken,
-    updateTokens: review.tokens.updateTokens.slice(0, 20),
-    validDispositions: ['create', ...(review.tokens.updateTokens.length > 0 ? ['update'] : []), 'skip'],
-  });
+  const previewResult = (review = initial) => {
+    const targetId = preflightTarget?.id;
+    const evidenceMatches = [...review.evaluation.matches].sort(targetFirstComparator(targetId));
+    return JSON.stringify({
+      mutated: false,
+      state: review.evaluation.matches.some(match => match.highConfidence) ? 'review-required' : 'preview',
+      evidence: { ...review.evaluation, digest: screeningEvidenceDigest(review.evaluation), matches: evidenceMatches.slice(0, 20) },
+      createToken: review.tokens.createToken,
+      updateTokens: review.tokens.updateTokens.slice(0, 20),
+      validDispositions: ['create', ...(review.tokens.updateTokens.length > 0 ? ['update'] : []), 'skip'],
+    });
+  };
   if (args.disposition === 'skip') {
     recordStoreOutcome('skip');
     return JSON.stringify({ mutated: false, state: 'skipped' });
@@ -1587,8 +1591,9 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 }
 
 export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedding?: number[] | null, config?: AppConfig): string {
-  if (args.mode === 'compact' && args.limit !== undefined && args.limit > 10) {
-    return 'Error: compact search limit cannot exceed 10.';
+  if (args.mode === 'compact' && args.limit !== undefined
+    && (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 10)) {
+    return 'Error: compact search limit must be an integer from 1 to 10.';
   }
   const requestedLimit = args.mode === 'compact' ? (args.limit ?? 5) : (args.limit || 10);
   const excludeStructuralKinds = config?.search?.excludeLogFromSearch !== false && !STRUCTURAL_KINDS.has(args.kind as string);

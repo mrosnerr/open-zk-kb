@@ -214,6 +214,15 @@ export function reviewedUpdateCandidate(
   };
 }
 
+export function targetFirstComparator<T extends { id: string }>(targetId?: string): (a: T, b: T) => number {
+  return (a, b) => {
+    const aIsTarget = a.id === targetId;
+    const bIsTarget = b.id === targetId;
+    if (aIsTarget === bIsTarget) return 0;
+    return aIsTarget ? -1 : 1;
+  };
+}
+
 export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeReviewedOperation>[0], 'operation' | 'target'> & {
   targetId?: string;
   updateCandidate?: (candidate: ScreeningCandidate, match: ScreeningEvaluation['matches'][number]) => ScreeningCandidate;
@@ -233,6 +242,7 @@ export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeR
         && match.lifecycle !== 'snapshot'
         && match.kind === operationInput.candidate.kind
         && JSON.stringify(scope(match.tags)) === JSON.stringify(scope(operationInput.candidate.tags)))
+      .sort(targetFirstComparator(targetId))
       .map(match => {
         const candidate = buildUpdateCandidate
           ? buildUpdateCandidate(operationInput.candidate, match)

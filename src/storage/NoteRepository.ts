@@ -4,6 +4,7 @@
 
 import { Database } from 'bun:sqlite';
 import { createHash } from 'crypto';
+import { execFileSync } from 'node:child_process';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -250,6 +251,39 @@ const MUTATION_LOCK_ERRORS = {
 } as const;
 
 type MutationLockErrorKind = keyof typeof MUTATION_LOCK_ERRORS;
+
+export function shouldRecoverStaleLock(input: {
+  pidAlive: boolean;
+  recordedIdentity?: string;
+  currentIdentity?: string;
+}): boolean {
+  if (!input.pidAlive) return true;
+  return input.recordedIdentity !== undefined
+    && input.currentIdentity !== undefined
+    && input.recordedIdentity !== input.currentIdentity;
+}
+
+function processStartIdentity(pid: number): string | undefined {
+  try {
+    if (process.platform === 'linux') {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').trim();
+      const commandEnd = stat.lastIndexOf(')');
+      if (commandEnd < 0) return undefined;
+      const fieldsAfterCommand = stat.slice(commandEnd + 2).split(/\s+/);
+      const startTime = fieldsAfterCommand[19];
+      return startTime ? `linux:${startTime}` : undefined;
+    }
+    if (process.platform === 'darwin') {
+      const start = execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], {
+        encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
+      }).trim().replace(/\s+/g, ' ');
+      return start ? `darwin:${start}` : undefined;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 class KnowledgeMutationLockError extends Error {
   constructor(kind: MutationLockErrorKind) {
@@ -1312,7 +1346,7 @@ export class NoteRepository {
       try {
         fs.mkdirSync(lockPath);
         createdDirectory = true;
-        fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt }), { flag: 'wx' });
+        fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt, processIdentity: processStartIdentity(process.pid) }), { flag: 'wx' });
         this.mutationLockOwners.set(lockPath, owner);
         return;
       } catch (error) {
@@ -1343,7 +1377,7 @@ export class NoteRepository {
       try {
         fs.mkdirSync(lockPath);
         createdDirectory = true;
-        fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt }), { flag: 'wx' });
+        fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt, processIdentity: processStartIdentity(process.pid) }), { flag: 'wx' });
         this.mutationLockOwners.set(lockPath, owner);
         return;
       } catch (error) {
@@ -1369,15 +1403,19 @@ export class NoteRepository {
     try {
       const stat = fs.statSync(lockPath);
       if (Date.now() - stat.mtimeMs < 30_000) return;
-      let owner: { pid?: number; startedAt?: number } | undefined;
+      let owner: { pid?: number; startedAt?: number; processIdentity?: string } | undefined;
       try { owner = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8')) as typeof owner; } catch { /* malformed lock requires a longer grace period */ }
       if (!owner?.pid || !owner.startedAt) {
         if (Date.now() - stat.mtimeMs < 300_000) return;
       } else {
-        try { process.kill(owner.pid, 0); return; } catch (error) {
+        let pidAlive = true;
+        try { process.kill(owner.pid, 0); } catch (error) {
           const code = (error as NodeJS.ErrnoException).code;
-          if (code !== 'ESRCH') return;
+          if (code === 'ESRCH') pidAlive = false;
+          else return;
         }
+        const currentIdentity = pidAlive ? processStartIdentity(owner.pid) : undefined;
+        if (!shouldRecoverStaleLock({ pidAlive, recordedIdentity: owner.processIdentity, currentIdentity })) return;
       }
       const quarantine = `${lockPath}.stale-${crypto.randomUUID()}`;
       fs.renameSync(lockPath, quarantine);

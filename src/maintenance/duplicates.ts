@@ -43,7 +43,7 @@ export function normalizeComparableTitle(title: string): string {
   return title.toLowerCase()
     .replace(/^(reference|action|decision|research):\s*/i, '')
     .replace(/\.md$/i, '')
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
 }
 

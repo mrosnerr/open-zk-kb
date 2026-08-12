@@ -27,7 +27,7 @@ When sharing is enabled, each completed session is reported as one `session` eve
     "tool_maintain": 1,
     "tool_mine": 1,
     "tool_template": 1,
-    "models": ["claude-sonnet-4"],
+    "models": ["claude"],
     "session_id": "550e8400-e29b-41d4-a716-446655440000",
     "$lib": "open-zk-kb",
     "$lib_version": "1.4.3",
@@ -56,14 +56,14 @@ When sharing is enabled, each completed session is reported as one `session` eve
 | `tool_maintain` | number | `knowledge-maintain` calls |
 | `tool_mine` | number | `knowledge-mine` calls |
 | `tool_template` | number | `knowledge-template` calls |
-| `models` | string[] | Distinct bounded model identifiers observed during successful calls |
+| `models` | string[] | Distinct normalized model-family buckets observed during successful calls |
 | `session_id` | string | Random session UUID for deduplication and debugging |
 | `$lib` | string | Always `open-zk-kb` |
 | `$lib_version` | string | Package version |
 | `$lib_env` | enum | `dev` (source checkout), `test` (explicit synthetic validation), or `production` (installed package) |
 | `$geoip_disable` | boolean | Always `true`; disables geographic enrichment |
 
-Known runtime aliases are normalized to the canonical client vocabulary; unknown or malformed names become `other`, and raw client names are not shared. Recognized model identifiers discard provider and deployment namespaces; `chatgpt-*` identifiers are reduced to the stable `gpt` bucket, and unrecognized identifiers are not shared. For adoption analysis, filter to `$lib_env = "production"`; manual synthetic validation must use `$lib_env = "test"` even when run from a packaged install.
+Known runtime aliases are normalized to the canonical client vocabulary; unknown or malformed names become `other`, and raw client names are not shared. Models are reported only as family buckets, not model identifiers. Recognized model identifiers discard provider, deployment, and variant details (for example, Claude variants become `claude` and `chatgpt-*` becomes `gpt`); unrecognized or malformed identifiers are shared only as `other`; raw identifiers are never shared. For adoption analysis, filter to `$lib_env = "production"`; manual synthetic validation must use `$lib_env = "test"` even when run from a packaged install.
 
 ## Analysis boundaries
 

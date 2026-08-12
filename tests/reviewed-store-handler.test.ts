@@ -60,6 +60,42 @@ describe('reviewed knowledge-store handler', () => {
     expect(listAllNoteFiles(ctx)).toEqual(beforeFiles);
   });
 
+  it('keeps an explicit low-confidence target and its token ahead of a capped preview', async () => {
+    const target = ctx.engine.store('unrelated target body', {
+      title: 'Unrelated target', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'Unrelated target summary.', guidance: 'Keep unrelated target.',
+    });
+    for (let index = 0; index < 21; index++) {
+      ctx.engine.store(`qualifying body ${index}`, {
+        title: 'Crowded preview candidate', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+        tags: ['project:demo'], summary: `Qualifying summary ${index}.`, guidance: 'Keep qualifying evidence.',
+      });
+    }
+
+    const updateArgs = args({
+      title: 'Crowded preview candidate', content: 'candidate body unlike the explicit target',
+      disposition: 'update', noteId: target.id, expectedUpdatedAt: getNote(ctx, target.id).updated_at, dryRun: true,
+    });
+    const snapshot = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    const evaluation = evaluateScreeningCandidate({
+      title: updateArgs.title, content: updateArgs.content, summary: updateArgs.summary,
+      guidance: updateArgs.guidance, kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], related: [],
+    }, snapshot);
+    const expectedNonTargets = evaluation.matches.filter(match => match.id !== target.id).map(match => match.id);
+    expect(evaluation.matches.find(match => match.id === target.id)?.highConfidence).toBe(false);
+
+    const preview = parsed(await handleStore(updateArgs, ctx.engine, null, ctx.config));
+    const evidence = preview.evidence as { matches: Array<{ id: string }> };
+    const tokens = preview.updateTokens as Array<{ id: string }>;
+    expect(evidence.matches).toHaveLength(20);
+    expect(tokens).toHaveLength(20);
+    expect(evidence.matches[0].id).toBe(target.id);
+    expect(tokens[0].id).toBe(target.id);
+    expect(evidence.matches.slice(1).map(match => match.id)).toEqual(expectedNonTargets.slice(0, 19));
+    expect(tokens.slice(1).map(token => token.id)).toEqual(expectedNonTargets.slice(0, 19));
+  });
+
   it('allows an explicitly reviewed duplicate-looking create and rejects a wrong-operation token', async () => {
     await handleStore(args(), ctx.engine, null, ctx.config);
     const candidate = args({ content: 'reviewed parallel content' });

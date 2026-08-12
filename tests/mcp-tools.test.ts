@@ -674,7 +674,10 @@ describe('MCP Tool: knowledge-search', () => {
 
     const ten = JSON.parse(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact', limit: 10 }, ctx.engine));
     expect(ten.results).toHaveLength(10);
-    expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact', limit: 11 }, ctx.engine)).toContain('cannot exceed 10');
+    for (const invalidLimit of [0, -1, 1.5, 11]) {
+      expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact', limit: invalidLimit }, ctx.engine))
+        .toContain('must be an integer from 1 to 10');
+    }
     expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'full', limit: 1 }, ctx.engine)).toContain('<content>');
   });
 
