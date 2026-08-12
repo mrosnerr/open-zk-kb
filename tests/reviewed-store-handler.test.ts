@@ -692,9 +692,19 @@ describe('reviewed knowledge-store handler', () => {
     const runRace = async (mode: 'create' | 'update', targetId?: string, expectedUpdatedAt?: number) => {
       const barrier = path.join(ctx.tempDir, `${mode}-barrier`);
       const lanes = ['a', 'b'];
-      const processes = lanes.map(lane => Bun.spawn([
-        'bun', 'run', fixture, ctx.tempDir, mode, lane, barrier, targetId ?? '', expectedUpdatedAt?.toString() ?? '',
-      ], { cwd: path.resolve(import.meta.dir, '..'), stdout: 'pipe', stderr: 'pipe' }));
+      // Invoke the current Bun binary directly on the absolute fixture path so
+      // the child launch does not depend on PATH resolution or `bun run`
+      // wrapper behaviour, which differ between local and CI coverage runs.
+      const command = (lane: string) => [
+        process.execPath, fixture, ctx.tempDir, mode, lane, barrier, targetId ?? '', expectedUpdatedAt?.toString() ?? '',
+      ];
+      expect(path.isAbsolute(process.execPath)).toBe(true);
+      expect(fs.existsSync(process.execPath)).toBe(true);
+      expect(fs.existsSync(fixture)).toBe(true);
+      for (const lane of lanes) {
+        expect(command(lane).every(argument => typeof argument === 'string')).toBe(true);
+      }
+      const processes = lanes.map(lane => Bun.spawn(command(lane), { cwd: path.resolve(import.meta.dir, '..'), stdout: 'pipe', stderr: 'pipe' }));
       const outputs = processes.map(process => ({
         stdout: new Response(process.stdout).text(),
         stderr: new Response(process.stderr).text(),
@@ -752,7 +762,9 @@ describe('reviewed knowledge-store handler', () => {
         const diagnostics = lanes.map((lane, index) => {
           const stdout = capturedOutputs[index].stdout.trim() || '<empty>';
           const stderr = capturedOutputs[index].stderr.trim() || '<empty>';
-          return `${lane} (exit ${exitCodes[index]}) stdout: ${stdout}; stderr: ${stderr}`;
+          const resultPath = `${barrier}.${lane}.result`;
+          const result = fs.existsSync(resultPath) ? fs.readFileSync(resultPath, 'utf8').trim() || '<empty>' : '<absent>';
+          return `${lane} (exit ${exitCodes[index]}) stdout: ${stdout}; stderr: ${stderr}; result: ${result}`;
         }).join('\n');
         throw new Error(`${readinessFailure}\n${diagnostics}`);
       }
