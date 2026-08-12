@@ -1367,9 +1367,9 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
       mutated: false,
       state: review.evaluation.matches.some(match => match.highConfidence) ? 'review-required' : 'preview',
       evidence: { ...review.evaluation, digest: screeningEvidenceDigest(review.evaluation), matches: evidenceMatches.slice(0, 20) },
-      createToken: review.tokens.createToken,
+      ...(review.tokens.createToken !== undefined ? { createToken: review.tokens.createToken } : {}),
       updateTokens: review.tokens.updateTokens.slice(0, 20),
-      validDispositions: ['create', ...(review.tokens.updateTokens.length > 0 ? ['update'] : []), 'skip'],
+      validDispositions: [...(review.tokens.createToken !== undefined ? ['create'] : []), ...(review.tokens.updateTokens.length > 0 ? ['update'] : []), 'skip'],
     });
   };
   if (args.disposition === 'skip') {
@@ -1400,6 +1400,9 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         return null;
       }
       if (args.disposition === 'create') {
+        if (currentEvaluation.matches.some(match => match.highConfidence && match.canonicalFileHash === undefined)) {
+          throw new Error('Reviewed create evidence is unavailable; reconcile after canonical files are readable.');
+        }
         const expected = reviewedOperationToken({ candidate: screeningCandidate, evaluation: currentEvaluation, operation: 'create', snapshotVersion: currentSnapshot.schemaVersion, configVersion });
         if (args.token !== expected) throw new Error('Reviewed create token is stale or does not match this operation; reconcile with a fresh preview.');
       }
@@ -1435,15 +1438,27 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
           if (!sameMetadata || newContent.length <= oldContent.length || !newContent.startsWith(oldContent)) throw new Error('Append-only update must be an exact metadata-preserving content extension.');
         }
         if (!currentTargetFacts) throw new Error('Current reviewed update target is unavailable.');
+        if (!currentTargetFacts.canonicalFileHash) throw new Error('Update target canonical file is unavailable.');
         const updateCandidate = reviewedUpdateCandidate(screeningCandidate, currentTargetFacts, {
           tags: args.tags === undefined,
           related: false,
         });
-        const expected = reviewedOperationToken({ candidate: updateCandidate, evaluation: currentEvaluation, operation: 'update', target: { id: target.id, updatedAt: target.updated_at }, snapshotVersion: currentSnapshot.schemaVersion, configVersion });
+        const expected = reviewedOperationToken({ candidate: updateCandidate, evaluation: currentEvaluation, operation: 'update', target: { id: target.id, updatedAt: target.updated_at, canonicalFileHash: currentTargetFacts.canonicalFileHash }, snapshotVersion: currentSnapshot.schemaVersion, configVersion });
         if (args.token !== expected) throw new Error('Reviewed update token is stale or bound to another target; reconcile with a fresh preview.');
         existingId = target.id;
       }
-      return context.store(content, { title: args.title, kind: updateKind, status: effectiveStatus, lifecycle: effectiveLifecycle, tags, summary: args.summary, guidance: args.guidance, existingId, related: effectiveRelated });
+      return context.store(content, {
+        title: args.title,
+        kind: updateKind,
+        status: effectiveStatus,
+        lifecycle: effectiveLifecycle,
+        tags,
+        summary: args.summary,
+        guidance: args.guidance,
+        existingId,
+        expectedCanonicalFileHash: existingId ? currentTargetFacts?.canonicalFileHash : undefined,
+        related: effectiveRelated,
+      });
   };
   try {
     result = lockedContext
@@ -2355,9 +2370,9 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
       let output = '## Duplicate Detection\n\n';
       output += `Coverage: eligible=${coverage.eligible} | hashed-at-start=${coverage.hashedAtStart} | computed-ephemerally=${coverage.computedEphemerally} | evaluated=${coverage.evaluated} | omitted=${coverage.omitted} | status=${coverage.complete ? 'complete' : 'incomplete'}\n`;
       if (coverage.omitted > 0) output += `Omission reasons: ${JSON.stringify(coverage.omissionReasons)}\n`;
-      output += `Groups: exact-title=${evaluation.titleGroups.length} | SimHash=${evaluation.simhashGroups.length} (complete totals)\n\n`;
+      output += `Groups: exact-title=${evaluation.titleGroups.length} | SimHash=${evaluation.simhashGroupTotal} (complete totals)\n\n`;
 
-      if (evaluation.titleGroups.length === 0 && evaluation.simhashGroups.length === 0) {
+      if (evaluation.titleGroups.length === 0 && evaluation.simhashGroupTotal === 0) {
         return `${output}No duplicate notes found.`;
       }
 
@@ -2374,9 +2389,9 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
         if (evaluation.titleGroups.length > 10) output += `... and ${evaluation.titleGroups.length - 10} more groups.\n\n`;
       }
 
-      if (evaluation.simhashGroups.length > 0) {
-        output += `### Content-Based Near-Duplicates (${evaluation.simhashGroups.length} groups; SimHash threshold ≤ ${evaluation.threshold})\n\n`;
-        for (const [index, group] of evaluation.simhashGroups.slice(0, 10).entries()) {
+      if (evaluation.simhashGroupTotal > 0) {
+        output += `### Content-Based Near-Duplicates (${evaluation.simhashGroupTotal} groups; SimHash threshold ≤ ${evaluation.threshold})\n\n`;
+        for (const [index, group] of evaluation.simhashGroups.entries()) {
           output += `**Group ${index + 1}: seed ${group.seedId} (${group.notes.length} notes)**\n`;
           for (const note of group.notes) {
             const evidence = group.evidence.find(item => item.noteId === note.id);
@@ -2386,7 +2401,7 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
           }
           output += '\n';
         }
-        if (evaluation.simhashGroups.length > 10) output += `... and ${evaluation.simhashGroups.length - 10} more groups.\n\n`;
+        if (evaluation.simhashGroupTotal > evaluation.simhashGroups.length) output += `... and ${evaluation.simhashGroupTotal - evaluation.simhashGroups.length} more groups.\n\n`;
       }
 
       output += 'Findings are similarity evidence for review, not confirmed semantic duplicates.\n';

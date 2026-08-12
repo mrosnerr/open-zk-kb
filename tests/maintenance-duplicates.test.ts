@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
-import { evaluateDuplicates, normalizeComparableTitle } from '../src/maintenance/duplicates.js';
+import { DUPLICATE_EVIDENCE_LIMIT, evaluateDuplicates, normalizeComparableTitle } from '../src/maintenance/duplicates.js';
 import type { NoteMetadata } from '../src/storage/NoteRepository.js';
 import { handleMaintain } from '../src/tool-handlers.js';
 import { computeSimHash } from '../src/utils/simhash.js';
@@ -53,6 +53,22 @@ describe('duplicate audit evaluation', () => {
     expect(evaluation.simhashGroups.every(group => group.evidence[0].distanceFromSeed === 1)).toBe(true);
   });
 
+  it('reports the complete pair total while retaining bounded deterministic evidence', () => {
+    const count = 1_000;
+    const notes = Array.from({ length: count }, (_, index) => ({
+      ...note(index),
+      content_hash: '0000000000000000',
+    }));
+
+    const evaluation = evaluateDuplicates([...notes].reverse());
+
+    expect(evaluation.simhashGroupTotal).toBe((count * (count - 1)) / 2);
+    expect(evaluation.simhashGroups).toHaveLength(DUPLICATE_EVIDENCE_LIMIT);
+    expect(evaluation.simhashGroups.map(group => [group.seedId, group.notes[1].id])).toEqual(
+      Array.from({ length: DUPLICATE_EVIDENCE_LIMIT }, (_, offset) => [notes[0].id, notes[offset + 1].id]),
+    );
+  });
+
   it('evaluates more than 500 unhashed notes completely and repeatably', () => {
     const notes = Array.from({ length: 502 }, (_, index) => note(index));
     notes[500] = note(500, { title: 'Exact control', content: 'identical near duplicate control content' });
@@ -71,7 +87,7 @@ describe('duplicate audit evaluation', () => {
       complete: true,
     });
     expect(first.titleGroups.some(group => group.notes.map(item => item.id).join(',') === `${notes[500].id},${notes[501].id}`)).toBe(true);
-    expect(first.simhashGroups.some(group => group.evidence.some(item => item.distanceFromSeed === 0))).toBe(true);
+    expect(first.simhashGroupTotal).toBeGreaterThan(0);
     expect(JSON.stringify(first)).toBe(JSON.stringify(second));
   });
 

@@ -20,6 +20,7 @@ export interface ScreeningNote {
   tags: string[];
   related: string[];
   updatedAt: number;
+  canonicalFileHash?: string;
   contentHash: string;
   hashSource: 'stored' | 'ephemeral';
   embedding?: number[];
@@ -48,6 +49,7 @@ export interface ScreeningCandidate {
 export interface ScreeningMatch {
   id: string;
   updatedAt: number;
+  canonicalFileHash?: string;
   title: string;
   lifecycle: Lifecycle;
   status: NoteStatus;
@@ -102,6 +104,7 @@ export function evaluateScreeningCandidate(
     return {
       id: note.id,
       updatedAt: note.updatedAt,
+      canonicalFileHash: note.canonicalFileHash,
       title: note.title,
       lifecycle: note.lifecycle,
       status: note.status,
@@ -137,6 +140,7 @@ export function screeningEvidenceDigest(evaluation: ScreeningEvaluation): string
     matches: evaluation.matches.map(match => ({
       id: match.id,
       updatedAt: match.updatedAt,
+      canonicalFileHash: match.canonicalFileHash,
       title: match.title,
       lifecycle: match.lifecycle,
       status: match.status,
@@ -173,11 +177,12 @@ export function serializeReviewedOperation(input: {
   snapshotVersion: number;
   configVersion: string;
   modelIdentity?: string;
-  target?: { id: string; updatedAt: number };
+  target?: { id: string; updatedAt: number; canonicalFileHash: string };
 }): string {
   const highConfidenceMatches = input.evaluation.matches.filter(match => match.highConfidence).map(match => ({
     id: match.id,
     updatedAt: match.updatedAt,
+    canonicalFileHash: match.canonicalFileHash,
     exactTitle: match.exactTitle,
     simHashDistance: match.simHashDistance,
     semanticSimilarity: match.semanticSimilarity ?? null,
@@ -227,23 +232,29 @@ export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeR
   targetId?: string;
   updateCandidate?: (candidate: ScreeningCandidate, match: ScreeningEvaluation['matches'][number]) => ScreeningCandidate;
 }): {
-  createToken: string;
+  createToken?: string;
   updateTokens: Array<{ id: string; expectedUpdatedAt: number; token: string }>;
 } {
   const { targetId, updateCandidate: buildUpdateCandidate, ...operationInput } = input;
   const scope = (tags: string[]) => tags
     .filter(tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global')
     .sort();
+  const createEvidenceAvailable = operationInput.evaluation.matches
+    .every(match => !match.highConfidence || match.canonicalFileHash !== undefined);
   return {
-    createToken: reviewedOperationToken({ ...operationInput, operation: 'create' }),
+    createToken: createEvidenceAvailable
+      ? reviewedOperationToken({ ...operationInput, operation: 'create' })
+      : undefined,
     updateTokens: operationInput.evaluation.matches
       .filter(match => (match.highConfidence || match.id === targetId)
+        && match.canonicalFileHash !== undefined
         && match.status !== 'archived'
         && match.lifecycle !== 'snapshot'
         && match.kind === operationInput.candidate.kind
         && JSON.stringify(scope(match.tags)) === JSON.stringify(scope(operationInput.candidate.tags)))
       .sort(targetFirstComparator(targetId))
       .map(match => {
+        if (!match.canonicalFileHash) throw new Error('Reviewed update target canonical file is unavailable');
         const candidate = buildUpdateCandidate
           ? buildUpdateCandidate(operationInput.candidate, match)
           : { ...operationInput.candidate, status: match.status, lifecycle: match.lifecycle };
@@ -254,7 +265,7 @@ export function reviewedOperationTokens(input: Omit<Parameters<typeof serializeR
             ...operationInput,
             candidate,
             operation: 'update',
-            target: { id: match.id, updatedAt: match.updatedAt },
+            target: { id: match.id, updatedAt: match.updatedAt, canonicalFileHash: match.canonicalFileHash },
           }),
         };
       }),

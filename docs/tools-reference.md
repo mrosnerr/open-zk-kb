@@ -267,7 +267,7 @@ Maintain the knowledge base: view stats, review aging notes, find duplicates, pr
 
 ### Maintenance preview integrity
 
-`dedupe` uses one stable snapshot of every active note except structural `index` and `log` notes. Existing valid hashes are reused; missing hashes are computed only in memory and are never written by the audit. Its coverage line reports `eligible`, `hashed-at-start`, `computed-ephemerally`, `evaluated`, `omitted`, and complete/incomplete status. Group totals remain complete when only the first ten groups are displayed, and SimHash groups include the threshold and distance-from-seed evidence. Findings are advisory; archive and delete remain explicit actions.
+`dedupe` uses one stable snapshot of every active note except structural `index` and `log` notes. Existing valid hashes are reused; missing hashes are computed only in memory and are never written by the audit. Its coverage line reports `eligible`, `hashed-at-start`, `computed-ephemerally`, `evaluated`, `omitted`, and complete/incomplete status. Group totals remain complete; SimHash retains and displays only the first ten evidence groups, which include the threshold and distance-from-seed evidence. Findings are advisory; archive and delete remain explicit actions.
 
 Lifecycle `review` candidates include whitespace-normalized summary and guidance evidence, each deterministically bounded to 240 characters. This evidence comes from the query-only review snapshot and does not increment access metadata.
 

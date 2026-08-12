@@ -96,6 +96,7 @@ export interface StoreOptions {
   guidance?: string;
   context?: string;
   existingId?: string;
+  expectedCanonicalFileHash?: string;
   related?: string[];
   extraFrontmatter?: Record<string, unknown>;
 }
@@ -222,6 +223,14 @@ function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
   throw new Error('unreachable');
 }
 
+function canonicalFileHash(filePath: string): string | undefined {
+  try {
+    return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  } catch {
+    return undefined;
+  }
+}
+
 function computeEmbeddingSourceHash(title: string, summary: string, content: string): string {
   return createHash('sha256')
     .update(title)
@@ -267,9 +276,19 @@ export function shouldRecoverStaleLock(input: {
     && input.recordedIdentity !== input.currentIdentity;
 }
 
-function processStartIdentity(pid: number): string | undefined {
+export function processStartIdentity(
+  pid: number,
+  options: {
+    platform?: NodeJS.Platform;
+    execFile?: (file: string, args: readonly string[]) => string;
+  } = {},
+): string | undefined {
+  const platform = options.platform ?? process.platform;
+  const execFile = options.execFile ?? ((file: string, args: readonly string[]) => execFileSync(file, args, {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1_000,
+  }));
   try {
-    if (process.platform === 'linux') {
+    if (platform === 'linux') {
       const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').trim();
       const commandEnd = stat.lastIndexOf(')');
       if (commandEnd < 0) return undefined;
@@ -277,11 +296,14 @@ function processStartIdentity(pid: number): string | undefined {
       const startTime = fieldsAfterCommand[19];
       return startTime ? `linux:${startTime}` : undefined;
     }
-    if (process.platform === 'darwin') {
-      const start = execFileSync('ps', ['-p', String(pid), '-o', 'lstart='], {
-        encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim().replace(/\s+/g, ' ');
+    if (platform === 'darwin') {
+      const start = execFile('ps', ['-p', String(pid), '-o', 'lstart=']).trim().replace(/\s+/g, ' ');
       return start ? `darwin:${start}` : undefined;
+    }
+    if (platform === 'win32') {
+      const command = `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CreationDate.ToUniversalTime().ToString('o')`;
+      const start = execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command]).trim();
+      return start ? `win32:${start}` : undefined;
     }
     return undefined;
   } catch {
@@ -1056,6 +1078,12 @@ export class NoteRepository {
     const titleLine = noteKind !== 'index' && noteKind !== 'log' ? `# ${title}\n\n` : '';
     const fullContent = frontmatter + navBreadcrumb + titleLine + noteBody;
 
+    if (isUpdate && options.expectedCanonicalFileHash !== undefined) {
+      const currentHash = canonicalFileHash(filePath);
+      if (currentHash === undefined || currentHash !== options.expectedCanonicalFileHash) {
+        throw new Error('Update target canonical file changed before write.');
+      }
+    }
     fs.writeFileSync(filePath, fullContent, 'utf-8');
 
     if (isUpdate) {
@@ -1288,7 +1316,7 @@ export class NoteRepository {
   /** Copies all persisted screening inputs in one SQLite read transaction. */
   getScreeningSnapshot(visibility: VisibilityOptions): ScreeningSnapshot {
     type ScreeningRow = {
-      id: string; title: string; content: string; summary: string; guidance: string;
+      id: string; path: string; title: string; content: string; summary: string; guidance: string;
       kind: NoteKind; status: NoteStatus; lifecycle: Lifecycle; tags: string;
       updated_at: number; content_hash: string | null; embedding: Uint8Array | null;
       embedding_model: string | null;
@@ -1296,7 +1324,7 @@ export class NoteRepository {
     const read = this.db.transaction(() => {
       const scope = this.visibilityPredicate('n', visibility);
       const rows = this.db.prepare(`
-        SELECT id, title, content, summary, guidance, kind, status, lifecycle, tags,
+        SELECT id, path, title, content, summary, guidance, kind, status, lifecycle, tags,
                updated_at, content_hash, embedding, embedding_model
         FROM notes n
         WHERE status != 'archived' AND kind NOT IN ('index', 'log')${scope.sql}
@@ -1334,6 +1362,7 @@ export class NoteRepository {
           tags: [...JSON.parse(row.tags) as string[]],
           related: relatedBySource.get(row.id) ?? [],
           updatedAt: row.updated_at,
+          canonicalFileHash: canonicalFileHash(row.path),
           contentHash,
           hashSource: row.content_hash ? 'stored' as const : 'ephemeral' as const,
           embedding: row.embedding ? [...blobToEmbedding(row.embedding)] : undefined,

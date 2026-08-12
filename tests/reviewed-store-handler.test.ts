@@ -96,6 +96,23 @@ describe('reviewed knowledge-store handler', () => {
     expect(tokens.slice(1).map(token => token.id)).toEqual(expectedNonTargets.slice(0, 19));
   });
 
+  it('fails closed when high-confidence create evidence becomes unavailable', async () => {
+    const created = await handleStore(args(), ctx.engine, null, ctx.config);
+    const id = storedId(created);
+    const target = getNote(ctx, id);
+    const candidate = args({ content: 'reviewed parallel content' });
+    const available = parsed(await handleStore(candidate, ctx.engine, null, ctx.config));
+    const token = available.createToken as string;
+    fs.unlinkSync(target.path);
+
+    const preview = parsed(await handleStore(candidate, ctx.engine, null, ctx.config));
+    expect(preview.createToken).toBeUndefined();
+    expect(preview.validDispositions).not.toContain('create');
+    const rejected = await handleStore({ ...candidate, disposition: 'create', confirm: true, token }, ctx.engine, null, ctx.config);
+    expect(rejected).toContain('create evidence is unavailable');
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes).toHaveLength(1);
+  });
+
   it('allows an explicitly reviewed duplicate-looking create and rejects a wrong-operation token', async () => {
     await handleStore(args(), ctx.engine, null, ctx.config);
     const candidate = args({ content: 'reviewed parallel content' });
@@ -307,6 +324,44 @@ describe('reviewed knowledge-store handler', () => {
     }
 
     expect(ctx.engine.getById(id)?.content).toContain('added round trip line');
+  });
+
+  it('rejects a reviewed update when canonical bytes change immediately before the write', async () => {
+    const id = storedId(await handleStore(args(), ctx.engine, null, ctx.config));
+    const target = getNote(ctx, id);
+    const updateArgs = args({ content: 'late reviewed replacement', disposition: 'update', noteId: id, expectedUpdatedAt: target.updated_at, dryRun: true });
+    const preview = parsed(await handleStore(updateArgs, ctx.engine, null, ctx.config));
+    const token = (preview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === id)?.token;
+
+    const rejected = await ctx.engine.withKnowledgeMutationLockAsync(async context => {
+      const interceptingContext = {
+        getScreeningSnapshot: context.getScreeningSnapshot,
+        store: ((...storeArgs: Parameters<typeof context.store>) => {
+          fs.appendFileSync(target.path, '\nLate external edit\n');
+          return context.store(...storeArgs);
+        }) as typeof context.store,
+      };
+      return handleStore({ ...updateArgs, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config, undefined, interceptingContext);
+    });
+    expect(rejected).toContain('canonical file changed before write');
+    expect(ctx.engine.getById(id)?.content).toBe('durable canonical content');
+    expect(fs.readFileSync(target.path, 'utf8')).toContain('Late external edit');
+  });
+
+  it('rejects a reviewed update after an out-of-band canonical Markdown edit', async () => {
+    const created = await handleStore(args(), ctx.engine, null, ctx.config);
+    const id = storedId(created);
+    const target = getNote(ctx, id);
+    const updateArgs = args({ content: 'reviewed replacement', disposition: 'update', noteId: id, expectedUpdatedAt: target.updated_at, dryRun: true });
+    const preview = parsed(await handleStore(updateArgs, ctx.engine, null, ctx.config));
+    const token = (preview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === id)?.token;
+    const editedBytes = `${fs.readFileSync(target.path, 'utf8')}\nOut-of-band edit\n`;
+    fs.writeFileSync(target.path, editedBytes);
+
+    const rejected = await handleStore({ ...updateArgs, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config);
+    expect(rejected).toContain('token is stale');
+    expect(fs.readFileSync(target.path, 'utf8')).toBe(editedBytes);
+    expect(ctx.engine.getById(id)?.content).toBe('durable canonical content');
   });
 
   it('rejects stale, hidden, archived, snapshot, and protected-field updates without mutation', async () => {

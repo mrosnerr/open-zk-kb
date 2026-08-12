@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
-import { KnowledgeMutationBusyError, NoteRepository, shouldRecoverStaleLock, type KnowledgeMutationContext } from '../src/storage/NoteRepository.js';
+import { KnowledgeMutationBusyError, NoteRepository, processStartIdentity, shouldRecoverStaleLock, type KnowledgeMutationContext } from '../src/storage/NoteRepository.js';
 import {
   evaluateScreeningCandidate,
   normalizeScreeningTitle,
@@ -70,6 +70,20 @@ describe('reviewed storage screening', () => {
     expect(reviewedOperationToken({ ...input, candidate: reorderedTags, operation: 'create' })).toBe(reviewedOperationToken({ ...input, operation: 'create' }));
   });
 
+  it('withholds create tokens when high-confidence canonical evidence is unavailable', () => {
+    const evaluation = evaluateScreeningCandidate(candidate, {
+      schemaVersion: 8,
+      notes: [{
+        id: 'unreadable', title: 'Exact Title', normalizedTitle: 'exact title', content: 'alpha beta gamma',
+        summary: '', guidance: '', kind: 'observation', status: 'fleeting', lifecycle: 'living',
+        tags: ['project:demo'], related: [], updatedAt: 1, contentHash: '0000000000000000', hashSource: 'stored',
+      }],
+    });
+    const tokens = reviewedOperationTokens({ candidate, evaluation, snapshotVersion: 8, configVersion: 'v1' });
+    expect(evaluation.matches[0].highConfidence).toBe(true);
+    expect(tokens.createToken).toBeUndefined();
+  });
+
   it('binds tokens to low-confidence visible evidence as well as collision matches', () => {
     const empty = { schemaVersion: 8, notes: [] };
     const emptyEvaluation = evaluateScreeningCandidate(candidate, empty);
@@ -91,12 +105,12 @@ describe('reviewed storage screening', () => {
 
   it('keeps an explicit low-confidence target first when more than 20 matches qualify', () => {
     const matches = Array.from({ length: 21 }, (_, index) => ({
-      id: `high-${String(index).padStart(2, '0')}`, updatedAt: index, title: `High ${index}`,
+      id: `high-${String(index).padStart(2, '0')}`, updatedAt: index, canonicalFileHash: `hash-${index}`, title: `High ${index}`,
       lifecycle: 'living' as const, status: 'fleeting' as const, kind: 'observation' as const,
       tags: [...candidate.tags], related: [], exactTitle: true, simHashDistance: 0, highConfidence: true,
     }));
     matches.push({
-      id: 'target', updatedAt: 99, title: 'Target', lifecycle: 'living', status: 'fleeting',
+      id: 'target', updatedAt: 99, canonicalFileHash: 'target-hash', title: 'Target', lifecycle: 'living', status: 'fleeting',
       kind: 'observation', tags: [...candidate.tags], related: [], exactTitle: false,
       simHashDistance: 64, highConfidence: false,
     });
@@ -108,6 +122,20 @@ describe('reviewed storage screening', () => {
     expect(tokens.updateTokens[0].id).toBe('target');
     expect(tokens.updateTokens.slice(0, 20).some(item => item.id === 'target')).toBe(true);
     expect(tokens.updateTokens.slice(1).map(item => item.id)).toEqual(matches.slice(0, 21).map(item => item.id));
+  });
+
+  it('reads a bounded Windows process-start identity without depending on Windows', () => {
+    const calls: Array<{ file: string; args: readonly string[] }> = [];
+    const identity = processStartIdentity(42, {
+      platform: 'win32',
+      execFile: (file, commandArgs) => {
+        calls.push({ file, args: commandArgs });
+        return '2026-08-12T19:24:37.0000000Z\r\n';
+      },
+    });
+    expect(identity).toBe('win32:2026-08-12T19:24:37.0000000Z');
+    expect(calls[0]?.file).toBe('powershell.exe');
+    expect(calls[0]?.args.join(' ')).toContain('ProcessId = 42');
   });
 
   it('makes conservative stale-lock recovery decisions for process identities', () => {

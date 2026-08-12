@@ -1,15 +1,7 @@
-import { afterEach, describe, expect, it } from 'bun:test';
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
+import { describe, expect, it } from 'bun:test';
 import { isSessionUploadEligible } from '../src/mcp-server.js';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
-
-const tempDirs: string[] = [];
-
-afterEach(() => {
-  for (const dir of tempDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
-});
+import { cleanupTestHarness, createTestHarness } from './harness.js';
 
 describe('MCP session telemetry eligibility', () => {
   it('keeps an opted-in session upload-eligible when DO_NOT_TRACK=0', () => {
@@ -21,17 +13,25 @@ describe('MCP session telemetry eligibility', () => {
   });
 
   it('durably excludes a DNT session after restart even when DNT is removed', () => {
-    const vault = fs.mkdtempSync(path.join(os.tmpdir(), 'open-zk-dnt-'));
-    tempDirs.push(vault);
+    const context = createTestHarness({ telemetryEnabled: true });
 
-    const firstSession = new NoteRepository(vault, { telemetryEnabled: true });
-    firstSession.recordSessionStart('test-client', null, 0, 'test', isSessionUploadEligible(true, '1'));
-    firstSession.recordSessionEnd();
-    firstSession.close();
+    try {
+      context.engine.recordSessionStart('test-client', null, 0, 'test', isSessionUploadEligible(true, '1'));
+      context.engine.recordSessionEnd();
+      context.engine.close();
 
-    const nextSession = new NoteRepository(vault, { telemetryEnabled: true });
-    expect(isSessionUploadEligible(true, '')).toBe(true);
-    expect(nextSession.getUnreportedSessions()).toEqual([]);
-    nextSession.close();
+      // Reopening the same vault models a server restart with DNT removed.
+      const nextSession = new NoteRepository(context.tempDir, {
+        telemetryEnabled: context.config.telemetry.enabled,
+      });
+      try {
+        expect(isSessionUploadEligible(true, '')).toBe(true);
+        expect(nextSession.getUnreportedSessions()).toEqual([]);
+      } finally {
+        nextSession.close();
+      }
+    } finally {
+      cleanupTestHarness(context);
+    }
   });
 });

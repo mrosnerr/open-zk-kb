@@ -2,6 +2,7 @@ import type { NoteMetadata } from '../storage/NoteRepository.js';
 import { computeSimHash, hammingDistance } from '../utils/simhash.js';
 
 export const DUPLICATE_SIMHASH_THRESHOLD = 3;
+export const DUPLICATE_EVIDENCE_LIMIT = 10;
 
 export interface DuplicateSnapshotNote {
   readonly note: NoteMetadata;
@@ -26,6 +27,8 @@ export interface DuplicateEvaluation {
     readonly complete: boolean;
   };
   readonly titleGroups: readonly { normalizedTitle: string; notes: readonly NoteMetadata[] }[];
+  /** Complete count of qualifying pairs; simhashGroups retains bounded advisory evidence. */
+  readonly simhashGroupTotal: number;
   readonly simhashGroups: readonly SimHashGroup[];
   readonly threshold: number;
 }
@@ -79,17 +82,21 @@ export function evaluateDuplicates(
   // Report each qualifying pair independently. A greedy assignment would hide
   // non-transitive matches (A≈C and C≈B, while A≉B) from the audit evidence.
   const simhashGroups: SimHashGroup[] = [];
+  let simhashGroupTotal = 0;
   for (let i = 0; i < snapshot.length; i++) {
     const seed = snapshot[i];
     for (let j = i + 1; j < snapshot.length; j++) {
       const candidate = snapshot[j];
       const distance = hammingDistance(seed.hash, candidate.hash);
       if (distance <= threshold) {
-        simhashGroups.push({
-          seedId: seed.note.id,
-          notes: [seed.note, candidate.note],
-          evidence: [{ noteId: candidate.note.id, distanceFromSeed: distance }],
-        });
+        simhashGroupTotal++;
+        if (simhashGroups.length < DUPLICATE_EVIDENCE_LIMIT) {
+          simhashGroups.push({
+            seedId: seed.note.id,
+            notes: [seed.note, candidate.note],
+            evidence: [{ noteId: candidate.note.id, distanceFromSeed: distance }],
+          });
+        }
       }
     }
   }
@@ -106,6 +113,7 @@ export function evaluateDuplicates(
       complete: true,
     },
     titleGroups,
+    simhashGroupTotal,
     simhashGroups,
     threshold,
   };
