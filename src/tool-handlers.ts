@@ -1419,6 +1419,10 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         return null;
       }
       if (args.disposition === 'create') {
+        if (explicitRelated) {
+          const hiddenId = effectiveRelated.find(id => !repo.getByIdVisible(id, reviewedVisibility));
+          if (hiddenId) throw new Error(`Related note not found or not visible: ${hiddenId}`);
+        }
         if (currentEvaluation.matches.some(match => match.highConfidence && match.canonicalFileHash === undefined)) {
           throw new Error('Reviewed create evidence is unavailable; reconcile after canonical files are readable.');
         }

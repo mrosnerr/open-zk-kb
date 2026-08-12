@@ -267,6 +267,31 @@ describe('reviewed knowledge-store handler', () => {
     expect(rejected).toContain(`Related note not found or not visible: ${unresolvedId}`);
   });
 
+  it('rejects reviewed create when an explicit relation is archived before the mutation lock', async () => {
+    const related = ctx.engine.store('race relation content', {
+      title: 'Race relation target', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'Race relation summary.', guidance: 'Keep race relation target.',
+    });
+    const candidate = args({ title: 'Race relation create', content: 'unique race relation candidate', related: [related.id], dryRun: true });
+    const preview = parsed(await handleStore(candidate, ctx.engine, null, ctx.config));
+    const original = ctx.engine.withKnowledgeMutationLockAsync.bind(ctx.engine);
+    const intercepted = ctx.engine as unknown as { withKnowledgeMutationLockAsync: typeof original };
+    intercepted.withKnowledgeMutationLockAsync = async callback => {
+      ctx.engine.archive(related.id);
+      return original(callback);
+    };
+
+    try {
+      const rejected = await handleStore({
+        ...candidate, dryRun: false, disposition: 'create', confirm: true, token: preview.createToken as string,
+      }, ctx.engine, null, ctx.config);
+      expect(rejected).toContain(`Related note not found or not visible: ${related.id}`);
+      expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes).toHaveLength(0);
+    } finally {
+      intercepted.withKnowledgeMutationLockAsync = original;
+    }
+  });
+
   it('reuses a single visibility-aligned screening snapshot for preview and refreshes it only under the lock', async () => {
     const id = storedId(await handleStore(args({ title: 'Snapshot reuse target' }), ctx.engine, null, ctx.config));
     const target = getNote(ctx, id);

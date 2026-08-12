@@ -152,11 +152,25 @@ export function extractProjectFromTags(tags: string[]): string | null {
 export function walkMarkdownFiles(dirPath: string): string[] {
   const results: string[] = [];
 
+  const activeDirectoryIdentities = new Set<string>();
+
   function walk(dir: string): void {
+    // statSync follows directory symlinks, so guard ancestor identities to avoid
+    // recursively following a link back into the directory currently being walked.
+    let directoryIdentity: string;
+    try {
+      directoryIdentity = fs.realpathSync(dir);
+    } catch {
+      return;
+    }
+    if (activeDirectoryIdentities.has(directoryIdentity)) return;
+    activeDirectoryIdentities.add(directoryIdentity);
+
     let entries: string[];
     try {
       entries = fs.readdirSync(dir);
     } catch {
+      activeDirectoryIdentities.delete(directoryIdentity);
       return; // Directory doesn't exist or not readable
     }
 
@@ -179,6 +193,8 @@ export function walkMarkdownFiles(dirPath: string): string[] {
         results.push(fullPath);
       }
     }
+
+    activeDirectoryIdentities.delete(directoryIdentity);
   }
 
   walk(dirPath);

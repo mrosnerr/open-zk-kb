@@ -1499,11 +1499,13 @@ export class NoteRepository {
         WHERE kind NOT IN ('index', 'log')
         ORDER BY id ASC
       `).all() as Array<{ path: string; updated_at: number }>;
+      const indexedPaths = this.db.prepare('SELECT path FROM notes ORDER BY id ASC')
+        .all() as Array<{ path: string }>;
       const links = this.db.prepare(`
         SELECT source_id, target_id FROM note_links ORDER BY source_id, target_id
       `).all() as Array<{ source_id: string; target_id: string }>;
       const schemaVersion = (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-      return { rows, driftRows, links, schemaVersion };
+      return { rows, driftRows, indexedPaths, links, schemaVersion };
     });
     const copied = withBusyRetry(read);
     const visibleIds = new Set(copied.rows.map(row => row.id));
@@ -1520,6 +1522,42 @@ export class NoteRepository {
     // is observed even when this process still has healthy cached baselines.
     const initializedPath = path.join(this.docsPath, '.index', 'canonical-baselines', '.initialized');
     let canonicalDrift = this.baselineState?.baselineUnavailable === true || !fs.existsSync(initializedPath);
+
+    // Indexed-path baselines cannot detect a canonical file added outside this
+    // process. Compare real filesystem identities so symlink aliases of an
+    // indexed note do not become false positives. The only unindexed Markdown
+    // files known not to affect dedupe are generated structural files without
+    // identifiers, matching rebuild's exclusion convention.
+    const indexedFileIdentities = new Set<string>();
+    for (const row of copied.indexedPaths) {
+      try {
+        indexedFileIdentities.add(fs.realpathSync(row.path));
+      } catch {
+        // The metadata comparison below treats a missing/unreadable indexed file as drift.
+      }
+    }
+    for (const filePath of walkMarkdownFiles(this.docsPath)) {
+      let identity: string;
+      try {
+        identity = fs.realpathSync(filePath);
+      } catch {
+        canonicalDrift = true;
+        continue;
+      }
+      if (indexedFileIdentities.has(identity)) continue;
+      try {
+        const { frontmatter } = this.parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
+        const basename = path.basename(filePath);
+        const filenameId = basename.match(/^(\d{16}|\d{12})/)?.[1];
+        const id = (frontmatter.id as string) || filenameId || '';
+        const generatedStructural = !id
+          && (frontmatter.kind === 'index' || /^(index|log|review)\.md$/i.test(basename));
+        if (!generatedStructural) canonicalDrift = true;
+      } catch {
+        canonicalDrift = true;
+      }
+    }
+
     for (const row of copied.driftRows) {
       const baseline = this.indexedCanonicalMetadata.get(row.path);
       if (baseline?.indexedVersion !== row.updated_at) {

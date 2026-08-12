@@ -250,6 +250,53 @@ describe('reviewed storage screening', () => {
     expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
   });
 
+  it('detects an externally added canonical note and recovers after rebuild', () => {
+    const externalPath = path.join(ctx.tempDir, 'general', 'observations', '2026010203040500-external.md');
+    fs.mkdirSync(path.dirname(externalPath), { recursive: true });
+    fs.writeFileSync(externalPath, `---
+id: 2026010203040500
+title: External addition
+kind: observation
+status: fleeting
+lifecycle: living
+type: atomic
+tags:
+  - project:demo
+---
+
+# External addition
+
+knowledge added outside the index
+`);
+
+    const drifted = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    expect(drifted.canonicalDrift).toBe(true);
+    expect(JSON.stringify(drifted.notes)).not.toContain('knowledge added outside the index');
+
+    expect(ctx.engine.rebuildFromFiles().errors).toBe(0);
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
+  it('excludes generated structural Markdown without identifiers from canonical drift', () => {
+    fs.mkdirSync(path.join(ctx.tempDir, 'projects', 'demo'), { recursive: true });
+    fs.writeFileSync(path.join(ctx.tempDir, 'review.md'), '# Generated review\n');
+    fs.writeFileSync(path.join(ctx.tempDir, 'projects', 'demo', 'log.md'), '# Generated log\n');
+    fs.writeFileSync(path.join(ctx.tempDir, 'generated-navigation.md'), '---\nkind: index\n---\n\n# Navigation\n');
+
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
+  it('does not recurse through a directory symlink back into the vault', () => {
+    const loopPath = path.join(ctx.tempDir, 'vault-loop');
+    try {
+      fs.symlinkSync(ctx.tempDir, loopPath, process.platform === 'win32' ? 'junction' : 'dir');
+    } catch {
+      return; // Symlink creation may be unavailable in restricted environments.
+    }
+
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
   it('detects external edits to archived or out-of-scope notes without exposing them', () => {
     const hidden = ctx.engine.store('hidden content', { title: 'Hidden', tags: ['project:other'] });
     const archived = ctx.engine.store('archived content', { title: 'Archived', tags: ['project:demo'], status: 'archived' });
