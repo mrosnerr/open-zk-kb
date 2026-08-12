@@ -75,10 +75,37 @@ describe('contextual Markdown facts', () => {
     expect(facts(source).wikilinks.map(link => link.id)).toEqual(['1000000000000007']);
   });
 
-  it('conservatively excludes malformed closed and unterminated leading frontmatter', () => {
+  it('excludes malformed YAML within closed leading frontmatter', () => {
     const closed = '---\n: bad: yaml [[1000000000000001]]\n---\nbody [[1000000000000002]]';
     expect(facts(closed).wikilinks.map(link => link.id)).toEqual(['1000000000000002']);
-    expect(facts('---\nmeta: [[1000000000000001]]\nbody [[1000000000000002]]').wikilinks).toEqual([]);
+  });
+
+  it('returns a typed failure for YAML-like unterminated leading frontmatter, including after a BOM', () => {
+    for (const source of [
+      '---\nmeta: [[1000000000000001]]\nbody [[1000000000000002]]',
+      '\uFEFF---\nmeta: [[1000000000000001]]\nbody [[1000000000000002]]',
+    ]) {
+      const result = extractContextualMarkdownFacts(source);
+      expect(result).toEqual({
+        ok: false,
+        reason: 'contextual-markdown-facts: unterminated leading frontmatter',
+      });
+      expect(Object.isFrozen(result)).toBe(true);
+    }
+  });
+
+  it('treats a leading thematic break without YAML-like content as ordinary Markdown', () => {
+    for (const source of [
+      '---\n\nBody [[1000000000000001]]',
+      '---\nBody [[1000000000000001]]',
+    ]) {
+      expect(facts(source).wikilinks.map(link => link.id)).toEqual(['1000000000000001']);
+    }
+  });
+
+  it('does not infer unterminated frontmatter from YAML-like text after a blank boundary', () => {
+    const source = '---\nBody [[1000000000000001]]\n\nmeta: value';
+    expect(facts(source).wikilinks.map(link => link.id)).toEqual(['1000000000000001']);
   });
 
   it('keeps ranges aligned with the original source across a leading BOM', () => {
@@ -87,7 +114,6 @@ describe('contextual Markdown facts', () => {
     expect(result.wikilinks.map(link => link.id)).toEqual(['1000000000000002']);
     expect(result.wikilinks[0]?.range.start.offset).toBe(source.indexOf('[[1000000000000002]]'));
     expect(result.textSegments[0]?.rawSource).toBe('body [[1000000000000002]]');
-    expect(facts('\uFEFF---\nmeta: [[1000000000000001]]\nbody [[1000000000000002]]').wikilinks).toEqual([]);
   });
 
   it('keeps repeated links distinct, respects node boundaries, and handles escaped openings', () => {

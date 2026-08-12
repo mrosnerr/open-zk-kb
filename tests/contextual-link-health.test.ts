@@ -85,6 +85,26 @@ describe('rule-driven contextual link health', () => {
     expect(copiedTags).toEqual(['topic:immutable']);
   });
 
+  it('suppresses unlinked findings after an unterminated-frontmatter parse failure', () => {
+    const malformed = document('2026072500000001', 'Malformed');
+    const isolated = document('2026072500000002', 'Isolated');
+    const result = materializeGraphReview([
+      readable(malformed, '---\nkey: value\nunterminated'),
+      readable(isolated, 'No links here.'),
+    ], resolve());
+
+    expect(result.incompleteGraph).toBe(true);
+    expect(result.totals).toEqual({
+      documentsParsed: 1,
+      rawCandidates: 0,
+      contextualLinks: 0,
+      excludedCandidates: 0,
+      parseFailures: 1,
+    });
+    expect(result.failures).toEqual([{ id: malformed.id, title: malformed.title }]);
+    expect(result.review.totals['links.unlinked']).toBe(0);
+  });
+
   it('suppresses unsafe graph conclusions after a read failure but keeps valid broken findings', () => {
     const failed = document('2026072500000001', 'Failed');
     const source = document('2026072500000002', 'Source');

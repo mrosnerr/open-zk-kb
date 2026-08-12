@@ -114,14 +114,18 @@ export function extractContextualMarkdownFacts(source: string): ContextualMarkdo
     const bomLength = source.charCodeAt(0) === 0xfeff ? 1 : 0;
     const parseSource = bomLength === 0 ? source : source.slice(bomLength);
     const tree = processor.parse(parseSource) as MarkdownAstNode;
+    if (hasUnterminatedLeadingFrontmatter(parseSource, tree)) {
+      return Object.freeze({
+        ok: false,
+        reason: 'contextual-markdown-facts: unterminated leading frontmatter',
+      });
+    }
     const toPosition = createPositionResolver(source);
 
     const textSegments: ContextualTextSegment[] = [];
     const wikilinks: ContextualWikiLink[] = [];
 
-    if (!hasUnterminatedLeadingFrontmatter(parseSource, tree)) {
-      collectEligibleFacts(tree, source, bomLength, toPosition, textSegments, wikilinks);
-    }
+    collectEligibleFacts(tree, source, bomLength, toPosition, textSegments, wikilinks);
 
     return Object.freeze({
       ok: true,
@@ -141,15 +145,23 @@ export function extractContextualMarkdownFacts(source: string): ContextualMarkdo
 // ---------- Frontmatter eligibility ----------
 
 /**
- * A leading `---` fence line with no matching `yaml` node at offset 0 means
- * `remark-frontmatter` could not find a closing fence. Treat the entire
- * source as ineligible through end-of-file rather than let unterminated
- * frontmatter fall through to ordinary paragraph text.
+ * Disambiguates an unterminated frontmatter opener from Markdown's valid
+ * leading thematic break. Without a closing fence, report a failure only
+ * when a line before the first blank boundary has a conventional unquoted
+ * YAML mapping key (`key: value`), as used by note frontmatter. Otherwise the
+ * leading `---` is conservatively treated as ordinary Markdown.
  */
 function hasUnterminatedLeadingFrontmatter(parseSource: string, tree: MarkdownAstNode): boolean {
-  if (!LEADING_FRONTMATTER_FENCE.test(parseSource)) return false;
+  const opening = LEADING_FRONTMATTER_FENCE.exec(parseSource);
+  if (!opening) return false;
   const first = tree.children?.[0];
-  return !(first && first.type === 'yaml' && first.position?.start.offset === 0);
+  if (first && first.type === 'yaml' && first.position?.start.offset === 0) return false;
+
+  const afterOpening = parseSource.slice(opening[0].length);
+  const beforeBlankBoundary = afterOpening.split(/\r?\n[ \t]*\r?\n/, 1)[0] ?? '';
+  return beforeBlankBoundary
+    .split(/\r?\n/)
+    .some(line => /^[ \t]*[A-Za-z_][A-Za-z0-9_-]*[ \t]*:(?:[ \t]|$)/.test(line));
 }
 
 // ---------- Traversal ----------

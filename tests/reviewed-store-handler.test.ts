@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
+import { evaluateScreeningCandidate, reviewedOperationTokens, reviewedUpdateCandidate, type ScreeningCandidate } from '../src/reviewed-storage.js';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
 import { handleGet, handleStore, type StoreArgs } from '../src/tool-handlers.js';
 import { computeSimHash } from '../src/utils/simhash.js';
-import { evaluateScreeningCandidate, reviewedOperationTokens, reviewedUpdateCandidate, type ScreeningCandidate } from '../src/reviewed-storage.js';
 import { cleanupTestHarness, createTestHarness, listAllNoteFiles, type TestContext } from './harness.js';
 
 function args(overrides: Partial<StoreArgs> = {}): StoreArgs {
@@ -691,17 +691,72 @@ describe('reviewed knowledge-store handler', () => {
     const fixture = path.resolve(import.meta.dir, 'fixtures/reviewed-store-race.ts');
     const runRace = async (mode: 'create' | 'update', targetId?: string, expectedUpdatedAt?: number) => {
       const barrier = path.join(ctx.tempDir, `${mode}-barrier`);
-      const processes = ['a', 'b'].map(lane => Bun.spawn([
+      const lanes = ['a', 'b'];
+      const processes = lanes.map(lane => Bun.spawn([
         'bun', 'run', fixture, ctx.tempDir, mode, lane, barrier, targetId ?? '', expectedUpdatedAt?.toString() ?? '',
       ], { cwd: path.resolve(import.meta.dir, '..'), stdout: 'pipe', stderr: 'pipe' }));
-      for (let attempt = 0; attempt < 500; attempt++) {
-        if (['a', 'b'].every(lane => fs.existsSync(`${barrier}.${lane}.ready`))) break;
-        await Bun.sleep(2);
+      const outputs = processes.map(process => ({
+        stdout: new Response(process.stdout).text(),
+        stderr: new Response(process.stderr).text(),
+      }));
+      const readinessDeadline = Date.now() + 10_000;
+      let readinessFailure: string | undefined;
+      while (!lanes.every(lane => fs.existsSync(`${barrier}.${lane}.ready`))) {
+        const exited = processes
+          .map((process, index) => process.exitCode === null ? undefined : `${lanes[index]} (exit ${process.exitCode})`)
+          .filter((value): value is string => value !== undefined);
+        if (exited.length > 0) {
+          readinessFailure = `Child exited before readiness: ${exited.join(', ')}`;
+          break;
+        }
+        if (Date.now() >= readinessDeadline) {
+          readinessFailure = 'Timed out after 10s waiting for both children to become ready';
+          break;
+        }
+        await Bun.sleep(10);
       }
-      expect(['a', 'b'].every(lane => fs.existsSync(`${barrier}.${lane}.ready`))).toBe(true);
-      fs.writeFileSync(barrier, 'go');
-      const exitCodes = await Promise.all(processes.map(process => process.exited));
-      const errors = await Promise.all(processes.map(process => new Response(process.stderr).text()));
+      const allExited = Promise.all(processes.map(process => process.exited));
+      const terminateChildren = async () => {
+        for (const process of processes) {
+          if (process.exitCode === null) process.kill('SIGTERM');
+        }
+        await Promise.race([allExited, Bun.sleep(500)]);
+        for (const process of processes) {
+          if (process.exitCode === null) process.kill('SIGKILL');
+        }
+        await Promise.race([allExited, Bun.sleep(1_000)]);
+      };
+      if (readinessFailure) {
+        // A child may be blocked waiting for the barrier while its peer has
+        // already failed. Terminate both before observing `exited`, otherwise
+        // the readiness failure can leave this test waiting forever.
+        await terminateChildren();
+      } else {
+        fs.writeFileSync(barrier, 'go');
+        const completed = await Promise.race([allExited.then(() => true), Bun.sleep(10_000).then(() => false)]);
+        if (!completed) {
+          readinessFailure = 'Timed out after 10s waiting for children to finish the race';
+          await terminateChildren();
+        }
+      }
+      const exitCodes = processes.map(process => process.exitCode);
+      const capture = async (output: Promise<string>) => Promise.race([
+        output,
+        Bun.sleep(1_000).then(() => '<capture timed out>'),
+      ]);
+      const capturedOutputs = await Promise.all(outputs.map(async output => ({
+        stdout: await capture(output.stdout),
+        stderr: await capture(output.stderr),
+      })));
+      if (readinessFailure) {
+        const diagnostics = lanes.map((lane, index) => {
+          const stdout = capturedOutputs[index].stdout.trim() || '<empty>';
+          const stderr = capturedOutputs[index].stderr.trim() || '<empty>';
+          return `${lane} (exit ${exitCodes[index]}) stdout: ${stdout}; stderr: ${stderr}`;
+        }).join('\n');
+        throw new Error(`${readinessFailure}\n${diagnostics}`);
+      }
+      const errors = capturedOutputs.map(output => output.stderr);
       const results = ['a', 'b'].map((lane, index) => {
         const resultPath = `${barrier}.${lane}.result`;
         if (fs.existsSync(resultPath)) return fs.readFileSync(resultPath, 'utf8');
