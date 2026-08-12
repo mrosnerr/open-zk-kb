@@ -307,6 +307,19 @@ describe('publish-global maintenance', () => {
     expect(ctx.engine.getGlobalBacklinks(global.id)).toEqual([]);
   });
 
+  it('does not treat a strict wikilink target prefix as an authored publication relation', () => {
+    const local = source();
+    const global = ctx.engine.store('Reusable.', {
+      title: 'API', kind: 'reference', status: 'permanent', tags: ['scope:global'], summary: 'Reusable.', guidance: 'Reuse.',
+    });
+    const globalTarget = path.relative(ctx.tempDir, global.path).replace(/\.md$/, '');
+    fs.appendFileSync(local.path, `\nAuthored prefix link: [[${globalTarget}-v2]]\n`);
+
+    ctx.engine.addLocalToGlobalRelation(local.id, global.id);
+
+    expect(ctx.engine.getGeneratedRelatedIds(local.id)).toEqual([global.id]);
+  });
+
   it('preserves an authored Related section and keeps generated relations in a marked trailing section', async () => {
     const local = source();
     const authoredTarget = ctx.engine.store('Authored target body.', {

@@ -40,10 +40,10 @@ export interface DuplicateEvaluation {
  * callers skip empty keys rather than grouping unrelated notes together.
  */
 export function normalizeComparableTitle(title: string): string {
-  return title.toLowerCase()
+  return title.normalize('NFC').toLowerCase()
     .replace(/^(reference|action|decision|research):\s*/i, '')
     .replace(/\.md$/i, '')
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ')
     .trim();
 }
 

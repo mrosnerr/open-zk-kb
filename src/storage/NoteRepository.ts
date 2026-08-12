@@ -3472,7 +3472,9 @@ export class NoteRepository {
     // never edited. Only the trailing marked generated section is rewritten.
     const authoredContent = stripGeneratedRelatedSection(originalContent);
     const globalRelativePath = path.relative(this.docsPath, globalNote.path).replace(/\.md$/, '');
-    if (authoredContent.includes(`[[${globalRelativePath}`) || authoredContent.includes(`[[${globalNote.id}`)) return;
+    const hasAuthoredRelation = parseAllWikiLinks(authoredContent)
+      .some(link => link.slug === globalRelativePath || link.slug === globalNote.id);
+    if (hasAuthoredRelation) return;
 
     const existingRelated = this.getGeneratedRelatedIds(sourceId);
     if (existingRelated.includes(globalNote.id)) return;

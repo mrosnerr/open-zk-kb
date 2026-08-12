@@ -66,6 +66,8 @@ describe('duplicate audit evaluation', () => {
     expect(normalizeComparableTitle('Notebook')).toBe('notebook');
     expect(normalizeComparableTitle('Reference: note-book.md')).toBe('note book');
     expect(normalizeComparableTitle('CAFÉ—Résumé.md')).toBe('café résumé');
+    expect(normalizeComparableTitle('Cafe\u0301')).toBe(normalizeComparableTitle('Café'));
+    expect(normalizeComparableTitle('क')).not.toBe(normalizeComparableTitle('का'));
     expect(normalizeComparableTitle('研究：知识图谱.md')).toBe('研究 知识图谱');
     expect(normalizeComparableTitle('  ***  ')).toBe('');
 
