@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -8,7 +8,7 @@ import {
   readNoteFile,
 } from './harness.js';
 import type { TestContext } from './harness.js';
-import { resolveNotePath, walkMarkdownFiles, extractProjectFromTags } from '../src/storage/path-resolver.js';
+import { resolveNotePath, walkMarkdownFiles, extractProjectFromTags, isGeneratedStructuralMarkdown } from '../src/storage/path-resolver.js';
 import { handleMaintain, handleStore } from '../src/tool-handlers.js';
 import {
   GLOBAL_SCOPE_PREDICATE,
@@ -143,6 +143,49 @@ describe('walkMarkdownFiles', () => {
     const basenames = files.map(f => path.basename(f));
     expect(basenames).toContain('001-test.md');
     expect(basenames).toContain('002-obs.md');
+  });
+
+  it('reports every unreadable directory through onError', () => {
+    const unreadable = path.join(tempDir, 'unreadable');
+    fs.mkdirSync(unreadable);
+    const originalReaddirSync = fs.readdirSync;
+    const readdirSync = spyOn(fs, 'readdirSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === fs.realpathSync(unreadable)) throw new Error('mock unreadable');
+      return originalReaddirSync(target, options as never) as never;
+    });
+
+    try {
+      const errors: string[] = [];
+      const files = walkMarkdownFiles(tempDir, { onError: (_error, filePath) => { errors.push(filePath); } });
+      expect(files.length).toBe(4);
+      expect(errors.map(entry => path.basename(entry))).toEqual(['unreadable']);
+    } finally {
+      readdirSync.mockRestore();
+    }
+  });
+});
+
+describe('isGeneratedStructuralMarkdown', () => {
+  it('classifies only generated structural Markdown, not authored notes', () => {
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/Home.md')).toBe(true);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/review.md')).toBe(true);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/projects/demo/log.md')).toBe(true);
+    expect(isGeneratedStructuralMarkdown(
+      '/vault', '/vault/projects/demo/decisions/decisions.md',
+      { 'BC-folder-note': true },
+    )).toBe(true);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/generated-navigation.md', { kind: 'index' })).toBe(true);
+
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/projects/demo/decisions/decisions.md')).toBe(false);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/handbook.md')).toBe(false);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/general/observations/002-obs.md')).toBe(false);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/notes/Home.md')).toBe(false);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/notes/index.md')).toBe(false);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/notes/log.md')).toBe(false);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/notes/review.md')).toBe(false);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/general/index.md')).toBe(true);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/general/decisions/index.md')).toBe(true);
+    expect(isGeneratedStructuralMarkdown('/vault', '/vault/projects/demo/index.md')).toBe(true);
   });
 });
 
@@ -750,10 +793,14 @@ describe('Structured navigation regressions', () => {
     cleanupTestHarness(context);
   });
 
-  it('does not flag plain sub-MOC folder notes as broken links', async () => {
+  it('does not flag generated sub-MOC folder notes as broken links', async () => {
     const decisionsDir = path.join(context.tempDir, 'projects', 'open-zk-kb', 'decisions');
     fs.mkdirSync(decisionsDir, { recursive: true });
-    fs.writeFileSync(path.join(decisionsDir, 'decisions.md'), '# Decisions', 'utf-8');
+    fs.writeFileSync(
+      path.join(decisionsDir, 'decisions.md'),
+      '---\nBC-folder-note: true\n---\n\n# Decisions',
+      'utf-8',
+    );
 
     context.engine.store('See [[projects/open-zk-kb/decisions/decisions]]', {
       title: 'Links to Decisions Index',

@@ -1,5 +1,5 @@
 // tests/mcp-tools.test.ts - Test MCP tool handlers directly against NoteRepository
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -652,17 +652,20 @@ describe('MCP Tool: knowledge-search', () => {
 
   it('returns bounded compact cards with Unicode truncation evidence and preserves full mode', () => {
     const long = `${'😀'.repeat(245)}   multiline\nsummary`;
-    for (let index = 0; index < 12; index++) {
+    for (let index = 0; index < 112; index++) {
       ctx.engine.store(`compact-contract-keyword body ${index}`, {
         tags: ['project:test-project'], title: `Compact ${index}`, kind: 'reference',
         summary: long, guidance: long,
       });
     }
 
+    const hybridSpy = spyOn(ctx.engine, 'searchHybrid');
     const compact = JSON.parse(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact' }, ctx.engine));
+    expect(hybridSpy).toHaveBeenCalledWith('compact-contract-keyword', null, expect.objectContaining({ limit: 50 }));
     expect(compact.results).toHaveLength(5);
     expect(compact.truncated).toBe(true);
-    expect(compact.availableCount).toBeGreaterThan(5);
+    expect(compact.availableCount).toBe(112);
+
     for (const card of compact.results) {
       expect(Array.from(card.summary)).toHaveLength(240);
       expect(Array.from(card.guidance)).toHaveLength(240);
@@ -679,6 +682,47 @@ describe('MCP Tool: knowledge-search', () => {
         .toContain('must be an integer from 1 to 10');
     }
     expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'full', limit: 1 }, ctx.engine)).toContain('<content>');
+  });
+
+  it('reports exact compact hybrid availability after all search filters', () => {
+    const embedding = [1, 0, 0];
+    const addVectorNote = (title: string, options: Parameters<typeof ctx.engine.store>[1]) => {
+      const note = ctx.engine.store('vector-filter-regression content', { title, ...options });
+      ctx.engine.storeEmbedding(note.id, embedding, 'test-model');
+      return note;
+    };
+
+    for (let index = 0; index < 30; index++) {
+      addVectorNote(`Higher Ranked Wrong Lifecycle ${index}`, {
+        kind: 'reference', status: 'permanent', lifecycle: 'snapshot',
+        tags: ['project:test-project', 'client:pi', 'topic:exact'],
+      });
+      addVectorNote(`Higher Ranked Structural ${index}`, {
+        kind: 'log', status: 'permanent', lifecycle: 'living',
+        tags: ['project:test-project', 'client:pi', 'topic:exact'],
+      });
+    }
+    for (let index = 0; index < 8; index++) {
+      addVectorNote(`Final Match ${index}`, {
+        kind: 'reference', status: 'permanent', lifecycle: 'living',
+        tags: ['project:test-project', 'client:pi', 'topic:exact'],
+      });
+    }
+    addVectorNote('Tag Prefix', { kind: 'reference', status: 'permanent', lifecycle: 'living', tags: ['project:test-project', 'client:pi', 'topic:exact-prefix'] });
+    addVectorNote('Wrong Kind and Lifecycle', { kind: 'procedure', status: 'permanent', lifecycle: 'snapshot', tags: ['project:test-project', 'client:pi', 'topic:exact'] });
+    addVectorNote('Wrong Status', { kind: 'reference', status: 'fleeting', lifecycle: 'living', tags: ['project:test-project', 'client:pi', 'topic:exact'] });
+    addVectorNote('Wrong Lifecycle', { kind: 'reference', status: 'permanent', lifecycle: 'snapshot', tags: ['project:test-project', 'client:pi', 'topic:exact'] });
+    addVectorNote('Wrong Client', { kind: 'reference', status: 'permanent', lifecycle: 'living', tags: ['project:test-project', 'client:cursor', 'topic:exact'] });
+    addVectorNote('Archived Structural', { kind: 'log', status: 'archived', lifecycle: 'append-only', tags: ['project:test-project', 'client:pi', 'topic:exact'] });
+
+    const compact = JSON.parse(handleSearch({
+      project: 'test-project', client: 'pi', query: 'no-fts-match',
+      mode: 'compact', limit: 3, tags: ['topic:exact'], status: 'permanent', lifecycle: 'living',
+    }, ctx.engine, embedding, ctx.config)) as { availableCount: number; results: Array<{ identity: { title: string } }> };
+
+    expect(compact.results).toHaveLength(3);
+    expect(compact.availableCount).toBe(8);
+    expect(compact.results.every(result => result.identity.title.startsWith('Final Match'))).toBe(true);
   });
 
   it('should return no results message with hint', () => {

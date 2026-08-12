@@ -8,7 +8,17 @@
 
 import * as fs from 'node:fs';
 import type { NoteRepository } from '../storage/NoteRepository.js';
+import type { NoteKind, NoteStatus } from '../types.js';
 import type { ContextualLinkDocument, ContextualLinkReadResult, ContextualLinkResolution } from './types.js';
+
+/**
+ * Placeholder metadata for a canonical Markdown file the index does not
+ * account for. Such an entry is always an unreadable document, so only its
+ * synthetic identity is ever surfaced — no path, title, or content.
+ */
+const UNINDEXED_TITLE = 'Unindexed canonical Markdown file';
+const UNINDEXED_KIND: NoteKind = 'observation';
+const UNINDEXED_STATUS: NoteStatus = 'fleeting';
 
 export interface ContextualLinkReader {
   /** Active, non-structural documents with their raw-source read outcome, in a stable order. */
@@ -19,9 +29,11 @@ export interface ContextualLinkReader {
 
 export function createRepositoryContextualLinkReader(repository: NoteRepository): ContextualLinkReader {
   return {
+    // Canonical Markdown outside the index is appended as a read failure so an
+    // incomplete document set can never be reviewed as if it were complete.
     listDocuments: () =>
-      Object.freeze(
-        repository.getContextualLinkDocuments().map(row => {
+      Object.freeze([
+        ...repository.getContextualLinkDocuments().map(row => {
           const document: ContextualLinkDocument = Object.freeze({
             id: row.id,
             title: row.title,
@@ -35,8 +47,21 @@ export function createRepositoryContextualLinkReader(repository: NoteRepository)
           } catch {
             return Object.freeze({ document, ok: false as const, reason: 'read-failed' });
           }
-        })
-      ),
+        }),
+        ...repository.getUnindexedCanonicalDocuments().map(entry =>
+          Object.freeze({
+            document: Object.freeze({
+              id: entry.id,
+              title: UNINDEXED_TITLE,
+              kind: UNINDEXED_KIND,
+              status: UNINDEXED_STATUS,
+              tags: Object.freeze([]) as readonly string[],
+            }),
+            ok: false as const,
+            reason: entry.reason,
+          })
+        ),
+      ]),
     resolveTarget: slug => repository.resolveContextualLink(slug),
   };
 }

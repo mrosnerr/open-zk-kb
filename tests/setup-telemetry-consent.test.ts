@@ -394,7 +394,45 @@ describe('setup telemetry consent (install prompt)', () => {
     expect(telemetry.id).toBe('existing-install-id');
   });
 
-  it('--no-telemetry without an existing config writes nothing and never prompts', async () => {
+  it('--no-telemetry persists opt-out when one selected install succeeds and another fails', async () => {
+    installClackMock();
+    setStdinTTY(true);
+    promptState.answer = true;
+    promptState.selected = ['opencode', 'cursor'];
+
+    writeConfig(
+      env,
+      [
+        'telemetry:',
+        '  enabled: true',
+        '  share: true',
+        '',
+      ].join('\n'),
+    );
+    const cursorConfigPath = path.join(env.homeDir, '.cursor', 'mcp.json');
+    fs.mkdirSync(path.dirname(cursorConfigPath), { recursive: true });
+    fs.writeFileSync(cursorConfigPath, '{ invalid json', 'utf-8');
+
+    const setup = await loadFreshSetupModule();
+    const previousExitCode = process.exitCode;
+    try {
+      await setup.runSetupCli([
+        'install',
+        '--server-path',
+        env.fakeServerPath,
+        '--no-telemetry',
+      ]);
+
+      expect(fs.existsSync(path.join(env.xdgConfigHome, 'opencode', 'opencode.json'))).toBe(true);
+      expect(fs.readFileSync(cursorConfigPath, 'utf-8')).toBe('{ invalid json');
+      expect(readTelemetry(openZkConfigPath(env))).toMatchObject({ enabled: false, share: false });
+      expect(promptState.calls).toHaveLength(0);
+    } finally {
+      process.exitCode = previousExitCode ?? 0;
+    }
+  });
+
+  it('--no-telemetry without an existing config persists an explicit opt-out before install', async () => {
     installClackMock();
     setStdinTTY(true);
     promptState.answer = true;
@@ -410,10 +448,46 @@ describe('setup telemetry consent (install prompt)', () => {
     ]);
 
     expect(promptState.calls).toHaveLength(0);
-    // Disabled runtime defaults are sufficient; install() only seeds the
-    // commented example config, which leaves telemetry disabled.
-    expect(fs.readFileSync(openZkConfigPath(env), 'utf-8')).toBe(
-      fs.readFileSync(EXAMPLE_CONFIG_PATH, 'utf-8'),
-    );
+    expect(readTelemetry(openZkConfigPath(env))).toMatchObject({ enabled: false, share: false });
+  });
+
+  it('--no-telemetry persists an explicit opt-out even when the first install fails', async () => {
+    installClackMock();
+    setStdinTTY(true);
+
+    const setup = await loadFreshSetupModule();
+    const missingServer = path.join(env.rootDir, 'dist', 'missing-server.js');
+    await expect(
+      setup.runSetupCli([
+        'install',
+        '--client',
+        'opencode',
+        '--server-path',
+        missingServer,
+        '--no-telemetry',
+      ]),
+    ).rejects.toThrow(/Server not found/);
+
+    expect(promptState.calls).toHaveLength(0);
+    expect(readTelemetry(openZkConfigPath(env))).toMatchObject({ enabled: false, share: false });
+  });
+
+  it('--no-telemetry with --dry-run does not write config', async () => {
+    installClackMock();
+    setStdinTTY(true);
+
+    const setup = await loadFreshSetupModule();
+    await setup.runSetupCli([
+      'install',
+      '--client',
+      'opencode',
+      '--server-path',
+      env.fakeServerPath,
+      '--no-telemetry',
+      '--dry-run',
+    ]);
+
+    expect(promptState.calls).toHaveLength(0);
+    expect(fs.existsSync(openZkConfigPath(env))).toBe(false);
   });
 });

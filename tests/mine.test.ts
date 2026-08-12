@@ -343,7 +343,16 @@ describe('knowledge-mine: reviewed apply mode', () => {
     const target = ctx.engine.getById(id);
     if (!target) throw new Error('Expected target');
     const candidates = [makeCandidate({ title: 'Update Target', content: 'new durable content', kind: 'reference', summary: 'New summary', guidance: 'Use new content.' })];
-    const candidateKeys = keys(await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config));
+    const preview = await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config);
+    expect(preview).toContain(`[${id}] "Update Target"`);
+    expect(preview).toContain(`expectedUpdatedAt: ${target.updated_at}`);
+    const candidateKeys = keys(preview);
+    const stalePlan = await handleMine({
+      project: 'test-project', candidates,
+      dispositions: [{ candidateKey: candidateKeys[0], action: 'update', noteId: id, expectedUpdatedAt: target.updated_at - 1 }],
+    }, ctx.engine, null, ctx.config);
+    expect(stalePlan).toContain('stale expectedUpdatedAt');
+    expect(ctx.engine.getById(id)?.content).toBe('old content');
     const output = await apply(candidates, [{ candidateKey: candidateKeys[0], action: 'update', noteId: id, expectedUpdatedAt: target.updated_at }]);
     expect(output).toContain(`✅ Stored as ${id}`);
     expect(ctx.engine.getById(id)?.content).toBe('new durable content');

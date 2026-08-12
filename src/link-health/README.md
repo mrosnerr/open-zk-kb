@@ -31,7 +31,11 @@ or repair policy.
 ## Failure handling
 
 A document that cannot be read or whose Markdown cannot be parsed becomes a
-note-ID/title-only failure — no path or content. Any failure marks the
+note-ID/title-only failure — no path or content. Canonical vault Markdown
+that the index does not account for (and an incomplete vault traversal) is
+surfaced the same way, under a synthetic identity, so an incomplete document
+set is never reviewed as if it were complete; generated structural Markdown
+(see `isGeneratedStructuralMarkdown`) is excluded. Any failure marks the
 graph incomplete and suppresses every unlinked finding, since an unknown
 document could hold an unknown incoming edge to any note. A one-way finding
 is suppressed when its target document failed, since the missing reverse

@@ -25,6 +25,7 @@ import {
   KIND_DIR_MAP,
   getKindFolderNoteBasename,
   getPreferencesFolderNoteBasename,
+  isGeneratedStructuralMarkdown,
 } from './path-resolver.js';
 import type { ConformanceRecord, ConformanceAggregates } from '../template-handler.js';
 import { parseKnowledgeApplicability, type VisibilityOptions } from '../knowledge-scope.js';
@@ -326,6 +327,9 @@ export class KnowledgeMutationBusyError extends Error {
   }
 }
 
+/** Why a canonical Markdown file is unaccounted for by the index — never a path or content. */
+export type UnindexedCanonicalReason = 'unindexed' | 'unreadable' | 'traversal-incomplete';
+
 type CanonicalMetadataBaseline = { metadata: string | undefined; indexedVersion: number };
 type CanonicalMetadataVault = {
   baselines: Map<string, CanonicalMetadataBaseline>;
@@ -565,6 +569,92 @@ export class NoteRepository {
     } catch {
       this.markBaselineUnavailable('initialize');
     }
+  }
+
+  /**
+   * Identity-only inventory of canonical vault Markdown files that no indexed
+   * row accounts for, plus whether traversal itself was incomplete. Real
+   * filesystem identities are compared so a symlink alias of an indexed note
+   * is not a false positive, and generated structural files without
+   * identifiers are excluded, matching rebuild's convention. No path, title,
+   * or file content ever leaves this method.
+   */
+  private scanUnindexedCanonicalFiles(indexedPaths: readonly string[]): {
+    entries: Array<{ id: string; reason: UnindexedCanonicalReason }>;
+    traversalIncomplete: boolean;
+    usedIds: Set<string>;
+  } {
+    const entries: Array<{ id: string; reason: UnindexedCanonicalReason }> = [];
+    let traversalIncomplete = false;
+    const indexedRows = this.db.prepare('SELECT id FROM notes ORDER BY id ASC').all() as Array<{ id: string }>;
+    const usedIds = new Set(indexedRows.map(row => row.id));
+
+    const indexedFileIdentities = new Set<string>();
+    for (const indexedPath of indexedPaths) {
+      try {
+        indexedFileIdentities.add(fs.realpathSync(indexedPath));
+      } catch {
+        // A missing/unreadable indexed file is handled by metadata comparison, not here.
+      }
+    }
+
+    const vaultFiles = walkMarkdownFiles(this.docsPath, {
+      onError: () => { traversalIncomplete = true; },
+    });
+    const candidates: Array<{ identity: string; reason: UnindexedCanonicalReason }> = [];
+    for (const filePath of vaultFiles) {
+      let identity: string;
+      try {
+        identity = fs.realpathSync(filePath);
+      } catch {
+        traversalIncomplete = true;
+        continue;
+      }
+      if (indexedFileIdentities.has(identity)) continue;
+      try {
+        const { frontmatter } = this.parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
+        const basename = path.basename(filePath);
+        const filenameId = basename.match(/^(\d{16}|\d{12})/)?.[1];
+        const declaredId = (frontmatter.id as string) || filenameId || '';
+        if (!declaredId && isGeneratedStructuralMarkdown(this.docsPath, filePath, frontmatter)) continue;
+        if (declaredId) usedIds.add(declaredId);
+        candidates.push({ identity, reason: 'unindexed' });
+      } catch {
+        candidates.push({ identity, reason: 'unreadable' });
+      }
+    }
+
+    for (const candidate of candidates) {
+      const digest = createHash('sha256').update(candidate.identity).digest('hex');
+      const baseId = `__graph-evidence-${digest}`;
+      let id = baseId;
+      let disambiguator = 2;
+      while (usedIds.has(id)) id = `${baseId}-${disambiguator++}`;
+      usedIds.add(id);
+      entries.push({ id, reason: candidate.reason });
+    }
+
+    return { entries, traversalIncomplete, usedIds };
+  }
+
+  /**
+   * Query-only identity list of canonical Markdown files the index does not
+   * account for, so a reader can surface them as read failures instead of
+   * silently reviewing an incomplete document set. An incomplete traversal is
+   * itself reported as one entry.
+   */
+  getUnindexedCanonicalDocuments(): Array<{ id: string; reason: UnindexedCanonicalReason }> {
+    const indexedPaths = (this.db.prepare('SELECT path FROM notes ORDER BY id ASC')
+      .all() as Array<{ path: string }>).map(row => row.path);
+    const { entries, traversalIncomplete, usedIds } = this.scanUnindexedCanonicalFiles(indexedPaths);
+    if (traversalIncomplete) {
+      const baseId = `__graph-evidence-${createHash('sha256').update('vault-traversal-incomplete').digest('hex')}`;
+      let id = baseId;
+      let disambiguator = 2;
+      while (usedIds.has(id)) id = `${baseId}-${disambiguator++}`;
+      entries.push({ id, reason: 'traversal-incomplete' });
+    }
+    return entries;
   }
 
   private initializeSchema(): void {
@@ -1313,6 +1403,8 @@ export class NoteRepository {
     kind?: NoteKind;
     tags?: string[];
     context?: string;
+    lifecycle?: string;
+    excludeStructuralKinds?: boolean;
     limit?: number;
     visibility?: VisibilityOptions;
   } = {}): NoteMetadata[] {
@@ -1346,6 +1438,15 @@ export class NoteRepository {
       params.push(options.context);
     }
 
+    if (options.lifecycle) {
+      sql += ' AND n.lifecycle = ?';
+      params.push(options.lifecycle);
+    }
+
+    if (options.excludeStructuralKinds) {
+      sql += " AND n.kind NOT IN ('index', 'log')";
+    }
+
     if (options.tags && options.tags.length > 0) {
       for (const tag of options.tags) {
         sql += ' AND n.tags LIKE ?';
@@ -1374,6 +1475,9 @@ export class NoteRepository {
   searchVector(queryEmbedding: number[], options: {
     status?: NoteStatus;
     kind?: NoteKind;
+    tags?: string[];
+    lifecycle?: string;
+    excludeStructuralKinds?: boolean;
     limit?: number;
     visibility?: VisibilityOptions;
   } = {}): Array<NoteMetadata & { similarity: number }> {
@@ -1396,6 +1500,13 @@ export class NoteRepository {
       sql += ' AND kind = ?';
       params.push(options.kind);
     }
+    if (options.lifecycle) {
+      sql += ' AND lifecycle = ?';
+      params.push(options.lifecycle);
+    }
+    if (options.excludeStructuralKinds) {
+      sql += " AND kind NOT IN ('index', 'log')";
+    }
 
     const rows = this.db.prepare(sql).all(...params) as Array<NoteMetadata & { embedding: Buffer }>;
 
@@ -1410,9 +1521,72 @@ export class NoteRepository {
       };
     });
 
-    scored.sort((a, b) => b.similarity - a.similarity);
+    const filterTags = options.tags;
+    const filtered = filterTags?.length
+      ? scored.filter(note => filterTags.every(tag => note.tags.includes(tag)))
+      : scored;
+    filtered.sort((a, b) => b.similarity - a.similarity);
     const limit = options.limit || 10;
-    return scored.slice(0, limit);
+    return filtered.slice(0, limit);
+  }
+
+  /** Counts the exact hybrid candidate union without hydrating note content or embeddings. */
+  countHybridMatches(
+    query: string,
+    hasQueryEmbedding: boolean,
+    options: {
+      status?: NoteStatus;
+      kind?: NoteKind;
+      tags?: string[];
+      lifecycle?: string;
+      excludeStructuralKinds?: boolean;
+      excludeId?: string;
+      visibility?: VisibilityOptions;
+    } = {}
+  ): number {
+    const params: (string | number)[] = [];
+    const predicates = (alias: string): string => {
+      let sql = '';
+      const visibility = this.visibilityPredicate(alias, options.visibility);
+      sql += visibility.sql;
+      params.push(...visibility.params);
+      if (options.status) {
+        sql += ` AND ${alias}.status = ?`;
+        params.push(options.status);
+      } else {
+        sql += ` AND ${alias}.status != 'archived'`;
+      }
+      if (options.kind) {
+        sql += ` AND ${alias}.kind = ?`;
+        params.push(options.kind);
+      }
+      if (options.lifecycle) {
+        sql += ` AND ${alias}.lifecycle = ?`;
+        params.push(options.lifecycle);
+      }
+      if (options.excludeStructuralKinds) sql += ` AND ${alias}.kind NOT IN ('index', 'log')`;
+      if (options.excludeId) {
+        sql += ` AND ${alias}.id != ?`;
+        params.push(options.excludeId);
+      }
+      for (const tag of options.tags ?? []) {
+        sql += ` AND EXISTS (SELECT 1 FROM json_each(${alias}.tags) WHERE value = ?)`;
+        params.push(tag);
+      }
+      return sql;
+    };
+
+    const ftsSql = `
+      SELECT n.id FROM notes_fts fts
+      JOIN notes n ON fts.note_id = n.id
+      WHERE notes_fts MATCH ?${predicates('n')}`;
+    params.unshift(this.sanitizeFTS5Query(query));
+    const vectorSql = hasQueryEmbedding
+      ? ` UNION SELECT n.id FROM notes n WHERE n.embedding IS NOT NULL${predicates('n')}`
+      : '';
+    const row = this.db.prepare(`SELECT COUNT(*) AS total FROM (${ftsSql}${vectorSql})`)
+      .get(...params) as { total: number };
+    return row.total;
   }
 
   /**
@@ -1427,6 +1601,8 @@ export class NoteRepository {
       kind?: NoteKind;
       tags?: string[];
       context?: string;
+      lifecycle?: string;
+      excludeStructuralKinds?: boolean;
       limit?: number;
       visibility?: VisibilityOptions;
     } = {}
@@ -1440,6 +1616,9 @@ export class NoteRepository {
     const vecResults = this.searchVector(queryEmbedding, {
       status: options.status,
       kind: options.kind,
+      tags: options.tags,
+      lifecycle: options.lifecycle,
+      excludeStructuralKinds: options.excludeStructuralKinds,
       limit: limit * 2,
       visibility: options.visibility,
     });
@@ -1449,7 +1628,7 @@ export class NoteRepository {
       filteredVecResults = vecResults.filter(note => {
         const tags = Array.isArray(note.tags) ? note.tags : [];
         const filterTags = options.tags ?? [];
-        return filterTags.every(tag => tags.some(t => (t as string).includes(tag)));
+        return filterTags.every(tag => tags.includes(tag));
       });
     }
 
@@ -1524,42 +1703,10 @@ export class NoteRepository {
     let canonicalDrift = this.baselineState?.baselineUnavailable === true || !fs.existsSync(initializedPath);
 
     // Indexed-path baselines cannot detect a canonical file added outside this
-    // process. Compare real filesystem identities so symlink aliases of an
-    // indexed note do not become false positives. The only unindexed Markdown
-    // files known not to affect dedupe are generated structural files without
-    // identifiers, matching rebuild's exclusion convention.
-    const indexedFileIdentities = new Set<string>();
-    for (const row of copied.indexedPaths) {
-      try {
-        indexedFileIdentities.add(fs.realpathSync(row.path));
-      } catch {
-        // The metadata comparison below treats a missing/unreadable indexed file as drift.
-      }
-    }
-    const vaultFiles = walkMarkdownFiles(this.docsPath, {
-      onError: () => { canonicalDrift = true; },
-    });
-    for (const filePath of vaultFiles) {
-      let identity: string;
-      try {
-        identity = fs.realpathSync(filePath);
-      } catch {
-        canonicalDrift = true;
-        continue;
-      }
-      if (indexedFileIdentities.has(identity)) continue;
-      try {
-        const { frontmatter } = this.parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
-        const basename = path.basename(filePath);
-        const filenameId = basename.match(/^(\d{16}|\d{12})/)?.[1];
-        const id = (frontmatter.id as string) || filenameId || '';
-        const generatedStructural = !id
-          && (frontmatter.kind === 'index' || /^(index|log|review)\.md$/i.test(basename));
-        if (!generatedStructural) canonicalDrift = true;
-      } catch {
-        canonicalDrift = true;
-      }
-    }
+    // process, so compare the indexed rows against the canonical Markdown
+    // inventory on disk.
+    const unindexed = this.scanUnindexedCanonicalFiles(copied.indexedPaths.map(row => row.path));
+    if (unindexed.traversalIncomplete || unindexed.entries.length > 0) canonicalDrift = true;
 
     for (const row of copied.driftRows) {
       const baseline = this.indexedCanonicalMetadata.get(row.path);
@@ -2938,6 +3085,20 @@ export class NoteRepository {
     const rawLinkSources = new Map<string, string>();
     let errors = 0;
 
+    // Enumerate the vault before any destructive work. A traversal failure
+    // means the file set is incomplete, so rebuilding from it would discard a
+    // known-good index and restore durable trust from partial evidence.
+    let traversalErrors = 0;
+    const filePaths = walkMarkdownFiles(this.docsPath, {
+      onError: () => { traversalErrors++; },
+    });
+    if (traversalErrors > 0) {
+      const warning = 'Vault traversal incomplete; rebuild aborted without modifying the index';
+      warnings.push(warning);
+      logToFile('WARN', warning, { traversalErrors });
+      return { indexed: 0, errors: traversalErrors, warnings };
+    }
+
     // Invalidate durable trust before changing any indexed rows. If this cannot
     // persist, preserve the existing index and abort rather than risk a restart
     // trusting a partially rebuilt database.
@@ -2962,8 +3123,6 @@ export class NoteRepository {
     this.db.run('DELETE FROM notes');
     this.db.run('DELETE FROM notes_fts');
 
-    const filePaths = walkMarkdownFiles(this.docsPath);
-
     for (const filePath of filePaths) {
       const file = path.basename(filePath);
       try {
@@ -2972,8 +3131,7 @@ export class NoteRepository {
 
         const id = (frontmatter.id as string) || file.match(/^(\d{16}|\d{12})/)?.[1] || '';
         // Skip auto-generated structural files (no frontmatter ID expected)
-        const basename = path.basename(filePath);
-        if ((frontmatter.kind === 'index' || /^(index|log|review)\.md$/i.test(basename)) && !id) {
+        if (!id && isGeneratedStructuralMarkdown(this.docsPath, filePath, frontmatter)) {
           continue;
         }
         if (!id) {

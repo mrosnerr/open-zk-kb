@@ -78,6 +78,41 @@ export function getKindFolderNotePath(baseDir: string, kindOrDir: string): strin
 /** Directories to skip during recursive file scanning */
 const SKIP_DIRS = new Set(['.index', '.obsidian', '.trash', 'templates', '.templates', '.git', 'node_modules']);
 
+/**
+ * True for generated structural Markdown that legitimately carries no note
+ * identifier: `kind: index` frontmatter, the fixed `index`/`log`/`review`
+ * files, the global home note, and marked generated directory folder notes.
+ * Every consumer of the vault's canonical Markdown inventory must exclude
+ * exactly this set, so an unindexed authored note is never mistaken for
+ * scaffolding merely because its basename matches its directory.
+ */
+export function isGeneratedStructuralMarkdown(
+  docsPath: string,
+  filePath: string,
+  frontmatter: Record<string, unknown> = {},
+): boolean {
+  if (frontmatter.kind === 'index') return true;
+
+  const relative = path.relative(docsPath, filePath).replace(/\\/g, '/');
+  if (relative.startsWith('../') || path.isAbsolute(relative)) return false;
+  const segments = relative.split('/');
+  const basename = path.basename(filePath, '.md');
+
+  if (segments.length === 1) {
+    return basename === GLOBAL_HOME_NOTE_BASENAME || /^(index|log|review)$/i.test(basename);
+  }
+  if (segments.length === 3 && segments[0] === 'projects' && segments[2].toLowerCase() === 'log.md') return true;
+
+  // Legacy navigation scaffolds recognized by the navigation migration paths.
+  if (basename.toLowerCase() === 'index') {
+    if (relative === 'general/index.md' || relative === 'preferences/index.md') return true;
+    if (segments[0] === 'general' && segments.length === 3) return true;
+    if (segments[0] === 'projects' && (segments.length === 3 || segments.length === 4)) return true;
+  }
+
+  return basename === path.basename(path.dirname(filePath)) && frontmatter['BC-folder-note'] === true;
+}
+
 function sanitizeProjectSegment(project: string): string {
   const trimmed = project.trim();
   if (!trimmed || trimmed === '.' || trimmed === '..' || /[/\\]/.test(trimmed)) {

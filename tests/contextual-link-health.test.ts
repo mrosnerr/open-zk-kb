@@ -1,7 +1,9 @@
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Database } from 'bun:sqlite';
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { createRepositoryContextualLinkReader } from '../src/link-health/reader';
 import type { ContextualLinkDocument, ContextualLinkReadResult, ContextualLinkResolution } from '../src/link-health/types';
 import { materializeGraphReview } from '../src/review/graph';
 import { handleHealth, handleMaintain } from '../src/tool-handlers';
@@ -188,6 +190,66 @@ describe('contextual link-health maintenance adapters', () => {
     expect(output).toContain('Unlinked evaluation was suppressed');
     expect(output).not.toContain('all clear');
     expect(output).not.toContain(note.path);
+  });
+
+  it('treats an externally added canonical note file as an incomplete graph', async () => {
+    const alpha = ctx.engine.store('Alpha body', { title: 'Alpha', kind: 'reference', status: 'fleeting' });
+    const externalPath = path.join(ctx.tempDir, '2026072500009999-external-note.md');
+    fs.writeFileSync(
+      externalPath,
+      `---\nid: 2026072500009999\ntitle: External Note\nkind: reference\nstatus: fleeting\n---\n\nSecret body linking [[${alpha.id}]].\n`
+    );
+
+    const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+
+    expect(output).toContain('Parse failures: 1');
+    expect(output).toMatch(/\[__graph-evidence-[a-f0-9]{64}(?:-\d+)?\]/);
+    expect(output).not.toContain('[2026072500009999]');
+    expect(output).toContain('Unlinked evaluation was suppressed');
+    expect(output).not.toContain('all clear');
+    expect(output).not.toContain(externalPath);
+    expect(output).not.toContain('Secret body');
+  });
+
+  it('keeps graph evidence IDs distinct from duplicate external declarations and indexed IDs', () => {
+    const firstPath = path.join(ctx.tempDir, 'external-a.md');
+    const secondPath = path.join(ctx.tempDir, 'external-b.md');
+    const collidingId = `__graph-evidence-${createHash('sha256').update(fs.realpathSync(ctx.tempDir) + path.sep + 'external-a.md').digest('hex')}`;
+    ctx.engine.store('Indexed body', { existingId: collidingId, title: 'Indexed collision', kind: 'reference' });
+    for (const filePath of [firstPath, secondPath]) {
+      fs.writeFileSync(filePath, '---\nid: duplicate-external-id\ntitle: External\nkind: reference\n---\n');
+    }
+
+    const documents = createRepositoryContextualLinkReader(ctx.engine).listDocuments();
+    const evidenceIds = documents.filter(result => !result.ok && result.reason === 'unindexed').map(result => result.document.id);
+    expect(evidenceIds).toHaveLength(2);
+    expect(new Set(evidenceIds).size).toBe(2);
+    expect(evidenceIds).not.toContain('duplicate-external-id');
+    expect(evidenceIds).not.toContain(collidingId);
+    expect(evidenceIds).toContain(`${collidingId}-2`);
+  });
+
+  it('treats an unreadable vault subtree as an incomplete graph', async () => {
+    ctx.engine.store('Alpha body', { title: 'Alpha', kind: 'reference', status: 'fleeting' });
+    const unreadableDir = path.join(ctx.tempDir, 'unreadable-subtree');
+    fs.mkdirSync(unreadableDir);
+    const originalReaddirSync = fs.readdirSync;
+    const readdirSync = spyOn(fs, 'readdirSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === unreadableDir) throw new Error('mock unreadable subtree');
+      return originalReaddirSync(target, options as never) as never;
+    });
+
+    try {
+      const output = await handleMaintain({ action: 'link-health' }, ctx.engine, ctx.config);
+      expect(output).toContain('Parse failures: 1');
+      expect(output).toMatch(/\[__graph-evidence-[a-f0-9]{64}(?:-\d+)?\]/);
+      expect(output).not.toContain('[vault-traversal-incomplete]');
+      expect(output).toContain('Unlinked evaluation was suppressed');
+      expect(output).not.toContain('all clear');
+      expect(output).not.toContain(unreadableDir);
+    } finally {
+      readdirSync.mockRestore();
+    }
   });
 
   it('exposes contextual scan aggregates through health telemetry', async () => {

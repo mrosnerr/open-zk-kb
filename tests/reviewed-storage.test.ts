@@ -282,8 +282,22 @@ knowledge added outside the index
     fs.writeFileSync(path.join(ctx.tempDir, 'review.md'), '# Generated review\n');
     fs.writeFileSync(path.join(ctx.tempDir, 'projects', 'demo', 'log.md'), '# Generated log\n');
     fs.writeFileSync(path.join(ctx.tempDir, 'generated-navigation.md'), '---\nkind: index\n---\n\n# Navigation\n');
+    fs.mkdirSync(path.join(ctx.tempDir, 'projects', 'demo', 'decisions'), { recursive: true });
+    fs.writeFileSync(
+      path.join(ctx.tempDir, 'projects', 'demo', 'decisions', 'decisions.md'),
+      '---\nBC-folder-note: true\n---\n\n# Decisions\n',
+    );
 
     expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
+  it('treats an unmarked same-name Markdown file as authored canonical content', () => {
+    const authoredDir = path.join(ctx.tempDir, 'projects', 'demo', 'research');
+    fs.mkdirSync(authoredDir, { recursive: true });
+    fs.writeFileSync(path.join(authoredDir, 'research.md'), '# Authored research without an identifier\n');
+
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+    expect(ctx.engine.rebuildFromFiles().errors).toBe(1);
   });
 
   it('does not recurse through a directory symlink back into the vault', () => {

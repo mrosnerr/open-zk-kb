@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   createTestHarness,
   cleanupTestHarness,
@@ -530,6 +532,32 @@ Legacy content`;
     const result = ctx.engine.rebuildFromFiles();
     expect(result.indexed).toBe(2);
     expect(result.errors).toBe(0);
+  });
+
+  it('counts traversal failures and preserves the existing index instead of rebuilding partially', () => {
+    const first = ctx.engine.store('First content', { title: 'First', kind: 'reference' });
+    const second = ctx.engine.store('Second content', { title: 'Second', kind: 'reference' });
+    const unreadableDir = path.join(ctx.tempDir, 'unreadable-subtree');
+    fs.mkdirSync(unreadableDir);
+    const originalReaddirSync = fs.readdirSync;
+    const readdirSync = spyOn(fs, 'readdirSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === unreadableDir) throw new Error('mock unreadable subtree');
+      return originalReaddirSync(target, options as never) as never;
+    });
+
+    try {
+      const result = ctx.engine.rebuildFromFiles();
+      expect(result.errors).toBe(1);
+      expect(result.indexed).toBe(0);
+      expect(result.warnings.join('\n')).toContain('traversal incomplete');
+    } finally {
+      readdirSync.mockRestore();
+    }
+
+    // The known-good index and baseline trust survive an incomplete traversal.
+    expect(ctx.engine.getById(first.id)).not.toBeNull();
+    expect(ctx.engine.getById(second.id)).not.toBeNull();
+    expect(ctx.engine.getScreeningSnapshot({}).canonicalDrift).toBe(false);
   });
 });
 

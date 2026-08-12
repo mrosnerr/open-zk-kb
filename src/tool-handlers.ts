@@ -1641,11 +1641,17 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   const excludeStructuralKinds = config?.search?.excludeLogFromSearch !== false && !STRUCTURAL_KINDS.has(args.kind as string);
   const project = validateCurrentProject(args.project);
   if (!project) return 'Error: A valid project is required for knowledge search.';
-  const searchLimit = excludeStructuralKinds ? Math.min(requestedLimit * 10, 100) : requestedLimit;
+  // Overfetch a bounded result window for filters applied after ranking. Compact
+  // availability is counted separately without hydrating the complete candidate set.
+  const searchLimit = excludeStructuralKinds || args.mode === 'compact'
+    ? Math.min(requestedLimit * 10, 100)
+    : requestedLimit;
   let results = repo.searchHybrid(args.query, queryEmbedding || null, {
     kind: args.kind,
     status: args.status ? toNoteStatus(args.status, 'fleeting') : undefined,
     tags: args.tags,
+    lifecycle: args.lifecycle,
+    excludeStructuralKinds,
     limit: searchLimit,
     visibility: { project, client: args.client },
   });
@@ -1686,7 +1692,17 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     }
   }
 
-  const availableCount = results.length + (domainNote ? 1 : 0);
+  const availableCount = args.mode === 'compact'
+    ? repo.countHybridMatches(args.query, Boolean(queryEmbedding), {
+      kind: args.kind,
+      status: requestedStatus,
+      tags: args.tags,
+      lifecycle: args.lifecycle,
+      excludeStructuralKinds,
+      excludeId: domainNote?.id,
+      visibility: { project, client: args.client },
+    }) + (domainNote ? 1 : 0)
+    : results.length + (domainNote ? 1 : 0);
   if (args.mode === 'compact') {
     const reservedResultLimit = Math.max(0, requestedLimit - (domainNote ? 1 : 0));
     if (results.length > reservedResultLimit) results = results.slice(0, reservedResultLimit);
@@ -3309,7 +3325,7 @@ interface MineResult {
   hash: string;
   classification: MineClassification;
   rationale: string;
-  matches: Array<{ id: string; title: string; similarity?: number }>;
+  matches: Array<{ id: string; title: string; similarity?: number; expectedUpdatedAt: number }>;
   storedId?: string;
   error?: string;
 }
@@ -3440,7 +3456,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     if (embedding) {
       const vectorMatches = repo.searchVector(embedding, { limit: 5, visibility: { project, client: args.client } });
       const best = vectorMatches[0];
-      matches = vectorMatches.map(note => ({ id: note.id, title: note.title, similarity: note.similarity }));
+      matches = vectorMatches.map(note => ({ id: note.id, title: note.title, similarity: note.similarity, expectedUpdatedAt: note.updated_at }));
 
       if (best && best.similarity >= 0.85) {
         classification = 'SKIP';
@@ -3454,14 +3470,14 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
       if (simHashMatches.length > 0) {
         classification = 'SKIP';
         rationale = 'Similar to existing note by SimHash';
-        matches = simHashMatches.slice(0, 5).map(note => ({ id: note.id, title: note.title }));
+        matches = simHashMatches.slice(0, 5).map(note => ({ id: note.id, title: note.title, expectedUpdatedAt: note.updated_at }));
       } else {
         const query = [candidate.title, candidate.summary].filter(Boolean).join(' ');
         const ftsMatches = query.trim() ? repo.search(query, { limit: 5, visibility: { project, client: args.client } }) : [];
         if (ftsMatches.length > 0) {
           classification = 'REVIEW';
           rationale = 'Keyword overlap found (FTS5 fallback)';
-          matches = ftsMatches.map(note => ({ id: note.id, title: note.title }));
+          matches = ftsMatches.map(note => ({ id: note.id, title: note.title, expectedUpdatedAt: note.updated_at }));
         }
       }
     }
@@ -3528,15 +3544,19 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
         embeddingPromise: Promise.resolve(preparedEmbedding),
         suppressTelemetry: true,
       });
-      let review: { evidence?: { digest?: string }; createToken?: string; updateTokens?: Array<{ id: string; token: string }> };
+      let review: { evidence?: { digest?: string }; createToken?: string; updateTokens?: Array<{ id: string; expectedUpdatedAt: number; token: string }> };
       try {
         review = JSON.parse(preview) as typeof review;
       } catch {
         return { error: `Disposition for ${disposition.candidateKey} is invalid: ${preview}` };
       }
-      const token = disposition.action === 'store'
-        ? review.createToken
-        : review.updateTokens?.find(item => item.id === disposition.noteId)?.token;
+      const updateToken = disposition.action === 'update'
+        ? review.updateTokens?.find(item => item.id === disposition.noteId)
+        : undefined;
+      if (disposition.action === 'update' && updateToken?.expectedUpdatedAt !== disposition.expectedUpdatedAt) {
+        return { error: `Update disposition for ${disposition.candidateKey} has a stale expectedUpdatedAt.` };
+      }
+      const token = disposition.action === 'store' ? review.createToken : updateToken?.token;
       if (!token) return { error: `Disposition for ${disposition.candidateKey} cannot be confirmed against the current visible snapshot: ${preview}` };
       plan.push({
         candidateKey: disposition.candidateKey,
@@ -3647,7 +3667,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     output += `⮕ ${result.classification} — ${result.rationale}\n`;
     for (const match of result.matches) {
       const similarity = match.similarity != null ? ` (${match.similarity.toFixed(2)})` : '';
-      output += `  ↳ [${match.id}] "${match.title}"${similarity}\n`;
+      output += `  ↳ [${match.id}] "${match.title}"${similarity} | expectedUpdatedAt: ${match.expectedUpdatedAt}\n`;
     }
     if (result.storedId) {
       output += `  ✅ Stored as ${result.storedId}\n`;

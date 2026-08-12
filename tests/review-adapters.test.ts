@@ -102,7 +102,10 @@ describe('graph repository and maintain adapters', () => {
   it('resolves unindexed Markdown and directory-index Markdown as vault targets', async () => {
     fs.writeFileSync(path.join(ctx.tempDir, 'handbook.md'), '# Handbook\n');
     fs.mkdirSync(path.join(ctx.tempDir, 'guides'));
-    fs.writeFileSync(path.join(ctx.tempDir, 'guides', 'guides.md'), '# Guides\n');
+    fs.writeFileSync(
+      path.join(ctx.tempDir, 'guides', 'guides.md'),
+      '---\nBC-folder-note: true\n---\n\n# Guides\n',
+    );
 
     expect(ctx.engine.resolveContextualLink('handbook')).toEqual({ kind: 'vault-target' });
     expect(ctx.engine.resolveContextualLink('guides')).toEqual({ kind: 'vault-target' });
@@ -110,7 +113,10 @@ describe('graph repository and maintain adapters', () => {
 
     ctx.engine.store('See [[handbook]] and [[guides]].', { title: 'Source', kind: 'reference' });
     const output = await handleMaintain({ action: 'broken-links' }, ctx.engine, ctx.config);
-    expect(output).toContain('No broken wikilinks found');
+    // `handbook.md` is unindexed canonical Markdown, so the graph is incomplete,
+    // but neither target is ever reported as a broken wikilink.
+    expect(output).toContain('No broken wikilinks were confirmed');
+    expect(output).toContain('Parse failures: 1');
     expect(output).not.toContain('handbook');
     expect(output).not.toContain('guides');
   });

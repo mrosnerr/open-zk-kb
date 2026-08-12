@@ -2264,13 +2264,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     async function promptTelemetry(): Promise<{ enabled: boolean; share: boolean } | null> {
       if (dryRun) return null;
       if (noTelemetry) {
-        // Defaults are already disabled (enabled: false, share: false).
-        // Only need to write if config already exists and might have telemetry enabled.
-        const configPath = getConfigYamlPath();
-        if (fs.existsSync(configPath)) {
-          return { enabled: false, share: false };
-        }
-        return null;
+        return { enabled: false, share: false };
       }
       if (yes || !process.stdin.isTTY) {
         // Non-interactive: use config defaults
@@ -2314,13 +2308,18 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       }
     }
 
-    // Capture telemetry choice before install (prompt runs early)
+    // Capture telemetry choice before install (prompt runs early). Explicit
+    // opt-out takes effect immediately; only opt-in waits for successful installs.
     const telemetryChoice = await promptTelemetry();
+    const pendingTelemetryChoice = telemetryChoice?.enabled ? telemetryChoice : null;
+    if (telemetryChoice && !telemetryChoice.enabled) {
+      applyTelemetryChoice(telemetryChoice);
+    }
 
     // --- Single-client mode ---
     if (client) {
       const result = await installClient(client, { serverPath, transport, force, dryRun, instructionSize, yes });
-      applyTelemetryChoice(telemetryChoice);
+      applyTelemetryChoice(pendingTelemetryChoice);
       console.log(result.output);
       return;
     }
@@ -2331,7 +2330,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         const result = await installClient(c, { serverPath, transport, force, dryRun, instructionSize, yes: true });
         console.log(result.output);
       }
-      applyTelemetryChoice(telemetryChoice);
+      applyTelemetryChoice(pendingTelemetryChoice);
       return;
     }
 
@@ -2397,7 +2396,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     }
 
     // Persist telemetry choice only after all installs succeed
-    if (allInstallsSucceeded) applyTelemetryChoice(telemetryChoice);
+    if (allInstallsSucceeded) applyTelemetryChoice(pendingTelemetryChoice);
 
     // Offer to launch a CLI client to try out the knowledge base
     if (!dryRun) {
