@@ -257,6 +257,21 @@ describe('knowledge-mine: reviewed apply mode', () => {
     expect(ctx.engine.getStats()).toEqual(before);
   });
 
+  it('keeps reviewed disposition identity stable across object member insertion order', async () => {
+    const candidates = [makeCandidate({ title: 'Canonical Disposition' })];
+    const candidateKey = keys(await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config))[0];
+    const previewDispositions = [{ candidateKey, action: 'store' as const }];
+    const plan = json(await handleMine({ project: 'test-project', candidates, dispositions: previewDispositions }, ctx.engine, null, ctx.config));
+    const applyDispositions = [{ action: 'store' as const, candidateKey }];
+    const applied = await handleMine({
+      project: 'test-project', candidates, dispositions: applyDispositions, dry_run: false, confirm: true,
+      batchToken: plan.batchToken as string,
+    }, ctx.engine, null, ctx.config);
+
+    expect(applied).toContain('✅ Stored as');
+    expect(ctx.engine.search('Canonical Disposition').some(note => note.title === 'Canonical Disposition')).toBe(true);
+  });
+
   it('keeps reviewed candidate identity stable across object member insertion order', async () => {
     const candidate = makeCandidate({
       title: 'Canonical Candidate',

@@ -526,6 +526,10 @@ export function createMcpServer(): McpServer {
 
 // ---- Startup ----
 
+export function isSessionUploadEligible(share: boolean, doNotTrack = process.env.DO_NOT_TRACK): boolean {
+  return share && doNotTrack !== '1';
+}
+
 export async function startServer() {
   ensureShutdownHandlers();
   const server = createMcpServer();
@@ -552,7 +556,7 @@ export async function startServer() {
           clientInfo?.version ?? null,
           stats.total,
           version,
-          config.telemetry.share && !process.env.DO_NOT_TRACK,
+          isSessionUploadEligible(config.telemetry.share),
         );
         await reportPreviousSessions(r);
       } catch {

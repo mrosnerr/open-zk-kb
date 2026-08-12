@@ -76,26 +76,21 @@ export function evaluateDuplicates(
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([normalizedTitle, notes]) => ({ normalizedTitle, notes }));
 
-  const assigned = new Set<string>();
+  // Report each qualifying pair independently. A greedy assignment would hide
+  // non-transitive matches (A≈C and C≈B, while A≉B) from the audit evidence.
   const simhashGroups: SimHashGroup[] = [];
   for (let i = 0; i < snapshot.length; i++) {
     const seed = snapshot[i];
-    if (assigned.has(seed.note.id)) continue;
-    const members = [seed];
-    assigned.add(seed.note.id);
     for (let j = i + 1; j < snapshot.length; j++) {
       const candidate = snapshot[j];
-      if (!assigned.has(candidate.note.id) && hammingDistance(seed.hash, candidate.hash) <= threshold) {
-        members.push(candidate);
-        assigned.add(candidate.note.id);
+      const distance = hammingDistance(seed.hash, candidate.hash);
+      if (distance <= threshold) {
+        simhashGroups.push({
+          seedId: seed.note.id,
+          notes: [seed.note, candidate.note],
+          evidence: [{ noteId: candidate.note.id, distanceFromSeed: distance }],
+        });
       }
-    }
-    if (members.length > 1) {
-      simhashGroups.push({
-        seedId: seed.note.id,
-        notes: members.map(item => item.note),
-        evidence: members.slice(1).map(item => ({ noteId: item.note.id, distanceFromSeed: hammingDistance(seed.hash, item.hash) })),
-      });
     }
   }
 

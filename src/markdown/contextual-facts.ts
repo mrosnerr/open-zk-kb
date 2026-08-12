@@ -108,14 +108,19 @@ interface MarkdownAstNode {
  */
 export function extractContextualMarkdownFacts(source: string): ContextualMarkdownResult {
   try {
-    const tree = processor.parse(source) as MarkdownAstNode;
+    // A leading BOM is not Markdown content: remark's offsets are relative to
+    // the BOM-stripped text, so parse without it and shift every parser offset
+    // by `bomLength` to keep all ranges offsets into the original JS string.
+    const bomLength = source.charCodeAt(0) === 0xfeff ? 1 : 0;
+    const parseSource = bomLength === 0 ? source : source.slice(bomLength);
+    const tree = processor.parse(parseSource) as MarkdownAstNode;
     const toPosition = createPositionResolver(source);
 
     const textSegments: ContextualTextSegment[] = [];
     const wikilinks: ContextualWikiLink[] = [];
 
-    if (!hasUnterminatedLeadingFrontmatter(source, tree)) {
-      collectEligibleFacts(tree, source, toPosition, textSegments, wikilinks);
+    if (!hasUnterminatedLeadingFrontmatter(parseSource, tree)) {
+      collectEligibleFacts(tree, source, bomLength, toPosition, textSegments, wikilinks);
     }
 
     return Object.freeze({
@@ -141,8 +146,8 @@ export function extractContextualMarkdownFacts(source: string): ContextualMarkdo
  * source as ineligible through end-of-file rather than let unterminated
  * frontmatter fall through to ordinary paragraph text.
  */
-function hasUnterminatedLeadingFrontmatter(source: string, tree: MarkdownAstNode): boolean {
-  if (!LEADING_FRONTMATTER_FENCE.test(source)) return false;
+function hasUnterminatedLeadingFrontmatter(parseSource: string, tree: MarkdownAstNode): boolean {
+  if (!LEADING_FRONTMATTER_FENCE.test(parseSource)) return false;
   const first = tree.children?.[0];
   return !(first && first.type === 'yaml' && first.position?.start.offset === 0);
 }
@@ -159,30 +164,36 @@ function hasUnterminatedLeadingFrontmatter(source: string, tree: MarkdownAstNode
 function collectEligibleFacts(
   node: MarkdownAstNode,
   source: string,
+  bomLength: number,
   toPosition: PositionResolver,
   textSegments: ContextualTextSegment[],
   wikilinks: ContextualWikiLink[]
 ): void {
   if (node.type === 'text') {
-    const segment = buildTextSegment(node, source, toPosition);
+    const segment = buildTextSegment(node, source, bomLength, toPosition);
     textSegments.push(segment);
     scanWikilinksInSegment(segment, toPosition, wikilinks);
     return;
   }
   if (Array.isArray(node.children)) {
     for (const child of node.children) {
-      collectEligibleFacts(child, source, toPosition, textSegments, wikilinks);
+      collectEligibleFacts(child, source, bomLength, toPosition, textSegments, wikilinks);
     }
   }
 }
 
-function buildTextSegment(node: MarkdownAstNode, source: string, toPosition: PositionResolver): ContextualTextSegment {
+function buildTextSegment(
+  node: MarkdownAstNode,
+  source: string,
+  bomLength: number,
+  toPosition: PositionResolver
+): ContextualTextSegment {
   const position = node.position;
   if (typeof node.value !== 'string' || !position || position.start.offset === undefined || position.end.offset === undefined) {
     throw new Error('contextual-markdown-facts: text node missing value or source offsets');
   }
-  const startOffset = position.start.offset;
-  const endOffset = position.end.offset;
+  const startOffset = position.start.offset + bomLength;
+  const endOffset = position.end.offset + bomLength;
   const rawSource = source.slice(startOffset, endOffset);
   return Object.freeze({
     value: node.value,

@@ -18,7 +18,14 @@ import {
   buildPreferencesIndexContent,
 } from '../src/storage/IndexBuilder.js';
 import { buildReviewContent } from '../src/storage/ReviewBuilder.js';
-import type { NoteMetadata } from '../src/storage/NoteRepository.js';
+import { normalizeWikilinkPath, type NoteMetadata } from '../src/storage/NoteRepository.js';
+
+describe('Wikilink paths', () => {
+  it('normalizes simulated Windows separators', () => {
+    expect(normalizeWikilinkPath('projects\\open-zk-kb\\decisions\\note.md'))
+      .toBe('projects/open-zk-kb/decisions/note.md');
+  });
+});
 
 describe('Path Resolver', () => {
   const vault = '/vault';

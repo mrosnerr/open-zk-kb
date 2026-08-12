@@ -2382,6 +2382,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     // Show shared info once before per-client results
     p.log.info(color.dim(`Vault: ${getVaultPath()}`));
 
+    let allInstallsSucceeded = true;
     for (const c of selected) {
       try {
         // Selecting an already-installed client = implicit force (user chose to update it)
@@ -2389,13 +2390,14 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         const result = await installClient(c, { serverPath, transport, force: implicitForce, dryRun, instructionSize });
         logInstallResult(result);
       } catch (e) {
+        allInstallsSucceeded = false;
         p.log.error(`${CLIENT_CONFIGS[c].name}: ${e instanceof Error ? e.message : e}`);
         process.exitCode = 1;
       }
     }
 
     // Persist telemetry choice only after all installs succeed
-    applyTelemetryChoice(telemetryChoice);
+    if (allInstallsSucceeded) applyTelemetryChoice(telemetryChoice);
 
     // Offer to launch a CLI client to try out the knowledge base
     if (!dryRun) {

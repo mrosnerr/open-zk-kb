@@ -41,9 +41,10 @@ interface PromptCall {
 }
 
 /** Mutable control state shared with the mocked @clack/prompts module. */
-const promptState: { answer: boolean | symbol; calls: PromptCall[] } = {
+const promptState: { answer: boolean | symbol; calls: PromptCall[]; selected: string[] } = {
   answer: true,
   calls: [],
+  selected: [],
 };
 
 function installClackMock(): void {
@@ -57,7 +58,7 @@ function installClackMock(): void {
     intro: () => {},
     outro: () => {},
     log: { info: () => {}, warn: () => {}, success: () => {}, error: () => {}, message: () => {} },
-    groupMultiselect: async () => [],
+    groupMultiselect: async () => promptState.selected,
     select: async () => 'skip',
     text: async () => '',
   }));
@@ -156,6 +157,7 @@ describe('setup telemetry consent (install prompt)', () => {
     tempDirs.push(env.rootDir);
     promptState.answer = true;
     promptState.calls = [];
+    promptState.selected = [];
     // config.ts caches the parsed YAML; drop it so this test's fresh env is read.
     _resetConfigCache();
   });
@@ -227,6 +229,31 @@ describe('setup telemetry consent (install prompt)', () => {
     expect(promptState.calls).toHaveLength(1);
     expect(promptState.calls[0].initialValue).toBe(true);
     expect(fs.existsSync(openZkConfigPath(env))).toBe(false);
+  });
+
+  it('does not persist acceptance when one selected install succeeds and another fails', async () => {
+    installClackMock();
+    setStdinTTY(true);
+    promptState.answer = true;
+    promptState.selected = ['opencode', 'cursor'];
+
+    const cursorConfigPath = path.join(env.homeDir, '.cursor', 'mcp.json');
+    fs.mkdirSync(path.dirname(cursorConfigPath), { recursive: true });
+    fs.writeFileSync(cursorConfigPath, '{ invalid json', 'utf-8');
+
+    const setup = await loadFreshSetupModule();
+    const previousExitCode = process.exitCode;
+    try {
+      await setup.runSetupCli(['install', '--server-path', env.fakeServerPath]);
+
+      expect(fs.existsSync(path.join(env.xdgConfigHome, 'opencode', 'opencode.json'))).toBe(true);
+      expect(fs.readFileSync(cursorConfigPath, 'utf-8')).toBe('{ invalid json');
+      expect(fs.readFileSync(openZkConfigPath(env), 'utf-8')).toBe(
+        fs.readFileSync(EXAMPLE_CONFIG_PATH, 'utf-8'),
+      );
+    } finally {
+      process.exitCode = previousExitCode ?? 0;
+    }
   });
 
   // ── 3.2 Decline and cancellation preserve safe defaults ──

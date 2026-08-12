@@ -81,6 +81,15 @@ describe('contextual Markdown facts', () => {
     expect(facts('---\nmeta: [[1000000000000001]]\nbody [[1000000000000002]]').wikilinks).toEqual([]);
   });
 
+  it('keeps ranges aligned with the original source across a leading BOM', () => {
+    const source = '\uFEFF---\nkey: "[[1000000000000001]]"\n---\nbody [[1000000000000002]]';
+    const result = facts(source);
+    expect(result.wikilinks.map(link => link.id)).toEqual(['1000000000000002']);
+    expect(result.wikilinks[0]?.range.start.offset).toBe(source.indexOf('[[1000000000000002]]'));
+    expect(result.textSegments[0]?.rawSource).toBe('body [[1000000000000002]]');
+    expect(facts('\uFEFF---\nmeta: [[1000000000000001]]\nbody [[1000000000000002]]').wikilinks).toEqual([]);
+  });
+
   it('keeps repeated links distinct, respects node boundaries, and handles escaped openings', () => {
     const source = String.raw`[[1000000000000001]] [[1000000000000001]] \[[1000000000000002]] \\[[1000000000000003]] [[broken *across]]*`;
     expect(facts(source).wikilinks.map(link => link.id)).toEqual([

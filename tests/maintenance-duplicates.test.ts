@@ -1,5 +1,5 @@
-import { createHash } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { createHash } from 'node:crypto';
 import { evaluateDuplicates, normalizeComparableTitle } from '../src/maintenance/duplicates.js';
 import type { NoteMetadata } from '../src/storage/NoteRepository.js';
 import { handleMaintain } from '../src/tool-handlers.js';
@@ -37,6 +37,20 @@ describe('duplicate audit evaluation', () => {
     expect(evaluation.simhashGroups).toHaveLength(1);
     expect(evaluation.simhashGroups[0].notes.map(item => item.id)).toEqual([stored.id, ephemeral.id]);
     expect(evaluation.simhashGroups[0].evidence).toEqual([{ noteId: ephemeral.id, distanceFromSeed: 0 }]);
+  });
+
+  it('reports every qualifying SimHash pair, including non-transitive matches', () => {
+    const a = note(1, { id: 'A', content_hash: '0000000000000000' });
+    const c = note(2, { id: 'C', content_hash: '0000000000000001' });
+    const b = note(3, { id: 'B', content_hash: '0000000000000003' });
+
+    const evaluation = evaluateDuplicates([b, c, a], 1);
+
+    expect(evaluation.simhashGroups.map(group => [group.seedId, group.notes[1].id])).toEqual([
+      ['A', 'C'],
+      ['B', 'C'],
+    ]);
+    expect(evaluation.simhashGroups.every(group => group.evidence[0].distanceFromSeed === 1)).toBe(true);
   });
 
   it('evaluates more than 500 unhashed notes completely and repeatably', () => {

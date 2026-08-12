@@ -3498,7 +3498,14 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
         ? review.createToken
         : review.updateTokens?.find(item => item.id === disposition.noteId)?.token;
       if (!token) return { error: `Disposition for ${disposition.candidateKey} cannot be confirmed against the current visible snapshot: ${preview}` };
-      plan.push({ ...disposition, token, evidenceDigest: review.evidence?.digest });
+      plan.push({
+        candidateKey: disposition.candidateKey,
+        action: disposition.action,
+        noteId: disposition.noteId,
+        expectedUpdatedAt: disposition.expectedUpdatedAt,
+        token,
+        evidenceDigest: review.evidence?.digest,
+      });
     }
     const batchToken = createHash('sha256').update(JSON.stringify({ batchHash, plan })).digest('hex');
     return { plan, batchToken };

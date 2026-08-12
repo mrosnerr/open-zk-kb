@@ -33,6 +33,10 @@ import { normalizeScreeningTitle, type ScreeningSnapshot } from '../reviewed-sto
 import { normalizeComparableTitle } from '../maintenance/duplicates.js';
 import { TOOL_DEFINITIONS } from '../tool-meta.js';
 
+export function normalizeWikilinkPath(relativePath: string): string {
+  return relativePath.replace(/\\/g, '/');
+}
+
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
     super(message);
@@ -605,7 +609,7 @@ export class NoteRepository {
   private renderRelationLink(id: string): string {
     const note = this.getById(id);
     if (!note) return `[[${id}]]`;
-    const relativePath = path.relative(this.docsPath, note.path).replace(/\.md$/, '');
+    const relativePath = normalizeWikilinkPath(path.relative(this.docsPath, note.path)).replace(/\.md$/, '');
     return `[[${relativePath}|${note.title}]]`;
   }
 
@@ -3471,7 +3475,7 @@ export class NoteRepository {
     // Authored content, including any unmarked authored "## Related" section, is
     // never edited. Only the trailing marked generated section is rewritten.
     const authoredContent = stripGeneratedRelatedSection(originalContent);
-    const globalRelativePath = path.relative(this.docsPath, globalNote.path).replace(/\.md$/, '');
+    const globalRelativePath = normalizeWikilinkPath(path.relative(this.docsPath, globalNote.path)).replace(/\.md$/, '');
     const hasAuthoredRelation = parseAllWikiLinks(authoredContent)
       .some(link => link.slug === globalRelativePath || link.slug === globalNote.id);
     if (hasAuthoredRelation) return;
