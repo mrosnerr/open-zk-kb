@@ -348,6 +348,7 @@ export class NoteRepository {
   private canonicalMetadataVaultKey: string | undefined;
 
   constructor(docsPath: string = '~/.local/share/open-zk-kb', options: { telemetryEnabled?: boolean; readonly?: boolean } = {}) {
+    let attachedSharedState = false;
     try {
       const isReadonly = options.readonly === true;
 
@@ -364,17 +365,25 @@ export class NoteRepository {
         );
       }
 
-      this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
-
       if (isReadonly) {
+        // Resolve aliases before deriving either the database or durable-baseline path.
+        this.docsPath = fs.realpathSync(this.docsPath);
+        this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
         if (!fs.existsSync(this.dbPath)) {
           throw new Error(`Database not found at ${this.dbPath} — vault may not be initialized`);
         }
         this.db = new Database(this.dbPath, { readonly: true });
         this.schemaManager = new SchemaManager(this.db);
+        this.attachCanonicalMetadataState();
+        attachedSharedState = true;
+        this.refreshIndexedCanonicalMetadata(false, true);
         return;
       }
 
+      // A writable vault must exist before realpath canonicalization.
+      if (!fs.existsSync(this.docsPath)) fs.mkdirSync(this.docsPath, { recursive: true });
+      this.docsPath = fs.realpathSync(this.docsPath);
+      this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
       const dbDir = path.dirname(this.dbPath);
 
       try {
@@ -407,38 +416,48 @@ export class NoteRepository {
         );
       }
 
-      // Resolve only after creation so aliases of the same vault share baseline state.
-      this.docsPath = fs.realpathSync(this.docsPath);
-      this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
-      const vaultKey = this.docsPath;
       this.db = new Database(this.dbPath);
       this.db.run('PRAGMA journal_mode = WAL');
 
       this.schemaManager = new SchemaManager(this.db);
+      this.attachCanonicalMetadataState();
+      attachedSharedState = true;
       this.initializeSchema();
-      const sharedMetadata = canonicalMetadataByVault.get(vaultKey);
-      if (sharedMetadata) {
-        this.indexedCanonicalMetadata = sharedMetadata.baselines;
-        sharedMetadata.references++;
-        this.baselineState = sharedMetadata;
-      } else {
-        const state: CanonicalMetadataVault = {
-          baselines: this.indexedCanonicalMetadata,
-          references: 1,
-          baselineUnavailable: false,
-        };
-        this.baselineState = state;
-        this.refreshIndexedCanonicalMetadata();
-        canonicalMetadataByVault.set(vaultKey, state);
-      }
-      this.canonicalMetadataVaultKey = vaultKey;
+      this.refreshIndexedCanonicalMetadata();
     } catch (error) {
+      const openedDb = Reflect.get(this, 'db') as Database | undefined;
+      if (openedDb) {
+        try { openedDb.close(); } catch { /* best effort */ }
+      }
+      if (attachedSharedState) this.detachCanonicalMetadataState();
       logToFile('ERROR', 'Constructor failed', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
       throw error;
     }
+  }
+
+  private attachCanonicalMetadataState(): void {
+    const vaultKey = this.docsPath;
+    let state = canonicalMetadataByVault.get(vaultKey);
+    if (state) {
+      state.references++;
+      this.indexedCanonicalMetadata = state.baselines;
+    } else {
+      state = { baselines: this.indexedCanonicalMetadata, references: 1, baselineUnavailable: false };
+      canonicalMetadataByVault.set(vaultKey, state);
+    }
+    this.baselineState = state;
+    this.canonicalMetadataVaultKey = vaultKey;
+  }
+
+  private detachCanonicalMetadataState(): void {
+    if (!this.canonicalMetadataVaultKey) return;
+    const state = canonicalMetadataByVault.get(this.canonicalMetadataVaultKey);
+    if (state && --state.references === 0) canonicalMetadataByVault.delete(this.canonicalMetadataVaultKey);
+    this.canonicalMetadataVaultKey = undefined;
+    this.baselineState = undefined;
   }
 
   private canonicalMetadata(filePath: string): string | undefined {
@@ -498,16 +517,22 @@ export class NoteRepository {
     this.indexedCanonicalMetadata.delete(filePath);
   }
 
-  private refreshIndexedCanonicalMetadata(rebaseline = false): void {
+  private refreshIndexedCanonicalMetadata(rebaseline = false, readonly = false): void {
     if (rebaseline && this.baselineState) this.baselineState.baselineUnavailable = false;
     this.indexedCanonicalMetadata.clear();
     const baselineDir = path.join(this.docsPath, '.index', 'canonical-baselines');
     const initializedPath = path.join(baselineDir, '.initialized');
     const initialized = fs.existsSync(initializedPath);
     const rows = this.db.prepare('SELECT path, updated_at FROM notes').all() as Array<{ path: string; updated_at: number }>;
+    // An upgraded populated index has no trustworthy historical bytes. Only an
+    // explicit rebuild may establish its first durable baseline.
+    if (!initialized && rows.length > 0 && !rebaseline) {
+      this.markBaselineUnavailable('bootstrap');
+      return;
+    }
     for (const row of rows) {
       const baselinePath = this.canonicalBaselinePath(row.path);
-      if (rebaseline || (!initialized && !fs.existsSync(baselinePath))) {
+      if (rebaseline) {
         this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
         continue;
       }
@@ -519,6 +544,7 @@ export class NoteRepository {
         this.markBaselineUnavailable('read', row.path);
       }
     }
+    if (readonly) return;
     try {
       fs.mkdirSync(baselineDir, { recursive: true });
       fs.writeFileSync(initializedPath, '', { encoding: 'utf8', mode: 0o600, flag: 'a' });
@@ -1455,11 +1481,16 @@ export class NoteRepository {
         WHERE status != 'archived' AND kind NOT IN ('index', 'log')${scope.sql}
         ORDER BY id ASC
       `).all(...scope.params) as ScreeningRow[];
+      const driftRows = this.db.prepare(`
+        SELECT path, updated_at FROM notes
+        WHERE kind NOT IN ('index', 'log')
+        ORDER BY id ASC
+      `).all() as Array<{ path: string; updated_at: number }>;
       const links = this.db.prepare(`
         SELECT source_id, target_id FROM note_links ORDER BY source_id, target_id
       `).all() as Array<{ source_id: string; target_id: string }>;
       const schemaVersion = (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
-      return { rows, links, schemaVersion };
+      return { rows, driftRows, links, schemaVersion };
     });
     const copied = withBusyRetry(read);
     const visibleIds = new Set(copied.rows.map(row => row.id));
@@ -1473,7 +1504,7 @@ export class NoteRepository {
     // Evaluate every row so baselines rebaseline deterministically: a short-circuiting
     // predicate would leave later rows unbaselined once one row already drifted.
     let canonicalDrift = this.baselineState?.baselineUnavailable === true;
-    for (const row of copied.rows) {
+    for (const row of copied.driftRows) {
       const baseline = this.indexedCanonicalMetadata.get(row.path);
       if (baseline?.indexedVersion !== row.updated_at) {
         // Another exact writer (including another process) may have advanced
@@ -3616,13 +3647,7 @@ export class NoteRepository {
     if (this._closed) return;
     this._closed = true;
     this.db.close();
-    if (this.canonicalMetadataVaultKey) {
-      const sharedMetadata = canonicalMetadataByVault.get(this.canonicalMetadataVaultKey);
-      if (sharedMetadata && --sharedMetadata.references === 0) {
-        canonicalMetadataByVault.delete(this.canonicalMetadataVaultKey);
-      }
-      this.canonicalMetadataVaultKey = undefined;
-    }
+    this.detachCanonicalMetadataState();
   }
 
   // ---- Global scope helpers ----

@@ -135,6 +135,45 @@ describe('reviewed storage screening', () => {
     expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
   });
 
+  it('fails closed when a populated legacy index has no durable baseline until rebuild', () => {
+    ctx.engine.store('legacy indexed content', { title: 'Legacy', tags: ['project:demo'] });
+    ctx.engine.close();
+    fs.rmSync(path.join(ctx.tempDir, '.index', 'canonical-baselines'), { recursive: true, force: true });
+    ctx.engine = new NoteRepository(ctx.tempDir, { telemetryEnabled: false });
+
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(true);
+    expect(ctx.engine.rebuildFromFiles().errors).toBe(0);
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+  });
+
+  it('detects external edits to archived or out-of-scope notes without exposing them', () => {
+    const hidden = ctx.engine.store('hidden content', { title: 'Hidden', tags: ['project:other'] });
+    const archived = ctx.engine.store('archived content', { title: 'Archived', tags: ['project:demo'], status: 'archived' });
+    fs.appendFileSync(hidden.path, '\nexternal scope edit');
+    fs.appendFileSync(archived.path, '\nexternal archived edit');
+
+    const snapshot = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    expect(snapshot.notes).toEqual([]);
+    expect(snapshot.canonicalDrift).toBe(true);
+  });
+
+  it('loads durable baselines through a readonly symlink without writing', () => {
+    ctx.engine.store('readonly content', { title: 'Readonly', tags: ['project:demo'] });
+    const aliasPath = `${ctx.tempDir}-readonly-alias`;
+    fs.symlinkSync(ctx.tempDir, aliasPath, 'dir');
+    const initialized = path.join(ctx.tempDir, '.index', 'canonical-baselines', '.initialized');
+    const before = fs.statSync(initialized).mtimeMs;
+    let readonly: NoteRepository | undefined;
+    try {
+      readonly = new NoteRepository(aliasPath, { readonly: true });
+      expect(readonly.getScreeningSnapshot({ project: 'demo' }).canonicalDrift).toBe(false);
+      expect(fs.statSync(initialized).mtimeMs).toBe(before);
+    } finally {
+      readonly?.close();
+      fs.rmSync(aliasPath, { force: true });
+    }
+  });
+
   it('reports an external canonical edit when the indexed version is unchanged', () => {
     const stored = ctx.engine.store('original content', { title: 'External', tags: ['project:demo'] });
     fs.appendFileSync(stored.path, '\nexternal edit');
