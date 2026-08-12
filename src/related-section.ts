@@ -28,7 +28,7 @@ export function renderGeneratedRelatedSection(links: string[]): string {
 /** True when the section body was produced by this system. */
 export function isGeneratedRelatedBody(body: string): boolean {
   const firstLine = body.split('\n', 1)[0];
-  return firstLine === GENERATED_RELATED_MARKER;
+  return /^<!-- zk:related -->[ \t]*$/u.test(firstLine);
 }
 
 /**

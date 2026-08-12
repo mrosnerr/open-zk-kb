@@ -629,12 +629,14 @@ export class NoteRepository {
     const contentChunks: string[] = [];
     const sections: Record<string, string> = {};
 
-    for (const chunk of chunks) {
+    for (const [index, chunk] of chunks.entries()) {
       const headingMatch = chunk.match(/^## ([^\n]+)\n\n?([\s\S]*)/);
-      // An unmarked "## Related" section is authored content, so it stays in the
-      // content chunks and round-trips verbatim through rewrites.
-      if (headingMatch && this.isManagedSection(headingMatch[1].trim(), headingMatch[2].trim())) {
-        sections[headingMatch[1].trim()] = headingMatch[2].trim();
+      const heading = headingMatch ? headingMatch[1].trim() : '';
+      const isNonTrailingRelated = heading === 'Related' && index !== chunks.length - 1;
+      // An unmarked or non-trailing "## Related" section is authored content, so
+      // it stays in the content chunks and round-trips verbatim through rewrites.
+      if (headingMatch && !isNonTrailingRelated && this.isManagedSection(heading, headingMatch[2].trim())) {
+        sections[heading] = headingMatch[2].trim();
       } else {
         contentChunks.push(chunk);
       }
@@ -1461,6 +1463,31 @@ export class NoteRepository {
   updateContentHash(noteId: string, hash: string): void {
     this.withKnowledgeMutationLock(() => {
       this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(hash, noteId);
+    });
+  }
+
+  /** Persist semantic metadata only if the note still has the expected source. */
+  persistSemanticMetadataIfCurrent(
+    noteId: string,
+    expected: { title: string; summary: string; content: string },
+    contentHash: string,
+    embedding?: { values: number[]; model: string },
+  ): boolean {
+    return this.withKnowledgeMutationLock(() => {
+      const current = this.db.prepare(
+        'SELECT title, summary, content FROM notes WHERE id = ?',
+      ).get(noteId) as { title: string; summary: string | null; content: string } | undefined;
+      if (!current || computeEmbeddingSourceHash(current.title, current.summary || '', current.content)
+        !== computeEmbeddingSourceHash(expected.title, expected.summary || '', expected.content)) return false;
+
+      if (embedding) {
+        this.db.prepare(
+          'UPDATE notes SET content_hash = ?, embedding = ?, embedding_model = ? WHERE id = ?',
+        ).run(contentHash, embeddingToBlob(embedding.values), embedding.model, noteId);
+      } else {
+        this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(contentHash, noteId);
+      }
+      return true;
     });
   }
 

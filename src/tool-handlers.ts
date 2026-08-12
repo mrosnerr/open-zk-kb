@@ -23,7 +23,7 @@ function toLifecycle(lifecycle: string | undefined, fallback: Lifecycle): Lifecy
   return fallback;
 }
 import type { KnowledgeMutationContext, NoteRepository, NoteMetadata, StoreResult } from './storage/NoteRepository.js';
-import { extractWikiLinks, formatWikiLink } from './utils/wikilink.js';
+import { extractWikiLinks } from './utils/wikilink.js';
 import { renderNoteForSearch, renderNoteForAgent, computeStaleness } from './prompts.js';
 import { buildIndexContent, buildGlobalIndexContent, buildProjectsIndexContent, buildGeneralIndexContent, buildPreferencesIndexContent, buildGeneralKindIndexContent } from './storage/IndexBuilder.js';
 import { buildLogEntry, buildInitialLogContent, appendToLogContent, buildGlobalLogEntry, buildInitialGlobalLogContent, migrateGlobalLogContent } from './storage/LogAppender.js';
@@ -43,7 +43,7 @@ import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
 import { evaluateScreeningCandidate, reviewedOperationToken, reviewedOperationTokens, reviewedUpdateCandidate, screeningEvidenceDigest, targetFirstComparator, type ScreeningCandidate } from './reviewed-storage.js';
-import { extractGeneratedRelatedIds, renderGeneratedRelatedSection, stripGeneratedRelatedSection } from './related-section.js';
+import { extractGeneratedRelatedIds, stripGeneratedRelatedSection } from './related-section.js';
 import { evaluateDuplicates } from './maintenance/duplicates.js';
 import type { EmbeddingConfig, EmbeddingResult } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
@@ -1149,7 +1149,9 @@ async function persistSemanticMetadata(
   // Semantic metadata writes queue behind any in-flight knowledge mutation instead
   // of failing fast, so ordinary contention never discards a hash or embedding.
   const hash = computeSimHash(note.summary || note.content || note.title);
-  await repo.withKnowledgeMutationLockAsync(async () => { repo.updateContentHash(noteId, hash); });
+  await repo.withKnowledgeMutationLockAsync(async () => {
+    repo.persistSemanticMetadataIfCurrent(noteId, note, hash);
+  });
   if (!embeddingConfig) return null;
 
   const embeddingPromise = existingPromise ?? generateEmbedding(buildEmbeddingText(note.title, note.summary, note.content), embeddingConfig);
@@ -1162,13 +1164,22 @@ async function persistSemanticMetadata(
         new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), backgroundAfterMs); }),
       ]);
     if (result) {
-      await repo.withKnowledgeMutationLockAsync(async () => { repo.storeEmbedding(noteId, result.embedding, result.model); });
-      return result.embedding;
+      const persisted = await repo.withKnowledgeMutationLockAsync(async () =>
+        repo.persistSemanticMetadataIfCurrent(noteId, note, hash, {
+          values: result.embedding,
+          model: result.model,
+        }));
+      return persisted ? result.embedding : null;
     }
     if (backgroundAfterMs !== undefined) {
       void embeddingPromise.then(async slowResult => {
         if (slowResult) {
-          await repo.withKnowledgeMutationLockAsync(async () => { repo.storeEmbedding(noteId, slowResult.embedding, slowResult.model); });
+          await repo.withKnowledgeMutationLockAsync(async () => {
+            repo.persistSemanticMetadataIfCurrent(noteId, note, hash, {
+              values: slowResult.embedding,
+              model: slowResult.model,
+            });
+          });
         }
       }).catch(error => {
         logToFile('WARN', 'Background embedding generation failed', {
@@ -1274,23 +1285,10 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     ?? (preflightTarget
       ? repo.getGeneratedRelatedIds(preflightTarget.id)
       : extractGeneratedRelatedIds(args.content)))];
-  let content = stripGeneratedRelatedSection(args.content);
-  if (effectiveRelated.length > 0) {
-    const relatedNotes = effectiveRelated.map(id => repo.getByIdVisible(id, { project, client: resolvedClient || undefined }));
-    // Explicit relations are boundary input and must resolve visibly. Inherited
-    // generated relations may be temporarily unresolved or unreadable, so retain
-    // their bare IDs rather than making an unrelated update fail.
-    if (explicitRelated) {
-      const hiddenIndex = relatedNotes.indexOf(null);
-      if (hiddenIndex >= 0) {
-        return `Error: Related note not found or not visible: ${effectiveRelated[hiddenIndex]}`;
-      }
-    }
-    const links = effectiveRelated.map((id, index) => {
-      const existing = relatedNotes[index];
-      return formatWikiLink({ id, display: existing?.title });
-    });
-    content += `\n\n${renderGeneratedRelatedSection(links)}`;
+  const content = stripGeneratedRelatedSection(args.content);
+  if (explicitRelated) {
+    const hiddenId = effectiveRelated.find(id => !repo.getByIdVisible(id, { project, client: resolvedClient || undefined }));
+    if (hiddenId) return `Error: Related note not found or not visible: ${hiddenId}`;
   }
 
   const titleCheck = titleWarning(args.title);
@@ -1441,7 +1439,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         if (args.token !== expected) throw new Error('Reviewed update token is stale or bound to another target; reconcile with a fresh preview.');
         existingId = target.id;
       }
-      return context.store(content, { title: args.title, kind: updateKind, status: effectiveStatus, lifecycle: effectiveLifecycle, tags, summary: args.summary, guidance: args.guidance, existingId });
+      return context.store(content, { title: args.title, kind: updateKind, status: effectiveStatus, lifecycle: effectiveLifecycle, tags, summary: args.summary, guidance: args.guidance, existingId, related: effectiveRelated });
   };
   try {
     result = lockedContext
@@ -1464,7 +1462,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   const noteEmbedding = await persistSemanticMetadata(result.id, {
     title: args.title,
     summary: args.summary,
-    content: args.content,
+    content,
   }, repo, embeddingConfig, 500, candidateEmbeddingPromise);
 
   const relatedConfig = config?.store?.relatedNotes;

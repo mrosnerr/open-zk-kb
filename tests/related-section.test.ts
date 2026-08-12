@@ -24,6 +24,8 @@ describe('generated Related sections', () => {
     expect(extractGeneratedRelatedIds(authored)).toEqual([]);
     expect(isGeneratedRelatedBody('- [[2026081217215033]]')).toBe(false);
     expect(isGeneratedRelatedBody(`${GENERATED_RELATED_MARKER} forged`)).toBe(false);
+    expect(isGeneratedRelatedBody(`${GENERATED_RELATED_MARKER} \t\n- [[2026081217215033]]`)).toBe(true);
+    expect(isGeneratedRelatedBody(`${GENERATED_RELATED_MARKER}\u00a0\n- [[2026081217215033]]`)).toBe(false);
   });
 
   it('strips only the trailing marked section and leaves earlier authored ones', () => {

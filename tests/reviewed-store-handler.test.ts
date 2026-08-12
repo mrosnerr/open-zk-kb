@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { NoteRepository } from '../src/storage/NoteRepository.js';
 import { handleGet, handleStore, type StoreArgs } from '../src/tool-handlers.js';
-import { extractGeneratedRelatedIds, renderGeneratedRelatedSection } from '../src/related-section.js';
+import { computeSimHash } from '../src/utils/simhash.js';
 import { evaluateScreeningCandidate, reviewedOperationTokens, reviewedUpdateCandidate, type ScreeningCandidate } from '../src/reviewed-storage.js';
 import { cleanupTestHarness, createTestHarness, listAllNoteFiles, type TestContext } from './harness.js';
 
@@ -139,7 +139,10 @@ describe('reviewed knowledge-store handler', () => {
     expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes.find(note => note.id === id)?.related).toEqual([relatedId]);
     expect(updated?.created_at).toBe(target?.created_at);
     expect(updated?.path).toBe(target?.path);
-    expect(updated?.content.match(/## Related/g)?.length).toBe(1);
+    expect(updated?.content).not.toContain('## Related');
+    const canonical = fs.readFileSync(getNote(ctx, id).path, 'utf-8');
+    expect(canonical.match(/<!-- zk:related -->/g)).toHaveLength(1);
+    expect(canonical.match(/^## Related$/gm)).toHaveLength(1);
   });
 
   it('strips generated Related sections for append-only content at the start or after body text', async () => {
@@ -151,7 +154,10 @@ describe('reviewed knowledge-store handler', () => {
       const preview = parsed(await handleStore(candidate, ctx.engine, null, ctx.config));
       const token = (preview.updateTokens as Array<{ token: string }>).find(item => item.id === note.id)?.token;
       expect(await handleStore({ ...candidate, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config)).toContain('Updated reference');
-      expect(ctx.engine.getById(note.id)?.content.match(/## Related/g)?.length).toBe(1);
+      expect(ctx.engine.getGeneratedRelatedIds(note.id)).toEqual([linked.id]);
+      const canonical = fs.readFileSync(getNote(ctx, note.id).path, 'utf-8');
+      expect(canonical.match(/<!-- zk:related -->/g)).toHaveLength(1);
+      expect(canonical.match(/^## Related$/gm)).toHaveLength(1);
     }
   });
 
@@ -184,7 +190,7 @@ describe('reviewed knowledge-store handler', () => {
       status: target.status,
       lifecycle: target.lifecycle,
       tags: [...target.tags],
-      related: extractGeneratedRelatedIds(target.content),
+      related: ctx.engine.getGeneratedRelatedIds(target.id),
     };
     const helper = reviewedOperationTokens({
       candidate,
@@ -210,10 +216,11 @@ describe('reviewed knowledge-store handler', () => {
   it('preserves unresolved inherited generated relations but rejects them when explicit', async () => {
     const unresolvedId = '2026081217215099';
     const inlineId = '2026081217215098';
-    const content = `body with authored [[${inlineId}|inline link]]\n\n${renderGeneratedRelatedSection([`[[${unresolvedId}]]`])}`;
+    const content = `body with authored [[${inlineId}|inline link]]`;
     const stored = ctx.engine.store(content, {
       title: 'Inherited unresolved relation', kind: 'reference', status: 'fleeting', lifecycle: 'living',
       tags: ['project:demo'], summary: 'Inherited relation summary.', guidance: 'Keep inherited relation.',
+      related: [unresolvedId],
     });
     const target = getNote(ctx, stored.id);
     const updateArgs = args({
@@ -231,11 +238,12 @@ describe('reviewed knowledge-store handler', () => {
     expect(await handleStore({ ...updateArgs, dryRun: false, confirm: true, token }, ctx.engine, null, ctx.config)).toContain('Updated reference');
 
     const updated = getNote(ctx, target.id);
-    expect(extractGeneratedRelatedIds(updated.content)).toEqual([unresolvedId]);
-    expect(updated.content).toContain(`- [[${unresolvedId}]]`);
+    expect(ctx.engine.getGeneratedRelatedIds(updated.id)).toEqual([unresolvedId]);
     expect(updated.content).toContain(`[[${inlineId}|inline link]]`);
-    expect(extractGeneratedRelatedIds(updated.content)).not.toContain(inlineId);
-    expect(updated.content.match(/<!-- zk:related -->/g)).toHaveLength(1);
+    expect(updated.content).not.toContain(unresolvedId);
+    const canonical = fs.readFileSync(updated.path, 'utf-8');
+    expect(canonical).toContain(`- [[${unresolvedId}]]`);
+    expect(canonical.match(/<!-- zk:related -->/g)).toHaveLength(1);
 
     const rejected = await handleStore({ ...updateArgs, related: [unresolvedId], expectedUpdatedAt: updated.updated_at }, ctx.engine, null, ctx.config);
     expect(rejected).toContain(`Related note not found or not visible: ${unresolvedId}`);
@@ -274,12 +282,11 @@ describe('reviewed knowledge-store handler', () => {
     const rendered = handleGet({ noteId: id, project: 'demo' }, ctx.engine);
     const fetchedContent = /<content>([\s\S]*?)<\/content>/.exec(rendered)?.[1];
     if (!fetchedContent) throw new Error(`Expected content in: ${rendered}`);
-    expect(fetchedContent).toContain('## Related');
+    expect(fetchedContent).not.toContain('## Related');
 
-    // Agents resubmit fetched content verbatim, or extend the body above the
-    // generated trailing Related section; both must stay single-sectioned.
-    const body = fetchedContent.split('\n\n## Related\n')[0];
-    const extended = fetchedContent.replace(body, `${body}\n\nadded round trip line`);
+    // Managed relations are omitted from returned content, but omitting `related`
+    // on a verbatim or extended round trip preserves them from the canonical file.
+    const extended = `${fetchedContent}\n\nadded round trip line`;
     for (const content of [fetchedContent, extended]) {
       const current = getNote(ctx, id);
       const roundTripArgs = args({
@@ -293,7 +300,10 @@ describe('reviewed knowledge-store handler', () => {
       const roundTripPreview = parsed(await handleStore(roundTripArgs, ctx.engine, null, ctx.config));
       const roundTripToken = (roundTripPreview.updateTokens as Array<{ id: string; token: string }>).find(item => item.id === id)?.token;
       expect(await handleStore({ ...roundTripArgs, dryRun: false, confirm: true, token: roundTripToken }, ctx.engine, null, ctx.config)).toContain('Updated reference');
-      expect(ctx.engine.getById(id)?.content.match(/## Related/g)?.length).toBe(1);
+      expect(ctx.engine.getGeneratedRelatedIds(id)).toEqual([relatedId]);
+      const canonical = fs.readFileSync(getNote(ctx, id).path, 'utf-8');
+      expect(canonical.match(/<!-- zk:related -->/g)).toHaveLength(1);
+      expect(canonical.match(/^## Related$/gm)).toHaveLength(1);
     }
 
     expect(ctx.engine.getById(id)?.content).toContain('added round trip line');
@@ -434,6 +444,37 @@ describe('reviewed knowledge-store handler', () => {
       await holder;
       second.close();
     }
+  });
+
+  it('persists semantic metadata for normalized content while keeping submitted managed relations canonical', async () => {
+    const authoredContent = 'durable canonical content';
+    const relatedId = '2026081217215099';
+    const submittedContent = `${authoredContent}
+
+## Related
+
+<!-- zk:related -->
+- [[${relatedId}]]`;
+    const embedding = [0.1, 0.2, 0.3];
+    const output = await handleStore(
+      args({ content: submittedContent, summary: '' }),
+      ctx.engine,
+      { provider: 'api', baseUrl: 'https://api.example.com/v1', apiKey: 'test', model: 'test-model', dimensions: 3 },
+      ctx.config,
+      undefined,
+      undefined,
+      { embeddingPromise: Promise.resolve({ embedding, model: 'test-model', tokenCount: 3 }) },
+    );
+    const id = storedId(output);
+
+    expect(getNote(ctx, id).content).toBe(authoredContent);
+    expect(ctx.engine.getAllContentHashes().find(item => item.id === id)?.hash).toBe(computeSimHash(authoredContent));
+    expect(ctx.engine.getNotesWithoutEmbeddings(Number.MAX_SAFE_INTEGER).map(note => note.id)).not.toContain(id);
+    expect(ctx.engine.searchVector(embedding, { visibility: { project: 'demo' } }).map(note => note.id)).toContain(id);
+    expect(ctx.engine.getGeneratedRelatedIds(id)).toEqual([relatedId]);
+    const canonical = fs.readFileSync(getNote(ctx, id).path, 'utf-8');
+    expect(canonical.match(/<!-- zk:related -->/g)).toHaveLength(1);
+    expect(canonical).toContain(`- [[${relatedId}]]`);
   });
 
   it('invalidates a reviewed update token after an archive mutation of unrelated visible evidence', async () => {
