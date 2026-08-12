@@ -581,7 +581,7 @@ export class NoteRepository {
    */
   private scanUnindexedCanonicalFiles(
     indexedPaths: readonly string[],
-    metadataRows?: ReadonlyArray<{ path: string; kind: string; status: string }>,
+    metadataRows?: ReadonlyArray<{ path: string; kind: string; status: string; tags: string }>,
   ): {
     entries: Array<{ id: string; reason: UnindexedCanonicalReason }>;
     traversalIncomplete: boolean;
@@ -612,7 +612,17 @@ export class NoteRepository {
         const { frontmatter } = this.parseFrontmatter(fs.readFileSync(row.path, 'utf8'));
         const canonicalKind = (frontmatter.kind as string) || 'observation';
         const canonicalStatus = (frontmatter.status as string) || 'fleeting';
-        if (canonicalKind !== row.kind || canonicalStatus !== row.status) {
+        const applicabilityType = (tags: unknown): ReturnType<typeof parseKnowledgeApplicability>['type'] => {
+          if (tags === undefined) return parseKnowledgeApplicability([]).type;
+          if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string')) {
+            throw new TypeError('Applicability tags must be an array of strings');
+          }
+          return parseKnowledgeApplicability(tags).type;
+        };
+        const canonicalApplicability = applicabilityType(frontmatter.tags);
+        const indexedApplicability = applicabilityType(JSON.parse(row.tags) as unknown);
+        if (canonicalKind !== row.kind || canonicalStatus !== row.status
+          || canonicalApplicability !== indexedApplicability) {
           candidates.push({ identity, reason: 'metadata-drift' });
         }
       } catch {
@@ -665,8 +675,8 @@ export class NoteRepository {
    * itself reported as one entry.
    */
   getUnindexedCanonicalDocuments(): Array<{ id: string; reason: UnindexedCanonicalReason }> {
-    const indexedRows = this.db.prepare('SELECT id, path, kind, status FROM notes ORDER BY id ASC')
-      .all() as Array<{ id: string; path: string; kind: string; status: string }>;
+    const indexedRows = this.db.prepare('SELECT id, path, kind, status, tags FROM notes ORDER BY id ASC')
+      .all() as Array<{ id: string; path: string; kind: string; status: string; tags: string }>;
     const { entries, traversalIncomplete, usedIds } = this.scanUnindexedCanonicalFiles(
       indexedRows.map(row => row.path),
       indexedRows,
@@ -3351,7 +3361,7 @@ export class NoteRepository {
     const portableSlug = parsed.slug.replaceAll('\\', '/');
     const portableSuffix = `/${portableSlug}.md`;
     const byPath = this.db.prepare(
-      "SELECT id FROM notes WHERE substr(replace(path, char(92), '/'), -length(?)) = ? ORDER BY id ASC",
+      "SELECT id FROM notes WHERE substr(replace(path, char(92), '/'), -length(?)) = ? COLLATE NOCASE ORDER BY id ASC",
     ).get(portableSuffix, portableSuffix) as { id: string } | undefined;
     if (byPath) return byPath.id;
 

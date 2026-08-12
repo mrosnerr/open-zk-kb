@@ -205,7 +205,7 @@ describe('contextual link-health maintenance adapters', () => {
       .toEqual({ kind: 'document', id: note.id });
   });
 
-  it('treats SQL LIKE metacharacters in path-shaped links literally', () => {
+  it('resolves case-different portable paths while treating SQL LIKE metacharacters literally', () => {
     // Insert collisions first so wildcard suffix matching deterministically selects
     // the wrong row even if SQLite returns matching rows in insertion order.
     const underscoreCollision = ctx.engine.store('Underscore collision', { title: 'Underscore Collision', kind: 'reference', status: 'fleeting' });
@@ -216,8 +216,8 @@ describe('contextual link-health maintenance adapters', () => {
     try {
       db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'exactXname.md'), underscoreCollision.id);
       db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'rate-anything-name.md'), percentCollision.id);
-      db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'exact_name.md'), underscore.id);
-      db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'rate-%-name.md'), percent.id);
+      db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'Exact_Name.md').replaceAll('/', '\\'), underscore.id);
+      db.query('UPDATE notes SET path = ? WHERE id = ?').run(path.join(ctx.tempDir, 'Rate-%-Name.md').replaceAll('/', '\\'), percent.id);
     } finally {
       db.close();
     }
@@ -225,6 +225,31 @@ describe('contextual link-health maintenance adapters', () => {
     expect(ctx.engine.resolveLink('exact_name')).toBe(underscore.id);
     expect(ctx.engine.resolveLink('rate-%-name')).toBe(percent.id);
     expect(ctx.engine.resolveLink('missing_name')).toBeNull();
+  });
+
+  it('detects material applicability classification drift only', () => {
+    const project = ctx.engine.store('Project body', { title: 'Project', kind: 'reference', tags: ['project:alpha'] });
+    const client = ctx.engine.store('Client body', { title: 'Client', kind: 'reference', tags: ['client:pi'] });
+    const global = ctx.engine.store('Global body', { title: 'Global', kind: 'reference', tags: ['scope:global'] });
+    const reordered = ctx.engine.store('Reordered body', {
+      title: 'Reordered', kind: 'reference', tags: ['project:alpha', 'client:pi', 'project:alpha'],
+    });
+    const unrelated = ctx.engine.store('Unrelated body', { title: 'Unrelated', kind: 'reference', tags: ['topic:before'] });
+
+    fs.writeFileSync(project.path, fs.readFileSync(project.path, 'utf8').replace('project:alpha', 'project:beta'));
+    fs.writeFileSync(client.path, fs.readFileSync(client.path, 'utf8').replace('client:pi', 'client:claude-code'));
+    fs.writeFileSync(global.path, fs.readFileSync(global.path, 'utf8').replace('scope:global', 'topic:global'));
+    fs.writeFileSync(reordered.path, fs.readFileSync(reordered.path, 'utf8').replace(
+      '  - project:alpha\n  - client:pi\n  - project:alpha',
+      '  - client:pi\n  - project:alpha',
+    ));
+    fs.writeFileSync(unrelated.path, fs.readFileSync(unrelated.path, 'utf8').replace('topic:before', 'topic:after'));
+
+    const drift = createRepositoryContextualLinkReader(ctx.engine).listDocuments()
+      .filter(result => !result.ok && result.reason === 'metadata-drift');
+    expect(drift).toHaveLength(2);
+    expect(drift.every(result => result.document.id.startsWith('__graph-evidence-'))).toBe(true);
+    expect(JSON.stringify(drift)).not.toContain(project.path);
   });
 
   it('fails closed when canonical status changes across active graph inclusion', () => {
