@@ -1334,8 +1334,20 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   };
   const reviewedVisibility = { project, client: resolvedClient || undefined };
   const configVersion = 'reviewed-storage-v1';
-  const screen = (snapshot: ReturnType<NoteRepository['getScreeningSnapshot']>) => {
-    const evaluation = evaluateScreeningCandidate(screeningCandidate, snapshot);
+  const screen = (
+    dbSnapshot: ReturnType<NoteRepository['getScreeningSnapshot']>,
+    hydrate: (snapshot: ReturnType<NoteRepository['getScreeningSnapshot']>, noteIds: readonly string[]) => ReturnType<NoteRepository['getScreeningSnapshot']>,
+  ) => {
+    const dbEvaluation = evaluateScreeningCandidate(screeningCandidate, dbSnapshot);
+    const relevantIds = dbEvaluation.matches
+      .filter(match => match.highConfidence || (args.disposition === 'update' && match.id === args.noteId))
+      .map(match => match.id);
+    // Re-evaluate only when hashes were actually hydrated; otherwise the
+    // DB-only evaluation is already final.
+    const snapshot = relevantIds.length === 0 ? dbSnapshot : hydrate(dbSnapshot, relevantIds);
+    const evaluation = relevantIds.length === 0
+      ? dbEvaluation
+      : evaluateScreeningCandidate(screeningCandidate, snapshot);
     const tokens = reviewedOperationTokens({
       candidate: screeningCandidate,
       evaluation,
@@ -1358,7 +1370,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   const initialSnapshot = reviewedVisibility.client === visibility.client
     ? preflightSnapshot
     : repo.getScreeningSnapshot(reviewedVisibility);
-  const initial = screen(initialSnapshot);
+  const initial = screen(initialSnapshot, (snapshot, noteIds) => repo.hydrateScreeningCanonicalHashes(snapshot, noteIds));
   const collisions = initial.evaluation.matches.filter(match => match.highConfidence);
   const previewResult = (review = initial) => {
     const targetId = preflightTarget?.id;
@@ -1390,10 +1402,10 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   let lockedPreview: string | null = null;
   const applyWithContext = (context: KnowledgeMutationContext): StoreResult | null => {
       const currentSnapshot = context.getScreeningSnapshot(reviewedVisibility);
-      const currentReview = screen(currentSnapshot);
+      const currentReview = screen(currentSnapshot, (snapshot, noteIds) => context.hydrateScreeningCanonicalHashes(snapshot, noteIds));
       const currentEvaluation = currentReview.evaluation;
       const currentTargetFacts = args.noteId
-        ? currentSnapshot.notes.find(note => note.id === args.noteId)
+        ? currentReview.snapshot.notes.find(note => note.id === args.noteId)
         : undefined;
       if (!args.disposition && currentEvaluation.matches.some(match => match.highConfidence)) {
         lockedPreview = previewResult(currentReview);

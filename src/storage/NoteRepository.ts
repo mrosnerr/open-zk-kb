@@ -82,6 +82,7 @@ export interface StoreResult {
 
 export interface KnowledgeMutationContext {
   getScreeningSnapshot(visibility: VisibilityOptions): ScreeningSnapshot;
+  hydrateScreeningCanonicalHashes(snapshot: ScreeningSnapshot, noteIds: readonly string[]): ScreeningSnapshot;
   store(contentOrOptions: string | (StoreOptions & { content?: string }), optionsArg?: StoreOptions): StoreResult;
 }
 
@@ -898,6 +899,10 @@ export class NoteRepository {
         this.assertLeaseActive(lease);
         return this.getScreeningSnapshot(visibility);
       },
+      hydrateScreeningCanonicalHashes: (snapshot, noteIds) => {
+        this.assertLeaseActive(lease);
+        return this.hydrateScreeningCanonicalHashes(snapshot, noteIds);
+      },
       store: (contentOrOptions, optionsArg) => {
         this.assertLeaseActive(lease);
         return this.storeUnlocked(contentOrOptions, optionsArg);
@@ -1362,13 +1367,29 @@ export class NoteRepository {
           tags: [...JSON.parse(row.tags) as string[]],
           related: relatedBySource.get(row.id) ?? [],
           updatedAt: row.updated_at,
-          canonicalFileHash: canonicalFileHash(row.path),
           contentHash,
           hashSource: row.content_hash ? 'stored' as const : 'ephemeral' as const,
           embedding: row.embedding ? [...blobToEmbedding(row.embedding)] : undefined,
           embeddingModel: row.embedding_model || undefined,
         };
       }),
+    };
+  }
+
+  /** Reads canonical bytes only for notes selected by DB-based screening. */
+  hydrateScreeningCanonicalHashes(snapshot: ScreeningSnapshot, noteIds: readonly string[]): ScreeningSnapshot {
+    const selectedIds = new Set(noteIds);
+    if (selectedIds.size === 0) return snapshot;
+
+    const placeholders = [...selectedIds].map(() => '?').join(', ');
+    const rows = this.db.prepare(`SELECT id, path FROM notes WHERE id IN (${placeholders})`)
+      .all(...selectedIds) as Array<{ id: string; path: string }>;
+    const pathsById = new Map(rows.map(row => [row.id, row.path]));
+    return {
+      ...snapshot,
+      notes: snapshot.notes.map(note => selectedIds.has(note.id)
+        ? { ...note, canonicalFileHash: canonicalFileHash(pathsById.get(note.id) ?? '') }
+        : note),
     };
   }
 

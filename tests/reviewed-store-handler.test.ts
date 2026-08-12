@@ -195,7 +195,8 @@ describe('reviewed knowledge-store handler', () => {
     });
     const preview = parsed(await handleStore(updateArgs, ctx.engine, null, ctx.config));
 
-    const snapshot = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    const dbSnapshot = ctx.engine.getScreeningSnapshot({ project: 'demo' });
+    const snapshot = ctx.engine.hydrateScreeningCanonicalHashes(dbSnapshot, [id]);
     const note = snapshot.notes.find(item => item.id === id);
     if (!note) throw new Error('Expected screening note');
     const candidate: ScreeningCandidate = {
@@ -292,6 +293,35 @@ describe('reviewed knowledge-store handler', () => {
     }
   });
 
+  it('hashes no canonical notes for a no-match store and only relevant notes for a match', async () => {
+    const matchingId = ctx.engine.store('bounded hash content', {
+      title: 'Bounded hash target', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'bounded target summary', guidance: 'bounded target guidance',
+    }).id;
+    const unrelatedId = ctx.engine.store('completely different material', {
+      title: 'Unrelated vault note', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'unrelated material summary', guidance: 'unrelated material guidance',
+    }).id;
+    const original = ctx.engine.hydrateScreeningCanonicalHashes.bind(ctx.engine);
+    const hydratedIds: string[][] = [];
+    const spied = ctx.engine as unknown as { hydrateScreeningCanonicalHashes: typeof original };
+    spied.hydrateScreeningCanonicalHashes = (snapshot, ids) => {
+      hydratedIds.push([...ids]);
+      return original(snapshot, ids);
+    };
+    try {
+      await handleStore(args({ title: 'No overlap whatsoever', content: 'unique routine payload', dryRun: true }), ctx.engine, null, ctx.config);
+      expect(hydratedIds.flat()).toEqual([]);
+
+      hydratedIds.length = 0;
+      await handleStore(args({ title: 'Bounded hash target', content: 'replacement candidate', dryRun: true }), ctx.engine, null, ctx.config);
+      expect(hydratedIds).toEqual([[matchingId]]);
+      expect(hydratedIds.flat()).not.toContain(unrelatedId);
+    } finally {
+      spied.hydrateScreeningCanonicalHashes = original;
+    }
+  });
+
   it('does not duplicate the Related section when reviewed update content comes from knowledge-get', async () => {
     const relatedId = storedId(await handleStore(args({ title: 'Related for round trip', content: 'round trip related content', summary: 'Round trip related summary.' }), ctx.engine, null, ctx.config));
     const id = storedId(await handleStore(args({ title: 'Round trip target', related: [relatedId] }), ctx.engine, null, ctx.config));
@@ -336,6 +366,7 @@ describe('reviewed knowledge-store handler', () => {
     const rejected = await ctx.engine.withKnowledgeMutationLockAsync(async context => {
       const interceptingContext = {
         getScreeningSnapshot: context.getScreeningSnapshot,
+        hydrateScreeningCanonicalHashes: context.hydrateScreeningCanonicalHashes,
         store: ((...storeArgs: Parameters<typeof context.store>) => {
           fs.appendFileSync(target.path, '\nLate external edit\n');
           return context.store(...storeArgs);
