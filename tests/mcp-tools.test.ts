@@ -13,9 +13,18 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
+import { walkMarkdownFiles } from '../src/storage/path-resolver.js';
 import { buildPreferenceCapsule, handleStore, handleSearch, handleHealth, handleMaintain, handleContext, handleContextResult, handleGet, handleOpen } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
+
+function resetDedupeVault(ctx: TestContext): void {
+  ctx.engine.clearAll();
+  for (const filePath of walkMarkdownFiles(ctx.tempDir)) {
+    if (/\/\d{12,16}-[^/]+\.md$/.test(filePath.replace(/\\/g, '/'))) fs.rmSync(filePath);
+  }
+  ctx.engine.rebuildFromFiles();
+}
 
 describe('MCP Tool: knowledge-store', () => {
   let ctx: TestContext;
@@ -1363,7 +1372,7 @@ describe('MCP Tool: knowledge-maintain', () => {
   });
 
   it('dedupe shows permanent notes as protected and never recommends archiving them', async () => {
-    ctx.engine.clearAll();
+    resetDedupeVault(ctx);
 
     const permanent = ctx.engine.store('Canonical decision content', { tags: ['project:test-project'],
       title: 'Test Decision',
@@ -1389,7 +1398,7 @@ describe('MCP Tool: knowledge-maintain', () => {
   });
 
   it('dedupe computes missing hashes ephemerally and reports SimHash near-duplicates', async () => {
-    ctx.engine.clearAll();
+    resetDedupeVault(ctx);
 
     ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', { tags: ['project:test-project'],
       title: 'Database Decision A',

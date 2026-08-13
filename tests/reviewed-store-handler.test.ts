@@ -267,6 +267,29 @@ describe('reviewed knowledge-store handler', () => {
     expect(rejected).toContain(`Related note not found or not visible: ${unresolvedId}`);
   });
 
+  it('rejects an implicit create when an explicit relation is archived before the mutation lock', async () => {
+    const related = ctx.engine.store('implicit race relation content', {
+      title: 'Implicit race relation target', kind: 'reference', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'Implicit race relation summary.', guidance: 'Keep implicit race relation target.',
+    });
+    const candidate = args({ title: 'Implicit race relation create', content: 'unique implicit race relation candidate', related: [related.id] });
+    const original = ctx.engine.withKnowledgeMutationLockAsync.bind(ctx.engine);
+    const intercepted = ctx.engine as unknown as { withKnowledgeMutationLockAsync: typeof original };
+    intercepted.withKnowledgeMutationLockAsync = async callback => {
+      ctx.engine.archive(related.id);
+      return original(callback);
+    };
+
+    try {
+      const rejected = await handleStore(candidate, ctx.engine, null, ctx.config);
+      expect(rejected).toContain(`Related note not found or not visible: ${related.id}`);
+      expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes).toHaveLength(0);
+      expect(ctx.engine.getAll(Number.MAX_SAFE_INTEGER).filter(note => note.title === candidate.title)).toHaveLength(0);
+    } finally {
+      intercepted.withKnowledgeMutationLockAsync = original;
+    }
+  });
+
   it('rejects reviewed create when an explicit relation is archived before the mutation lock', async () => {
     const related = ctx.engine.store('race relation content', {
       title: 'Race relation target', kind: 'reference', status: 'fleeting', lifecycle: 'living',
@@ -287,6 +310,77 @@ describe('reviewed knowledge-store handler', () => {
       }, ctx.engine, null, ctx.config);
       expect(rejected).toContain(`Related note not found or not visible: ${related.id}`);
       expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes).toHaveLength(0);
+    } finally {
+      intercepted.withKnowledgeMutationLockAsync = original;
+    }
+  });
+
+  it('allows a create whose explicit relation is a visible structural note outside the screening snapshot', async () => {
+    const structural = ctx.engine.store('project activity log body', {
+      title: 'Demo activity log', kind: 'log', status: 'fleeting', lifecycle: 'living',
+      tags: ['project:demo'], summary: 'Demo activity log summary.', guidance: 'Keep the demo activity log.',
+    });
+    expect(ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes.map(note => note.id)).not.toContain(structural.id);
+    expect(ctx.engine.getByIdVisible(structural.id, { project: 'demo' })?.id).toBe(structural.id);
+
+    const output = await handleStore(
+      args({ title: 'Structural relation create', content: 'unique structural relation candidate', related: [structural.id] }),
+      ctx.engine, null, ctx.config,
+    );
+    expect(output).toContain('Stored reference: "Structural relation create"');
+  });
+
+  it('allows a domain create when the competing domain inserted after preflight belongs to another scope', async () => {
+    const candidate = args({
+      title: 'Scoped domain candidate', kind: 'domain', content: 'candidate domain operating manual',
+      summary: 'Candidate domain summary.', guidance: 'Use candidate domain guidance.',
+    });
+    const original = ctx.engine.withKnowledgeMutationLockAsync.bind(ctx.engine);
+    const intercepted = ctx.engine as unknown as { withKnowledgeMutationLockAsync: typeof original };
+    intercepted.withKnowledgeMutationLockAsync = async callback => {
+      ctx.engine.store('foreign domain operating manual', {
+        title: 'Foreign domain', kind: 'domain', status: 'permanent', lifecycle: 'living',
+        tags: ['project:other'], summary: 'Foreign domain summary.', guidance: 'Use foreign domain guidance.',
+      });
+      ctx.engine.store('global domain operating manual', {
+        title: 'Global domain', kind: 'domain', status: 'permanent', lifecycle: 'living',
+        tags: ['scope:global'], summary: 'Global domain summary.', guidance: 'Use global domain guidance.',
+      });
+      return original(callback);
+    };
+
+    try {
+      const output = await handleStore(candidate, ctx.engine, null, ctx.config);
+      expect(output).toContain('Stored domain: "Scoped domain candidate"');
+      expect(ctx.engine.getDomainNote('demo')?.title).toBe('Scoped domain candidate');
+    } finally {
+      intercepted.withKnowledgeMutationLockAsync = original;
+    }
+  });
+
+  it('rejects a domain create when a competing domain is inserted after preflight', async () => {
+    const candidate = args({
+      title: 'Second domain candidate', kind: 'domain', content: 'candidate domain operating manual',
+      summary: 'Candidate domain summary.', guidance: 'Use candidate domain guidance.',
+    });
+    const original = ctx.engine.withKnowledgeMutationLockAsync.bind(ctx.engine);
+    const intercepted = ctx.engine as unknown as { withKnowledgeMutationLockAsync: typeof original };
+    let competingId: string | undefined;
+    intercepted.withKnowledgeMutationLockAsync = async callback => {
+      competingId = ctx.engine.store('competing domain operating manual', {
+        title: 'Competing domain', kind: 'domain', status: 'permanent', lifecycle: 'living',
+        tags: ['project:demo'], summary: 'Competing domain summary.', guidance: 'Use competing domain guidance.',
+      }).id;
+      return original(callback);
+    };
+
+    try {
+      const rejected = await handleStore(candidate, ctx.engine, null, ctx.config);
+      expect(rejected).toContain('A domain note already exists for project "demo"');
+      expect(rejected).toContain(competingId as string);
+      const domains = ctx.engine.getScreeningSnapshot({ project: 'demo' }).notes.filter(note => note.kind === 'domain');
+      expect(domains.map(note => note.id)).toEqual([competingId]);
+      expect(ctx.engine.getAll(Number.MAX_SAFE_INTEGER).filter(note => note.title === candidate.title)).toHaveLength(0);
     } finally {
       intercepted.withKnowledgeMutationLockAsync = original;
     }
@@ -392,6 +486,8 @@ describe('reviewed knowledge-store handler', () => {
       const interceptingContext = {
         getScreeningSnapshot: context.getScreeningSnapshot,
         hydrateScreeningCanonicalHashes: context.hydrateScreeningCanonicalHashes,
+        getByIdVisible: context.getByIdVisible,
+        getDomainNote: context.getDomainNote,
         store: ((...storeArgs: Parameters<typeof context.store>) => {
           fs.appendFileSync(target.path, '\nLate external edit\n');
           return context.store(...storeArgs);

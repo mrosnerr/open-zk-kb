@@ -227,27 +227,42 @@ describe('contextual link-health maintenance adapters', () => {
     expect(ctx.engine.resolveLink('missing_name')).toBeNull();
   });
 
-  it('detects material applicability classification drift only', () => {
+  it('detects contextual applicability identity and multiplicity drift but ignores ordering and unrelated tags', () => {
     const project = ctx.engine.store('Project body', { title: 'Project', kind: 'reference', tags: ['project:alpha'] });
     const client = ctx.engine.store('Client body', { title: 'Client', kind: 'reference', tags: ['client:pi'] });
     const global = ctx.engine.store('Global body', { title: 'Global', kind: 'reference', tags: ['scope:global'] });
     const reordered = ctx.engine.store('Reordered body', {
       title: 'Reordered', kind: 'reference', tags: ['project:alpha', 'client:pi', 'project:alpha'],
     });
+    const duplicate = ctx.engine.store('Duplicate body', {
+      title: 'Duplicate', kind: 'reference', tags: ['project:alpha', 'project:alpha'],
+    });
     const unrelated = ctx.engine.store('Unrelated body', { title: 'Unrelated', kind: 'reference', tags: ['topic:before'] });
 
     fs.writeFileSync(project.path, fs.readFileSync(project.path, 'utf8').replace('project:alpha', 'project:beta'));
     fs.writeFileSync(client.path, fs.readFileSync(client.path, 'utf8').replace('client:pi', 'client:claude-code'));
     fs.writeFileSync(global.path, fs.readFileSync(global.path, 'utf8').replace('scope:global', 'topic:global'));
-    fs.writeFileSync(reordered.path, fs.readFileSync(reordered.path, 'utf8').replace(
+
+    const reorderedBefore = fs.readFileSync(reordered.path, 'utf8');
+    const reorderedAfter = reorderedBefore.replace(
       '  - project:alpha\n  - client:pi\n  - project:alpha',
-      '  - client:pi\n  - project:alpha',
-    ));
+      '  - client:pi\n  - project:alpha\n  - project:alpha',
+    );
+    expect(reorderedAfter).not.toBe(reorderedBefore);
+    fs.writeFileSync(reordered.path, reorderedAfter);
+
+    const duplicateBefore = fs.readFileSync(duplicate.path, 'utf8');
+    const duplicateAfter = duplicateBefore.replace('  - project:alpha\n  - project:alpha', '  - project:alpha');
+    expect(duplicateAfter).not.toBe(duplicateBefore);
+    fs.writeFileSync(duplicate.path, duplicateAfter);
     fs.writeFileSync(unrelated.path, fs.readFileSync(unrelated.path, 'utf8').replace('topic:before', 'topic:after'));
 
     const drift = createRepositoryContextualLinkReader(ctx.engine).listDocuments()
       .filter(result => !result.ok && result.reason === 'metadata-drift');
-    expect(drift).toHaveLength(2);
+    const expectedDriftIds = [project, client, global, duplicate]
+      .map(note => `__graph-evidence-${createHash('sha256').update(fs.realpathSync(note.path)).digest('hex')}`)
+      .sort();
+    expect(drift.map(result => result.document.id).sort()).toEqual(expectedDriftIds);
     expect(drift.every(result => result.document.id.startsWith('__graph-evidence-'))).toBe(true);
     expect(JSON.stringify(drift)).not.toContain(project.path);
   });

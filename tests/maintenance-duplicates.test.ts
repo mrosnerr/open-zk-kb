@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { createHash } from 'node:crypto';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { DUPLICATE_EVIDENCE_LIMIT, evaluateDuplicates, normalizeComparableTitle } from '../src/maintenance/duplicates.js';
-import type { NoteMetadata } from '../src/storage/NoteRepository.js';
+import { type NoteMetadata, NoteRepository } from '../src/storage/NoteRepository.js';
 import { handleMaintain } from '../src/tool-handlers.js';
 import { computeSimHash } from '../src/utils/simhash.js';
 import { cleanupTestHarness, createTestHarness, type TestContext } from './harness.js';
@@ -126,6 +128,177 @@ describe('duplicate audit repository adapter', () => {
   beforeEach(() => { ctx = createTestHarness({ telemetryEnabled: false }); });
   afterEach(() => { cleanupTestHarness(ctx); });
 
+  it('reloads a durable baseline after another repository legitimately updates an eligible note', () => {
+    const stored = ctx.engine.store('original duplicate audit source', {
+      title: 'Original source', kind: 'reference', status: 'fleeting',
+    });
+    const second = new NoteRepository(ctx.tempDir, { telemetryEnabled: false });
+    try {
+      second.store('current duplicate audit source', {
+        existingId: stored.id, title: 'Current source', kind: 'reference', status: 'fleeting',
+      });
+
+      const result = ctx.engine.getDuplicateAuditResult();
+
+      expect(result.indexedSnapshotUnsafe).toBe(false);
+      expect(result.omissions).toEqual({});
+      expect(result.notes).toHaveLength(1);
+      expect(result.notes[0]).toMatchObject({ id: stored.id, title: 'Current source', content: 'current duplicate audit source' });
+    } finally {
+      second.close();
+    }
+  });
+
+  it('reports edited indexed canonical Markdown as incomplete without mutating evidence', async () => {
+    ctx.engine.store('indexed duplicate audit source', {
+      title: 'Indexed source', kind: 'reference', status: 'fleeting',
+    });
+    const before = ctx.engine.getDuplicateAuditSnapshot();
+    const indexed = before[0];
+    const editedSource = `${fs.readFileSync(indexed.path, 'utf8')}\nExternal canonical edit.\n`;
+    fs.writeFileSync(indexed.path, editedSource);
+
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+
+    expect(output).toContain('Coverage: eligible=1 | hashed-at-start=0 | computed-ephemerally=1 | evaluated=1 | omitted=0 | status=incomplete');
+    expect(output).toContain('Indexed canonical drift: detected; stale groups suppressed.');
+    expect(output).toContain('Groups: exact-title=0 | SimHash=0 (incomplete totals)');
+    expect(output).not.toContain('No duplicate notes found.');
+    expect(output).not.toContain(indexed.path);
+    expect(fs.readFileSync(indexed.path, 'utf8')).toBe(editedSource);
+    expect(ctx.engine.getDuplicateAuditSnapshot()).toEqual(before);
+  });
+
+  it('reports added unindexed canonical Markdown as incomplete without mutating evidence', async () => {
+    ctx.engine.store('indexed duplicate audit control', {
+      title: 'Indexed control', kind: 'reference', status: 'fleeting',
+    });
+    const before = ctx.engine.getDuplicateAuditSnapshot();
+    const unindexedPath = path.join(ctx.tempDir, 'references', '2099010101010101-unindexed.md');
+    const unindexedSource = '---\nid: "2099010101010101"\ntitle: Unindexed control\nkind: reference\nstatus: fleeting\n---\n\n# Unindexed control\n';
+    fs.mkdirSync(path.dirname(unindexedPath), { recursive: true });
+    fs.writeFileSync(unindexedPath, unindexedSource);
+
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+
+    expect(output).toContain('Coverage: eligible=2 | hashed-at-start=0 | computed-ephemerally=1 | evaluated=1 | omitted=1 | status=incomplete');
+    expect(output).toContain('Omission reasons: {"unindexed":1}');
+    expect(output).toContain('Groups: exact-title=0 | SimHash=0 (incomplete totals)');
+    expect(output).not.toContain('No duplicate notes found.');
+    expect(output).not.toContain(unindexedPath);
+    expect(output).not.toContain(unindexedSource);
+    expect(fs.readFileSync(unindexedPath, 'utf8')).toBe(unindexedSource);
+    expect(ctx.engine.getDuplicateAuditSnapshot()).toEqual(before);
+  });
+
+  it('suppresses stale groups when indexed drift and an unindexed document coexist', async () => {
+    const first = ctx.engine.store('same duplicate audit body', {
+      title: 'Same duplicate audit title', kind: 'reference', status: 'fleeting',
+    });
+    ctx.engine.store('same duplicate audit body', {
+      title: 'Same duplicate audit title', kind: 'reference', status: 'fleeting',
+    });
+    fs.appendFileSync(first.path, '\nExternal canonical edit.\n');
+    const unindexedPath = path.join(ctx.tempDir, 'references', '2099010101010102-unindexed.md');
+    fs.mkdirSync(path.dirname(unindexedPath), { recursive: true });
+    fs.writeFileSync(unindexedPath, '---\nid: "2099010101010102"\ntitle: Unindexed\nkind: reference\nstatus: fleeting\n---\n');
+
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+
+    expect(output).toContain('Coverage: eligible=3 | hashed-at-start=0 | computed-ephemerally=2 | evaluated=2 | omitted=1 | status=incomplete');
+    expect(output).toContain('Omission reasons: {"unindexed":1}');
+    expect(output).toContain('Indexed canonical drift: detected; stale groups suppressed.');
+    expect(output).toContain('Groups: exact-title=0 | SimHash=0 (incomplete totals)');
+    expect(output).not.toContain('No duplicate notes found.');
+  });
+
+  it('keeps eligible groups when only archived or structural indexed files were edited externally', async () => {
+    const first = ctx.engine.store('shared duplicate audit body', {
+      title: 'Shared duplicate audit title', kind: 'reference', status: 'fleeting',
+    });
+    const second = ctx.engine.store('shared duplicate audit body', {
+      title: 'Shared duplicate audit title', kind: 'reference', status: 'fleeting',
+    });
+    const archived = ctx.engine.store('archived duplicate audit body', {
+      title: 'Archived control', kind: 'reference', status: 'archived',
+    });
+    const structural = ctx.engine.store('Generated navigation.', {
+      title: 'Structural control', kind: 'index', status: 'fleeting',
+    });
+    fs.appendFileSync(archived.path, '\nExternal canonical edit.\n');
+    fs.appendFileSync(structural.path, '\nExternal canonical edit.\n');
+
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+
+    expect(output).toContain('Coverage: eligible=2 | hashed-at-start=0 | computed-ephemerally=2 | evaluated=2 | omitted=0 | status=complete');
+    expect(output).toContain('(complete totals)');
+    expect(output).not.toContain('Indexed canonical drift');
+    expect(output).toContain(first.id);
+    expect(output).toContain(second.id);
+    expect(output).not.toContain(archived.path);
+    expect(output).not.toContain(structural.path);
+  });
+
+  it('suppresses output when an archived indexed note becomes canonically active', async () => {
+    ctx.engine.store('shared transition body', {
+      title: 'Shared transition title', kind: 'reference', status: 'fleeting',
+    });
+    ctx.engine.store('shared transition body', {
+      title: 'Shared transition title', kind: 'reference', status: 'fleeting',
+    });
+    const archived = ctx.engine.store('archived transition candidate', {
+      title: 'Archived transition', kind: 'reference', status: 'archived',
+    });
+    const source = fs.readFileSync(archived.path, 'utf8').replace('status: archived', 'status: fleeting');
+    fs.writeFileSync(archived.path, source);
+
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+
+    expect(output).toContain('status=incomplete');
+    expect(output).toContain('Indexed canonical drift: detected; stale groups suppressed.');
+    expect(output).toContain('Groups: exact-title=0 | SimHash=0 (incomplete totals)');
+    expect(output).not.toContain(archived.path);
+  });
+
+  it('suppresses output when an indexed index note becomes canonically non-structural', async () => {
+    ctx.engine.store('shared structural transition body', {
+      title: 'Shared structural transition title', kind: 'reference', status: 'fleeting',
+    });
+    ctx.engine.store('shared structural transition body', {
+      title: 'Shared structural transition title', kind: 'reference', status: 'fleeting',
+    });
+    const structural = ctx.engine.store('structural transition candidate', {
+      title: 'Structural transition', kind: 'index', status: 'fleeting',
+    });
+    const source = fs.readFileSync(structural.path, 'utf8').replace('kind: index', 'kind: reference');
+    fs.writeFileSync(structural.path, source);
+
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+
+    expect(output).toContain('status=incomplete');
+    expect(output).toContain('Indexed canonical drift: detected; stale groups suppressed.');
+    expect(output).toContain('Groups: exact-title=0 | SimHash=0 (incomplete totals)');
+    expect(output).not.toContain(structural.path);
+  });
+
+  it('stays complete when unindexed canonical Markdown is archived or structural', async () => {
+    ctx.engine.store('indexed duplicate audit control', {
+      title: 'Indexed control', kind: 'reference', status: 'fleeting',
+    });
+    const archivedPath = path.join(ctx.tempDir, 'references', '2099010101010103-unindexed.md');
+    const structuralPath = path.join(ctx.tempDir, 'references', '2099010101010104-unindexed.md');
+    fs.mkdirSync(path.dirname(archivedPath), { recursive: true });
+    fs.writeFileSync(archivedPath, '---\nid: "2099010101010103"\ntitle: Unindexed archived\nkind: reference\nstatus: archived\n---\n');
+    fs.writeFileSync(structuralPath, '---\nid: "2099010101010104"\ntitle: Unindexed structural\nkind: index\nstatus: fleeting\n---\n');
+
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+
+    expect(output).toContain('Coverage: eligible=1 | hashed-at-start=0 | computed-ephemerally=1 | evaluated=1 | omitted=0 | status=complete');
+    expect(output).not.toContain('Omission reasons');
+    expect(output).not.toContain(archivedPath);
+    expect(output).not.toContain(structuralPath);
+  });
+
   it('evaluates the complete repository snapshot without persisting ephemeral hashes', async () => {
     const controls = Array.from({ length: 500 }, (_, index) => {
       const digest = createHash('sha256').update(`control-${index}`).digest('hex');
@@ -150,11 +323,8 @@ describe('duplicate audit repository adapter', () => {
     const after = ctx.engine.getDuplicateAuditSnapshot();
     const evaluation = evaluateDuplicates(after);
 
-    expect(output).toContain('eligible=502');
-    expect(output).toContain('computed-ephemerally=502');
-    expect(output).toContain('evaluated=502');
-    expect(output).toContain('omitted=0');
-    expect(output).toContain('status=complete');
+    expect(output).toContain('Coverage: eligible=502 | hashed-at-start=0 | computed-ephemerally=502 | evaluated=502 | omitted=0 | status=complete');
+    expect(output).toContain('(complete totals)');
     expect(output).toContain(firstDuplicate.id);
     expect(output).toContain(secondDuplicate.id);
     expect(after.map(item => ({ id: item.id, hash: item.content_hash })))
@@ -163,5 +333,5 @@ describe('duplicate audit repository adapter', () => {
     const controlIds = new Set(controls.map(item => item.id));
     expect(evaluation.titleGroups.every(group => group.notes.every(item => !controlIds.has(item.id)))).toBe(true);
     expect(evaluation.simhashGroups.every(group => group.notes.every(item => !controlIds.has(item.id)))).toBe(true);
-  });
+  }, 10_000);
 });

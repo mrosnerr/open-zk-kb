@@ -84,6 +84,8 @@ export interface StoreResult {
 export interface KnowledgeMutationContext {
   getScreeningSnapshot(visibility: VisibilityOptions): ScreeningSnapshot;
   hydrateScreeningCanonicalHashes(snapshot: ScreeningSnapshot, noteIds: readonly string[]): ScreeningSnapshot;
+  getByIdVisible(id: string, visibility: VisibilityOptions): NoteMetadata | null;
+  getDomainNote(project: string): NoteMetadata | null;
   store(contentOrOptions: string | (StoreOptions & { content?: string }), optionsArg?: StoreOptions): StoreResult;
 }
 
@@ -330,7 +332,28 @@ export class KnowledgeMutationBusyError extends Error {
 /** Why canonical inventory cannot safely account for a file — never a path or content. */
 export type UnindexedCanonicalReason = 'unindexed' | 'unreadable' | 'metadata-drift' | 'traversal-incomplete';
 
+export interface DuplicateAuditSnapshot {
+  readonly notes: Array<NoteMetadata & { content_hash?: string | null }>;
+  readonly indexedSnapshotUnsafe: boolean;
+  readonly omissions: Readonly<Record<string, number>>;
+}
+
 type CanonicalMetadataBaseline = { metadata: string | undefined; indexedVersion: number };
+
+function contextualApplicabilitySignature(tags: unknown): string {
+  if (tags === undefined) tags = [];
+  if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string')) {
+    throw new TypeError('Applicability tags must be an array of strings');
+  }
+
+  // Validate with the same contextual parser used by graph decisions, while
+  // retaining all applicable tag values (including duplicates) for drift.
+  parseKnowledgeApplicability(tags);
+  return JSON.stringify(tags
+    .filter(tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global')
+    .sort());
+}
+
 type CanonicalMetadataVault = {
   baselines: Map<string, CanonicalMetadataBaseline>;
   references: number;
@@ -582,18 +605,18 @@ export class NoteRepository {
   private scanUnindexedCanonicalFiles(
     indexedPaths: readonly string[],
     metadataRows?: ReadonlyArray<{ path: string; kind: string; status: string; tags: string }>,
+    indexedIds?: readonly string[],
   ): {
-    entries: Array<{ id: string; reason: UnindexedCanonicalReason }>;
+    entries: Array<{ id: string; reason: UnindexedCanonicalReason; dedupeEligible: boolean }>;
     traversalIncomplete: boolean;
     usedIds: Set<string>;
   } {
-    const entries: Array<{ id: string; reason: UnindexedCanonicalReason }> = [];
+    const entries: Array<{ id: string; reason: UnindexedCanonicalReason; dedupeEligible: boolean }> = [];
     let traversalIncomplete = false;
-    const indexedRows = this.db.prepare('SELECT id FROM notes ORDER BY id ASC').all() as Array<{ id: string }>;
-    const usedIds = new Set(indexedRows.map(row => row.id));
+    const usedIds = new Set(indexedIds ?? (this.db.prepare('SELECT id FROM notes ORDER BY id ASC').all() as Array<{ id: string }>).map(row => row.id));
 
     const indexedFileIdentities = new Set<string>();
-    const candidates: Array<{ identity: string; reason: UnindexedCanonicalReason }> = [];
+    const candidates: Array<{ identity: string; reason: UnindexedCanonicalReason; dedupeEligible: boolean }> = [];
     for (const indexedPath of indexedPaths) {
       try {
         indexedFileIdentities.add(fs.realpathSync(indexedPath));
@@ -612,21 +635,14 @@ export class NoteRepository {
         const { frontmatter } = this.parseFrontmatter(fs.readFileSync(row.path, 'utf8'));
         const canonicalKind = (frontmatter.kind as string) || 'observation';
         const canonicalStatus = (frontmatter.status as string) || 'fleeting';
-        const applicabilityType = (tags: unknown): ReturnType<typeof parseKnowledgeApplicability>['type'] => {
-          if (tags === undefined) return parseKnowledgeApplicability([]).type;
-          if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string')) {
-            throw new TypeError('Applicability tags must be an array of strings');
-          }
-          return parseKnowledgeApplicability(tags).type;
-        };
-        const canonicalApplicability = applicabilityType(frontmatter.tags);
-        const indexedApplicability = applicabilityType(JSON.parse(row.tags) as unknown);
+        const canonicalApplicability = contextualApplicabilitySignature(frontmatter.tags);
+        const indexedApplicability = contextualApplicabilitySignature(JSON.parse(row.tags) as unknown);
         if (canonicalKind !== row.kind || canonicalStatus !== row.status
           || canonicalApplicability !== indexedApplicability) {
-          candidates.push({ identity, reason: 'metadata-drift' });
+          candidates.push({ identity, reason: 'metadata-drift', dedupeEligible: true });
         }
       } catch {
-        if (identity) candidates.push({ identity, reason: 'unreadable' });
+        if (identity) candidates.push({ identity, reason: 'unreadable', dedupeEligible: true });
       }
     }
 
@@ -649,9 +665,17 @@ export class NoteRepository {
         const declaredId = (frontmatter.id as string) || filenameId || '';
         if (!declaredId && isGeneratedStructuralMarkdown(this.docsPath, filePath, frontmatter)) continue;
         if (declaredId) usedIds.add(declaredId);
-        candidates.push({ identity, reason: 'unindexed' });
+        // Dedupe eligibility mirrors the indexed duplicate-audit filter and
+        // rebuild's frontmatter defaults, so archived or structural files do
+        // not make an audit look incomplete.
+        const canonicalKind = (frontmatter.kind as string) || 'observation';
+        const canonicalStatus = (frontmatter.status as string) || 'fleeting';
+        const dedupeEligible = canonicalStatus !== 'archived'
+          && canonicalKind !== 'index' && canonicalKind !== 'log';
+        candidates.push({ identity, reason: 'unindexed', dedupeEligible });
       } catch {
-        candidates.push({ identity, reason: 'unreadable' });
+        // Eligibility is unknowable for an unreadable file, so fail closed.
+        candidates.push({ identity, reason: 'unreadable', dedupeEligible: true });
       }
     }
 
@@ -662,7 +686,7 @@ export class NoteRepository {
       let disambiguator = 2;
       while (usedIds.has(id)) id = `${baseId}-${disambiguator++}`;
       usedIds.add(id);
-      entries.push({ id, reason: candidate.reason });
+      entries.push({ id, reason: candidate.reason, dedupeEligible: candidate.dedupeEligible });
     }
 
     return { entries, traversalIncomplete, usedIds };
@@ -686,7 +710,7 @@ export class NoteRepository {
       let id = baseId;
       let disambiguator = 2;
       while (usedIds.has(id)) id = `${baseId}-${disambiguator++}`;
-      entries.push({ id, reason: 'traversal-incomplete' });
+      entries.push({ id, reason: 'traversal-incomplete', dedupeEligible: true });
     }
     return entries;
   }
@@ -1183,6 +1207,14 @@ export class NoteRepository {
       hydrateScreeningCanonicalHashes: (snapshot, noteIds) => {
         this.assertLeaseActive(lease);
         return this.hydrateScreeningCanonicalHashes(snapshot, noteIds);
+      },
+      getByIdVisible: (id, visibility) => {
+        this.assertLeaseActive(lease);
+        return this.getByIdVisible(id, visibility);
+      },
+      getDomainNote: project => {
+        this.assertLeaseActive(lease);
+        return this.getDomainNote(project);
       },
       store: (contentOrOptions, optionsArg) => {
         this.assertLeaseActive(lease);
@@ -1960,7 +1992,114 @@ export class NoteRepository {
     });
   }
 
-  /** Query-only canonical input for one duplicate audit invocation. */
+  /** Parse only canonical eligibility metadata, failing closed on malformed frontmatter. */
+  private canonicalDedupeEligibility(filePath: string): boolean {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const match = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
+    if (!match) return true;
+    const parsed = YAML.parse(match[1]);
+    if (parsed !== null && (typeof parsed !== 'object' || Array.isArray(parsed))) {
+      throw new TypeError('Canonical frontmatter must be a mapping');
+    }
+    const frontmatter = (parsed ?? {}) as Record<string, unknown>;
+    const kind = typeof frontmatter.kind === 'string' ? frontmatter.kind : 'observation';
+    const status = typeof frontmatter.status === 'string' ? frontmatter.status : 'fleeting';
+    return status !== 'archived' && kind !== 'index' && kind !== 'log';
+  }
+
+  /** Query-only canonical input and coverage evidence for one duplicate audit invocation. */
+  getDuplicateAuditResult(): DuplicateAuditSnapshot {
+    type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string; content_hash?: string | null };
+    const read = this.db.transaction(() => ({
+      notes: this.db.prepare(`
+        SELECT * FROM notes
+        WHERE status != 'archived' AND kind NOT IN ('index', 'log')
+        ORDER BY id ASC
+      `).all() as NoteRow[],
+      indexed: this.db.prepare('SELECT id, path, updated_at, status, kind FROM notes ORDER BY id ASC')
+        .all() as Array<{ id: string; path: string; updated_at: number; status: string; kind: string | null }>,
+    }));
+    const copied = withBusyRetry(read);
+    const inventory = this.scanUnindexedCanonicalFiles(
+      copied.indexed.map(row => row.path),
+      undefined,
+      copied.indexed.map(row => row.id),
+    );
+    const omissions: Record<string, number> = {};
+    // Only omissions that could hide an eligible duplicate group count; archived
+    // or structural canonical files are outside the audit's input set.
+    for (const entry of inventory.entries) {
+      if (!entry.dedupeEligible) continue;
+      omissions[entry.reason] = (omissions[entry.reason] ?? 0) + 1;
+    }
+    if (inventory.traversalIncomplete) omissions['traversal-incomplete'] = 1;
+
+    const initializedPath = path.join(this.docsPath, '.index', 'canonical-baselines', '.initialized');
+    let indexedSnapshotUnsafe = this.baselineState?.baselineUnavailable === true || !fs.existsSync(initializedPath);
+    for (const row of copied.indexed) {
+      const kind = row.kind || 'observation';
+      const indexedEligible = row.status !== 'archived' && kind !== 'index' && kind !== 'log';
+      let baseline = this.indexedCanonicalMetadata.get(row.path);
+      // Content-only edits to currently ineligible rows do not affect duplicate
+      // input. Their canonical eligibility still must be checked when bytes drift.
+      if (!indexedEligible) {
+        if (baseline?.indexedVersion !== row.updated_at) {
+          try {
+            const parsed = JSON.parse(fs.readFileSync(this.canonicalBaselinePath(row.path), 'utf8')) as Partial<CanonicalMetadataBaseline>;
+            if (parsed.indexedVersion !== row.updated_at || (typeof parsed.metadata !== 'string' && parsed.metadata !== undefined)) {
+              indexedSnapshotUnsafe = true;
+              continue;
+            }
+            baseline = { metadata: parsed.metadata, indexedVersion: parsed.indexedVersion };
+            this.indexedCanonicalMetadata.set(row.path, baseline);
+          } catch {
+            this.markBaselineUnavailable('read', row.path);
+            indexedSnapshotUnsafe = true;
+            continue;
+          }
+        }
+        if (baseline.metadata !== this.canonicalMetadata(row.path)) {
+          try {
+            if (this.canonicalDedupeEligibility(row.path)) indexedSnapshotUnsafe = true;
+          } catch {
+            indexedSnapshotUnsafe = true;
+          }
+        }
+        continue;
+      }
+      if (baseline?.indexedVersion !== row.updated_at) {
+        // Another exact writer (including another process) may have advanced
+        // the durable record. Reload it, but never derive trust from current bytes.
+        try {
+          const parsed = JSON.parse(fs.readFileSync(this.canonicalBaselinePath(row.path), 'utf8')) as Partial<CanonicalMetadataBaseline>;
+          if (parsed.indexedVersion !== row.updated_at || (typeof parsed.metadata !== 'string' && parsed.metadata !== undefined)) {
+            indexedSnapshotUnsafe = true;
+            continue;
+          }
+          const durable = { metadata: parsed.metadata, indexedVersion: parsed.indexedVersion };
+          this.indexedCanonicalMetadata.set(row.path, durable);
+          if (durable.metadata !== this.canonicalMetadata(row.path)) indexedSnapshotUnsafe = true;
+        } catch {
+          this.markBaselineUnavailable('read', row.path);
+          indexedSnapshotUnsafe = true;
+        }
+        continue;
+      }
+      if (baseline.metadata !== this.canonicalMetadata(row.path)) indexedSnapshotUnsafe = true;
+    }
+
+    return {
+      notes: copied.notes.map(row => ({
+        ...row,
+        kind: (row.kind || 'observation') as NoteKind,
+        tags: JSON.parse(row.tags),
+      })),
+      indexedSnapshotUnsafe,
+      omissions,
+    };
+  }
+
+  /** Query-only indexed rows retained for callers that do not need coverage evidence. */
   getDuplicateAuditSnapshot(): Array<NoteMetadata & { content_hash?: string | null }> {
     type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string; content_hash?: string | null };
     const rows = this.db.prepare(`

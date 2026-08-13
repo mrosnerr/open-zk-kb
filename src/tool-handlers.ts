@@ -1418,11 +1418,20 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         lockedPreview = previewResult(currentReview);
         return null;
       }
-      if (args.disposition === 'create') {
+      const isCreate = args.disposition !== 'update';
+      if (isCreate) {
         if (explicitRelated) {
-          const hiddenId = effectiveRelated.find(id => !repo.getByIdVisible(id, reviewedVisibility));
+          const hiddenId = effectiveRelated.find(id => !context.getByIdVisible(id, reviewedVisibility));
           if (hiddenId) throw new Error(`Related note not found or not visible: ${hiddenId}`);
         }
+        if (args.kind === 'domain') {
+          const existingDomain = project ? context.getDomainNote(project) : null;
+          if (existingDomain) {
+            throw new Error(`A domain note already exists for project "${project}" [${existingDomain.id}]: "${existingDomain.title}". Update the existing note instead of creating a duplicate.`);
+          }
+        }
+      }
+      if (args.disposition === 'create') {
         if (currentEvaluation.matches.some(match => match.highConfidence && match.canonicalFileHash === undefined)) {
           throw new Error('Reviewed create evidence is unavailable; reconcile after canonical files are readable.');
         }
@@ -1434,7 +1443,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
       if (args.disposition === 'update') {
         if (currentSnapshot.canonicalDrift) throw new Error('Reviewed update token is stale because canonical files changed outside the index; reconcile or rebuild.');
         if (!args.noteId) throw new Error('Reviewed update target is required.');
-        const target = repo.getByIdVisible(args.noteId, reviewedVisibility);
+        const target = context.getByIdVisible(args.noteId, reviewedVisibility);
         if (!target) throw new Error('Update target is not active and visible.');
         if (target.status === 'archived' || target.lifecycle === 'snapshot') throw new Error('Update target lifecycle is immutable.');
         if (target.updated_at !== args.expectedUpdatedAt) throw new Error('Update target version is stale.');
@@ -1450,7 +1459,7 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
         }
         if (explicitRelated) {
           for (const relatedId of effectiveRelated) {
-            if (!repo.getByIdVisible(relatedId, reviewedVisibility)) throw new Error(`Related note ${relatedId} is not active and visible.`);
+            if (!context.getByIdVisible(relatedId, reviewedVisibility)) throw new Error(`Related note ${relatedId} is not active and visible.`);
           }
         }
         if (target.lifecycle === 'append-only') {
@@ -2406,15 +2415,22 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
       return output;
     }
     case 'dedupe': {
-      const evaluation = evaluateDuplicates(repo.getDuplicateAuditSnapshot());
+      const audit = repo.getDuplicateAuditResult();
+      const evaluation = evaluateDuplicates(audit.notes, undefined, {
+        omissionReasons: audit.omissions,
+        indexedSnapshotUnsafe: audit.indexedSnapshotUnsafe,
+      });
       const { coverage } = evaluation;
       let output = '## Duplicate Detection\n\n';
       output += `Coverage: eligible=${coverage.eligible} | hashed-at-start=${coverage.hashedAtStart} | computed-ephemerally=${coverage.computedEphemerally} | evaluated=${coverage.evaluated} | omitted=${coverage.omitted} | status=${coverage.complete ? 'complete' : 'incomplete'}\n`;
       if (coverage.omitted > 0) output += `Omission reasons: ${JSON.stringify(coverage.omissionReasons)}\n`;
-      output += `Groups: exact-title=${evaluation.titleGroups.length} | SimHash=${evaluation.simhashGroupTotal} (complete totals)\n\n`;
+      if (audit.indexedSnapshotUnsafe) output += 'Indexed canonical drift: detected; stale groups suppressed.\n';
+      output += `Groups: exact-title=${evaluation.titleGroups.length} | SimHash=${evaluation.simhashGroupTotal}${coverage.complete ? ' (complete totals)' : ' (incomplete totals)'}\n\n`;
 
       if (evaluation.titleGroups.length === 0 && evaluation.simhashGroupTotal === 0) {
-        return `${output}No duplicate notes found.`;
+        return coverage.complete
+          ? `${output}No duplicate notes found.`
+          : `${output}No trustworthy duplicate groups can be reported from this incomplete audit.`;
       }
 
       if (evaluation.titleGroups.length > 0) {

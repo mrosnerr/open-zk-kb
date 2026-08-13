@@ -16,6 +16,12 @@ export interface SimHashGroup {
   readonly evidence: readonly { noteId: string; distanceFromSeed: number }[];
 }
 
+export interface DuplicateIncompletenessEvidence {
+  readonly omissionReasons: Readonly<Record<string, number>>;
+  /** Indexed rows may no longer represent their canonical Markdown. */
+  readonly indexedSnapshotUnsafe?: boolean;
+}
+
 export interface DuplicateEvaluation {
   readonly coverage: {
     readonly eligible: number;
@@ -53,6 +59,7 @@ export function normalizeComparableTitle(title: string): string {
 export function evaluateDuplicates(
   input: readonly (NoteMetadata & { content_hash?: string | null })[],
   threshold = DUPLICATE_SIMHASH_THRESHOLD,
+  incompleteness?: DuplicateIncompletenessEvidence,
 ): DuplicateEvaluation {
   const ordered = [...input].sort((a, b) => a.id.localeCompare(b.id));
   const snapshot: DuplicateSnapshotNote[] = ordered.map(note => {
@@ -102,19 +109,22 @@ export function evaluateDuplicates(
   }
 
   const hashedAtStart = snapshot.filter(item => item.hashSource === 'stored').length;
+  const omissionReasons = incompleteness?.omissionReasons ?? {};
+  const omitted = Object.values(omissionReasons).reduce((total, count) => total + count, 0);
+  const indexedSnapshotUnsafe = incompleteness?.indexedSnapshotUnsafe === true;
   return {
     coverage: {
-      eligible: snapshot.length,
+      eligible: snapshot.length + omitted,
       hashedAtStart,
       computedEphemerally: snapshot.length - hashedAtStart,
       evaluated: snapshot.length,
-      omitted: 0,
-      omissionReasons: {},
-      complete: true,
+      omitted,
+      omissionReasons,
+      complete: omitted === 0 && !indexedSnapshotUnsafe,
     },
-    titleGroups,
-    simhashGroupTotal,
-    simhashGroups,
+    titleGroups: indexedSnapshotUnsafe ? [] : titleGroups,
+    simhashGroupTotal: indexedSnapshotUnsafe ? 0 : simhashGroupTotal,
+    simhashGroups: indexedSnapshotUnsafe ? [] : simhashGroups,
     threshold,
   };
 }
