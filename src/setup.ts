@@ -2063,7 +2063,7 @@ install:
   (no flags)           Interactive client selection
   --client <name>      Install for specific client (opencode, claude-code, cursor, windsurf, zed, pi, omp)
   --server-path <path> Path to dist/mcp-server.js (auto-detected; MCP clients only)
-  --instructions <size> Agent instruction size: compact (~140 tokens), full (~420 tokens), rules, or preflight
+  --instructions <size> Agent instruction policy: compact, full, and rules are compatibility aliases; preflight uses the OMP skill pointer
   --transport <type>   Transport type: stdio (default) or http
   --force              Overwrite existing config
   --dry-run            Preview changes without applying
@@ -2264,13 +2264,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     async function promptTelemetry(): Promise<{ enabled: boolean; share: boolean } | null> {
       if (dryRun) return null;
       if (noTelemetry) {
-        // Defaults are already disabled (enabled: false, share: false).
-        // Only need to write if config already exists and might have telemetry enabled.
-        const configPath = getConfigYamlPath();
-        if (fs.existsSync(configPath)) {
-          return { enabled: false, share: false };
-        }
-        return null;
+        return { enabled: false, share: false };
       }
       if (yes || !process.stdin.isTTY) {
         // Non-interactive: use config defaults
@@ -2314,13 +2308,18 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
       }
     }
 
-    // Capture telemetry choice before install (prompt runs early)
+    // Capture telemetry choice before install (prompt runs early). Explicit
+    // opt-out takes effect immediately; only opt-in waits for successful installs.
     const telemetryChoice = await promptTelemetry();
+    const pendingTelemetryChoice = telemetryChoice?.enabled ? telemetryChoice : null;
+    if (telemetryChoice && !telemetryChoice.enabled) {
+      applyTelemetryChoice(telemetryChoice);
+    }
 
     // --- Single-client mode ---
     if (client) {
       const result = await installClient(client, { serverPath, transport, force, dryRun, instructionSize, yes });
-      applyTelemetryChoice(telemetryChoice);
+      applyTelemetryChoice(pendingTelemetryChoice);
       console.log(result.output);
       return;
     }
@@ -2331,7 +2330,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         const result = await installClient(c, { serverPath, transport, force, dryRun, instructionSize, yes: true });
         console.log(result.output);
       }
-      applyTelemetryChoice(telemetryChoice);
+      applyTelemetryChoice(pendingTelemetryChoice);
       return;
     }
 
@@ -2382,6 +2381,7 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
     // Show shared info once before per-client results
     p.log.info(color.dim(`Vault: ${getVaultPath()}`));
 
+    let allInstallsSucceeded = true;
     for (const c of selected) {
       try {
         // Selecting an already-installed client = implicit force (user chose to update it)
@@ -2389,13 +2389,14 @@ export async function runSetupCli(rawArgs: string[] = process.argv.slice(2)): Pr
         const result = await installClient(c, { serverPath, transport, force: implicitForce, dryRun, instructionSize });
         logInstallResult(result);
       } catch (e) {
+        allInstallsSucceeded = false;
         p.log.error(`${CLIENT_CONFIGS[c].name}: ${e instanceof Error ? e.message : e}`);
         process.exitCode = 1;
       }
     }
 
     // Persist telemetry choice only after all installs succeed
-    applyTelemetryChoice(telemetryChoice);
+    if (allInstallsSucceeded) applyTelemetryChoice(pendingTelemetryChoice);
 
     // Offer to launch a CLI client to try out the knowledge base
     if (!dryRun) {

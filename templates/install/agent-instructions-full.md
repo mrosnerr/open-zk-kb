@@ -1,11 +1,17 @@
 ## Knowledge Base (open-zk-kb)
-Persistent cross-session memory via `knowledge-*` MCP tools.
-**Pre-flight before work:**
-`knowledge-search` for relevant context.
-Pass the current project explicitly on every routine stored-knowledge call; follow each note's `<guidance>`.
-**`knowledge-store` immediately, never defer:**
-- enduring preference/correction → project-local personalization, optionally restricted by client. Apply durability within its declared scope: it must outlast the current task and transient implementation/configuration/subscription. Otherwise use decision/reference/domain instead. Weighed choice → decision; non-obvious gotcha → observation; looked up twice → reference; multi-step workflow discovered → procedure; useful URL → resource (`knowledge-ingest` first).
-**Each note:** one concept only.
-Include a `summary` and imperative `guidance`.
-**Project session start:** `knowledge-context` with the current project. Routine capture is project-local; never create global knowledge with `knowledge-store` or `knowledge-mine`. Global publication is maintenance-only: author a project-agnostic derivative, preview `publish-global`, show the evidence, and apply only after user confirmation. Maintenance remains full-vault and must classify legacy unscoped notes instead of treating them as global.
-**Full detail:** `knowledge-template --kind {kind}` and the `open-zk-kb` skill where supported.
+Cross-session memory via `knowledge-*` MCP tools. Retrieve only when durable memory can materially affect the task.
+
+**Canonical ownership:**
+- **OpenSpec:** active scope, requirements, design, tasks.
+- **Code/tests:** implemented behavior.
+- **Maintained docs:** supported usage, architecture.
+- **Git:** integrated history. **Issues:** unresolved coordination.
+- **Knowledge base:** durable agent memory lacking a better home.
+
+Injection is independent of persistence: automatic note context carries only applicable permanent preferences (max 12; 800-token estimate)—never bodies, inventory, resources, activity, requirements, design, progress.
+
+**Precision-first capture (default: no new note):** Call `knowledge-store` only when gates pass: **Novel:** no adequate existing note; **Durable:** useful beyond task or transient state; **Behavior-changing:** changes future action; **Canonical here:** better here than the authorities above. Zero captures is a successful result.
+
+When relevant, use `knowledge-search` in compact mode; escalate once to exact-ID `knowledge-get`. Reuse an adequate existing note or supported reviewed update. If no safe update path exists, do not create a duplicate. Handle explicit enduring-memory requests under these gates. Do not routinely capture plans, tasks, progress, commits, completed-work/release summaries, or transient research. Preserve existing notes; rehome only after destination verification; archive and delete separately. Pass the current project on routine calls; never create global knowledge routinely. `index` and `log` are server-generated.
+
+**Client pointer:** use `knowledge-template --kind {kind}` and the `open-zk-kb` skill where supported.

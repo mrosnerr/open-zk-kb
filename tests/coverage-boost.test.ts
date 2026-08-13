@@ -654,6 +654,17 @@ describe('NoteRepository — Coverage Boost', () => {
       const results = ctx.engine.searchHybrid('xylophone', null);
       expect(results.length).toBeGreaterThanOrEqual(1);
     });
+
+    it('requires exact parsed tag membership for vector results', () => {
+      const exact = ctx.engine.store('Vector-only exact match', { title: 'Exact Tag', kind: 'reference', tags: ['topic:search'] });
+      const prefix = ctx.engine.store('Vector-only prefix match', { title: 'Prefix Tag', kind: 'reference', tags: ['topic:searching'] });
+      ctx.engine.storeEmbedding(exact.id, [1, 0, 0], 'test-model');
+      ctx.engine.storeEmbedding(prefix.id, [1, 0, 0], 'test-model');
+
+      const results = ctx.engine.searchHybrid('keyword-absent-from-both', [1, 0, 0], { tags: ['topic:search'] });
+
+      expect(results.map(note => note.id)).toEqual([exact.id]);
+    });
   });
 });
 
@@ -818,12 +829,14 @@ describe('Tool Handlers — Coverage Boost', () => {
   describe('handleMaintain — dedupe with duplicates', () => {
     it('should detect title-based duplicates', async () => {
       await handleStore({ project: 'test-project', title: 'Same Title', content: 'First version', kind: 'reference', summary: 'A', guidance: 'A' }, ctx.engine);
-      await handleStore({ project: 'test-project', title: 'Same Title', content: 'Second version', kind: 'reference', summary: 'B', guidance: 'B' }, ctx.engine);
+      const second = { project: 'test-project', title: 'Same Title', content: 'Second version', kind: 'reference' as const, summary: 'B', guidance: 'B' };
+      const preview = JSON.parse(await handleStore({ ...second, dryRun: true }, ctx.engine)) as { createToken: string };
+      await handleStore({ ...second, disposition: 'create', confirm: true, token: preview.createToken }, ctx.engine);
 
       const output = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
       expect(output).toContain('Title-Based Duplicates');
       expect(output).toContain('Same Title');
-      expect(output).toContain('Recommendation');
+      expect(output).toContain('Findings are similarity evidence for review');
     });
   });
 

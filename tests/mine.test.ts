@@ -3,7 +3,6 @@ import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
 import { handleMine, handleStore } from '../src/tool-handlers.js';
 import type { MineCandidate } from '../src/tool-handlers.js';
-import { GitVersioning } from '../src/git-versioning.js';
 
 function makeCandidate(overrides: Partial<MineCandidate> = {}): MineCandidate {
   return {
@@ -212,171 +211,229 @@ describe('knowledge-mine: dry-run classification', () => {
   });
 });
 
-describe('knowledge-mine: store mode', () => {
+describe('knowledge-mine: reviewed apply mode', () => {
   let ctx: TestContext;
 
-  beforeEach(() => {
-    ctx = createTestHarness();
+  beforeEach(() => { ctx = createTestHarness(); });
+  afterEach(() => cleanupTestHarness(ctx));
+
+  function keys(output: string): string[] {
+    return [...output.matchAll(/Candidate key: ([a-f0-9]{64})/g)].map(match => match[1]);
+  }
+
+  function json(output: string): Record<string, unknown> {
+    return JSON.parse(output) as Record<string, unknown>;
+  }
+
+  async function apply(candidates: MineCandidate[], dispositions: Array<{ candidateKey: string; action: 'store' | 'update' | 'skip'; noteId?: string; expectedUpdatedAt?: number }>, client?: string) {
+    const planOutput = await handleMine({ project: 'test-project', client, candidates, dispositions }, ctx.engine, null, ctx.config);
+    if (!planOutput.startsWith('{')) throw new Error(planOutput);
+    const plan = json(planOutput);
+    expect(plan.state).toBe('plan-ready');
+    return handleMine({
+      project: 'test-project', client, candidates, dispositions, dry_run: false, confirm: true,
+      batchToken: plan.batchToken as string,
+    }, ctx.engine, null, ctx.config);
+  }
+
+  it('makes legacy dry_run=false a zero-mutation migration response', async () => {
+    const output = json(await handleMine({ project: 'test-project', dry_run: false, candidates: [makeCandidate()] }, ctx.engine, null, ctx.config));
+    expect(output.state).toBe('migration-required');
+    expect(output.mutated).toBe(false);
+    expect(ctx.engine.getStats().total).toBe(0);
   });
 
-  afterEach(() => {
-    cleanupTestHarness(ctx);
+  it('previews a complete candidate-keyed plan without mutation', async () => {
+    const candidates = [makeCandidate({ title: 'Plan Candidate' })];
+    const candidateKeys = keys(await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config));
+    const before = ctx.engine.getStats();
+    const plan = json(await handleMine({
+      project: 'test-project', candidates,
+      dispositions: [{ candidateKey: candidateKeys[0], action: 'store' }],
+    }, ctx.engine, null, ctx.config));
+    expect(plan.state).toBe('plan-ready');
+    expect(plan.batchToken).toBeString();
+    expect((plan.plan as Array<{ token?: string }>)[0].token).toBeString();
+    expect(ctx.engine.getStats()).toEqual(before);
   });
 
-  it('dry_run=false stores STORE candidates', async () => {
-    const output = await handleMine({ project: 'test-project',
-      dry_run: false,
-      candidates: [makeCandidate({ title: 'Stored Mining Candidate', summary: 'Unique stored mining candidate summary' })],
+  it('keeps reviewed disposition identity stable across object member insertion order', async () => {
+    const candidates = [makeCandidate({ title: 'Canonical Disposition' })];
+    const candidateKey = keys(await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config))[0];
+    const previewDispositions = [{ candidateKey, action: 'store' as const }];
+    const plan = json(await handleMine({ project: 'test-project', candidates, dispositions: previewDispositions }, ctx.engine, null, ctx.config));
+    const applyDispositions = [{ action: 'store' as const, candidateKey }];
+    const applied = await handleMine({
+      project: 'test-project', candidates, dispositions: applyDispositions, dry_run: false, confirm: true,
+      batchToken: plan.batchToken as string,
     }, ctx.engine, null, ctx.config);
 
-    const results = ctx.engine.search('Stored Mining Candidate', { limit: 10 });
+    expect(applied).toContain('✅ Stored as');
+    expect(ctx.engine.search('Canonical Disposition').some(note => note.title === 'Canonical Disposition')).toBe(true);
+  });
 
-    expect(output).toContain('⮕ STORE — No similar notes found');
+  it('keeps reviewed candidate identity stable across object member insertion order', async () => {
+    const candidate = makeCandidate({
+      title: 'Canonical Candidate',
+      content: 'Canonical candidate content',
+      kind: 'procedure',
+      summary: 'Canonical candidate summary',
+      guidance: 'Use the canonical candidate.',
+      project: 'test-project',
+      tags: ['alpha', 'beta'],
+      source: 'ses_canonical',
+    });
+    const reordered: MineCandidate = {
+      source: candidate.source,
+      tags: ['beta', 'alpha', 'alpha'],
+      project: candidate.project,
+      guidance: candidate.guidance,
+      summary: candidate.summary,
+      kind: candidate.kind,
+      content: candidate.content,
+      title: candidate.title,
+    };
+    const candidateKey = keys(await handleMine({ project: 'test-project', candidates: [candidate] }, ctx.engine, null, ctx.config))[0];
+    const dispositions = [{ candidateKey, action: 'store' as const }];
+    const plan = json(await handleMine({ project: 'test-project', candidates: [candidate], dispositions }, ctx.engine, null, ctx.config));
+    const applied = await handleMine({
+      project: 'test-project', candidates: [reordered], dispositions, dry_run: false, confirm: true, batchToken: plan.batchToken as string,
+    }, ctx.engine, null, ctx.config);
+
+    expect(applied).toContain('✅ Stored as');
+    expect(ctx.engine.search('Canonical Candidate').some(note => note.title === 'Canonical Candidate')).toBe(true);
+
+    for (const changed of [
+      { ...candidate, content: 'Changed canonical candidate content' },
+      { ...candidate, tags: [...(candidate.tags ?? []), 'gamma'] },
+    ]) {
+      const changedKey = keys(await handleMine({ project: 'test-project', candidates: [changed] }, ctx.engine, null, ctx.config))[0];
+      const stale = json(await handleMine({
+        project: 'test-project', candidates: [changed], dispositions: [{ candidateKey: changedKey, action: 'skip' }],
+        dry_run: false, confirm: true, batchToken: plan.batchToken as string,
+      }, ctx.engine, null, ctx.config));
+      expect(stale.state).toBe('stale-plan');
+    }
+  });
+
+  it('stores, skips, and leaves unspecified candidates unchanged in original order', async () => {
+    const candidates = [
+      makeCandidate({ title: 'Stored Mining Candidate', summary: 'Unique stored candidate', source: 'ses_abc123' }),
+      makeCandidate({ title: 'Skipped Mining Candidate', summary: 'Unique skipped candidate' }),
+      makeCandidate({ title: 'Unspecified Mining Candidate', summary: 'Unique unspecified candidate' }),
+    ];
+    const candidateKeys = keys(await handleMine({ project: 'test-project', client: 'pi', candidates }, ctx.engine, null, ctx.config));
+    const output = await apply(candidates, [
+      { candidateKey: candidateKeys[0], action: 'store' },
+      { candidateKey: candidateKeys[1], action: 'skip' },
+    ], 'pi');
     expect(output).toContain('✅ Stored as');
-    expect(results.some(note => note.title === 'Stored Mining Candidate')).toBe(true);
-  });
-
-  it('stores mined notes with the supplied client applicability', async () => {
-    await handleMine({
-      project: 'test-project', client: 'pi', dry_run: false,
-      candidates: [makeCandidate({ title: 'Pi Scoped Mining Note', summary: 'Unique Pi scoped mining note' })],
-    }, ctx.engine, null, ctx.config);
-
-    const stored = ctx.engine.search('Pi Scoped Mining Note', {
-      kind: 'observation', visibility: { project: 'test-project', client: 'pi' },
-    })[0];
+    const stored = ctx.engine.search('Stored Mining Candidate', { visibility: { project: 'test-project', client: 'pi' } })[0];
     expect(stored.tags).toContain('project:test-project');
     expect(stored.tags).toContain('client:pi');
-    expect(ctx.engine.search('Pi Scoped Mining Note', {
-      kind: 'observation', visibility: { project: 'test-project', client: 'cursor' },
-    })).toEqual([]);
+    expect(stored.tags).toContain('mined:ses_abc123');
+    expect(ctx.engine.search('Skipped Mining Candidate').some(note => note.title === 'Skipped Mining Candidate')).toBe(false);
+    expect(ctx.engine.search('Unspecified Mining Candidate').some(note => note.title === 'Unspecified Mining Candidate')).toBe(false);
   });
 
-  it('extracts the real stored id when a mined title contains an arrow', async () => {
-    const output = await handleMine({ project: 'test-project',
-      dry_run: false,
-      candidates: [makeCandidate({ title: 'Cause → Effect Mapping', summary: 'Unique arrow-title mining candidate summary' })],
+  it('applies a reviewed update to the selected visible target', async () => {
+    const stored = await handleStore({ project: 'test-project', title: 'Update Target', content: 'old content', kind: 'reference', summary: 'Old summary', guidance: 'Use old content.' }, ctx.engine, null, ctx.config);
+    const id = /→\s*(\d{16})/.exec(stored)?.[1];
+    if (!id) throw new Error('Expected target id');
+    const target = ctx.engine.getById(id);
+    if (!target) throw new Error('Expected target');
+    const candidates = [makeCandidate({ title: 'Update Target', content: 'new durable content', kind: 'reference', summary: 'New summary', guidance: 'Use new content.' })];
+    const preview = await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config);
+    expect(preview).toContain(`[${id}] "Update Target"`);
+    expect(preview).toContain(`expectedUpdatedAt: ${target.updated_at}`);
+    const candidateKeys = keys(preview);
+    const stalePlan = await handleMine({
+      project: 'test-project', candidates,
+      dispositions: [{ candidateKey: candidateKeys[0], action: 'update', noteId: id, expectedUpdatedAt: target.updated_at - 1 }],
     }, ctx.engine, null, ctx.config);
-
-    const results = ctx.engine.search('Cause Effect Mapping', { limit: 10 });
-    const stored = results.find(note => note.title === 'Cause → Effect Mapping');
-    expect(stored).toBeDefined();
-
-    // Reported id must be the real 16-digit note id, not the "Effect" token after the title's arrow.
-    expect(stored!.id).toMatch(/^\d{16}$/);
-    expect(output).toContain(`✅ Stored as ${stored!.id}`);
-    expect(output).not.toContain('✅ Stored as Effect');
+    expect(stalePlan).toContain('stale expectedUpdatedAt');
+    expect(ctx.engine.getById(id)?.content).toBe('old content');
+    const output = await apply(candidates, [{ candidateKey: candidateKeys[0], action: 'update', noteId: id, expectedUpdatedAt: target.updated_at }]);
+    expect(output).toContain(`✅ Stored as ${id}`);
+    expect(ctx.engine.getById(id)?.content).toBe('new durable content');
   });
 
-  it('dry_run=false skips SKIP candidates', async () => {
-    await handleStore({ project: 'test-project',
-      title: 'Existing Duplicate Seed',
-      content: 'Do not duplicate this already captured note.',
-      kind: 'observation',
-      summary: 'Do not duplicate this already captured note',
-      guidance: 'Prefer the existing duplicate seed.',
-    }, ctx.engine, null, ctx.config);
+  it('rejects stale, malformed, reordered, and conflicting plans without mutation', async () => {
+    const candidates = [makeCandidate({ title: 'First Plan Item' }), makeCandidate({ title: 'Second Plan Item' })];
+    const candidateKeys = keys(await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config));
+    const dispositions = [{ candidateKey: candidateKeys[0], action: 'store' as const }];
+    const plan = json(await handleMine({ project: 'test-project', candidates, dispositions }, ctx.engine, null, ctx.config));
+    await handleStore({ project: 'test-project', title: 'Unrelated Evidence Mutation', content: 'completely unrelated intervening content', kind: 'observation', summary: 'Unrelated intervening summary', guidance: 'Keep unrelated evidence.' }, ctx.engine, null, ctx.config);
+    const stale = json(await handleMine({ project: 'test-project', candidates, dispositions, dry_run: false, confirm: true, batchToken: plan.batchToken as string }, ctx.engine, null, ctx.config));
+    expect(stale.state).toBe('stale-plan');
+    expect(ctx.engine.search('First Plan Item').filter(note => note.title === 'First Plan Item')).toHaveLength(0);
 
-    await handleMine({ project: 'test-project',
-      dry_run: false,
-      candidates: [makeCandidate({
-        title: 'New Duplicate Candidate',
-        content: 'Do not duplicate this already captured note again.',
-        summary: 'Do not duplicate this already captured note',
-        guidance: 'This should not be stored.',
-      })],
-    }, ctx.engine, null, ctx.config);
+    const reordered = await handleMine({ project: 'test-project', candidates: [...candidates].reverse(), dispositions }, ctx.engine, null, ctx.config);
+    expect(reordered).toContain('duplicate or unknown candidate keys');
+    const edited = await handleMine({ project: 'test-project', candidates: [makeCandidate({ title: 'First Plan Item', content: 'edited after preview' }), candidates[1]], dispositions }, ctx.engine, null, ctx.config);
+    expect(edited).toContain('duplicate or unknown candidate keys');
+    const duplicateKey = await handleMine({ project: 'test-project', candidates, dispositions: [dispositions[0], dispositions[0]] }, ctx.engine, null, ctx.config);
+    expect(duplicateKey).toContain('duplicate or unknown candidate keys');
 
-    const results = ctx.engine.search('New Duplicate Candidate', { limit: 10 });
-
-    expect(results.some(note => note.title === 'New Duplicate Candidate')).toBe(false);
+    const target = ctx.engine.search('Unrelated Evidence Mutation').find(note => note.title === 'Unrelated Evidence Mutation');
+    if (!target) throw new Error('Expected conflict target');
+    const conflicting = await handleMine({ project: 'test-project', candidates, dispositions: [
+      { candidateKey: candidateKeys[0], action: 'update', noteId: target.id, expectedUpdatedAt: target.updated_at },
+      { candidateKey: candidateKeys[1], action: 'update', noteId: target.id, expectedUpdatedAt: target.updated_at },
+    ] }, ctx.engine, null, ctx.config);
+    expect(conflicting).toContain('conflicting updates');
   });
 
-  it('source tag stored as mined:{source}', async () => {
-    await handleMine({ project: 'test-project',
-      dry_run: false,
-      candidates: [makeCandidate({
-        title: 'Mined Source Candidate',
-        summary: 'Unique mined source candidate summary',
-        source: 'ses_abc123',
-      })],
-    }, ctx.engine, null, ctx.config);
+  it('leaves REVIEW and hidden update targets unchanged when not safely authorized', async () => {
+    await handleStore({ project: 'test-project', title: 'Release Checklist', content: 'Run build and release checks.', kind: 'procedure', summary: 'Release checklist for build verification', guidance: 'Use before release.' }, ctx.engine, null, ctx.config);
+    const candidates = [
+      makeCandidate({ title: 'Release Checklist Followup', content: 'Assign rollback ownership.', kind: 'procedure', summary: 'Rollback ownership after release incident', guidance: 'Assign followup ownership.' }),
+      makeCandidate({ title: 'Authorized Unique Candidate', summary: 'Authorized unique candidate summary.' }),
+    ];
+    const initial = await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config);
+    expect(initial).toContain('⮕ REVIEW');
+    const candidateKeys = keys(initial);
+    await apply(candidates, [{ candidateKey: candidateKeys[1], action: 'store' }]);
+    expect(ctx.engine.search('Release Checklist Followup').some(note => note.title === 'Release Checklist Followup')).toBe(false);
 
-    const note = ctx.engine.search('Mined Source Candidate', { limit: 10 })
-      .find(result => result.title === 'Mined Source Candidate');
-
-    expect(note).toBeDefined();
-    expect(note?.tags).toContain('mined:ses_abc123');
+    const hidden = await handleStore({ project: 'test-project', client: 'cursor', title: 'Hidden Mine Target', content: 'hidden target content', kind: 'reference', summary: 'Hidden mine target summary.', guidance: 'Keep hidden.' }, ctx.engine, null, ctx.config);
+    const hiddenId = /→\s*(\d{16})/.exec(hidden)?.[1];
+    if (!hiddenId) throw new Error('Expected hidden target ID');
+    const hiddenTarget = ctx.engine.getById(hiddenId);
+    if (!hiddenTarget) throw new Error('Expected hidden target');
+    const updateCandidates = [makeCandidate({ title: 'Hidden Mine Target', content: 'attempted hidden update', kind: 'reference' })];
+    const updateKeys = keys(await handleMine({ project: 'test-project', client: 'pi', candidates: updateCandidates }, ctx.engine, null, ctx.config));
+    const plan = await handleMine({ project: 'test-project', client: 'pi', candidates: updateCandidates, dispositions: [{ candidateKey: updateKeys[0], action: 'update', noteId: hiddenId, expectedUpdatedAt: hiddenTarget.updated_at }] }, ctx.engine, null, ctx.config);
+    expect(plan).toContain('not active and visible');
+    expect(ctx.engine.getById(hiddenId)?.content).toBe('hidden target content');
   });
 
-  it('project tag applied to all candidates', async () => {
-    await handleMine({
-      dry_run: false,
-      project: 'myapp',
-      candidates: [
-        makeCandidate({ title: 'Project Candidate One', summary: 'Unique project candidate one summary' }),
-        makeCandidate({ title: 'Project Candidate Two', summary: 'Unique project candidate two summary' }),
-      ],
-    }, ctx.engine, null, ctx.config);
-
-    const first = ctx.engine.search('Project Candidate One', { limit: 10 })
-      .find(result => result.title === 'Project Candidate One');
-    const second = ctx.engine.search('Project Candidate Two', { limit: 10 })
-      .find(result => result.title === 'Project Candidate Two');
-
-    expect(first?.tags).toContain('project:myapp');
-    expect(second?.tags).toContain('project:myapp');
+  it('reports the completed prefix when a later accepted operation fails', async () => {
+    const candidates = [
+      makeCandidate({ title: 'First Domain Candidate', kind: 'domain', content: 'first domain content', summary: 'First domain summary.' }),
+      makeCandidate({ title: 'Second Domain Candidate', kind: 'domain', content: 'second domain content', summary: 'Second domain summary.' }),
+    ];
+    const candidateKeys = keys(await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config));
+    const dispositions = candidateKeys.map(candidateKey => ({ candidateKey, action: 'store' as const }));
+    const plan = json(await handleMine({ project: 'test-project', candidates, dispositions }, ctx.engine, null, ctx.config));
+    const result = json(await handleMine({
+      project: 'test-project', candidates, dispositions, dry_run: false, confirm: true, batchToken: plan.batchToken as string,
+    }, ctx.engine, null, ctx.config));
+    expect(result.state).toBe('partial-failure');
+    expect(result.mutated).toBe(true);
+    expect(result.completed).toHaveLength(1);
+    expect(result.message).toContain('not rolled back');
+    expect(ctx.engine.getScreeningSnapshot({ project: 'test-project' }).notes.filter(note => note.kind === 'domain')).toHaveLength(1);
   });
 
-  it('fails closed for mixed-project batches', async () => {
-    const output = await handleMine({
-      project: 'fallback',
-      dry_run: false,
-      candidates: [
-        makeCandidate({ title: 'Alpha Mixed Candidate', project: 'alpha' }),
-        makeCandidate({ title: 'Beta Mixed Candidate', project: 'beta' }),
-      ],
-    }, ctx.engine, null, ctx.config);
-
-    expect(output).toContain('candidate project conflicts with project:fallback');
-    expect(ctx.engine.search('Mixed Candidate', { limit: 10 })).toHaveLength(0);
-  });
-
-  it('commits mined stores through the path-scoped versioning flow', async () => {
-    const vaultPath = ctx.tempDir;
-    const versioning = new GitVersioning(vaultPath, { enabled: true, debounceMs: 10 });
-    await versioning.init();
-
-    try {
-      const output = await handleMine({ project: 'test-project',
-        dry_run: false,
-        candidates: [makeCandidate({
-          title: 'Versioned Mining Candidate',
-          summary: 'Unique candidate stored through versioned mining',
-        })],
-      }, ctx.engine, null, ctx.config, versioning);
-
-      const stored = ctx.engine.search('Versioned Mining Candidate', { limit: 10 })
-        .find(note => note.title === 'Versioned Mining Candidate');
-      expect(output).toContain(`✅ Stored as ${stored?.id}`);
-      expect(stored).toBeDefined();
-
-      let commitMessage = '';
-      for (let attempt = 0; attempt < 20; attempt++) {
-        const result = Bun.spawnSync(['git', 'log', '-1', '--format=%B'], { cwd: vaultPath });
-        expect(result.exitCode).toBe(0);
-        commitMessage = result.stdout.toString();
-        if (commitMessage.includes('Store observation: "Versioned Mining Candidate"')) break;
-        await Bun.sleep(25);
-      }
-
-      expect(commitMessage).toContain('Store observation: "Versioned Mining Candidate"');
-      const status = Bun.spawnSync(['git', 'status', '--porcelain'], { cwd: vaultPath });
-      expect(status.exitCode).toBe(0);
-      expect(status.stdout.toString()).toBe('');
-    } finally {
-      versioning.shutdownSync();
-    }
+  it('permits two explicitly reviewed duplicate-looking creates in one batch', async () => {
+    const candidates = [
+      makeCandidate({ title: 'Duplicate Explicit A', content: 'same durable duplicate content', summary: 'Same durable duplicate summary' }),
+      makeCandidate({ title: 'Duplicate Explicit B', content: 'same durable duplicate content', summary: 'Same durable duplicate summary' }),
+    ];
+    const candidateKeys = keys(await handleMine({ project: 'test-project', candidates }, ctx.engine, null, ctx.config));
+    await apply(candidates, candidateKeys.map(candidateKey => ({ candidateKey, action: 'store' as const })));
+    expect(ctx.engine.search('Duplicate Explicit').filter(note => note.title.startsWith('Duplicate Explicit'))).toHaveLength(2);
   });
 });
 
@@ -397,19 +454,11 @@ describe('knowledge-mine: output format', () => {
     expect(output).toContain('Summary: 1 STORE, 0 SKIP, 0 REVIEW');
   });
 
-  it('dry-run shows store instruction', async () => {
+  it('dry-run shows the reviewed-plan instruction and candidate identity', async () => {
     const output = await handleMine({ project: 'test-project', candidates: [makeCandidate()] }, ctx.engine, null, ctx.config);
 
-    expect(output).toContain('call again with project="test-project" and dry_run=false');
-  });
-
-  it('store mode omits dry-run instruction', async () => {
-    const output = await handleMine({ project: 'test-project',
-      dry_run: false,
-      candidates: [makeCandidate({ title: 'Instruction Omitted Candidate', summary: 'Instruction omitted candidate summary' })],
-    }, ctx.engine, null, ctx.config);
-
-    expect(output).not.toContain('call again with project="test-project" and dry_run=false');
+    expect(output).toContain('To prepare a reviewed plan');
+    expect(output).toMatch(/Candidate key: [a-f0-9]{64}/);
   });
 
   it('shows embeddings disabled warning when no embedding config', async () => {

@@ -9,6 +9,7 @@ import * as path from 'path';
 import { Database } from 'bun:sqlite';
 import { _resetConfigCache } from '../src/config.js';
 import { reportPreviousSessions } from '../src/analytics.js';
+import { NoteRepository, TELEMETRY_TOOL_NAMES } from '../src/storage/NoteRepository.js';
 import { createTestHarness, cleanupTestHarness } from './harness.js';
 import type { TestContext } from './harness.js';
 
@@ -25,6 +26,7 @@ describe('analytics integration', () => {
       XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME,
       XDG_DATA_HOME: process.env.XDG_DATA_HOME,
       DO_NOT_TRACK: process.env.DO_NOT_TRACK,
+      OPEN_ZK_KB_TELEMETRY_ENV: process.env.OPEN_ZK_KB_TELEMETRY_ENV,
     };
     ctx = createTestHarness({ telemetryEnabled: true });
   });
@@ -65,50 +67,79 @@ describe('analytics integration', () => {
     return path.join(ctx.tempDir, '.index', 'knowledge.db');
   }
 
-  it('reports previous session as a single session event with flattened tool counts', async () => {
+  it('reports a completed prior startup with bounded synthetic telemetry', async () => {
     createIsolatedEnv('telemetry:\n  enabled: true\n  share: true\n  id: "int-test-uuid"\n');
+    process.env.OPEN_ZK_KB_TELEMETRY_ENV = 'test';
 
-    const db = new Database(dbPath());
-    db.run(
-      'INSERT INTO sessions (session_id, client, client_version, started_at, ended_at, vault_size, version, os_platform, reported) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-      'prev-session-1', 'claude-code', '1.0.27', Date.now() - 120000, Date.now() - 60000, 42, '1.3.0', 'darwin', 0,
+    const identifyingNamespace = 'synthetic-private-tenant';
+
+    // First startup: write a completed session through the real repository API.
+    const priorRepository = ctx.engine;
+    priorRepository.recordSessionStart(
+      'synthetic-unknown-client',
+      '1.0.27',
+      42,
+      '1.3.0',
+      true,
     );
-    db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp) VALUES (?, ?, ?)', 'prev-session-1', 'search', Date.now() - 100000);
-    db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp) VALUES (?, ?, ?)', 'prev-session-1', 'search', Date.now() - 90000);
-    db.run('INSERT INTO tool_telemetry (session_id, tool_name, timestamp) VALUES (?, ?, ?)', 'prev-session-1', 'store', Date.now() - 80000);
-    db.close();
+    const priorSessionId = priorRepository.getSessionId();
+    for (const toolName of TELEMETRY_TOOL_NAMES) {
+      priorRepository.recordToolInvocation(
+        toolName,
+        undefined,
+        undefined,
+        `${identifyingNamespace}/claude-3-5-sonnet`,
+      );
+    }
+    priorRepository.recordSessionEnd();
+    priorRepository.close();
+
+    // Second startup: use a distinct repository instance to drain the queue.
+    ctx.engine = new NoteRepository(ctx.tempDir, { telemetryEnabled: true });
 
     const fetchCalls: { url: string; body: unknown }[] = [];
-    globalThis.fetch = (async (url: string | URL | Request, opts?: RequestInit) => {
-      fetchCalls.push({ url: url.toString(), body: JSON.parse(opts?.body as string) });
+    globalThis.fetch = (async (
+      url: string | URL | Request,
+      opts?: RequestInit,
+    ) => {
+      fetchCalls.push({
+        url: url.toString(),
+        body: JSON.parse(opts?.body as string),
+      });
       return new Response('{}', { status: 200 });
     }) as typeof fetch;
 
+    // The current startup drains the completed prior startup's real SQLite queue.
     await reportPreviousSessions(ctx.engine);
 
-    // One batch POST with one session event
     expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0].url).toBe('https://eu.i.posthog.com/batch/');
     const body = fetchCalls[0].body as Record<string, unknown>;
     const batch = body.batch as Array<Record<string, unknown>>;
     expect(batch).toHaveLength(1);
+    expect(batch[0].event).toBe('session');
 
-    const event = batch[0];
-    expect(event.event).toBe('session');
-
-    const props = event.properties as Record<string, unknown>;
-    expect(props.client).toBe('claude-code');
-    expect(props.session_id).toBe('prev-session-1');
-    expect(props.vault_size).toBe(42);
-    expect(props.os_platform).toBe('darwin');
-    expect(props.tool_search).toBe(2);
-    expect(props.tool_store).toBe(1);
-    expect(props.tool_maintain).toBe(0);
-    expect(props.total_invocations).toBe(3);
+    const props = batch[0].properties as Record<string, unknown>;
+    expect(props.client).toBe('other');
+    expect(props.session_id).toBe(priorSessionId);
+    expect(props.$lib_env).toBe('test');
     expect(props.$lib).toBe('open-zk-kb');
 
-    // Verify session is marked reported
+    const toolTotal = TELEMETRY_TOOL_NAMES.reduce((sum, toolName) => {
+      expect(props[`tool_${toolName}`]).toBe(1);
+      return sum + Number(props[`tool_${toolName}`]);
+    }, 0);
+    expect(TELEMETRY_TOOL_NAMES).toHaveLength(10);
+    expect(props.total_invocations).toBe(10);
+    expect(props.total_invocations).toBe(toolTotal);
+
+    expect(props.models).toEqual(['claude']);
+    expect(JSON.stringify(props.models)).not.toContain(identifyingNamespace);
+
     const db2 = new Database(dbPath(), { readonly: true });
-    const row = db2.prepare('SELECT reported FROM sessions WHERE session_id = ?').get('prev-session-1') as { reported: number };
+    const row = db2
+      .prepare('SELECT reported FROM sessions WHERE session_id = ?')
+      .get(priorSessionId) as { reported: number };
     db2.close();
     expect(row.reported).toBe(1);
   });

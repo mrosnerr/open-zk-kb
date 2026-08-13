@@ -170,13 +170,34 @@ server:
    - `knowledge-store` -- save notes to the knowledge base
    - `knowledge-search` -- full-text search across notes
    - `knowledge-template` -- canonical note template for a kind
-   - `knowledge-mine` -- bulk-screen candidates for duplicates and store
+   - `knowledge-mine` -- bulk-screen candidates and apply an explicitly reviewed create/update/skip plan
    - `knowledge-health` -- vault health metrics, staleness, growth rate
    - `knowledge-maintain` -- review, promote, archive, rebuild
    - `knowledge-ingest` -- extract article content from URLs or HTML
    - `knowledge-context` -- project entry point with auto-generated index and recent log
    - `knowledge-get` -- fetch a specific note by id
    - `knowledge-open` -- open the vault in Obsidian for visual browsing (see [Obsidian Guide](obsidian.md))
+
+## Context and ownership policy
+
+Keep the knowledge base separate from project management. Use this ownership table when deciding where information belongs:
+
+| Destination | Authority |
+|---|---|
+| OpenSpec | requirements, plans, and acceptance criteria |
+| Docs | user-facing explanation and contributor guidance |
+| Code/tests | implementation and executable behavior |
+| Git | commits, diffs, branches, and review history |
+| Issues | work tracking, discussion, and collaboration status |
+| Durable KB | reusable guidance that is not authoritative elsewhere |
+
+Automatic Pi context is the managed knowledge policy plus applicable permanent preferences—not compact project orientation. The preference transport is limited to 12 notes and an 800-token estimate (`ceil(UTF-16 code units / 4)`). An empty capsule means no applicable retained preference, not an absence of project policy. Compact search returns 5 cards by default and at most 10, with each summary and guidance capped at 240 Unicode code points.
+
+Use bounded retrieval: start with **compact** task-relevant search, judge relevance, then retrieve at most one exact named note when needed. The explicit overview mode remains available when a user actually needs project orientation, but it is not injected automatically. Flow: search compactly → judge task relevance → escalate once to one exact note → reuse, update, or capture only after the precision gates. Do not routinely store tasks, progress, commits, issue updates, docs, or uncertain history. Zero captures is valid.
+
+Examples: put an OpenSpec requirement in OpenSpec; an API explanation in docs; behavior in code and tests; commits, diffs, and review history in Git; work status and discussion in issues; and durable reusable guidance in the KB. Treat uncertain history as a question for Git/issues or a deferred investigation, not a memory fact.
+
+Run `knowledge-maintain` with `project-authority-review` to obtain read-only, factual candidates (`mutated: false`). Decide keep, distill, destination-specific rehome, archive after verification, or defer. Preserve the source, copy/distill through normal OpenSpec, docs, code/test, Git, or issue tools, verify it, and only then archive. For mixed notes, leave the source active until every accepted or unresolved part is accounted for. Archive does not delete; deletion is a separate explicit action.
 
 ## Initialize project-scoped use
 
@@ -196,11 +217,11 @@ During installation, open-zk-kb delivers knowledge base instructions to clients 
 | Pi | Managed block | `~/.pi/agent/AGENTS.md` |
 | OMP | Skill + Preflight rule + TTSR rule | `~/.omp/agent/skills/open-zk-kb/` + `~/.omp/agent/rules/open-zk-kb.md` + `~/.omp/agent/rules/open-zk-kb-enforce.md` |
 
-Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets three layers: a skill (detailed tool reference, loaded on-demand), an always-apply preflight rule (tiny, tells the agent to search KB in parallel with first exploration), and a TTSR enforcement rule (see below).
+Cursor and Zed get the MCP server config automatically, but don't currently receive agent instructions. Pi gets a package extension plus managed `AGENTS.md` instructions. OMP gets three layers: a skill (detailed tool reference, loaded on demand), an always-apply preflight rule carrying the same precision-first policy with an OMP skill pointer, and a TTSR truthfulness rule (see below). The setup values `compact`, `rules`, and `full` are compatibility aliases for one canonical managed policy; `preflight` changes only the OMP skill pointer.
 
 ### OMP: TTSR Enforcement Rule
 
-OMP supports **TTSR (Time-Traveling Stream Rules)** — a mechanism that monitors the model's output token stream during generation and interrupts mid-stream when a regex pattern matches. The TTSR enforcement rule catches the model claiming "I'll remember that" without actually calling `knowledge-store`, interrupts generation, injects a correction, and forces a retry.
+OMP supports **TTSR (Time-Traveling Stream Rules)** — a mechanism that monitors the model's output token stream during generation and interrupts mid-stream when a regex pattern matches. The truthfulness rule catches unsupported claims such as "I'll remember that." It requires `knowledge-store` in the current turn when an explicit qualified request can be persisted safely, requires correction when persistence is unavailable or unsafe, and requires correction without storage when the content fails the precision gate.
 
 This is OMP-specific — the TTSR mechanism exists in the shared Pi/OMP engine, but Pi's native rule discovery only scans `.omp` paths, so TTSR rules cannot be installed for Pi through the setup CLI. No other supported client (Claude Code, Cursor, Windsurf, Zed, OpenCode) has an equivalent mid-generation interruption mechanism. The rule is installed at `~/.omp/agent/rules/open-zk-kb-enforce.md`.
 

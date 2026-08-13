@@ -1,5 +1,5 @@
 // tests/mcp-tools.test.ts - Test MCP tool handlers directly against NoteRepository
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -13,9 +13,18 @@ import type { TestContext } from './harness.js';
 import { renderNoteForAgent, renderNoteForSearch, computeStaleness } from '../src/prompts.js';
 import { getPendingMigrations, getMigrationById } from '../src/data-migrations.js';
 import { getConfig } from '../src/config.js';
+import { walkMarkdownFiles } from '../src/storage/path-resolver.js';
 import { buildPreferenceCapsule, handleStore, handleSearch, handleHealth, handleMaintain, handleContext, handleContextResult, handleGet, handleOpen } from '../src/tool-handlers.js';
 import { LifecycleViolationError } from '../src/storage/NoteRepository.js';
 import { clearVersionCheckCache, getLatestVersion, isNewerVersion } from '../src/utils/version-check.js';
+
+function resetDedupeVault(ctx: TestContext): void {
+  ctx.engine.clearAll();
+  for (const filePath of walkMarkdownFiles(ctx.tempDir)) {
+    if (/\/\d{12,16}-[^/]+\.md$/.test(filePath.replace(/\\/g, '/'))) fs.rmSync(filePath);
+  }
+  ctx.engine.rebuildFromFiles();
+}
 
 describe('MCP Tool: knowledge-store', () => {
   let ctx: TestContext;
@@ -222,6 +231,23 @@ describe('MCP Tool: knowledge-store', () => {
 
     expect(output).toContain('⚠');
     expect(output).toContain('splitting into separate atomic notes');
+  });
+
+  it('should not warn a large-document kind below its own higher guideline', async () => {
+    // domain warn threshold is 1000 words, so 350 words must not be flagged.
+    const content = Array(350).fill('word').join(' ');
+    ctx.engine.store('domain seed', { tags: ['project:domain-project'], title: 'Domain Seed', kind: 'observation' });
+    const output = await handleStore({
+      project: 'domain-project',
+      title: 'Domain Manual',
+      content,
+      kind: 'domain',
+      summary: 'Test large-document kind',
+      guidance: 'Test guidance',
+    }, ctx.engine);
+
+    expect(output).not.toContain('splitting into separate atomic notes');
+    expect(output).not.toContain('captures more than one concept');
   });
 
   it('should warn for resource kind at its lower threshold', async () => {
@@ -633,9 +659,126 @@ describe('MCP Tool: knowledge-search', () => {
     expect(output).not.toContain('Generated Crowding');
   });
 
+  it('returns bounded compact cards with Unicode truncation evidence and preserves full mode', () => {
+    const long = `${'😀'.repeat(245)}   multiline\nsummary`;
+    for (let index = 0; index < 112; index++) {
+      ctx.engine.store(`compact-contract-keyword body ${index}`, {
+        tags: ['project:test-project'], title: `Compact ${index}`, kind: 'reference',
+        summary: long, guidance: long,
+      });
+    }
+
+    const hybridSpy = spyOn(ctx.engine, 'searchHybrid');
+    const compact = JSON.parse(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact' }, ctx.engine));
+    expect(hybridSpy).toHaveBeenCalledWith('compact-contract-keyword', null, expect.objectContaining({ limit: 50 }));
+    expect(compact.results).toHaveLength(5);
+    expect(compact.truncated).toBe(true);
+    expect(compact.availableCount).toBe(112);
+
+    for (const card of compact.results) {
+      expect(Array.from(card.summary)).toHaveLength(240);
+      expect(Array.from(card.guidance)).toHaveLength(240);
+      expect(card.summaryTruncated).toBe(true);
+      expect(card.guidanceTruncated).toBe(true);
+      expect(card.get.tool).toBe('knowledge-get');
+      expect(card.scope).toEqual({ type: 'project-local', project: 'test-project' });
+    }
+
+    const ten = JSON.parse(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact', limit: 10 }, ctx.engine));
+    expect(ten.results).toHaveLength(10);
+    for (const invalidLimit of [0, -1, 1.5, 11]) {
+      expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'compact', limit: invalidLimit }, ctx.engine))
+        .toContain('must be an integer from 1 to 10');
+    }
+    expect(handleSearch({ project: 'test-project', query: 'compact-contract-keyword', mode: 'full', limit: 1 }, ctx.engine)).toContain('<content>');
+  });
+
+  it('keeps compact results and availability exact for LIKE metacharacter tags', () => {
+    for (const [title, tag] of [
+      ['Exact Percent', 'topic:rate%'],
+      ['Percent Prefix', 'topic:rate%extra'],
+      ['Percent Lookalike', 'topic:rate-value'],
+      ['Exact Underscore', 'topic:item_1'],
+      ['Underscore Lookalike', 'topic:itemX1'],
+    ]) {
+      ctx.engine.store('compact exact tag keyword', {
+        title, kind: 'reference', tags: ['project:test-project', tag],
+      });
+    }
+
+    for (const [tag, title] of [
+      ['topic:rate%', 'Exact Percent'],
+      ['topic:item_1', 'Exact Underscore'],
+    ]) {
+      const compact = JSON.parse(handleSearch({
+        project: 'test-project', query: 'compact exact tag', mode: 'compact', tags: [tag],
+      }, ctx.engine)) as { availableCount: number; results: Array<{ identity: { title: string } }> };
+
+      expect(compact.availableCount).toBe(1);
+      expect(compact.results.map(result => result.identity.title)).toEqual([title]);
+    }
+  });
+
+  it('reports exact compact hybrid availability after all search filters', () => {
+    const embedding = [1, 0, 0];
+    const addVectorNote = (title: string, options: Parameters<typeof ctx.engine.store>[1]) => {
+      const note = ctx.engine.store('vector-filter-regression content', { title, ...options });
+      ctx.engine.storeEmbedding(note.id, embedding, 'test-model');
+      return note;
+    };
+
+    for (let index = 0; index < 30; index++) {
+      addVectorNote(`Higher Ranked Wrong Lifecycle ${index}`, {
+        kind: 'reference', status: 'permanent', lifecycle: 'snapshot',
+        tags: ['project:test-project', 'client:pi', 'topic:exact'],
+      });
+      addVectorNote(`Higher Ranked Structural ${index}`, {
+        kind: 'log', status: 'permanent', lifecycle: 'living',
+        tags: ['project:test-project', 'client:pi', 'topic:exact'],
+      });
+    }
+    for (let index = 0; index < 8; index++) {
+      addVectorNote(`Final Match ${index}`, {
+        kind: 'reference', status: 'permanent', lifecycle: 'living',
+        tags: ['project:test-project', 'client:pi', 'topic:exact'],
+      });
+    }
+    addVectorNote('Tag Prefix', { kind: 'reference', status: 'permanent', lifecycle: 'living', tags: ['project:test-project', 'client:pi', 'topic:exact-prefix'] });
+    addVectorNote('Wrong Kind and Lifecycle', { kind: 'procedure', status: 'permanent', lifecycle: 'snapshot', tags: ['project:test-project', 'client:pi', 'topic:exact'] });
+    addVectorNote('Wrong Status', { kind: 'reference', status: 'fleeting', lifecycle: 'living', tags: ['project:test-project', 'client:pi', 'topic:exact'] });
+    addVectorNote('Wrong Lifecycle', { kind: 'reference', status: 'permanent', lifecycle: 'snapshot', tags: ['project:test-project', 'client:pi', 'topic:exact'] });
+    addVectorNote('Wrong Client', { kind: 'reference', status: 'permanent', lifecycle: 'living', tags: ['project:test-project', 'client:cursor', 'topic:exact'] });
+    addVectorNote('Archived Structural', { kind: 'log', status: 'archived', lifecycle: 'append-only', tags: ['project:test-project', 'client:pi', 'topic:exact'] });
+
+    const compact = JSON.parse(handleSearch({
+      project: 'test-project', client: 'pi', query: 'no-fts-match',
+      mode: 'compact', limit: 3, tags: ['topic:exact'], status: 'permanent', lifecycle: 'living',
+    }, ctx.engine, embedding, ctx.config)) as { availableCount: number; results: Array<{ identity: { title: string } }> };
+
+    expect(compact.results).toHaveLength(3);
+    expect(compact.availableCount).toBe(8);
+    expect(compact.results.every(result => result.identity.title.startsWith('Final Match'))).toBe(true);
+  });
+
   it('should return no results message with hint', () => {
     const output = handleSearch({ project: 'test-project', query: 'xyznonexistent' }, ctx.engine);
     expect(output).toBe('No matching notes found. Try broader keywords or remove filters.');
+  });
+
+  it('should keep compact mode parseable and carry client warnings inside the payload', () => {
+    ctx.engine.store('compact-warning-keyword body', { tags: ['project:test-project'], title: 'Compact Warning', kind: 'reference', summary: 'Compact warning summary.' });
+
+    const warned = handleSearch({ project: 'test-project', query: 'compact-warning-keyword', mode: 'compact', client: 'not-a-client' }, ctx.engine);
+    const parsedWarned = JSON.parse(warned) as { warnings: string[]; results: unknown[] };
+    expect(warned.trimEnd().endsWith('}')).toBe(true);
+    expect(parsedWarned.results).toHaveLength(1);
+    expect(parsedWarned.warnings).toHaveLength(1);
+    expect(parsedWarned.warnings[0]).toContain('Unrecognized client');
+
+    const empty = JSON.parse(handleSearch({ project: 'test-project', query: 'xyznonexistent', mode: 'compact' }, ctx.engine)) as { count: number; results: unknown[]; warnings: string[] };
+    expect(empty.count).toBe(0);
+    expect(empty.results).toEqual([]);
+    expect(empty.warnings).toEqual([]);
   });
 });
 
@@ -665,6 +808,58 @@ describe('MCP Tool: knowledge-get', () => {
 });
 
 describe('MCP Tool: knowledge-maintain', () => {
+  it('returns bounded factual project-authority evidence without changing files, rows, metadata, or project artifacts', async () => {
+    const ctx = createTestHarness();
+    const snapshotFiles = (root: string): Array<[string, string]> => {
+      const snapshot: Array<[string, string]> = [];
+      const visit = (directory: string): void => {
+        for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+          const absolute = path.join(directory, entry.name);
+          if (entry.isDirectory()) visit(absolute);
+          else snapshot.push([path.relative(root, absolute), fs.readFileSync(absolute).toString('base64')]);
+        }
+      };
+      visit(root);
+      return snapshot.sort(([left], [right]) => left.localeCompare(right));
+    };
+    try {
+      for (let index = 0; index < 3; index++) {
+        ctx.engine.store(`body ${index}`, { tags: ['project:alpha'], title: `Alpha ${index}`, kind: 'reference', summary: 'x'.repeat(300) });
+      }
+      ctx.engine.store('other body', { tags: ['project:beta'], title: 'Beta', kind: 'reference' });
+      ctx.engine.store('archived body', { tags: ['project:alpha'], title: 'Archived Alpha', kind: 'reference', status: 'archived' });
+      ctx.engine.store('generated body', { tags: ['project:alpha'], title: 'Generated Alpha', kind: 'index', status: 'permanent' });
+      const externalPath = path.join(ctx.tempDir, 'external-project', 'openspec', 'requirements.txt');
+      fs.mkdirSync(path.dirname(externalPath), { recursive: true });
+      fs.writeFileSync(externalPath, 'authoritative project artifact');
+
+      const beforeRows = JSON.stringify(ctx.engine.getAll(Number.MAX_SAFE_INTEGER));
+      const beforeFiles = snapshotFiles(ctx.tempDir);
+      const output = JSON.parse(await handleMaintain(
+        { action: 'project-authority-review', project: 'alpha', limit: 2 },
+        ctx.engine, ctx.config, undefined, undefined, undefined, () => Date.now(),
+      )) as {
+        mutated: boolean;
+        returned: number;
+        truncated: boolean;
+        findings: Array<{ identity: { title: string }; scope: { project?: string }; summary: string; summaryTruncated: boolean }>;
+      };
+      const afterRows = JSON.stringify(ctx.engine.getAll(Number.MAX_SAFE_INTEGER));
+      const afterFiles = snapshotFiles(ctx.tempDir);
+
+      expect(output.mutated).toBe(false);
+      expect(output.returned).toBe(2);
+      expect(output.truncated).toBe(true);
+      expect(output.findings.every(finding => finding.scope.project === 'alpha')).toBe(true);
+      expect(output.findings.every(finding => Array.from(finding.summary).length <= 240 && finding.summaryTruncated)).toBe(true);
+      expect(output.findings.map(finding => finding.identity.title)).not.toContain('Archived Alpha');
+      expect(output.findings.map(finding => finding.identity.title)).not.toContain('Generated Alpha');
+      expect(JSON.stringify(output)).not.toMatch(/rehome|archive|destination|migrate/i);
+      expect(afterRows).toBe(beforeRows);
+      expect(afterFiles).toEqual(beforeFiles);
+      expect(fs.readFileSync(externalPath, 'utf8')).toBe('authoritative project artifact');
+    } finally { cleanupTestHarness(ctx); }
+  });
   let ctx: TestContext;
   const daysAgo = (days: number): number => Date.now() - (days * 24 * 60 * 60 * 1000);
 
@@ -1001,8 +1196,10 @@ describe('MCP Tool: knowledge-maintain', () => {
       expect(output).toContain('OMP');
       expect(output).toContain('Result: updated');
       expect(content).toContain('<!-- OPEN-ZK-KB:START v1.2.0 -- managed by open-zk-kb, do not edit -->');
-      expect(content).toContain('Persistent cross-session memory via `knowledge-*` MCP tools.');
-      expect(content).toContain('`knowledge-search` for relevant context.');
+      expect(content).toContain('Cross-session memory via `knowledge-*` MCP tools.');
+      expect(content).toContain('Retrieve only when durable memory can materially affect the task');
+      expect(content).toContain('`knowledge-search` in compact mode');
+      expect(content).toContain('Precision-first capture (default: no new note)');
       expect(content).toContain('`skill://open-zk-kb`.');
       expect(content).not.toContain('`knowledge-template --kind {kind}`');
       expect(content).not.toContain('ALWAYS use the open-zk-kb MCP tools for persistent memory across sessions.');
@@ -1175,7 +1372,7 @@ describe('MCP Tool: knowledge-maintain', () => {
   });
 
   it('dedupe shows permanent notes as protected and never recommends archiving them', async () => {
-    ctx.engine.clearAll();
+    resetDedupeVault(ctx);
 
     const permanent = ctx.engine.store('Canonical decision content', { tags: ['project:test-project'],
       title: 'Test Decision',
@@ -1195,12 +1392,13 @@ describe('MCP Tool: knowledge-maintain', () => {
 
     expect(result).toContain('permanent - protected');
     expect(result).toContain('⚠ Permanent notes (⦸) are never auto-archived');
-    expect(result).toContain(`Archive ${duplicate.id}`);
+    expect(result).toContain(duplicate.id);
+    expect(result).not.toContain(`Archive ${duplicate.id}`);
     expect(result).not.toContain(`Archive ${permanent.id}`);
   });
 
-  it('dedupe backfills missing hashes and reports SimHash near-duplicates', async () => {
-    ctx.engine.clearAll();
+  it('dedupe computes missing hashes ephemerally and reports SimHash near-duplicates', async () => {
+    resetDedupeVault(ctx);
 
     ctx.engine.store('Use PostgreSQL for ACID transactions and reliability', { tags: ['project:test-project'],
       title: 'Database Decision A',
@@ -1215,9 +1413,12 @@ describe('MCP Tool: knowledge-maintain', () => {
 
     const result = await handleMaintain({ action: 'dedupe' }, ctx.engine, ctx.config);
 
-    expect(result).toContain('Backfilled 2 content hashes');
+    expect(result).toContain('computed-ephemerally=2');
+    expect(result).toContain('omitted=0');
     expect(result).toContain('Content-Based Near-Duplicates');
-    expect(result).toContain('(near-duplicate)');
+    expect(result).toContain('distance-from-seed=0');
+    const snapshot = ctx.engine.getDuplicateAuditSnapshot();
+    expect(snapshot.every(row => row.content_hash == null)).toBe(true);
   });
 });
 
@@ -2869,7 +3070,7 @@ describe('MCP Tool: knowledge-maintain review (stale fleeting archive)', () => {
     setCreatedAt(r2.id, daysAgo(100));
 
     const output = await handleMaintain({ action: 'review' }, ctx.engine, ctx.config);
-    expect(output).toContain('Stale Fleeting Notes (2');
+    expect(output).toContain('Stale Fleeting Notes (showing 2 of 2');
     expect(output).toContain('All Stale A');
     expect(output).toContain('All Stale B');
     // No candidates section when all notes are stale
@@ -3939,6 +4140,17 @@ describe('Index and log note kinds', () => {
     expect(output).toContain('No notes found for project "unknown-project"');
   });
 
+  it('does not substitute global, prefix, subproject, or basename-collision notes for exact project memory', () => {
+    ctx.engine.store('GLOBAL_ONLY_SECRET', { title: 'Global only', kind: 'reference', tags: ['scope:global'] });
+    ctx.engine.store('PREFIX_SECRET', { title: 'Prefix sibling', kind: 'reference', tags: ['project:myapp-other'] });
+    ctx.engine.store('SUBPROJECT_SECRET', { title: 'Subproject', kind: 'reference', tags: ['project:myapp/sub'] });
+    ctx.engine.store('BASENAME_SECRET', { title: 'Basename collision', kind: 'reference', tags: ['project:team/myapp'] });
+
+    const output = handleContext({ project: 'myapp' }, ctx.engine, makeConfig());
+    expect(output).toContain('no exactly matching project-scoped notes were found');
+    expect(output).not.toMatch(/GLOBAL_ONLY_SECRET|PREFIX_SECRET|SUBPROJECT_SECRET|BASENAME_SECRET/);
+  });
+
   it('should respect the logEntries parameter in overview output', async () => {
     await storeProjectNote('Overview Entry One');
     await storeProjectNote('Overview Entry Two');
@@ -4082,20 +4294,24 @@ describe('MCP Tool: knowledge-mine protocol surface', () => {
       } | undefined;
       expect(schema?.properties?.candidates?.items?.properties?.project).toBeDefined();
 
+      const candidates = [{
+        title: 'Candidate Scoped Domain',
+        content: 'Candidate-only project context for MCP mining validation.',
+        kind: 'domain',
+        summary: 'Candidate-level domain project is accepted',
+        guidance: 'Use candidate project when mining domain notes',
+        project: 'candidate-only',
+      }];
+      const preview = await client.callTool({ name: 'knowledge-mine', arguments: { project: 'candidate-only', candidates } });
+      const previewText = (preview.content as Array<{ type: string; text: string }>)[0].text;
+      const candidateKey = /Candidate key: ([a-f0-9]{64})/.exec(previewText)?.[1];
+      if (!candidateKey) throw new Error('Expected mining candidate key');
+      const dispositions = [{ candidateKey, action: 'store' }];
+      const planResult = await client.callTool({ name: 'knowledge-mine', arguments: { project: 'candidate-only', candidates, dispositions } });
+      const plan = JSON.parse((planResult.content as Array<{ type: string; text: string }>)[0].text) as { batchToken: string };
       const mineResult = await client.callTool({
         name: 'knowledge-mine',
-        arguments: {
-          project: 'candidate-only',
-          dry_run: false,
-          candidates: [{
-            title: 'Candidate Scoped Domain',
-            content: 'Candidate-only project context for MCP mining validation.',
-            kind: 'domain',
-            summary: 'Candidate-level domain project is accepted',
-            guidance: 'Use candidate project when mining domain notes',
-            project: 'candidate-only',
-          }],
-        },
+        arguments: { project: 'candidate-only', candidates, dispositions, dry_run: false, confirm: true, batchToken: plan.batchToken },
       });
       const mineContent = mineResult.content as Array<{ type: string; text: string }>;
       expect(mineContent[0].text).toContain('✅ Stored as');

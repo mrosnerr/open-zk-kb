@@ -202,6 +202,60 @@ function stringArray(value: unknown): string[] {
     : [];
 }
 
+function reviewedOperationResult(
+  text: string,
+  options: ToolRenderResultOptions,
+  theme: Theme,
+): Component | undefined {
+  let payload: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+    payload = parsed as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+  const state = typeof payload.state === 'string' ? payload.state : '';
+  if (!state) return undefined;
+  const plan = Array.isArray(payload.plan) ? payload.plan : [];
+  const completed = Array.isArray(payload.completed) ? payload.completed : [];
+  const evidence = payload.evidence && typeof payload.evidence === 'object' && !Array.isArray(payload.evidence)
+    ? payload.evidence as { matches?: unknown[] }
+    : undefined;
+  const evidenceMatches = Array.isArray(evidence?.matches) ? evidence.matches : undefined;
+  const collisionCount = evidenceMatches && evidenceMatches.length < 20
+    ? evidenceMatches.filter((match) => match && typeof match === 'object' && !Array.isArray(match)
+      && (match as Record<string, unknown>).highConfidence === true).length
+    : undefined;
+  const collisionLabel = collisionCount === undefined
+    ? 'Review required · no mutation'
+    : `Review required · no mutation · ${collisionCount} collision${collisionCount === 1 ? '' : 's'}`;
+  const labels: Record<string, string> = {
+    'preview': 'Preview complete · no mutation',
+    'review-required': collisionLabel,
+    'skipped': 'Skipped · no mutation',
+    'plan-ready': `Reviewed plan ready · ${plan.length} disposition${plan.length === 1 ? '' : 's'}`,
+    'migration-required': 'Explicit reviewed plan required',
+    'confirmation-required': 'Confirmation required',
+    'stale-plan': 'Reviewed plan is stale',
+    'invalid-plan': 'Reviewed plan is invalid',
+    'partial-failure': `Partial failure · ${completed.length} completed`,
+  };
+  const label = labels[state];
+  if (!label) return undefined;
+  const failure = state === 'partial-failure' || state === 'stale-plan' || state === 'invalid-plan';
+  const output = [theme.fg(failure ? 'error' : 'warning', `${failure ? ICONS.error : ICONS.mine} ${label}`)];
+  if (options.expanded) {
+    const message = typeof payload.message === 'string' ? sanitizeTerminalText(payload.message) : '';
+    if (message) output.push('', message);
+    if (typeof payload.batchToken === 'string') output.push('', theme.fg('dim', `batch token: ${payload.batchToken}`));
+    if (typeof payload.createToken === 'string') output.push('', theme.fg('dim', `create token: ${payload.createToken}`));
+    const updateTokens = Array.isArray(payload.updateTokens) ? payload.updateTokens : [];
+    if (updateTokens.length > 0) output.push(theme.fg('dim', `update targets: ${updateTokens.length}`));
+  }
+  return options.expanded ? wrappedLines(output) : fixedLines(output);
+}
+
 function storeResult(
   result: AgentToolResult<unknown>,
   options: ToolRenderResultOptions,
@@ -211,6 +265,8 @@ function storeResult(
   const text = textOf(result);
   if (context.isPartial && !context.isError) return raw(text);
   if (context.isError) return errorResult(text, theme);
+  const reviewed = reviewedOperationResult(text, options, theme);
+  if (reviewed) return reviewed;
 
   const match = text.match(/^(Stored|Updated|Created)\s+(\w+):\s+"([^"]+)"\s*→\s*(\S+)/m);
   if (!match) return raw(text);
@@ -385,6 +441,18 @@ function templateResult(
   ]);
 }
 
+function mineResult(
+  result: AgentToolResult<unknown>,
+  options: ToolRenderResultOptions,
+  theme: Theme,
+  context: ToolRenderContext,
+): Component {
+  const text = textOf(result);
+  if (context.isPartial && !context.isError) return raw(text);
+  if (context.isError) return errorResult(text, theme);
+  return reviewedOperationResult(text, options, theme) ?? simpleResult(ICONS.mine)(result, options, theme, context);
+}
+
 function simpleResult(icon: string): RenderResultFn {
   return (result, options, theme, context) => {
     const text = textOf(result);
@@ -405,7 +473,7 @@ export const RENDER_RESULTS: Record<string, RenderResultFn> = {
   'knowledge-health': healthResult,
   'knowledge-get': getResult,
   'knowledge-maintain': simpleResult(ICONS.maintain),
-  'knowledge-mine': simpleResult(ICONS.mine),
+  'knowledge-mine': mineResult,
   'knowledge-ingest': simpleResult(ICONS.ingest),
   'knowledge-template': templateResult,
   'knowledge-open': simpleResult(ICONS.open),

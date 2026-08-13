@@ -74,7 +74,9 @@ export function getAgentDocsVersion(filePath: string): string | null {
 
 function loadAgentDocsTemplate(size: InstructionSize = 'full', clientName?: string, version?: string): string {
   const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const filename = size === 'compact' ? 'agent-instructions-compact.md' : size === 'rules' ? 'agent-instructions-rules.md' : size === 'preflight' ? 'agent-instructions-preflight.md' : 'agent-instructions-full.md';
+  // compact/rules/full are compatibility aliases for one canonical default policy.
+  // OMP keeps a distinct preflight file only for its client-specific skill pointer.
+  const filename = size === 'preflight' ? 'agent-instructions-preflight.md' : 'agent-instructions-full.md';
   const instructionsPath = path.join(projectRoot, 'templates', 'install', filename);
   let content = fs.readFileSync(instructionsPath, 'utf-8').trimEnd();
   if (clientName) {

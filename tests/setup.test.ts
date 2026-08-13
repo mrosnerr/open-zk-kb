@@ -124,7 +124,16 @@ function runSetupCli(
 }
 
 
-const MANAGED_BLOCK_LINE_COUNT = 13;
+
+/** Deterministic canonical-body word count: managed markers and the client pointer line are excluded. */
+function instructionBodyWordCount(block: string): number {
+  return block
+    .split('\n')
+    .filter(line => !line.startsWith('<!-- OPEN-ZK-KB:') && !line.startsWith('**Client pointer:**'))
+    .join(' ')
+    .split(/\s+/)
+    .filter(word => /[A-Za-z0-9]/.test(word)).length;
+}
 
 function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
   const block = content.match(
@@ -134,25 +143,45 @@ function expectSlimAgentDocsBlock(content: string, usesOmpSkill = false): void {
   expect(block).toBeDefined();
   if (!block) throw new Error('Expected an open-zk-kb managed instruction block');
 
-  expect(block.split('\n')).toHaveLength(MANAGED_BLOCK_LINE_COUNT);
-  expect(block).toContain('Persistent cross-session memory via `knowledge-*` MCP tools.');
-  expect(block).toContain('`knowledge-search` for relevant context.');
-  expect(block).toContain("Pass the current project explicitly on every routine stored-knowledge call; follow each note's `<guidance>`.");
-  expect(block).toContain('Routine capture is project-local; never create global knowledge with `knowledge-store` or `knowledge-mine`.');
-  expect(block).toContain('preview `publish-global`');
-  expect(block).toContain('Maintenance remains full-vault and must classify legacy unscoped notes');
-  expect(block).toContain('`knowledge-store` immediately, never defer:');
-  expect(block).toContain('useful URL → resource (`knowledge-ingest` first).');
-  expect(block).toContain('**Each note:** one concept only.');
-  expect(block).toContain('Include a `summary` and imperative `guidance`.');
-  expect(block).toContain('**Project session start:** `knowledge-context` with the current project.');
+  expect(block.split('\n').length).toBeGreaterThan(12);
+  expect(block).toContain('Cross-session memory via `knowledge-*` MCP tools.');
+  expect(block).toContain('Retrieve only when durable memory can materially affect the task');
+  expect(block).toContain('`knowledge-search` in compact mode');
+  expect(block).toContain('**OpenSpec:** active scope, requirements, design, tasks.');
+  expect(block).toContain('**Code/tests:** implemented behavior.');
+  expect(block).toContain('**Maintained docs:** supported usage, architecture.');
+  expect(block).toContain('**Git:** integrated history. **Issues:** unresolved coordination.');
+  expect(block).toContain('**Knowledge base:** durable agent memory lacking a better home.');
+  expect(block).toContain('Injection is independent of persistence');
+  expect(block).toContain(
+    'automatic note context carries only applicable permanent preferences (max 12; 800-token estimate)—never bodies, inventory, resources, activity, requirements, design, progress.'
+  );
+  expect(block).toContain('Handle explicit enduring-memory requests under these gates.');
+  expect(block).toContain('escalate once to exact-ID `knowledge-get`');
+  expect(block).toContain('Precision-first capture (default: no new note)');
+  expect(block).toContain('Call `knowledge-store`');
+  expect(block).toContain('**Novel:**');
+  expect(block).toContain('**Durable:**');
+  expect(block).toContain('**Behavior-changing:**');
+  expect(block).toContain('**Canonical here:**');
+  expect(block).toContain('Zero captures is a successful result.');
+  expect(block).toContain('Do not routinely capture plans, tasks, progress, commits');
+  expect(block).toContain('completed-work/release summaries');
+  expect(block).toContain('Reuse an adequate existing note');
+  expect(block).toContain('supported reviewed update');
+  expect(block).toContain('If no safe update path exists, do not create a duplicate.');
+  expect(block).toContain('Preserve existing notes; rehome only after destination verification; archive and delete separately.');
+  expect(block).toContain('Pass the current project on routine calls; never create global knowledge routinely');
+  expect(instructionBodyWordCount(block)).toBeLessThanOrEqual(200);
+  expect(block).toContain('`index` and `log` are server-generated');
   expect(block).toContain(
     usesOmpSkill
       ? '`skill://open-zk-kb`.'
       : '`knowledge-template --kind {kind}` and the `open-zk-kb` skill where supported.'
   );
   expect(block).not.toContain('Capture Checkpoints');
-  expect(block).toContain('never create global knowledge with `knowledge-store` or `knowledge-mine`');
+  expect(block).not.toContain('store immediately, never defer');
+  expect(block).not.toContain('Maintenance remains full-vault');
   expect(block).not.toContain('knowledge-maintain');
 }
 
@@ -1372,7 +1401,7 @@ describe('setup.ts', () => {
     expect(skillContent).toContain('knowledge-search');
     expect(skillContent).toContain('knowledge-store');
     expect(skillContent).toContain('knowledge-mine(project: "<current-project>", candidates: [...], dry_run: true)');
-    expect(skillContent).toContain('knowledge-mine(project: "<current-project>", candidates: [...], dry_run: false)');
+    expect(skillContent).toContain('Apply the unchanged ordered candidates and dispositions with `dry_run: false`, `confirm: true`, and that batch token');
   });
 
   it('install creates skill through dangling parent symlink', async () => {

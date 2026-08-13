@@ -307,6 +307,91 @@ describe('publish-global maintenance', () => {
     expect(ctx.engine.getGlobalBacklinks(global.id)).toEqual([]);
   });
 
+  it('does not treat a strict wikilink target prefix as an authored publication relation', () => {
+    const local = source();
+    const global = ctx.engine.store('Reusable.', {
+      title: 'API', kind: 'reference', status: 'permanent', tags: ['scope:global'], summary: 'Reusable.', guidance: 'Reuse.',
+    });
+    const globalTarget = path.relative(ctx.tempDir, global.path).replace(/\.md$/, '');
+    fs.appendFileSync(local.path, `\nAuthored prefix link: [[${globalTarget}-v2]]\n`);
+
+    ctx.engine.addLocalToGlobalRelation(local.id, global.id);
+
+    expect(ctx.engine.getGeneratedRelatedIds(local.id)).toEqual([global.id]);
+  });
+
+  it('preserves an authored Related section and keeps generated relations in a marked trailing section', async () => {
+    const local = source();
+    const authoredTarget = ctx.engine.store('Authored target body.', {
+      title: 'Authored Target', kind: 'reference', status: 'permanent', tags: ['project:alpha'],
+      summary: 'Authored target.', guidance: 'Keep authored target.',
+    });
+    const authoredBullet = `- [[${authoredTarget.id}|Authored Target]]`;
+    fs.writeFileSync(local.path, `${fs.readFileSync(local.path, 'utf8').trimEnd()}\n\n## Related\n\n${authoredBullet}\n`, 'utf8');
+    ctx.engine.rebuildFromFiles();
+
+    const preview = JSON.parse(await handleMaintain({ action: 'publish-global', noteId: local.id, candidate, dryRun: true }, ctx.engine, ctx.config));
+    await handleMaintain({ action: 'publish-global', noteId: local.id, candidate, dryRun: false, confirm: true, token: preview.confirmationToken }, ctx.engine, ctx.config);
+    const global = ctx.engine.getAllGlobalNotes()[0];
+
+    const published = fs.readFileSync(local.path, 'utf8');
+    expect(published).toContain(authoredBullet);
+    expect(published).toContain('<!-- zk:related -->');
+    expect(published.indexOf(authoredBullet)).toBeLessThan(published.indexOf('<!-- zk:related -->'));
+    expect(published.slice(published.indexOf('<!-- zk:related -->'))).toContain(global.id);
+    expect(ctx.engine.getGeneratedRelatedIds(local.id)).toEqual([global.id]);
+
+    // An unresolved generated relation is retained when the section is rewritten.
+    const withUnresolved = fs.readFileSync(local.path, 'utf8').replace(
+      /<!-- zk:related -->/, '<!-- zk:related -->\n- [[missing-generated-target]]',
+    );
+    fs.writeFileSync(local.path, withUnresolved, 'utf8');
+    ctx.engine.rebuildFromFiles();
+
+    // A second generated relation extends the marked section without disturbing authored content.
+    const secondGlobal = ctx.engine.store('Another reusable target.', {
+      title: 'Second Global', kind: 'reference', status: 'permanent', tags: ['scope:global'],
+      summary: 'Reusable.', guidance: 'Reuse.',
+    });
+    ctx.engine.addLocalToGlobalRelation(local.id, secondGlobal.id);
+    expect(ctx.engine.getGeneratedRelatedIds(local.id)).toEqual(['missing-generated-target', global.id, secondGlobal.id]);
+    expect(fs.readFileSync(local.path, 'utf8')).toContain(authoredBullet);
+    expect(fs.readFileSync(local.path, 'utf8')).toContain('[[missing-generated-target]]');
+
+    // Status change, formatting, and rebuild all round-trip both sections.
+    ctx.engine.promoteToPermanent(local.id);
+    ctx.engine.formatAllFiles();
+    ctx.engine.rebuildFromFiles();
+    const roundTripped = fs.readFileSync(local.path, 'utf8');
+    expect(roundTripped).toContain(authoredBullet);
+    expect(roundTripped.indexOf(authoredBullet)).toBeLessThan(roundTripped.indexOf('<!-- zk:related -->'));
+    expect(ctx.engine.getGeneratedRelatedIds(local.id)).toEqual(['missing-generated-target', global.id, secondGlobal.id]);
+    expect(ctx.engine.getOutgoingLinks(local.id).map(({ note }) => note.id))
+      .toEqual(expect.arrayContaining([authoredTarget.id, global.id, secondGlobal.id]));
+  });
+
+  it('revalidates the source under one lock lease and rejects a token invalidated by a concurrent mutation', async () => {
+    const local = source();
+    const preview = JSON.parse(await handleMaintain({ action: 'publish-global', noteId: local.id, candidate, dryRun: true }, ctx.engine, ctx.config));
+    let release!: () => void;
+    const barrier = new Promise<void>(resolve => { release = resolve; });
+    let acquired!: () => void;
+    const entered = new Promise<void>(resolve => { acquired = resolve; });
+    const holder = ctx.engine.withKnowledgeMutationLockAsync(async () => {
+      acquired();
+      await barrier;
+      ctx.engine.store('Concurrently changed source.', {
+        existingId: local.id, title: 'Local Source', kind: 'observation', tags: ['project:alpha', 'client:pi'],
+      });
+    });
+    await entered;
+    const apply = handleMaintain({ action: 'publish-global', noteId: local.id, candidate, dryRun: false, confirm: true, token: preview.confirmationToken }, ctx.engine, ctx.config);
+    release();
+    await holder;
+    expect(await apply).toContain('stale or does not match');
+    expect(ctx.engine.getAllGlobalNotes()).toHaveLength(0);
+  });
+
   it('adds and rebuilds the one-way relation on a snapshot source', async () => {
     const local = source('snapshot');
     const original = fs.readFileSync(local.path, 'utf8');

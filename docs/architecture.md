@@ -104,7 +104,7 @@ During setup, open-zk-kb delivers knowledge base instructions to guide the AI to
 * **Pi** does not support MCP natively. open-zk-kb ships as a Pi package extension (`src/pi/extension.ts`) that bridges the MCP server into Pi-native tools. Managed instructions are injected into `~/.pi/agent/AGENTS.md`.
 * **OMP** uses standard MCP config at `~/.omp/agent/mcp.json`, a skill at `~/.omp/agent/skills/open-zk-kb/`, and a compact managed rule file at `~/.omp/agent/rules/open-zk-kb.md` (with YAML frontmatter for `alwaysApply`).
 * **Cursor and Zed** currently receive MCP config only.
-* **Instruction templates**: `templates/agent-instructions-full.md` (~420 tokens) and `templates/agent-instructions-compact.md` (~140 tokens) ship with the package for OpenCode/Windsurf/Pi/OMP. The skill uses its own `SKILL.md` + supporting files in `skill-templates/open-zk-kb/`.
+* **Instruction templates**: `templates/install/agent-instructions-full.md` is the canonical managed policy used by the compatibility values `compact`, `rules`, and `full`; `agent-instructions-preflight.md` differs only by using OMP's skill pointer. The full skill uses `skill-templates/open-zk-kb/SKILL.md` plus its supporting reference.
 
 ## Configuration Architecture
 

@@ -166,6 +166,12 @@ export function createMcpServer(): McpServer {
           client: args.client,
           related: args.related,
           model: args.model,
+          dryRun: args.dryRun,
+          disposition: args.disposition,
+          noteId: args.noteId,
+          expectedUpdatedAt: args.expectedUpdatedAt,
+          confirm: args.confirm,
+          token: args.token,
         }, await getOrCreateRepo(), getEmbeddingConfig(), config, gitVersioning);
         return { content: [{ type: 'text' as const, text: result }] };
       } catch (error) {
@@ -245,6 +251,7 @@ export function createMcpServer(): McpServer {
           tags: args.tags,
           limit: args.limit,
           model: args.model,
+          mode: args.mode,
         }, await getOrCreateRepo(), queryEmbedding, config);
         return { content: [{ type: 'text' as const, text: result }] };
       } catch (error) {
@@ -274,6 +281,7 @@ export function createMcpServer(): McpServer {
         model: args.model,
         includePreferences: args.includePreferences,
         client: args.client,
+        preferenceOnly: args.preferenceOnly,
       }, await getOrCreateRepo(), config);
       return {
         content: [{ type: 'text' as const, text: result.text }],
@@ -463,6 +471,9 @@ export function createMcpServer(): McpServer {
           project: args.project,
           client: args.client,
           dry_run: args.dry_run,
+          dispositions: args.dispositions,
+          confirm: args.confirm,
+          batchToken: args.batchToken,
           model: args.model,
         }, await getOrCreateRepo(), getEmbeddingConfig(), config, gitVersioning);
         return { content: [{ type: 'text' as const, text: result }] };
@@ -515,6 +526,10 @@ export function createMcpServer(): McpServer {
 
 // ---- Startup ----
 
+export function isSessionUploadEligible(share: boolean, doNotTrack = process.env.DO_NOT_TRACK): boolean {
+  return share && doNotTrack !== '1';
+}
+
 export async function startServer() {
   ensureShutdownHandlers();
   const server = createMcpServer();
@@ -541,7 +556,7 @@ export async function startServer() {
           clientInfo?.version ?? null,
           stats.total,
           version,
-          config.telemetry.share && !process.env.DO_NOT_TRACK,
+          isSessionUploadEligible(config.telemetry.share),
         );
         await reportPreviousSessions(r);
       } catch {

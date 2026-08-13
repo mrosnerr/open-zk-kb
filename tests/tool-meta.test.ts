@@ -69,10 +69,10 @@ describe('tool-meta', () => {
     expect(mine.params.client.required).toBe(false);
   });
 
-  it('knowledge-context documents required project visibility with automatic globals', () => {
+  it('knowledge-context documents exact project visibility without global substitution', () => {
     const context = TOOL_DEFINITIONS.find(t => t.name === 'knowledge-context')!;
     expect(context.params.project.required).toBe(true);
-    expect(context.description).toContain('automatically visible explicit global knowledge');
+    expect(context.description).toContain('Visible global knowledge does not count as matching project memory');
     expect(context.description).not.toContain('Without project');
   });
 

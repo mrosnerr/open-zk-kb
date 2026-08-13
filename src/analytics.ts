@@ -18,7 +18,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as YAML from 'yaml';
 import { getConfig, getConfigPath } from './config.js';
-import type { UnreportedSession } from './storage/NoteRepository.js';
+import {
+  normalizeTelemetryClient,
+  normalizeTelemetryClientVersion,
+  normalizeTelemetryModel,
+  TELEMETRY_TOOL_NAMES,
+  type UnreportedSession,
+} from './storage/NoteRepository.js';
 
 // ── PostHog Constants ──
 
@@ -36,15 +42,51 @@ const LIB_VERSION = (() => {
   }
 })();
 
-/** 'dev' when running from a git checkout, 'production' for npm installs. */
-const LIB_ENV = (() => {
+export type LibraryEnvironment = 'dev' | 'test' | 'production';
+
+export type PackageSource = 'source' | 'packaged';
+
+/**
+ * Whether the running copy is a git/source checkout or an installed package.
+ * dev and production always derive from this location; they can never be
+ * selected by environment variables at runtime.
+ */
+function detectPackageSource(): PackageSource {
   try {
     const gitDir = new URL('../.git', import.meta.url);
-    return fs.existsSync(gitDir) ? 'dev' : 'production';
+    return fs.existsSync(gitDir) ? 'source' : 'packaged';
   } catch {
-    return 'production';
+    return 'packaged';
   }
-})();
+}
+
+/**
+ * Classify the analytics environment for payloads.
+ *
+ * Runtime form reads the explicit OPEN_ZK_KB_TELEMETRY_ENV variable and the
+ * package source. The variable may explicitly select only `test` (synthetic
+ * validation); `dev` and `production` always derive from source location and
+ * cannot be overridden at runtime.
+ *
+ * Pure form accepts the package source plus an optional explicit environment
+ * so tests can prove source=>dev, packaged=>production, and explicit test
+ * winning even for a packaged install.
+ */
+export function classifyLibraryEnvironment(packageSource: PackageSource, explicitEnvironment?: string): LibraryEnvironment;
+export function classifyLibraryEnvironment(): LibraryEnvironment;
+export function classifyLibraryEnvironment(packageSource?: PackageSource, explicitEnvironment?: string): LibraryEnvironment {
+  const source = packageSource ?? detectPackageSource();
+  const explicit = packageSource === undefined
+    ? process.env.OPEN_ZK_KB_TELEMETRY_ENV
+    : explicitEnvironment;
+  const explicitTest = explicit === 'test' || (packageSource === undefined && process.env.NODE_ENV === 'test');
+  if (explicitTest) return 'test';
+  return source === 'source' ? 'dev' : 'production';
+}
+
+export { normalizeTelemetryClient } from './storage/NoteRepository.js';
+
+const MAX_SESSION_MODELS = 32;
 
 // ── Event Types ──
 
@@ -58,8 +100,13 @@ export interface SessionProperties {
   vault_size: number;
   duration_ms: number | null;
   total_invocations: number;
-  tool_search: number;
   tool_store: number;
+  tool_ingest: number;
+  tool_search: number;
+  tool_context: number;
+  tool_open: number;
+  tool_get: number;
+  tool_health: number;
   tool_maintain: number;
   tool_mine: number;
   tool_template: number;
@@ -134,7 +181,7 @@ function makePayload(event: AnalyticsEvent, distinctId: string, timestamp?: stri
       ...event.properties,
       $lib: 'open-zk-kb',
       $lib_version: LIB_VERSION,
-      $lib_env: LIB_ENV,
+      $lib_env: classifyLibraryEnvironment(),
       $geoip_disable: true,
     },
   };
@@ -181,23 +228,33 @@ export async function reportPreviousSessions(repo: {
         event: 'session',
         properties: {
           // Dimensions
-          client: s.client,
-          client_version: s.client_version,
+          client: normalizeTelemetryClient(s.client),
+          client_version: normalizeTelemetryClientVersion(s.client_version),
           version: s.version,
           os_platform: s.os_platform,
           // Metrics
           vault_size: s.vault_size,
           duration_ms: s.ended_at ? s.ended_at - s.started_at : null,
-          total_invocations: s.total_invocations,
-          tool_search: s.tool_counts.search ?? 0,
+          total_invocations: TELEMETRY_TOOL_NAMES.reduce(
+            (total, toolName) => total + (s.tool_counts[toolName] ?? 0),
+            0,
+          ),
           tool_store: s.tool_counts.store ?? 0,
+          tool_ingest: s.tool_counts.ingest ?? 0,
+          tool_search: s.tool_counts.search ?? 0,
+          tool_context: s.tool_counts.context ?? 0,
+          tool_open: s.tool_counts.open ?? 0,
+          tool_get: s.tool_counts.get ?? 0,
+          tool_health: s.tool_counts.health ?? 0,
           tool_maintain: s.tool_counts.maintain ?? 0,
           tool_mine: s.tool_counts.mine ?? 0,
           tool_template: s.tool_counts.template ?? 0,
           // Correlation
           session_id: s.session_id,
           // Models
-          models: s.models,
+          models: [...new Set(s.models.map(model => normalizeTelemetryModel(model) ?? 'other'))]
+            .sort()
+            .slice(0, MAX_SESSION_MODELS),
         },
       }, distinctId, sessionTimestamp));
     }

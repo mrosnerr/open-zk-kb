@@ -12,9 +12,17 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { NoteRepository } from '../src/storage/NoteRepository';
+import type { ContextualLinkReadResult, ContextualLinkResolution } from '../src/link-health/types';
+import { evaluateDuplicates } from '../src/maintenance/duplicates';
+import { extractContextualMarkdownFacts } from '../src/markdown/contextual-facts';
+import { buildReviewSnapshot } from '../src/review/facts';
+import { materializeGraphReview } from '../src/review/graph';
+import type { ReviewReader } from '../src/review/reader';
+import { evaluateReview } from '../src/review/registry';
+import { NoteRepository, type NoteMetadata } from '../src/storage/NoteRepository';
 import { createTestHarness, cleanupTestHarness, type TestContext } from './harness';
 import { computeSimHash } from '../src/utils/simhash';
+import { extractWikiLinks } from '../src/utils/wikilink';
 
 const BENCH = !!process.env.BENCH;
 
@@ -330,6 +338,33 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
       expect(elapsed).toBeLessThan(100);
     });
 
+    it('complete ephemeral duplicate audit (1000 notes) < 1500ms', () => {
+      const notes = Array.from({ length: 1000 }, (_, index): NoteMetadata => ({
+        id: String(index).padStart(16, '0'),
+        path: `/note-${index}.md`,
+        title: `Ephemeral Note ${index}`,
+        kind: 'reference',
+        status: 'fleeting',
+        lifecycle: 'living',
+        type: 'atomic',
+        tags: [],
+        content: fakeContent(index, 100),
+        summary: '',
+        guidance: '',
+        created_at: 1,
+        updated_at: 1,
+        word_count: 100,
+      }));
+
+      let evaluated = 0;
+      const elapsed = timeSync(() => {
+        evaluated = evaluateDuplicates(notes).coverage.evaluated;
+      });
+      console.log(`  Complete ephemeral duplicate audit (1000 notes): ${elapsed.toFixed(2)}ms`);
+      expect(evaluated).toBe(1000);
+      expect(elapsed).toBeLessThan(1500);
+    });
+
     it('getRelevantNotesForContext (200 notes) < 50ms', () => {
       for (let i = 0; i < 200; i++) {
         const r = ctx.engine.store(fakeContent(i), {
@@ -428,6 +463,141 @@ describe.skipIf(!BENCH)('Performance Benchmarks', () => {
       });
       console.log(`  rebuildFromFiles (1000 notes): ${elapsed.toFixed(2)}ms`);
       expect(elapsed).toBeLessThan(10000);
+    });
+  });
+
+  // =========================================================
+  // 6. Contextual Markdown extraction
+  // =========================================================
+  describe('Contextual Markdown Facts', () => {
+    it('extracts 1,000 representative notes in-process < 1,500ms', () => {
+      const notes = Array.from({ length: 1000 }, (_, index) => [
+        '---',
+        `related: "[[${String(index).padStart(16, '0')}|Metadata]]"`,
+        '---',
+        `# Note ${index} [[${String(index + 1000).padStart(16, '0')}|Heading]]`,
+        `Authored prose ${fakeContent(index, 80)} [[${String(index + 2000).padStart(16, '0')}#Detail|Detail]].`,
+        `Inline \`[[${String(index + 3000).padStart(16, '0')}]]\` example.`,
+        '```md',
+        `[[${String(index + 4000).padStart(16, '0')}]]`,
+        '```',
+      ].join('\n'));
+
+      const measure = (): { eligibleText: number; contextualLinks: number; excludedCandidates: number; elapsed: number } => {
+        let eligibleText = 0;
+        let contextualLinks = 0;
+        let excludedCandidates = 0;
+        const elapsed = timeSync(() => {
+          for (const note of notes) {
+            const result = extractContextualMarkdownFacts(note);
+            expect(result.ok).toBe(true);
+            if (!result.ok) throw new Error(result.reason);
+            eligibleText += result.textSegments.length;
+            contextualLinks += result.wikilinks.length;
+            excludedCandidates += extractWikiLinks(note).length - result.wikilinks.length;
+          }
+        });
+        return { eligibleText, contextualLinks, excludedCandidates, elapsed };
+      };
+
+      const first = measure();
+      const second = measure();
+      console.log(`  Contextual Markdown facts (1000 notes): ${first.elapsed.toFixed(2)}ms`);
+      expect(first.elapsed).toBeLessThan(1500);
+      expect(first.contextualLinks).toBe(2000);
+      expect(first.excludedCandidates).toBe(3000);
+      expect(first.eligibleText).toBeGreaterThan(0);
+      expect(second).toMatchObject({
+        eligibleText: first.eligibleText,
+        contextualLinks: first.contextualLinks,
+        excludedCandidates: first.excludedCandidates,
+      });
+    });
+  });
+
+  describe('Contextual Link Health', () => {
+    it('evaluates a 1,000-document authored-link graph in-process < 1,500ms', () => {
+      const documents: ContextualLinkReadResult[] = Array.from({ length: 1000 }, (_, index) => {
+        const id = String(index).padStart(16, '0');
+        const target = String((index + 1) % 1000).padStart(16, '0');
+        return {
+          document: { id, title: `Graph note ${index}`, kind: 'reference', status: 'fleeting', tags: ['project:bench'] },
+          ok: true,
+          source: [
+            '---', `up: "[[${target}|Navigation]]"`, '---',
+            `Authored [[${target}|Next]].`,
+            `Inline \`[[${target}|Example]]\` ignored.`,
+          ].join('\n'),
+        };
+      });
+      const ids = new Set(documents.map(entry => entry.document.id));
+      const resolve = (slug: string): ContextualLinkResolution => (ids.has(slug) ? { kind: 'document', id: slug } : { kind: 'unresolved' });
+      let first = materializeGraphReview([], resolve);
+      const elapsed = timeSync(() => { first = materializeGraphReview(documents, resolve); });
+      const second = materializeGraphReview(documents, resolve);
+
+      console.log(`  Rule-driven contextual graph (1000 notes): ${elapsed.toFixed(2)}ms`);
+      expect(elapsed).toBeLessThan(1500);
+      expect(first.totals).toEqual({ documentsParsed: 1000, rawCandidates: 3000, contextualLinks: 1000, excludedCandidates: 2000, parseFailures: 0 });
+      expect(first.review.totals).toEqual({ 'links.broken': 0, 'links.unlinked': 0, 'links.reciprocal-missing': 1000 });
+      expect(second.review.totals).toEqual(first.review.totals);
+      expect(JSON.stringify(second)).toBe(JSON.stringify(first));
+    });
+  });
+
+  // =========================================================
+  // 7. Host-neutral vault review core
+  // =========================================================
+  describe('Vault Review Core', () => {
+    it('materializes and evaluates 1,000 notes in-process < 200ms', () => {
+      const now = Date.now();
+      const notes: NoteMetadata[] = Array.from({ length: 1000 }, (_, index) => {
+        const kind = index % 5 === 0 ? 'personalization' : 'reference';
+        const content = index % 5 === 0
+          ? `Temporarily configure claude-sonnet routing for /tmp/note-${index}.`
+          : fakeContent(index, index % 3 === 0 ? 250 : 100);
+        return {
+          id: String(index).padStart(16, '0'),
+          path: `/vault/${index}.md`,
+          title: `Representative review note ${index}`,
+          kind,
+          status: index % 4 === 0 ? 'permanent' : 'fleeting',
+          lifecycle: 'living',
+          type: 'atomic',
+          tags: ['project:bench'],
+          content,
+          summary: `Summary ${index}`,
+          guidance: `Guidance ${index}`,
+          created_at: now - 20 * 86_400_000,
+          updated_at: now - index,
+          word_count: content.split(/\s+/).length,
+          access_count: index % 7,
+        };
+      });
+      const reader: ReviewReader = {
+        listNotes: () => notes,
+        backlinkCounts: () => new Map(),
+      };
+      const scope = { kind: 'full' } as const;
+      let firstTotals: Readonly<Record<string, number>> = {};
+      const elapsed = timeSync(() => {
+        const snapshot = buildReviewSnapshot(reader, scope, now);
+        firstTotals = evaluateReview({
+          scope,
+          now,
+          policy: { reviewAfterDays: 14, archiveAfterDays: 90, promotionThreshold: 3, exemptKinds: [] },
+        }, snapshot).totals;
+      });
+      const second = evaluateReview({
+        scope,
+        now,
+        policy: { reviewAfterDays: 14, archiveAfterDays: 90, promotionThreshold: 3, exemptKinds: [] },
+      }, buildReviewSnapshot(reader, scope, now));
+
+      console.log(`  Vault review core (1000 notes): ${elapsed.toFixed(2)}ms`);
+      expect(elapsed).toBeLessThan(200);
+      expect(second.totals).toEqual(firstTotals);
+      expect(Object.values(firstTotals).reduce((sum, count) => sum + count, 0)).toBeGreaterThan(0);
     });
   });
 });

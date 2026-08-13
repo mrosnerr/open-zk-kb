@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { visibleWidth } from '@earendil-works/pi-tui';
-import { createOpenZkKbPiExtension } from '../src/pi/extension.js';
+import { createOpenZkKbPiExtension, FALLBACK_KNOWLEDGE_GUIDANCE, preferenceText } from '../src/pi/extension.js';
 import { ICONS } from '../src/pi/renderer/constants.js';
 import { RENDER_RESULTS } from '../src/pi/renderers.js';
 
@@ -40,6 +40,7 @@ function writeMockMcpServer(): {
 import * as fs from 'node:fs';
 let callsPath = process.env.MOCK_MCP_CALLS;
 let buffer = '';
+let transientFailures = 0;
 process.stdin.setEncoding('utf8');
 process.stdin.on('data', (chunk) => {
   buffer += chunk;
@@ -60,9 +61,18 @@ process.stdin.on('data', (chunk) => {
     if (message.method === 'tools/call') {
       if (callsPath) fs.appendFileSync(callsPath, JSON.stringify(message.params) + '\\n');
       const context = message.params.name === 'knowledge-context';
+      const project = message.params.arguments?.project;
+      if (context && project === 'retry-project' && transientFailures++ === 0) {
+        respond(message.id, { isError: true, content: [{ type: 'text', text: 'transient context failure' }] });
+        continue;
+      }
+      const hasPreferences = context && project !== 'no-preferences';
       respond(message.id, {
         content: [{ type: 'text', text: 'called ' + message.params.name + ' with ' + JSON.stringify(message.params.arguments) }],
-        ...(context ? { structuredContent: { preferenceCapsule: { text: '- [universal] Keep answers concise. [2026072000000000]' } } } : {})
+        ...(context ? { structuredContent: {
+          ...(hasPreferences ? { preferenceCapsule: { text: Array.from({ length: 13 }, (_, index) => '- [universal] Preference ' + (index + 1) + (index === 0 ? ': Keep answers concise.' : '.') + ' [20260720000000' + String(index).padStart(2, '0') + ']').join('\\n') } } : {}),
+          overview: 'GENERAL NOTE CONTENT MUST NOT BE INJECTED'
+        } } : {})
       });
       continue;
     }
@@ -79,6 +89,19 @@ function respond(id, result) {
 }
 
 describe('Pi extension', () => {
+  it('keeps fallback knowledge guidance direct and at most 60 words', () => {
+    expect(FALLBACK_KNOWLEDGE_GUIDANCE).toContain('Exclude plans, task status, progress logs, backlogs');
+    expect(FALLBACK_KNOWLEDGE_GUIDANCE.trim().split(/\s+/).length).toBeLessThanOrEqual(60);
+  });
+
+  it('continues preference selection after an oversized line', () => {
+    const text = preferenceText({
+      content: [],
+      details: { structuredContent: { preferenceCapsule: { text: `${'x'.repeat(3201)}\n- [universal] Keep this short.` } } },
+    });
+    expect(text).toBe('- [universal] Keep this short.');
+  });
+
   it('registers knowledge tools and forwards calls through an MCP stdio bridge', async () => {
     const { dir, serverPath, callsPath } = writeMockMcpServer();
     const registered: RegisteredTool[] = [];
@@ -176,9 +199,11 @@ describe('Pi extension', () => {
         .render(100)
         .join('\n');
       expect(renderedPreference).toContain('knowledge-context');
-      expect(renderedPreference).toContain('✓ 1 session preference loaded automatically');
+      expect(renderedPreference).toContain('✓ 12 session preferences loaded automatically');
       expect(renderedPreference).toContain('[universal]');
       expect(renderedPreference).toContain('Keep answers concise.');
+      expect(renderedPreference).toContain('Preference 12.');
+      expect(renderedPreference).not.toContain('Preference 13.');
       expect(renderedPreference).not.toContain('pref-1');
 
       await sessionStartHandler?.({}, { cwd: '/work/example-project', mode: 'tui', sessionManager });
@@ -193,13 +218,23 @@ describe('Pi extension', () => {
       const promptResult = await promptHandler?.({
         systemPrompt: 'Base prompt',
       });
-      expect(promptResult?.systemPrompt).toContain('client: "pi"');
-      expect(promptResult?.systemPrompt).toContain('[universal] Keep answers concise.');
+      expect(promptResult?.systemPrompt).toContain('relevance-gated, compact retrieval');
+      expect(promptResult?.systemPrompt).toContain('Exclude plans, task status, progress logs, backlogs');
+      expect(promptResult?.systemPrompt).not.toContain('Pass client: "pi"');
+      expect(promptResult?.systemPrompt).toContain('[universal] Preference 1: Keep answers concise.');
+      expect(promptResult?.systemPrompt).not.toContain('GENERAL NOTE CONTENT');
+
+      const contextCalls = fs.readFileSync(callsPath, 'utf8')
+        .trim().split('\n').map(line => JSON.parse(line) as { name: string; arguments: Record<string, unknown> })
+        .filter(call => call.name === 'knowledge-context');
+      expect(contextCalls.every(call => JSON.stringify(call.arguments) === JSON.stringify({
+        project: 'example-project', client: 'pi', preferenceOnly: true,
+      }))).toBe(true);
 
       const dedupedPrompt = await promptHandler?.({
         systemPrompt: 'knowledge-search is already documented',
       });
-      expect(dedupedPrompt?.systemPrompt).toContain('[universal] Keep answers concise.');
+      expect(dedupedPrompt?.systemPrompt).toContain('[universal] Preference 1: Keep answers concise.');
       expect(dedupedPrompt?.systemPrompt).not.toContain('persistent memory is available');
       expect(fs.readFileSync(callsPath, 'utf8').match(/knowledge-context/g)).toHaveLength(4);
 
@@ -217,6 +252,27 @@ describe('Pi extension', () => {
       expect(searchResult?.content[0]?.text).toContain(
         'called knowledge-search with {"query":"runtime","project":"example-project","client":"pi"}',
       );
+
+      sessionEntries = [];
+      await sessionStartHandler?.({}, { cwd: '/work/no-preferences', mode: 'tui', sessionManager });
+      expect(appendedEntries).toHaveLength(2);
+      const noPreferencePrompt = await promptHandler?.({ systemPrompt: 'Base prompt' });
+      expect(noPreferencePrompt?.systemPrompt).not.toContain('Personalization preferences:');
+      expect(noPreferencePrompt?.systemPrompt).not.toContain('GENERAL NOTE CONTENT');
+
+      await sessionStartHandler?.({}, { cwd: '/work/retry-project', mode: 'print', sessionManager });
+      const failedPrompt = await promptHandler?.({ systemPrompt: 'Base prompt' });
+      expect(failedPrompt?.systemPrompt).not.toContain('Personalization preferences:');
+      const retriedPrompt = await promptHandler?.({ systemPrompt: 'Base prompt' });
+      expect(retriedPrompt?.systemPrompt).toContain('Preference 1: Keep answers concise.');
+      const finalContextCalls = fs.readFileSync(callsPath, 'utf8').trim().split('\n')
+        .map(line => JSON.parse(line) as { name: string; arguments: Record<string, unknown> })
+        .filter(call => call.name === 'knowledge-context');
+      expect(finalContextCalls.slice(-3).map(call => call.arguments)).toEqual([
+        { project: 'no-preferences', client: 'pi', preferenceOnly: true },
+        { project: 'retry-project', client: 'pi', preferenceOnly: true },
+        { project: 'retry-project', client: 'pi', preferenceOnly: true },
+      ]);
 
       const maintenance = registered.find((candidate) => candidate.name === 'knowledge-maintain');
       const maintenanceResult = await maintenance?.execute('maintenance', { action: 'review' });
@@ -407,7 +463,60 @@ Related notes:
     expect(expanded).not.toContain('Related notes');
   });
 
+  it('renders reviewed store and mining confirmations and partial failures', () => {
+    const review = JSON.stringify({
+      mutated: false,
+      state: 'review-required',
+      evidence: { matches: [{ id: '2026071801234500', highConfidence: true }] },
+      createToken: 'create-token',
+      updateTokens: [{ id: '2026071801234500', token: 'update-token' }],
+    });
+    const collapsedStore = render('knowledge-store', review, false, storeArgs);
+    expect(collapsedStore).toContain('Review required · no mutation · 1 collision');
+    expect(collapsedStore).not.toContain('create-token');
+    const cleanPreview = JSON.stringify({ mutated: false, state: 'preview', evidence: { matches: [] }, createToken: 'clean-create-token', updateTokens: [] });
+    const collapsedPreview = render('knowledge-store', cleanPreview, false, storeArgs);
+    expect(collapsedPreview).toContain('Preview complete · no mutation');
+    expect(collapsedPreview).not.toContain('clean-create-token');
+    expect(render('knowledge-store', cleanPreview, true, storeArgs)).toContain('create token: clean-create-token');
+
+    const mixedConfidence = JSON.stringify({
+      mutated: false,
+      state: 'review-required',
+      evidence: { matches: [{ highConfidence: true }, { highConfidence: false }] },
+    });
+    expect(render('knowledge-store', mixedConfidence, false, storeArgs)).toContain('1 collision');
+    const truncatedEvidence = JSON.stringify({
+      mutated: false,
+      state: 'review-required',
+      evidence: { matches: Array.from({ length: 20 }, () => ({ highConfidence: true })) },
+    });
+    expect(render('knowledge-store', truncatedEvidence, false, storeArgs)).toContain('Review required · no mutation');
+    expect(render('knowledge-store', truncatedEvidence, false, storeArgs)).not.toContain('collision');
+
+    const expandedStore = render('knowledge-store', review, true, storeArgs);
+    expect(expandedStore).toContain('create token: create-token');
+    expect(expandedStore).toContain('update targets: 1');
+
+    const plan = JSON.stringify({ mutated: false, state: 'plan-ready', batchToken: 'batch-token', plan: [{ action: 'store' }] });
+    expect(render('knowledge-mine', plan, false)).toContain('Reviewed plan ready · 1 disposition');
+    expect(render('knowledge-mine', plan, true)).toContain('batch token: batch-token');
+
+    const partial = JSON.stringify({
+      mutated: true,
+      state: 'partial-failure',
+      completed: [{ candidateKey: 'first', action: 'store' }],
+      message: 'Completed operations were not rolled back.',
+    });
+    const renderedPartial = render('knowledge-mine', partial, true);
+    expect(renderedPartial).toContain('Partial failure · 1 completed');
+    expect(renderedPartial).toContain('not rolled back');
+  });
+
   it('preserves complete malformed and error responses', () => {
+    expect(render('knowledge-store', 'null', false, storeArgs)).toBe('null');
+    expect(render('knowledge-store', '[]', false, storeArgs)).toBe('[]');
+
     const malformed = 'raw response for Array<T> and literal <Component>\nsecond line\nfinal diagnostic';
     expect(render('knowledge-search', malformed, false)).toContain(malformed);
     expect(render('knowledge-context', malformed, false)).toContain(malformed);

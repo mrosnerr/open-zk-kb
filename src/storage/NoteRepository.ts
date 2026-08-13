@@ -4,14 +4,18 @@
 
 import { Database } from 'bun:sqlite';
 import { createHash } from 'crypto';
+import { execFileSync } from 'node:child_process';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import * as fs from 'fs';
 import * as path from 'path';
 import YAML from 'yaml';
 import { expandPath } from '../utils/path.js';
 import { logToFile } from '../logger.js';
+import { isGeneratedRelatedBody, renderGeneratedRelatedSection, stripGeneratedRelatedSection } from '../related-section.js';
 import { extractWikiLinks as parseAllWikiLinks, parseWikiLink } from '../utils/wikilink.js';
 import { SchemaManager } from '../schema.js';
 import { cosineSimilarity, blobToEmbedding, embeddingToBlob } from '../embeddings.js';
+import type { ContextualLinkResolution } from '../link-health/types.js';
 import type { NoteKind, NoteStatus, Lifecycle } from '../types.js';
 import { VALID_LIFECYCLES } from '../types.js';
 import {
@@ -21,9 +25,18 @@ import {
   KIND_DIR_MAP,
   getKindFolderNoteBasename,
   getPreferencesFolderNoteBasename,
+  isGeneratedStructuralMarkdown,
 } from './path-resolver.js';
 import type { ConformanceRecord, ConformanceAggregates } from '../template-handler.js';
 import { parseKnowledgeApplicability, type VisibilityOptions } from '../knowledge-scope.js';
+import { computeSimHash } from '../utils/simhash.js';
+import { normalizeScreeningTitle, type ScreeningSnapshot } from '../reviewed-storage.js';
+import { normalizeComparableTitle } from '../maintenance/duplicates.js';
+import { TOOL_DEFINITIONS } from '../tool-meta.js';
+
+export function normalizeWikilinkPath(relativePath: string): string {
+  return relativePath.replace(/\\/g, '/');
+}
 
 export class LifecycleViolationError extends Error {
   constructor(message: string) {
@@ -68,6 +81,14 @@ export interface StoreResult {
   previousPath?: string;
 }
 
+export interface KnowledgeMutationContext {
+  getScreeningSnapshot(visibility: VisibilityOptions): ScreeningSnapshot;
+  hydrateScreeningCanonicalHashes(snapshot: ScreeningSnapshot, noteIds: readonly string[]): ScreeningSnapshot;
+  getByIdVisible(id: string, visibility: VisibilityOptions): NoteMetadata | null;
+  getDomainNote(project: string): NoteMetadata | null;
+  store(contentOrOptions: string | (StoreOptions & { content?: string }), optionsArg?: StoreOptions): StoreResult;
+}
+
 export interface StoreOptions {
   title?: string;
   kind?: NoteKind;
@@ -79,11 +100,76 @@ export interface StoreOptions {
   guidance?: string;
   context?: string;
   existingId?: string;
+  expectedCanonicalFileHash?: string;
   related?: string[];
   extraFrontmatter?: Record<string, unknown>;
 }
 
-export type TelemetryToolName = 'search' | 'store' | 'maintain' | 'mine' | 'template';
+type CanonicalToolName = typeof TOOL_DEFINITIONS[number]['name'];
+export type TelemetryToolName = CanonicalToolName extends `knowledge-${infer Name}` ? Name : never;
+export const TELEMETRY_TOOL_NAMES: readonly TelemetryToolName[] = TOOL_DEFINITIONS.map(tool => {
+  if (!tool.name.startsWith('knowledge-')) throw new Error(`Non-canonical tool name: ${tool.name}`);
+  return tool.name.slice('knowledge-'.length) as TelemetryToolName;
+});
+
+if (new Set(TELEMETRY_TOOL_NAMES).size !== TOOL_DEFINITIONS.length) {
+  throw new Error('Telemetry tool taxonomy must map one-to-one to tool metadata');
+}
+
+const TELEMETRY_TOOL_NAME_SET = new Set<string>(TELEMETRY_TOOL_NAMES);
+const MAX_MODEL_ID_LENGTH = 128;
+const MAX_CLIENT_VERSION_LENGTH = 32;
+export const CANONICAL_TELEMETRY_CLIENTS = ['pi', 'claude-code', 'opencode', 'cursor', 'windsurf', 'zed', 'omp', 'other'] as const;
+export type CanonicalTelemetryClient = typeof CANONICAL_TELEMETRY_CLIENTS[number];
+
+const TELEMETRY_CLIENT_ALIASES: Readonly<Record<string, CanonicalTelemetryClient>> = {
+  'open-zk-kb-pi': 'pi',
+  'omp-coding-agent': 'omp',
+  'claude_code': 'claude-code',
+  'open-code': 'opencode',
+};
+
+export function normalizeTelemetryClient(client: string | undefined | null): CanonicalTelemetryClient {
+  if (typeof client !== 'string') return 'other';
+  const normalized = client.trim().toLowerCase();
+  if (!normalized || !/^[a-z0-9][a-z0-9._-]*$/.test(normalized)) return 'other';
+  const aliased = TELEMETRY_CLIENT_ALIASES[normalized] ?? normalized;
+  return (CANONICAL_TELEMETRY_CLIENTS as readonly string[]).includes(aliased)
+    ? aliased as CanonicalTelemetryClient
+    : 'other';
+}
+
+export function normalizeTelemetryClientVersion(version: string | null | undefined): string | null {
+  if (typeof version !== 'string') return null;
+  const normalized = version.trim();
+  return normalized.length > 0
+    && normalized.length <= MAX_CLIENT_VERSION_LENGTH
+    && /^[0-9]+(?:\.[0-9]+){0,3}(?:[-+][a-zA-Z0-9.-]+)?$/.test(normalized)
+    ? normalized
+    : null;
+}
+
+/** Keep model dimensions useful without retaining arbitrary caller-provided strings. */
+export function normalizeTelemetryModel(model: string | undefined): string | undefined {
+  if (model === undefined) return undefined;
+  const normalized = model.trim().toLowerCase();
+  if (!normalized || normalized.length > MAX_MODEL_ID_LENGTH || !/^[a-z0-9][a-z0-9._:/+-]*$/.test(normalized)) {
+    return 'other';
+  }
+  const segments = normalized.split('/');
+  if (segments.some(segment => !segment)) return 'other';
+
+  // Discard provider/deployment namespaces and retain only a stable family bucket.
+  const modelName = segments.at(-1) ?? normalized;
+  if (modelName.startsWith('chatgpt-') || modelName.startsWith('gpt-')) return 'gpt';
+  if (/^o[134](?:-|$)/.test(modelName)) return 'openai-o';
+
+  const stableFamilies = [
+    'claude', 'gemini', 'gemma', 'llama', 'mistral', 'mixtral', 'codestral',
+    'command-r', 'deepseek', 'qwen', 'grok', 'phi', 'kimi', 'minimax',
+  ] as const;
+  return stableFamilies.find(family => modelName.startsWith(family)) ?? 'other';
+}
 
 export interface UnreportedSession {
   session_id: string;
@@ -108,6 +194,13 @@ export interface TelemetryAggregates {
   storesByKind: Record<string, number>;
   maintainByAction: Record<string, number>;
   sessionDurations: number[];
+  /**
+   * Contextual link-health scan usage: `runs` counts `unlinked`,
+   * `broken-links`, and `link-health` maintain rows with a non-null
+   * `result_count`; `excludedCandidates` sums that `result_count` (excluded
+   * contextual candidates). No note-level data is aggregated.
+   */
+  contextualLinkScans: { runs: number; excludedCandidates: number };
 }
 
 export interface TelemetryRow {
@@ -116,6 +209,7 @@ export interface TelemetryRow {
   arg_kind: string | null;
   timestamp: number;
   result_count: number | null;
+  model: string | null;
 }
 
 function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
@@ -133,6 +227,14 @@ function withBusyRetry<T>(fn: () => T, maxRetries = 3): T {
   throw new Error('unreachable');
 }
 
+function canonicalFileHash(filePath: string): string | undefined {
+  try {
+    return createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  } catch {
+    return undefined;
+  }
+}
+
 function computeEmbeddingSourceHash(title: string, summary: string, content: string): string {
   return createHash('sha256')
     .update(title)
@@ -147,6 +249,119 @@ function computeEmbeddingSourceHash(title: string, summary: string, content: str
 let idCounter = 0;
 let lastIdTimestamp = '';
 
+type MutationLockMode = 'sync' | 'async';
+type MutationLockLease = { id: string; active: boolean; mode: MutationLockMode };
+type MutationLockWaiter = (lease: MutationLockLease) => void;
+type MutationLockState = { currentLease: MutationLockLease | null; waiters: MutationLockWaiter[] };
+
+// Repository instances for one vault share this process-local gate. The filesystem
+// lock remains the authority for serialization with other processes.
+const mutationLockStates = new Map<string, MutationLockState>();
+const mutationContextLeases = new WeakMap<KnowledgeMutationContext, MutationLockLease>();
+const activeMutationLeases = new AsyncLocalStorage<Map<string, MutationLockLease>>();
+const MUTATION_LOCK_ERRORS = {
+  busy: 'Knowledge mutation is already in progress',
+  resolve: 'Unable to resolve knowledge mutation lock',
+  acquire: 'Unable to acquire knowledge mutation lock',
+  timeout: 'Timed out acquiring knowledge mutation lock',
+  release: 'Unable to release knowledge mutation lock',
+} as const;
+
+type MutationLockErrorKind = keyof typeof MUTATION_LOCK_ERRORS;
+
+export function shouldRecoverStaleLock(input: {
+  pidAlive: boolean;
+  recordedIdentity?: string;
+  currentIdentity?: string;
+}): boolean {
+  if (!input.pidAlive) return true;
+  return input.recordedIdentity !== undefined
+    && input.currentIdentity !== undefined
+    && input.recordedIdentity !== input.currentIdentity;
+}
+
+export function processStartIdentity(
+  pid: number,
+  options: {
+    platform?: NodeJS.Platform;
+    execFile?: (file: string, args: readonly string[]) => string;
+  } = {},
+): string | undefined {
+  const platform = options.platform ?? process.platform;
+  const execFile = options.execFile ?? ((file: string, args: readonly string[]) => execFileSync(file, args, {
+    encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 1_000,
+  }));
+  try {
+    if (platform === 'linux') {
+      const stat = fs.readFileSync(`/proc/${pid}/stat`, 'utf8').trim();
+      const commandEnd = stat.lastIndexOf(')');
+      if (commandEnd < 0) return undefined;
+      const fieldsAfterCommand = stat.slice(commandEnd + 2).split(/\s+/);
+      const startTime = fieldsAfterCommand[19];
+      return startTime ? `linux:${startTime}` : undefined;
+    }
+    if (platform === 'darwin') {
+      const start = execFile('ps', ['-p', String(pid), '-o', 'lstart=']).trim().replace(/\s+/g, ' ');
+      return start ? `darwin:${start}` : undefined;
+    }
+    if (platform === 'win32') {
+      const command = `(Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}").CreationDate.ToUniversalTime().ToString('o')`;
+      const start = execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', command]).trim();
+      return start ? `win32:${start}` : undefined;
+    }
+    return undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+class KnowledgeMutationLockError extends Error {
+  constructor(kind: MutationLockErrorKind) {
+    super(MUTATION_LOCK_ERRORS[kind]);
+    this.name = 'KnowledgeMutationLockError';
+  }
+}
+
+export class KnowledgeMutationBusyError extends Error {
+  constructor() {
+    super(MUTATION_LOCK_ERRORS.busy);
+    this.name = 'KnowledgeMutationBusyError';
+  }
+}
+
+/** Why canonical inventory cannot safely account for a file — never a path or content. */
+export type UnindexedCanonicalReason = 'unindexed' | 'unreadable' | 'metadata-drift' | 'traversal-incomplete';
+
+export interface DuplicateAuditSnapshot {
+  readonly notes: Array<NoteMetadata & { content_hash?: string | null }>;
+  readonly indexedSnapshotUnsafe: boolean;
+  readonly omissions: Readonly<Record<string, number>>;
+  readonly uncertaintyReasons: Readonly<Record<string, number>>;
+}
+
+type CanonicalMetadataBaseline = { metadata: string | undefined; indexedVersion: number };
+
+function contextualApplicabilitySignature(tags: unknown): string {
+  if (tags === undefined) tags = [];
+  if (!Array.isArray(tags) || tags.some(tag => typeof tag !== 'string')) {
+    throw new TypeError('Applicability tags must be an array of strings');
+  }
+
+  // Validate with the same contextual parser used by graph decisions, while
+  // retaining all applicable tag values (including duplicates) for drift.
+  parseKnowledgeApplicability(tags);
+  return JSON.stringify(tags
+    .filter(tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global')
+    .sort());
+}
+
+type CanonicalMetadataVault = {
+  baselines: Map<string, CanonicalMetadataBaseline>;
+  references: number;
+  baselineUnavailable: boolean;
+};
+const canonicalMetadataByVault = new Map<string, CanonicalMetadataVault>();
+
 export class NoteRepository {
   protected db: Database;
   protected docsPath: string;
@@ -154,8 +369,14 @@ export class NoteRepository {
   protected schemaManager: SchemaManager;
   private readonly sessionId: string;
   private readonly telemetryEnabled: boolean;
+  private readonly mutationLockOwners = new Map<string, string>();
+  private readonly mutationLockContext = new AsyncLocalStorage<KnowledgeMutationContext>();
+  private indexedCanonicalMetadata = new Map<string, CanonicalMetadataBaseline>();
+  private baselineState: CanonicalMetadataVault | undefined;
+  private canonicalMetadataVaultKey: string | undefined;
 
   constructor(docsPath: string = '~/.local/share/open-zk-kb', options: { telemetryEnabled?: boolean; readonly?: boolean } = {}) {
+    let attachedSharedState = false;
     try {
       const isReadonly = options.readonly === true;
 
@@ -172,17 +393,25 @@ export class NoteRepository {
         );
       }
 
-      this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
-
       if (isReadonly) {
+        // Resolve aliases before deriving either the database or durable-baseline path.
+        this.docsPath = fs.realpathSync(this.docsPath);
+        this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
         if (!fs.existsSync(this.dbPath)) {
           throw new Error(`Database not found at ${this.dbPath} — vault may not be initialized`);
         }
         this.db = new Database(this.dbPath, { readonly: true });
         this.schemaManager = new SchemaManager(this.db);
+        this.attachCanonicalMetadataState();
+        attachedSharedState = true;
+        this.refreshIndexedCanonicalMetadata(false, true);
         return;
       }
 
+      // A writable vault must exist before realpath canonicalization.
+      if (!fs.existsSync(this.docsPath)) fs.mkdirSync(this.docsPath, { recursive: true });
+      this.docsPath = fs.realpathSync(this.docsPath);
+      this.dbPath = path.join(this.docsPath, '.index', 'knowledge.db');
       const dbDir = path.dirname(this.dbPath);
 
       try {
@@ -219,14 +448,292 @@ export class NoteRepository {
       this.db.run('PRAGMA journal_mode = WAL');
 
       this.schemaManager = new SchemaManager(this.db);
+      this.attachCanonicalMetadataState();
+      attachedSharedState = true;
       this.initializeSchema();
+      this.refreshIndexedCanonicalMetadata();
     } catch (error) {
+      const openedDb = Reflect.get(this, 'db') as Database | undefined;
+      if (openedDb) {
+        try { openedDb.close(); } catch { /* best effort */ }
+      }
+      if (attachedSharedState) this.detachCanonicalMetadataState();
       logToFile('ERROR', 'Constructor failed', {
         error: error instanceof Error ? error.message : String(error),
         stack: error instanceof Error ? error.stack : undefined,
       });
       throw error;
     }
+  }
+
+  private attachCanonicalMetadataState(): void {
+    const vaultKey = this.docsPath;
+    let state = canonicalMetadataByVault.get(vaultKey);
+    if (state) {
+      state.references++;
+      this.indexedCanonicalMetadata = state.baselines;
+    } else {
+      state = { baselines: this.indexedCanonicalMetadata, references: 1, baselineUnavailable: false };
+      canonicalMetadataByVault.set(vaultKey, state);
+    }
+    this.baselineState = state;
+    this.canonicalMetadataVaultKey = vaultKey;
+  }
+
+  private detachCanonicalMetadataState(): void {
+    if (!this.canonicalMetadataVaultKey) return;
+    const state = canonicalMetadataByVault.get(this.canonicalMetadataVaultKey);
+    if (state && --state.references === 0) canonicalMetadataByVault.delete(this.canonicalMetadataVaultKey);
+    this.canonicalMetadataVaultKey = undefined;
+    this.baselineState = undefined;
+  }
+
+  private canonicalMetadata(filePath: string): string | undefined {
+    try {
+      const stat = fs.statSync(filePath);
+      return `${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+    } catch {
+      return undefined;
+    }
+  }
+
+  private canonicalBaselinePath(filePath: string): string {
+    const key = createHash('sha256').update(normalizeWikilinkPath(path.relative(this.docsPath, filePath))).digest('hex');
+    return path.join(this.docsPath, '.index', 'canonical-baselines', `${key}.json`);
+  }
+
+  private markBaselineUnavailable(operation: string, filePath?: string): void {
+    if (this.baselineState) this.baselineState.baselineUnavailable = true;
+    logToFile('WARN', 'Canonical baseline storage is unavailable', {
+      operation,
+      path: filePath ? path.relative(this.docsPath, filePath) : undefined,
+    });
+  }
+
+  private writeCanonicalBaseline(filePath: string, baseline: CanonicalMetadataBaseline): boolean {
+    const baselinePath = this.canonicalBaselinePath(filePath);
+    const tempPath = `${baselinePath}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    try {
+      fs.mkdirSync(path.dirname(baselinePath), { recursive: true });
+      fs.writeFileSync(tempPath, JSON.stringify(baseline), { encoding: 'utf8', mode: 0o600 });
+      fs.renameSync(tempPath, baselinePath);
+      return true;
+    } catch {
+      try { fs.rmSync(tempPath, { force: true }); } catch { /* best effort */ }
+      this.markBaselineUnavailable('write', filePath);
+      return false;
+    }
+  }
+
+  private updateCanonicalMetadataBaseline(filePath: string, indexedVersion?: number): boolean {
+    const version = indexedVersion ?? (
+      this.db.prepare('SELECT updated_at FROM notes WHERE path = ?').get(filePath) as { updated_at: number } | undefined
+    )?.updated_at;
+    if (version === undefined) return false;
+    const baseline = { metadata: this.canonicalMetadata(filePath), indexedVersion: version };
+    if (!this.writeCanonicalBaseline(filePath, baseline)) return false;
+    this.indexedCanonicalMetadata.set(filePath, baseline);
+    return true;
+  }
+
+  private removeCanonicalMetadataBaseline(filePath: string): void {
+    try {
+      fs.rmSync(this.canonicalBaselinePath(filePath), { force: true });
+    } catch {
+      this.markBaselineUnavailable('remove', filePath);
+    }
+    this.indexedCanonicalMetadata.delete(filePath);
+  }
+
+  private refreshIndexedCanonicalMetadata(rebaseline = false, readonly = false, reconciled = true): void {
+    // Only a rebuild that reconciled every file may re-establish trust. A rebuild
+    // with read or parse errors leaves the index partially reconciled, so it must
+    // stay fail-closed instead of clearing prior baseline faults.
+    if (rebaseline && reconciled && this.baselineState) this.baselineState.baselineUnavailable = false;
+    this.indexedCanonicalMetadata.clear();
+    const baselineDir = path.join(this.docsPath, '.index', 'canonical-baselines');
+    const initializedPath = path.join(baselineDir, '.initialized');
+    const initialized = fs.existsSync(initializedPath);
+    const rows = this.db.prepare('SELECT path, updated_at FROM notes').all() as Array<{ path: string; updated_at: number }>;
+    // An upgraded populated index has no trustworthy historical bytes. Only an
+    // explicit rebuild may establish its first durable baseline.
+    if (!initialized && rows.length > 0 && !rebaseline) {
+      this.markBaselineUnavailable('bootstrap');
+      return;
+    }
+    if (rebaseline && !reconciled) {
+      // Rebuild invalidates the trust marker before changing the index, so a
+      // partial reconciliation only needs to keep shared memory fail-closed.
+      this.markBaselineUnavailable('rebuild');
+      return;
+    }
+    let baselineWritesSucceeded = true;
+    for (const row of rows) {
+      const baselinePath = this.canonicalBaselinePath(row.path);
+      if (rebaseline) {
+        if (!this.updateCanonicalMetadataBaseline(row.path, row.updated_at)) baselineWritesSucceeded = false;
+        continue;
+      }
+      try {
+        const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf8')) as Partial<CanonicalMetadataBaseline>;
+        if (typeof parsed.indexedVersion !== 'number' || (typeof parsed.metadata !== 'string' && parsed.metadata !== undefined)) throw new Error('invalid');
+        this.indexedCanonicalMetadata.set(row.path, { metadata: parsed.metadata, indexedVersion: parsed.indexedVersion });
+      } catch {
+        this.markBaselineUnavailable('read', row.path);
+      }
+    }
+    if (readonly) return;
+    // Never restore durable trust after an incomplete sidecar refresh. Other
+    // processes cannot observe this instance's in-memory failure state.
+    if (rebaseline && !baselineWritesSucceeded) return;
+    try {
+      fs.mkdirSync(baselineDir, { recursive: true });
+      fs.writeFileSync(initializedPath, '', { encoding: 'utf8', mode: 0o600, flag: 'a' });
+      // A rebaseline clears fail-closed mode only when every sidecar operation succeeded.
+    } catch {
+      this.markBaselineUnavailable('initialize');
+    }
+  }
+
+  /**
+   * Identity-only inventory of canonical vault Markdown files that no indexed
+   * row accounts for, plus whether traversal itself was incomplete. Real
+   * filesystem identities are compared so a symlink alias of an indexed note
+   * is not a false positive, and generated structural files without
+   * identifiers are excluded, matching rebuild's convention. No path, title,
+   * or file content ever leaves this method.
+   */
+  private scanUnindexedCanonicalFiles(
+    indexedPaths: readonly string[],
+    metadataRows?: ReadonlyArray<{ path: string; kind: string; status: string; tags: string }>,
+    indexedIds?: readonly string[],
+  ): {
+    entries: Array<{ id: string; reason: UnindexedCanonicalReason; dedupeEligible: boolean }>;
+    traversalIncomplete: boolean;
+    usedIds: Set<string>;
+  } {
+    const entries: Array<{ id: string; reason: UnindexedCanonicalReason; dedupeEligible: boolean }> = [];
+    let traversalIncomplete = false;
+    const usedIds = new Set(indexedIds ?? (this.db.prepare('SELECT id FROM notes ORDER BY id ASC').all() as Array<{ id: string }>).map(row => row.id));
+
+    const indexedFileIdentities = new Set<string>();
+    const candidates: Array<{ identity: string; reason: UnindexedCanonicalReason; dedupeEligible: boolean }> = [];
+    for (const indexedPath of indexedPaths) {
+      try {
+        indexedFileIdentities.add(fs.realpathSync(indexedPath));
+      } catch {
+        // A missing/unreadable indexed file has no stable identity to report here;
+        // canonical metadata baselines in screening cover that case.
+      }
+    }
+
+    // Contextual inventory must detect graph-inclusion metadata drift. Screening
+    // already has canonical metadata baselines, so it deliberately omits these reads.
+    for (const row of metadataRows ?? []) {
+      let identity: string | undefined;
+      try {
+        identity = fs.realpathSync(row.path);
+        const { frontmatter } = this.parseFrontmatter(fs.readFileSync(row.path, 'utf8'));
+        const canonicalKind = (frontmatter.kind as string) || 'observation';
+        const canonicalStatus = (frontmatter.status as string) || 'fleeting';
+        const canonicalApplicability = contextualApplicabilitySignature(frontmatter.tags);
+        const indexedApplicability = contextualApplicabilitySignature(JSON.parse(row.tags) as unknown);
+        if (canonicalKind !== row.kind || canonicalStatus !== row.status
+          || canonicalApplicability !== indexedApplicability) {
+          candidates.push({ identity, reason: 'metadata-drift', dedupeEligible: true });
+        }
+      } catch {
+        if (identity) candidates.push({ identity, reason: 'unreadable', dedupeEligible: true });
+      }
+    }
+
+    const vaultFiles = walkMarkdownFiles(this.docsPath, {
+      onError: () => { traversalIncomplete = true; },
+    });
+    for (const filePath of vaultFiles) {
+      let identity: string;
+      try {
+        identity = fs.realpathSync(filePath);
+      } catch {
+        traversalIncomplete = true;
+        continue;
+      }
+      if (indexedFileIdentities.has(identity)) continue;
+      try {
+        const { frontmatter } = this.parseFrontmatter(fs.readFileSync(filePath, 'utf8'));
+        const basename = path.basename(filePath);
+        const filenameId = basename.match(/^(\d{16}|\d{12})/)?.[1];
+        const declaredId = (frontmatter.id as string) || filenameId || '';
+        if (!declaredId && isGeneratedStructuralMarkdown(this.docsPath, filePath, frontmatter)) continue;
+        if (declaredId) usedIds.add(declaredId);
+        // Dedupe eligibility mirrors the indexed duplicate-audit filter and
+        // rebuild's frontmatter defaults, so archived or structural files do
+        // not make an audit look incomplete.
+        const canonicalKind = (frontmatter.kind as string) || 'observation';
+        const canonicalStatus = (frontmatter.status as string) || 'fleeting';
+        const dedupeEligible = canonicalStatus !== 'archived'
+          && canonicalKind !== 'index' && canonicalKind !== 'log';
+        candidates.push({ identity, reason: 'unindexed', dedupeEligible });
+      } catch {
+        // Eligibility is unknowable for an unreadable file, so fail closed.
+        candidates.push({ identity, reason: 'unreadable', dedupeEligible: true });
+      }
+    }
+
+    const reasonPriority: Readonly<Record<UnindexedCanonicalReason, number>> = {
+      'unindexed': 0,
+      'metadata-drift': 1,
+      'unreadable': 2,
+      'traversal-incomplete': 3,
+    };
+    const candidatesByIdentity = new Map<string, typeof candidates[number]>();
+    for (const candidate of candidates) {
+      const existing = candidatesByIdentity.get(candidate.identity);
+      if (!existing) {
+        candidatesByIdentity.set(candidate.identity, candidate);
+        continue;
+      }
+      candidatesByIdentity.set(candidate.identity, {
+        identity: candidate.identity,
+        reason: reasonPriority[candidate.reason] > reasonPriority[existing.reason] ? candidate.reason : existing.reason,
+        dedupeEligible: existing.dedupeEligible || candidate.dedupeEligible,
+      });
+    }
+
+    for (const candidate of candidatesByIdentity.values()) {
+      const digest = createHash('sha256').update(candidate.identity).digest('hex');
+      const baseId = `__graph-evidence-${digest}`;
+      let id = baseId;
+      let disambiguator = 2;
+      while (usedIds.has(id)) id = `${baseId}-${disambiguator++}`;
+      usedIds.add(id);
+      entries.push({ id, reason: candidate.reason, dedupeEligible: candidate.dedupeEligible });
+    }
+
+    return { entries, traversalIncomplete, usedIds };
+  }
+
+  /**
+   * Query-only identity list of canonical Markdown files the index does not
+   * account for, so a reader can surface them as read failures instead of
+   * silently reviewing an incomplete document set. An incomplete traversal is
+   * itself reported as one entry.
+   */
+  getUnindexedCanonicalDocuments(): Array<{ id: string; reason: UnindexedCanonicalReason }> {
+    const indexedRows = this.db.prepare('SELECT id, path, kind, status, tags FROM notes ORDER BY id ASC')
+      .all() as Array<{ id: string; path: string; kind: string; status: string; tags: string }>;
+    const { entries, traversalIncomplete, usedIds } = this.scanUnindexedCanonicalFiles(
+      indexedRows.map(row => row.path),
+      indexedRows,
+    );
+    if (traversalIncomplete) {
+      const baseId = `__graph-evidence-${createHash('sha256').update('vault-traversal-incomplete').digest('hex')}`;
+      let id = baseId;
+      let disambiguator = 2;
+      while (usedIds.has(id)) id = `${baseId}-${disambiguator++}`;
+      entries.push({ id, reason: 'traversal-incomplete', dedupeEligible: true });
+    }
+    return entries;
   }
 
   private initializeSchema(): void {
@@ -243,7 +750,7 @@ export class NoteRepository {
 
     if (needsRebuild) {
       logToFile('INFO', 'Schema migration requires full rebuild from files');
-      this.rebuildFromFiles();
+      this.rebuildFromFilesUnlocked();
     }
 
     this.selfHealIfNeeded();
@@ -271,7 +778,7 @@ export class NoteRepository {
       dbNoteCount: noteCount,
       vaultNoteFiles: noteFiles.length,
     });
-    const result = this.rebuildFromFiles();
+    const result = this.rebuildFromFilesUnlocked();
     logToFile('INFO', 'Self-heal rebuild complete', {
       indexed: result.indexed,
       errors: result.errors,
@@ -437,18 +944,22 @@ export class NoteRepository {
     if (options.relatedContent) {
       parts.push(`## Related\n\n${options.relatedContent}`);
     } else if (options.relatedIds && options.relatedIds.length > 0) {
-      const links = options.relatedIds.map(id => {
-        const note = this.getById(id);
-        if (note) {
-          const relativePath = path.relative(this.docsPath, note.path).replace(/\.md$/, '');
-          return `- [[${relativePath}|${note.title}]]`;
-        }
-        return `- [[${id}]]`;
-      }).join('\n');
-      parts.push(`## Related\n\n${links}`);
+      const links = options.relatedIds.map(id => this.renderRelationLink(id));
+      parts.push(renderGeneratedRelatedSection(links));
     }
 
     return parts.filter(Boolean).join('\n\n') + '\n';
+  }
+
+  /**
+   * Wiki-link for a relation target. Unresolvable IDs keep a bare link so an
+   * unreadable or removed target never drops the recorded relation.
+   */
+  private renderRelationLink(id: string): string {
+    const note = this.getById(id);
+    if (!note) return `[[${id}]]`;
+    const relativePath = normalizeWikilinkPath(path.relative(this.docsPath, note.path)).replace(/\.md$/, '');
+    return `[[${relativePath}|${note.title}]]`;
   }
 
   protected parseBodySections(bodyAfterTitle: string): {
@@ -471,10 +982,14 @@ export class NoteRepository {
     const contentChunks: string[] = [];
     const sections: Record<string, string> = {};
 
-    for (const chunk of chunks) {
+    for (const [index, chunk] of chunks.entries()) {
       const headingMatch = chunk.match(/^## ([^\n]+)\n\n?([\s\S]*)/);
-      if (headingMatch && NoteRepository.MANAGED_SECTIONS.has(headingMatch[1].trim())) {
-        sections[headingMatch[1].trim()] = headingMatch[2].trim();
+      const heading = headingMatch ? headingMatch[1].trim() : '';
+      const isNonTrailingRelated = heading === 'Related' && index !== chunks.length - 1;
+      // An unmarked or non-trailing "## Related" section is authored content, so
+      // it stays in the content chunks and round-trips verbatim through rewrites.
+      if (headingMatch && !isNonTrailingRelated && this.isManagedSection(heading, headingMatch[2].trim())) {
+        sections[heading] = headingMatch[2].trim();
       } else {
         contentChunks.push(chunk);
       }
@@ -487,6 +1002,11 @@ export class NoteRepository {
       related: sections['Related'] || '',
       content: contentChunks.join('\n').trim(),
     };
+  }
+
+  private isManagedSection(heading: string, body: string): boolean {
+    if (!NoteRepository.MANAGED_SECTIONS.has(heading)) return false;
+    return heading !== 'Related' || isGeneratedRelatedBody(body);
   }
 
   private computeUpLink(kind: string, tags: string[]): string | null {
@@ -630,6 +1150,162 @@ export class NoteRepository {
     contentOrOptions: string | (StoreOptions & { content?: string }),
     optionsArg?: StoreOptions
   ): StoreResult {
+    return this.withKnowledgeMutationLock(context => context.store(contentOrOptions, optionsArg));
+  }
+
+  /**
+   * Runs final reviewed validation and its canonical write under one vault-wide lock.
+   * Synchronous callers fail fast when another same-process operation owns the lock.
+   */
+  withKnowledgeMutationLock<T>(operation: (context: KnowledgeMutationContext) => T): T {
+    const activeContext = this.mutationLockContext.getStore();
+    if (activeContext) {
+      this.assertLeaseActive(mutationContextLeases.get(activeContext));
+      return operation(activeContext);
+    }
+    const lockPath = path.join(this.docsPath, '.index', 'knowledge-mutation.lock');
+    const gateKey = this.mutationLockGateKey(lockPath);
+    const inheritedLease = activeMutationLeases.getStore()?.get(gateKey);
+    if (inheritedLease) {
+      this.assertLeaseActive(inheritedLease);
+      const context = this.knowledgeMutationContext(inheritedLease);
+      return this.mutationLockContext.run(context, () => operation(context));
+    }
+    const lease = this.acquireInProcessSyncOrFail(gateKey);
+    try {
+      this.acquireMutationLock(lockPath);
+      const context = this.knowledgeMutationContext(lease);
+      const leases = new Map(activeMutationLeases.getStore());
+      leases.set(gateKey, lease);
+      return activeMutationLeases.run(leases, () => this.mutationLockContext.run(context, () => operation(context)));
+    } finally {
+      lease.active = false;
+      try {
+        this.releaseMutationLock(lockPath);
+      } finally {
+        this.releaseInProcess(gateKey, lease);
+      }
+    }
+  }
+
+  async withKnowledgeMutationLockAsync<T>(operation: (context: KnowledgeMutationContext) => Promise<T>): Promise<T> {
+    const activeContext = this.mutationLockContext.getStore();
+    if (activeContext) {
+      this.assertLeaseActive(mutationContextLeases.get(activeContext));
+      return operation(activeContext);
+    }
+    const lockPath = path.join(this.docsPath, '.index', 'knowledge-mutation.lock');
+    const gateKey = this.mutationLockGateKey(lockPath);
+    const inheritedLease = activeMutationLeases.getStore()?.get(gateKey);
+    if (inheritedLease) {
+      this.assertLeaseActive(inheritedLease);
+      const context = this.knowledgeMutationContext(inheritedLease);
+      return this.mutationLockContext.run(context, () => operation(context));
+    }
+    const lease = await this.acquireInProcessAsync(gateKey);
+    try {
+      await this.acquireMutationLockAsync(lockPath);
+      const context = this.knowledgeMutationContext(lease);
+      const leases = new Map(activeMutationLeases.getStore());
+      leases.set(gateKey, lease);
+      return await activeMutationLeases.run(leases, () => this.mutationLockContext.run(context, () => operation(context)));
+    } finally {
+      lease.active = false;
+      try {
+        this.releaseMutationLock(lockPath);
+      } finally {
+        this.releaseInProcess(gateKey, lease);
+      }
+    }
+  }
+
+  private knowledgeMutationContext(lease: MutationLockLease): KnowledgeMutationContext {
+    const context: KnowledgeMutationContext = {
+      getScreeningSnapshot: visibility => {
+        this.assertLeaseActive(lease);
+        return this.getScreeningSnapshot(visibility);
+      },
+      hydrateScreeningCanonicalHashes: (snapshot, noteIds) => {
+        this.assertLeaseActive(lease);
+        return this.hydrateScreeningCanonicalHashes(snapshot, noteIds);
+      },
+      getByIdVisible: (id, visibility) => {
+        this.assertLeaseActive(lease);
+        return this.getByIdVisible(id, visibility);
+      },
+      getDomainNote: project => {
+        this.assertLeaseActive(lease);
+        return this.getDomainNote(project);
+      },
+      store: (contentOrOptions, optionsArg) => {
+        this.assertLeaseActive(lease);
+        return this.storeUnlocked(contentOrOptions, optionsArg);
+      },
+    };
+    mutationContextLeases.set(context, lease);
+    return context;
+  }
+
+  private assertLeaseActive(lease: MutationLockLease | undefined): asserts lease is MutationLockLease {
+    if (!lease?.active) throw new Error('Knowledge mutation context has been released');
+  }
+
+  private mutationLockGateKey(lockPath: string): string {
+    // The index directory exists after repository initialization. Resolve it so
+    // lexical aliases and symlinks for the same vault share one process gate.
+    try {
+      return path.join(fs.realpathSync(path.dirname(lockPath)), path.basename(lockPath));
+    } catch {
+      throw new KnowledgeMutationLockError('resolve');
+    }
+  }
+
+  private lockState(gateKey: string): MutationLockState {
+    let state = mutationLockStates.get(gateKey);
+    if (!state) {
+      state = { currentLease: null, waiters: [] };
+      mutationLockStates.set(gateKey, state);
+    }
+    return state;
+  }
+
+  private acquireInProcessSyncOrFail(gateKey: string): MutationLockLease {
+    const state = this.lockState(gateKey);
+    if (state.currentLease) throw new KnowledgeMutationBusyError();
+    const lease = { id: crypto.randomUUID(), active: true, mode: 'sync' as const };
+    state.currentLease = lease;
+    return lease;
+  }
+
+  private async acquireInProcessAsync(gateKey: string): Promise<MutationLockLease> {
+    const state = this.lockState(gateKey);
+    if (!state.currentLease) {
+      const lease = { id: crypto.randomUUID(), active: true, mode: 'async' as const };
+      state.currentLease = lease;
+      return lease;
+    }
+    return new Promise(resolve => state.waiters.push(resolve));
+  }
+
+  private releaseInProcess(gateKey: string, lease: MutationLockLease): void {
+    const state = this.lockState(gateKey);
+    if (state.currentLease !== lease) return;
+    lease.active = false;
+    const next = state.waiters.shift();
+    if (next) {
+      const nextLease = { id: crypto.randomUUID(), active: true, mode: 'async' as const };
+      state.currentLease = nextLease;
+      queueMicrotask(() => next(nextLease));
+    } else {
+      state.currentLease = null;
+      mutationLockStates.delete(gateKey);
+    }
+  }
+
+  private storeUnlocked(
+    contentOrOptions: string | (StoreOptions & { content?: string }),
+    optionsArg?: StoreOptions
+  ): StoreResult {
     const now = Date.now();
 
     let content: string;
@@ -698,9 +1374,9 @@ export class NoteRepository {
           );
         }
         if (existingLifecycle === 'append-only') {
-          const normalizedExisting = (existing.content || '').trimEnd();
-          const normalizedNew = content.trimEnd();
-          if (!normalizedNew.startsWith(normalizedExisting)) {
+          const normalizedExisting = stripGeneratedRelatedSection(existing.content || '').trimEnd();
+          const normalizedNew = stripGeneratedRelatedSection(content).trimEnd();
+          if (normalizedNew.length <= normalizedExisting.length || !normalizedNew.startsWith(normalizedExisting)) {
             throw new LifecycleViolationError(
               `Cannot modify append-only note "${existing.title}" [${existing.id}]. New content must strictly extend existing content — append only, do not rewrite.`
             );
@@ -741,6 +1417,12 @@ export class NoteRepository {
     const titleLine = noteKind !== 'index' && noteKind !== 'log' ? `# ${title}\n\n` : '';
     const fullContent = frontmatter + navBreadcrumb + titleLine + noteBody;
 
+    if (isUpdate && options.expectedCanonicalFileHash !== undefined) {
+      const currentHash = canonicalFileHash(filePath);
+      if (currentHash === undefined || currentHash !== options.expectedCanonicalFileHash) {
+        throw new Error('Update target canonical file changed before write.');
+      }
+    }
     fs.writeFileSync(filePath, fullContent, 'utf-8');
 
     if (isUpdate) {
@@ -768,13 +1450,15 @@ export class NoteRepository {
     // Insert into FTS
     this.ftsInsert(id, title, content, tagsJson, contextStr);
 
-    this.syncLinks(id, fullContent);
+    this.syncLinksUnlocked(id, fullContent);
+    this.updateCanonicalMetadataBaseline(filePath, versionedNow);
+    if (existingForVersion?.path && existingForVersion.path !== filePath) this.removeCanonicalMetadataBaseline(existingForVersion.path);
 
     return {
       action: isUpdate ? 'updated' : 'created',
       path: filePath,
       id,
-      previousPath: isUpdate ? this.getById(id)?.path : undefined,
+      previousPath: isUpdate ? existingForVersion?.path : undefined,
     };
   }
 
@@ -806,6 +1490,8 @@ export class NoteRepository {
     kind?: NoteKind;
     tags?: string[];
     context?: string;
+    lifecycle?: string;
+    excludeStructuralKinds?: boolean;
     limit?: number;
     visibility?: VisibilityOptions;
   } = {}): NoteMetadata[] {
@@ -839,10 +1525,19 @@ export class NoteRepository {
       params.push(options.context);
     }
 
+    if (options.lifecycle) {
+      sql += ' AND n.lifecycle = ?';
+      params.push(options.lifecycle);
+    }
+
+    if (options.excludeStructuralKinds) {
+      sql += " AND n.kind NOT IN ('index', 'log')";
+    }
+
     if (options.tags && options.tags.length > 0) {
       for (const tag of options.tags) {
-        sql += ' AND n.tags LIKE ?';
-        params.push(`%"${tag}"%`);
+        sql += ' AND EXISTS (SELECT 1 FROM json_each(n.tags) WHERE value = ?)';
+        params.push(tag);
       }
     }
 
@@ -867,6 +1562,9 @@ export class NoteRepository {
   searchVector(queryEmbedding: number[], options: {
     status?: NoteStatus;
     kind?: NoteKind;
+    tags?: string[];
+    lifecycle?: string;
+    excludeStructuralKinds?: boolean;
     limit?: number;
     visibility?: VisibilityOptions;
   } = {}): Array<NoteMetadata & { similarity: number }> {
@@ -889,6 +1587,13 @@ export class NoteRepository {
       sql += ' AND kind = ?';
       params.push(options.kind);
     }
+    if (options.lifecycle) {
+      sql += ' AND lifecycle = ?';
+      params.push(options.lifecycle);
+    }
+    if (options.excludeStructuralKinds) {
+      sql += " AND kind NOT IN ('index', 'log')";
+    }
 
     const rows = this.db.prepare(sql).all(...params) as Array<NoteMetadata & { embedding: Buffer }>;
 
@@ -903,9 +1608,72 @@ export class NoteRepository {
       };
     });
 
-    scored.sort((a, b) => b.similarity - a.similarity);
+    const filterTags = options.tags;
+    const filtered = filterTags?.length
+      ? scored.filter(note => filterTags.every(tag => note.tags.includes(tag)))
+      : scored;
+    filtered.sort((a, b) => b.similarity - a.similarity);
     const limit = options.limit || 10;
-    return scored.slice(0, limit);
+    return filtered.slice(0, limit);
+  }
+
+  /** Counts the exact hybrid candidate union without hydrating note content or embeddings. */
+  countHybridMatches(
+    query: string,
+    hasQueryEmbedding: boolean,
+    options: {
+      status?: NoteStatus;
+      kind?: NoteKind;
+      tags?: string[];
+      lifecycle?: string;
+      excludeStructuralKinds?: boolean;
+      excludeId?: string;
+      visibility?: VisibilityOptions;
+    } = {}
+  ): number {
+    const params: (string | number)[] = [];
+    const predicates = (alias: string): string => {
+      let sql = '';
+      const visibility = this.visibilityPredicate(alias, options.visibility);
+      sql += visibility.sql;
+      params.push(...visibility.params);
+      if (options.status) {
+        sql += ` AND ${alias}.status = ?`;
+        params.push(options.status);
+      } else {
+        sql += ` AND ${alias}.status != 'archived'`;
+      }
+      if (options.kind) {
+        sql += ` AND ${alias}.kind = ?`;
+        params.push(options.kind);
+      }
+      if (options.lifecycle) {
+        sql += ` AND ${alias}.lifecycle = ?`;
+        params.push(options.lifecycle);
+      }
+      if (options.excludeStructuralKinds) sql += ` AND ${alias}.kind NOT IN ('index', 'log')`;
+      if (options.excludeId) {
+        sql += ` AND ${alias}.id != ?`;
+        params.push(options.excludeId);
+      }
+      for (const tag of options.tags ?? []) {
+        sql += ` AND EXISTS (SELECT 1 FROM json_each(${alias}.tags) WHERE value = ?)`;
+        params.push(tag);
+      }
+      return sql;
+    };
+
+    const ftsSql = `
+      SELECT n.id FROM notes_fts fts
+      JOIN notes n ON fts.note_id = n.id
+      WHERE notes_fts MATCH ?${predicates('n')}`;
+    params.unshift(this.sanitizeFTS5Query(query));
+    const vectorSql = hasQueryEmbedding
+      ? ` UNION SELECT n.id FROM notes n WHERE n.embedding IS NOT NULL${predicates('n')}`
+      : '';
+    const row = this.db.prepare(`SELECT COUNT(*) AS total FROM (${ftsSql}${vectorSql})`)
+      .get(...params) as { total: number };
+    return row.total;
   }
 
   /**
@@ -920,6 +1688,8 @@ export class NoteRepository {
       kind?: NoteKind;
       tags?: string[];
       context?: string;
+      lifecycle?: string;
+      excludeStructuralKinds?: boolean;
       limit?: number;
       visibility?: VisibilityOptions;
     } = {}
@@ -933,6 +1703,9 @@ export class NoteRepository {
     const vecResults = this.searchVector(queryEmbedding, {
       status: options.status,
       kind: options.kind,
+      tags: options.tags,
+      lifecycle: options.lifecycle,
+      excludeStructuralKinds: options.excludeStructuralKinds,
       limit: limit * 2,
       visibility: options.visibility,
     });
@@ -942,7 +1715,7 @@ export class NoteRepository {
       filteredVecResults = vecResults.filter(note => {
         const tags = Array.isArray(note.tags) ? note.tags : [];
         const filterTags = options.tags ?? [];
-        return filterTags.every(tag => tags.some(t => (t as string).includes(tag)));
+        return filterTags.every(tag => tags.includes(tag));
       });
     }
 
@@ -970,10 +1743,238 @@ export class NoteRepository {
     return merged.slice(0, limit).map(entry => entry.note);
   }
 
+  /** Copies all persisted screening inputs in one SQLite read transaction. */
+  getScreeningSnapshot(visibility: VisibilityOptions): ScreeningSnapshot {
+    type ScreeningRow = {
+      id: string; path: string; title: string; content: string; summary: string; guidance: string;
+      kind: NoteKind; status: NoteStatus; lifecycle: Lifecycle; tags: string;
+      updated_at: number; content_hash: string | null; embedding: Uint8Array | null;
+      embedding_model: string | null;
+    };
+    const read = this.db.transaction(() => {
+      const scope = this.visibilityPredicate('n', visibility);
+      const rows = this.db.prepare(`
+        SELECT id, path, title, content, summary, guidance, kind, status, lifecycle, tags,
+               updated_at, content_hash, embedding, embedding_model
+        FROM notes n
+        WHERE status != 'archived' AND kind NOT IN ('index', 'log')${scope.sql}
+        ORDER BY id ASC
+      `).all(...scope.params) as ScreeningRow[];
+      const driftRows = this.db.prepare(`
+        SELECT path, updated_at FROM notes
+        WHERE kind NOT IN ('index', 'log')
+        ORDER BY id ASC
+      `).all() as Array<{ path: string; updated_at: number }>;
+      const indexedPaths = this.db.prepare('SELECT path FROM notes ORDER BY id ASC')
+        .all() as Array<{ path: string }>;
+      const links = this.db.prepare(`
+        SELECT source_id, target_id FROM note_links ORDER BY source_id, target_id
+      `).all() as Array<{ source_id: string; target_id: string }>;
+      const schemaVersion = (this.db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version;
+      return { rows, driftRows, indexedPaths, links, schemaVersion };
+    });
+    const copied = withBusyRetry(read);
+    const visibleIds = new Set(copied.rows.map(row => row.id));
+    const relatedBySource = new Map<string, string[]>();
+    for (const link of copied.links) {
+      if (!visibleIds.has(link.source_id) || !visibleIds.has(link.target_id)) continue;
+      const related = relatedBySource.get(link.source_id) ?? [];
+      related.push(link.target_id);
+      relatedBySource.set(link.source_id, related);
+    }
+    // Evaluate every row so baselines rebaseline deterministically: a short-circuiting
+    // predicate would leave later rows unbaselined once one row already drifted.
+    // Check durable trust on every screening call so invalidation by another process
+    // is observed even when this process still has healthy cached baselines.
+    const initializedPath = path.join(this.docsPath, '.index', 'canonical-baselines', '.initialized');
+    let canonicalDrift = this.baselineState?.baselineUnavailable === true || !fs.existsSync(initializedPath);
+
+    // Indexed-path baselines cannot detect a canonical file added outside this
+    // process, so compare the indexed rows against the canonical Markdown
+    // inventory on disk.
+    const unindexed = this.scanUnindexedCanonicalFiles(copied.indexedPaths.map(row => row.path));
+    if (unindexed.traversalIncomplete || unindexed.entries.length > 0) canonicalDrift = true;
+
+    for (const row of copied.driftRows) {
+      const baseline = this.indexedCanonicalMetadata.get(row.path);
+      if (baseline?.indexedVersion !== row.updated_at) {
+        // Another exact writer (including another process) may have advanced
+        // the durable record. Reload it, but never derive a new baseline here.
+        try {
+          const parsed = JSON.parse(fs.readFileSync(this.canonicalBaselinePath(row.path), 'utf8')) as Partial<CanonicalMetadataBaseline>;
+          if (parsed.indexedVersion !== row.updated_at || (typeof parsed.metadata !== 'string' && parsed.metadata !== undefined)) {
+            canonicalDrift = true;
+            continue;
+          }
+          const durable = { metadata: parsed.metadata, indexedVersion: parsed.indexedVersion };
+          this.indexedCanonicalMetadata.set(row.path, durable);
+          if (durable.metadata !== this.canonicalMetadata(row.path)) canonicalDrift = true;
+        } catch {
+          this.markBaselineUnavailable('read', row.path);
+          canonicalDrift = true;
+        }
+        continue;
+      }
+      if (baseline.metadata !== this.canonicalMetadata(row.path)) canonicalDrift = true;
+    }
+    return {
+      schemaVersion: copied.schemaVersion,
+      canonicalDrift,
+      notes: copied.rows.map(row => {
+        const contentHash = row.content_hash || computeSimHash(row.summary || row.content || row.title);
+        return {
+          id: row.id,
+          title: row.title,
+          normalizedTitle: normalizeScreeningTitle(row.title),
+          content: row.content,
+          summary: row.summary || '',
+          guidance: row.guidance || '',
+          kind: row.kind,
+          status: row.status,
+          lifecycle: row.lifecycle || 'living',
+          tags: [...JSON.parse(row.tags) as string[]],
+          related: relatedBySource.get(row.id) ?? [],
+          updatedAt: row.updated_at,
+          contentHash,
+          hashSource: row.content_hash ? 'stored' as const : 'ephemeral' as const,
+          embedding: row.embedding ? [...blobToEmbedding(row.embedding)] : undefined,
+          embeddingModel: row.embedding_model || undefined,
+        };
+      }),
+    };
+  }
+
+  /** Reads canonical bytes only for notes selected by DB-based screening. */
+  hydrateScreeningCanonicalHashes(snapshot: ScreeningSnapshot, noteIds: readonly string[]): ScreeningSnapshot {
+    const selectedIds = new Set(noteIds);
+    if (selectedIds.size === 0) return snapshot;
+
+    const placeholders = [...selectedIds].map(() => '?').join(', ');
+    const rows = this.db.prepare(`SELECT id, path FROM notes WHERE id IN (${placeholders})`)
+      .all(...selectedIds) as Array<{ id: string; path: string }>;
+    const pathsById = new Map(rows.map(row => [row.id, row.path]));
+    return {
+      ...snapshot,
+      notes: snapshot.notes.map(note => selectedIds.has(note.id)
+        ? { ...note, canonicalFileHash: canonicalFileHash(pathsById.get(note.id) ?? '') }
+        : note),
+    };
+  }
+
+  private acquireMutationLock(lockPath: string): void {
+    const owner = crypto.randomUUID();
+    const startedAt = Date.now();
+    const maxAttempts = 40;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let createdDirectory = false;
+      try {
+        fs.mkdirSync(lockPath);
+        createdDirectory = true;
+        fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt, processIdentity: processStartIdentity(process.pid) }), { flag: 'wx' });
+        this.mutationLockOwners.set(lockPath, owner);
+        return;
+      } catch (error) {
+        if (createdDirectory) {
+          try { fs.rmSync(lockPath, { recursive: true, force: true }); } catch { /* preserve the sanitized acquisition error */ }
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        try {
+          this.recoverStaleMutationLock(lockPath);
+        } catch {
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        if (attempt < maxAttempts - 1) Bun.sleepSync(Math.min(10 + attempt * 5, 100));
+      }
+    }
+    throw new KnowledgeMutationLockError('timeout');
+  }
+
+  private async acquireMutationLockAsync(lockPath: string): Promise<void> {
+    const owner = crypto.randomUUID();
+    const startedAt = Date.now();
+    const maxAttempts = 40;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let createdDirectory = false;
+      try {
+        fs.mkdirSync(lockPath);
+        createdDirectory = true;
+        fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({ owner, pid: process.pid, startedAt, processIdentity: processStartIdentity(process.pid) }), { flag: 'wx' });
+        this.mutationLockOwners.set(lockPath, owner);
+        return;
+      } catch (error) {
+        if (createdDirectory) {
+          try { fs.rmSync(lockPath, { recursive: true, force: true }); } catch { /* preserve the sanitized acquisition error */ }
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        if (!(error instanceof Error) || !('code' in error) || (error as NodeJS.ErrnoException).code !== 'EEXIST') {
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        try {
+          this.recoverStaleMutationLock(lockPath);
+        } catch {
+          throw new KnowledgeMutationLockError('acquire');
+        }
+        if (attempt < maxAttempts - 1) await Bun.sleep(Math.min(10 + attempt * 5, 100));
+      }
+    }
+    throw new KnowledgeMutationLockError('timeout');
+  }
+
+  private recoverStaleMutationLock(lockPath: string): void {
+    try {
+      const stat = fs.statSync(lockPath);
+      if (Date.now() - stat.mtimeMs < 30_000) return;
+      let owner: { pid?: number; startedAt?: number; processIdentity?: string } | undefined;
+      try { owner = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8')) as typeof owner; } catch { /* malformed lock requires a longer grace period */ }
+      if (!owner?.pid || !owner.startedAt) {
+        if (Date.now() - stat.mtimeMs < 300_000) return;
+      } else {
+        let pidAlive = true;
+        try { process.kill(owner.pid, 0); } catch (error) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code === 'ESRCH') pidAlive = false;
+          else return;
+        }
+        const currentIdentity = pidAlive ? processStartIdentity(owner.pid) : undefined;
+        if (!shouldRecoverStaleLock({ pidAlive, recordedIdentity: owner.processIdentity, currentIdentity })) return;
+      }
+      const quarantine = `${lockPath}.stale-${crypto.randomUUID()}`;
+      fs.renameSync(lockPath, quarantine);
+      fs.rmSync(quarantine, { recursive: true, force: true });
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT' && code !== 'EEXIST') throw error;
+    }
+  }
+
+  private releaseMutationLock(lockPath: string): void {
+    const expected = this.mutationLockOwners.get(lockPath);
+    if (!expected) return;
+    try {
+      const actual = JSON.parse(fs.readFileSync(path.join(lockPath, 'owner.json'), 'utf8')) as { owner?: string };
+      if (actual.owner === expected) fs.rmSync(lockPath, { recursive: true, force: true });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        logToFile('WARN', 'Knowledge mutation lock already absent during release');
+      } else {
+        throw new KnowledgeMutationLockError('release');
+      }
+    } finally {
+      this.mutationLockOwners.delete(lockPath);
+    }
+  }
+
   /**
    * Store an embedding for a note. Called after store() when embedding is available.
    */
   storeEmbedding(noteId: string, embedding: number[], model: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.storeEmbeddingUnlocked(noteId, embedding, model));
+  }
+
+  private storeEmbeddingUnlocked(noteId: string, embedding: number[], model: string): boolean {
     const blob = embeddingToBlob(embedding);
     const result = this.db.prepare(
       'UPDATE notes SET embedding = ?, embedding_model = ? WHERE id = ?'
@@ -982,7 +1983,158 @@ export class NoteRepository {
   }
 
   updateContentHash(noteId: string, hash: string): void {
-    this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(hash, noteId);
+    this.withKnowledgeMutationLock(() => {
+      this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(hash, noteId);
+    });
+  }
+
+  /** Persist semantic metadata only if the note still has the expected source. */
+  persistSemanticMetadataIfCurrent(
+    noteId: string,
+    expected: { title: string; summary: string; content: string },
+    contentHash: string,
+    embedding?: { values: number[]; model: string },
+  ): boolean {
+    return this.withKnowledgeMutationLock(() => {
+      const current = this.db.prepare(
+        'SELECT title, summary, content FROM notes WHERE id = ?',
+      ).get(noteId) as { title: string; summary: string | null; content: string } | undefined;
+      if (!current || computeEmbeddingSourceHash(current.title, current.summary || '', current.content)
+        !== computeEmbeddingSourceHash(expected.title, expected.summary || '', expected.content)) return false;
+
+      if (embedding) {
+        this.db.prepare(
+          'UPDATE notes SET content_hash = ?, embedding = ?, embedding_model = ? WHERE id = ?',
+        ).run(contentHash, embeddingToBlob(embedding.values), embedding.model, noteId);
+      } else {
+        this.db.prepare('UPDATE notes SET content_hash = ? WHERE id = ?').run(contentHash, noteId);
+      }
+      return true;
+    });
+  }
+
+  /** Parse only canonical eligibility metadata, failing closed on malformed frontmatter. */
+  private canonicalDedupeEligibility(filePath: string): boolean {
+    const content = fs.readFileSync(filePath, 'utf8');
+    const match = content.match(/^---\n([\s\S]*?)\n---(?:\n|$)/);
+    if (!match) return true;
+    const parsed = YAML.parse(match[1]);
+    if (parsed !== null && (typeof parsed !== 'object' || Array.isArray(parsed))) {
+      throw new TypeError('Canonical frontmatter must be a mapping');
+    }
+    const frontmatter = (parsed ?? {}) as Record<string, unknown>;
+    const kind = typeof frontmatter.kind === 'string' ? frontmatter.kind : 'observation';
+    const status = typeof frontmatter.status === 'string' ? frontmatter.status : 'fleeting';
+    return status !== 'archived' && kind !== 'index' && kind !== 'log';
+  }
+
+  /** Query-only canonical input and coverage evidence for one duplicate audit invocation. */
+  getDuplicateAuditResult(): DuplicateAuditSnapshot {
+    type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string; content_hash?: string | null };
+    const read = this.db.transaction(() => ({
+      notes: this.db.prepare(`
+        SELECT * FROM notes
+        WHERE status != 'archived' AND kind NOT IN ('index', 'log')
+        ORDER BY id ASC
+      `).all() as NoteRow[],
+      indexed: this.db.prepare('SELECT id, path, updated_at, status, kind FROM notes ORDER BY id ASC')
+        .all() as Array<{ id: string; path: string; updated_at: number; status: string; kind: string | null }>,
+    }));
+    const copied = withBusyRetry(read);
+    const inventory = this.scanUnindexedCanonicalFiles(
+      copied.indexed.map(row => row.path),
+      undefined,
+      copied.indexed.map(row => row.id),
+    );
+    const omissions: Record<string, number> = {};
+    // Only omissions that could hide an eligible duplicate group count; archived
+    // or structural canonical files are outside the audit's input set.
+    for (const entry of inventory.entries) {
+      if (!entry.dedupeEligible) continue;
+      omissions[entry.reason] = (omissions[entry.reason] ?? 0) + 1;
+    }
+    const uncertaintyReasons: Record<string, number> = {};
+    if (inventory.traversalIncomplete) uncertaintyReasons['traversal-incomplete'] = 1;
+
+    const initializedPath = path.join(this.docsPath, '.index', 'canonical-baselines', '.initialized');
+    let indexedSnapshotUnsafe = this.baselineState?.baselineUnavailable === true || !fs.existsSync(initializedPath);
+    for (const row of copied.indexed) {
+      const kind = row.kind || 'observation';
+      const indexedEligible = row.status !== 'archived' && kind !== 'index' && kind !== 'log';
+      let baseline = this.indexedCanonicalMetadata.get(row.path);
+      // Content-only edits to currently ineligible rows do not affect duplicate
+      // input. Their canonical eligibility still must be checked when bytes drift.
+      if (!indexedEligible) {
+        if (baseline?.indexedVersion !== row.updated_at) {
+          try {
+            const parsed = JSON.parse(fs.readFileSync(this.canonicalBaselinePath(row.path), 'utf8')) as Partial<CanonicalMetadataBaseline>;
+            if (parsed.indexedVersion !== row.updated_at || (typeof parsed.metadata !== 'string' && parsed.metadata !== undefined)) {
+              indexedSnapshotUnsafe = true;
+              continue;
+            }
+            baseline = { metadata: parsed.metadata, indexedVersion: parsed.indexedVersion };
+            this.indexedCanonicalMetadata.set(row.path, baseline);
+          } catch {
+            this.markBaselineUnavailable('read', row.path);
+            indexedSnapshotUnsafe = true;
+            continue;
+          }
+        }
+        if (baseline.metadata !== this.canonicalMetadata(row.path)) {
+          try {
+            if (this.canonicalDedupeEligibility(row.path)) indexedSnapshotUnsafe = true;
+          } catch {
+            indexedSnapshotUnsafe = true;
+          }
+        }
+        continue;
+      }
+      if (baseline?.indexedVersion !== row.updated_at) {
+        // Another exact writer (including another process) may have advanced
+        // the durable record. Reload it, but never derive trust from current bytes.
+        try {
+          const parsed = JSON.parse(fs.readFileSync(this.canonicalBaselinePath(row.path), 'utf8')) as Partial<CanonicalMetadataBaseline>;
+          if (parsed.indexedVersion !== row.updated_at || (typeof parsed.metadata !== 'string' && parsed.metadata !== undefined)) {
+            indexedSnapshotUnsafe = true;
+            continue;
+          }
+          const durable = { metadata: parsed.metadata, indexedVersion: parsed.indexedVersion };
+          this.indexedCanonicalMetadata.set(row.path, durable);
+          if (durable.metadata !== this.canonicalMetadata(row.path)) indexedSnapshotUnsafe = true;
+        } catch {
+          this.markBaselineUnavailable('read', row.path);
+          indexedSnapshotUnsafe = true;
+        }
+        continue;
+      }
+      if (baseline.metadata !== this.canonicalMetadata(row.path)) indexedSnapshotUnsafe = true;
+    }
+
+    return {
+      notes: copied.notes.map(row => ({
+        ...row,
+        kind: (row.kind || 'observation') as NoteKind,
+        tags: JSON.parse(row.tags),
+      })),
+      indexedSnapshotUnsafe,
+      omissions,
+      uncertaintyReasons,
+    };
+  }
+
+  /** Query-only indexed rows retained for callers that do not need coverage evidence. */
+  getDuplicateAuditSnapshot(): Array<NoteMetadata & { content_hash?: string | null }> {
+    type NoteRow = Omit<NoteMetadata, 'tags'> & { tags: string; content_hash?: string | null };
+    const rows = this.db.prepare(`
+      SELECT * FROM notes
+      WHERE status != 'archived' AND kind NOT IN ('index', 'log')
+      ORDER BY id ASC
+    `).all() as NoteRow[];
+    return rows.map(row => ({
+      ...row,
+      kind: (row.kind || 'observation') as NoteKind,
+      tags: JSON.parse(row.tags),
+    }));
   }
 
   getNotesWithoutContentHash(limit: number = 100): NoteMetadata[] {
@@ -1541,6 +2693,10 @@ export class NoteRepository {
   }
 
   remove(id: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.removeUnlocked(id));
+  }
+
+  private removeUnlocked(id: string): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -1551,11 +2707,16 @@ export class NoteRepository {
     this.db.prepare('DELETE FROM notes WHERE id = ?').run(id);
     this.ftsDelete(id);
     this.db.prepare('DELETE FROM note_links WHERE source_id = ? OR target_id = ?').run(id, id);
+    this.removeCanonicalMetadataBaseline(note.path);
 
     return true;
   }
 
   archive(id: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.archiveUnlocked(id));
+  }
+
+  private archiveUnlocked(id: string): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -1567,6 +2728,10 @@ export class NoteRepository {
   }
 
   promoteToPermanent(id: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.promoteToPermanentUnlocked(id));
+  }
+
+  private promoteToPermanentUnlocked(id: string): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -1578,11 +2743,19 @@ export class NoteRepository {
   }
 
   updatePath(id: string, newPath: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.updatePathUnlocked(id, newPath));
+  }
+
+  private updatePathUnlocked(id: string, newPath: string): boolean {
     const result = this.db.prepare('UPDATE notes SET path = ? WHERE id = ?').run(newPath, id);
     return result.changes > 0;
   }
 
   updateTags(id: string, tags: string[]): boolean {
+    return this.withKnowledgeMutationLock(() => this.updateTagsUnlocked(id, tags));
+  }
+
+  private updateTagsUnlocked(id: string, tags: string[]): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -1599,6 +2772,10 @@ export class NoteRepository {
   }
 
   assignProject(id: string, project: string, tags: string[]): { oldPath: string; newPath: string } | null {
+    return this.withKnowledgeMutationLock(() => this.assignProjectUnlocked(id, project, tags));
+  }
+
+  private assignProjectUnlocked(id: string, project: string, tags: string[]): { oldPath: string; newPath: string } | null {
     const note = this.getById(id);
     if (!note) return null;
     const newPath = resolveNotePath(this.docsPath, note.kind, project, note.id, this.slugify(note.title));
@@ -1617,10 +2794,11 @@ export class NoteRepository {
       if (newPath !== oldPath) {
         fs.mkdirSync(path.dirname(newPath), { recursive: true });
         fs.renameSync(oldPath, newPath);
+        this.removeCanonicalMetadataBaseline(oldPath);
         moved = true;
-        if (!withBusyRetry(() => this.updatePath(id, newPath))) throw new Error('Failed to update note path');
+        if (!withBusyRetry(() => this.updatePathUnlocked(id, newPath))) throw new Error('Failed to update note path');
       }
-      if (!withBusyRetry(() => this.updateTags(id, tags))) throw new Error('Failed to update note tags');
+      if (!withBusyRetry(() => this.updateTagsUnlocked(id, tags))) throw new Error('Failed to update note tags');
       return { oldPath, newPath };
     } catch (error) {
       // A failed initial rename has not changed note bytes or indexed metadata.
@@ -1628,13 +2806,17 @@ export class NoteRepository {
       // must still restore the original file and index state.
       if (!moved && newPath !== oldPath) return null;
       try {
-        if (moved) fs.renameSync(newPath, oldPath);
+        if (moved) {
+          fs.renameSync(newPath, oldPath);
+          this.removeCanonicalMetadataBaseline(newPath);
+        }
         fs.writeFileSync(oldPath, oldFile, 'utf-8');
         withBusyRetry(() => {
           this.db.prepare('UPDATE notes SET path = ?, tags = ?, updated_at = ? WHERE id = ?')
             .run(oldPath, oldTagsJson, note.updated_at, id);
           this.ftsUpdate(id, note.title, note.content, oldTagsJson, note.context || '');
         });
+        this.updateCanonicalMetadataBaseline(oldPath, note.updated_at);
       } catch (rollbackError) {
         logToFile('ERROR', 'Failed to roll back project assignment', {
           noteId: id, error: String(rollbackError), originalError: String(error),
@@ -1671,6 +2853,9 @@ export class NoteRepository {
       const userContent = bodySections.content;
       const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
       fs.writeFileSync(note.path, newFrontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
+      const persisted = this.db.prepare('SELECT updated_at FROM notes WHERE id = ?').get(note.id) as { updated_at: number } | undefined;
+      if (!persisted) throw new Error('Persisted note version is unavailable');
+      this.updateCanonicalMetadataBaseline(note.path, persisted.updated_at);
       return true;
     } catch (err) {
       logToFile('WARN', 'Failed to rewrite note file', { noteId: note.id, error: String(err) });
@@ -1765,7 +2950,7 @@ export class NoteRepository {
       this.db.prepare(`
         INSERT INTO tool_telemetry (session_id, tool_name, arg_kind, timestamp, result_count, model)
         VALUES (?, ?, ?, ?, ?, ?)
-      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null, model ?? null);
+      `).run(this.sessionId, toolName, argKind ?? null, Date.now(), resultCount ?? null, normalizeTelemetryModel(model) ?? null);
     });
   }
 
@@ -1806,7 +2991,8 @@ export class NoteRepository {
     `).all(cutoff) as Array<{ arg_kind: string; count: number }>;
     const storesByKind: Record<string, number> = {};
     for (const row of storeRows) {
-      storesByKind[row.arg_kind] = row.count;
+      const kind = row.arg_kind.split(':', 1)[0];
+      storesByKind[kind] = (storesByKind[kind] ?? 0) + row.count;
     }
 
     const maintainRows = this.db.prepare(`
@@ -1827,6 +3013,14 @@ export class NoteRepository {
       GROUP BY session_id
     `).all(cutoff) as Array<{ duration: number | null }>;
 
+    const contextualLinkScanRow = this.db.prepare(`
+      SELECT COUNT(*) as runs, COALESCE(SUM(result_count), 0) as excludedCandidates
+      FROM tool_telemetry
+      WHERE timestamp >= ? AND tool_name = 'maintain'
+        AND arg_kind IN ('unlinked', 'broken-links', 'link-health')
+        AND result_count IS NOT NULL
+    `).get(cutoff) as { runs: number | null; excludedCandidates: number | null };
+
     return {
       sessions: counts.sessions ?? 0,
       searches: counts.searches ?? 0,
@@ -1835,6 +3029,10 @@ export class NoteRepository {
       mines: counts.mines ?? 0,
       storesByKind,
       maintainByAction,
+      contextualLinkScans: {
+        runs: contextualLinkScanRow.runs ?? 0,
+        excludedCandidates: contextualLinkScanRow.excludedCandidates ?? 0,
+      },
       sessionDurations: durationRows.map(row => row.duration ?? 0),
     };
   }
@@ -1854,7 +3052,7 @@ export class NoteRepository {
 
   getTelemetryRows(): TelemetryRow[] {
     return this.db.prepare(`
-      SELECT session_id, tool_name, arg_kind, timestamp, result_count
+      SELECT session_id, tool_name, arg_kind, timestamp, result_count, model
       FROM tool_telemetry
       ORDER BY id
     `).all() as TelemetryRow[];
@@ -1873,7 +3071,16 @@ export class NoteRepository {
         this.db.prepare(`
           INSERT INTO sessions (session_id, client, client_version, started_at, vault_size, version, os_platform, reported)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(this.sessionId, client, clientVersion, Date.now(), vaultSize, version, process.platform, sharingEnabled ? 0 : 1);
+        `).run(
+          this.sessionId,
+          normalizeTelemetryClient(client),
+          normalizeTelemetryClientVersion(clientVersion),
+          Date.now(),
+          vaultSize,
+          version,
+          process.platform,
+          sharingEnabled ? 0 : 1,
+        );
       });
     } catch {
       // Silent failure — session recording should never block anything
@@ -1939,11 +3146,13 @@ export class NoteRepository {
       `).all(s.session_id) as Array<{ tool_name: string; count: number }>;
 
       const tool_counts: Record<string, number> = {};
-      let total_invocations = 0;
       for (const row of toolRows) {
-        tool_counts[row.tool_name] = row.count;
-        total_invocations += row.count;
+        if (TELEMETRY_TOOL_NAME_SET.has(row.tool_name)) tool_counts[row.tool_name] = row.count;
       }
+      const total_invocations = TELEMETRY_TOOL_NAMES.reduce(
+        (total, toolName) => total + (tool_counts[toolName] ?? 0),
+        0,
+      );
 
       const modelRows = this.db.prepare(`
         SELECT DISTINCT model FROM tool_telemetry
@@ -2060,6 +3269,10 @@ export class NoteRepository {
   }
 
   rebuildFromFiles(): { indexed: number; errors: number; warnings: string[] } {
+    return this.withKnowledgeMutationLock(() => this.rebuildFromFilesUnlocked());
+  }
+
+  private rebuildFromFilesUnlocked(): { indexed: number; errors: number; warnings: string[] } {
     const uniqueIds = new Set<string>();
     const domainNotes = new Map<string, string>();
     const indexNotes = new Map<string, string>();
@@ -2067,6 +3280,34 @@ export class NoteRepository {
     const warnings: string[] = [];
     const rawLinkSources = new Map<string, string>();
     let errors = 0;
+
+    // Enumerate the vault before any destructive work. A traversal failure
+    // means the file set is incomplete, so rebuilding from it would discard a
+    // known-good index and restore durable trust from partial evidence.
+    let traversalErrors = 0;
+    const filePaths = walkMarkdownFiles(this.docsPath, {
+      onError: () => { traversalErrors++; },
+    });
+    if (traversalErrors > 0) {
+      const warning = 'Vault traversal incomplete; rebuild aborted without modifying the index';
+      warnings.push(warning);
+      logToFile('WARN', warning, { traversalErrors });
+      return { indexed: 0, errors: traversalErrors, warnings };
+    }
+
+    // Invalidate durable trust before changing any indexed rows. If this cannot
+    // persist, preserve the existing index and abort rather than risk a restart
+    // trusting a partially rebuilt database.
+    const initializedPath = path.join(this.docsPath, '.index', 'canonical-baselines', '.initialized');
+    try {
+      fs.rmSync(initializedPath, { force: true });
+    } catch {
+      const warning = 'Failed to invalidate canonical baseline trust; rebuild aborted';
+      warnings.push(warning);
+      this.markBaselineUnavailable('rebuild-invalidate');
+      logToFile('WARN', warning);
+      return { indexed: 0, errors: 1, warnings };
+    }
 
     // Embeddings live only in SQLite (not in .md files), so save before DELETE.
     const savedEmbeddings = this.db.prepare(
@@ -2078,8 +3319,6 @@ export class NoteRepository {
     this.db.run('DELETE FROM notes');
     this.db.run('DELETE FROM notes_fts');
 
-    const filePaths = walkMarkdownFiles(this.docsPath);
-
     for (const filePath of filePaths) {
       const file = path.basename(filePath);
       try {
@@ -2088,8 +3327,7 @@ export class NoteRepository {
 
         const id = (frontmatter.id as string) || file.match(/^(\d{16}|\d{12})/)?.[1] || '';
         // Skip auto-generated structural files (no frontmatter ID expected)
-        const basename = path.basename(filePath);
-        if ((frontmatter.kind === 'index' || /^(index|log|review)\.md$/i.test(basename)) && !id) {
+        if (!id && isGeneratedStructuralMarkdown(this.docsPath, filePath, frontmatter)) {
           continue;
         }
         if (!id) {
@@ -2154,7 +3392,7 @@ export class NoteRepository {
     // Resolve links only after every note is loaded. This makes link rebuilding
     // independent of filesystem traversal order and applies scope validation
     // against the complete persisted note set.
-    for (const [id, rawContent] of rawLinkSources) this.syncLinks(id, rawContent);
+    for (const [id, rawContent] of rawLinkSources) this.syncLinksUnlocked(id, rawContent);
 
     if (savedEmbeddings.length > 0) {
       const restoreStmt = this.db.prepare(
@@ -2182,10 +3420,15 @@ export class NoteRepository {
       logToFile('WARN', warning);
     }
 
+    this.refreshIndexedCanonicalMetadata(true, false, errors === 0);
     return { indexed: uniqueIds.size, errors, warnings };
   }
 
   formatAllFiles(): { formatted: number; skipped: number; errors: number } {
+    return this.withKnowledgeMutationLock(() => this.formatAllFilesUnlocked());
+  }
+
+  private formatAllFilesUnlocked(): { formatted: number; skipped: number; errors: number } {
     const SKIP_KINDS = ['index'];
     const allNotes = this.db.prepare('SELECT * FROM notes').all() as NoteMetadata[];
     let formatted = 0;
@@ -2237,6 +3480,7 @@ export class NoteRepository {
         const noteBody = this.buildNoteBody({ content: userContent, guidance, context, relatedContent: bodySections.related });
 
         fs.writeFileSync(row.path, frontmatter + navBreadcrumb + titleLine + noteBody, 'utf-8');
+        this.updateCanonicalMetadataBaseline(row.path, row.updated_at);
         formatted++;
       } catch (err) {
         logToFile('WARN', 'Failed to format note file', { noteId: row.id, error: String(err) });
@@ -2251,10 +3495,36 @@ export class NoteRepository {
     return parseAllWikiLinks(content).map(link => link.slug);
   }
 
+  /** Query-only exhaustive contextual resolution. Existing unindexed Markdown
+   * files and directory-index notes are valid targets but do not participate
+   * in the active graph, so they resolve to a neutral `vault-target` outcome
+   * rather than a document identity. */
+  public resolveContextualLink(linkText: string): ContextualLinkResolution {
+    const indexed = this.resolveLink(linkText);
+    if (indexed) return { kind: 'document', id: indexed };
+
+    const parsed = parseWikiLink(linkText);
+    const relative = parsed.slug.replaceAll('\\', '/');
+    if (relative.startsWith('/') || relative.split('/').includes('..')) return { kind: 'unresolved' };
+
+    const basename = path.basename(relative);
+    const candidates = [`${relative}.md`, path.join(relative, `${basename}.md`)];
+    const resolvedRoot = `${path.resolve(this.docsPath)}${path.sep}`;
+    const existsAsVaultTarget = candidates.some(candidate => {
+      const absolute = path.resolve(this.docsPath, candidate);
+      return absolute.startsWith(resolvedRoot) && fs.existsSync(absolute);
+    });
+    return existsAsVaultTarget ? { kind: 'vault-target' } : { kind: 'unresolved' };
+  }
+
   public resolveLink(linkText: string): string | null {
     const parsed = parseWikiLink(linkText);
 
-    const byPath = this.db.prepare('SELECT id FROM notes WHERE path LIKE ?').get(`%/${parsed.slug}.md`) as { id: string } | undefined;
+    const portableSlug = parsed.slug.replaceAll('\\', '/');
+    const portableSuffix = `/${portableSlug}.md`;
+    const byPath = this.db.prepare(
+      "SELECT id FROM notes WHERE substr(replace(path, char(92), '/'), -length(?)) = ? COLLATE NOCASE ORDER BY id ASC",
+    ).get(portableSuffix, portableSuffix) as { id: string } | undefined;
     if (byPath) return byPath.id;
 
     const byId = this.db.prepare('SELECT id FROM notes WHERE id = ?').get(parsed.id) as { id: string } | undefined;
@@ -2270,7 +3540,38 @@ export class NoteRepository {
     return null;
   }
 
+  /**
+   * Relation IDs from a note's marked system-generated Related section, read from
+   * its canonical file. Unmarked authored Related sections yield no relations.
+   */
+  getGeneratedRelatedIds(id: string): string[] {
+    const note = this.getById(id);
+    if (!note) return [];
+    let relatedBody: string;
+    try {
+      const { body } = this.parseFrontmatter(fs.readFileSync(note.path, 'utf-8'));
+      const isStructural = note.kind === 'index' || note.kind === 'log';
+      const bodyAfterTitle = isStructural ? body : body.replace(NoteRepository.TITLE_PATTERN, '');
+      relatedBody = this.parseBodySections(bodyAfterTitle).related;
+    } catch {
+      return [];
+    }
+    if (!isGeneratedRelatedBody(relatedBody)) return [];
+    const ids: string[] = [];
+    for (const linkText of this.extractWikiLinks(relatedBody)) {
+      // Keep unresolved targets too: a temporarily missing or unreadable note must
+      // not make an existing generated relation disappear on the next rewrite.
+      const relationId = this.resolveLink(linkText) ?? linkText;
+      if (!ids.includes(relationId)) ids.push(relationId);
+    }
+    return ids;
+  }
+
   syncLinks(noteId: string, content: string): void {
+    this.withKnowledgeMutationLock(() => this.syncLinksUnlocked(noteId, content));
+  }
+
+  private syncLinksUnlocked(noteId: string, content: string): void {
     this.db.prepare('DELETE FROM note_links WHERE source_id = ?').run(noteId);
 
     const source = this.getById(noteId);
@@ -2452,6 +3753,28 @@ export class NoteRepository {
     return broken;
   }
 
+  /**
+   * Query-only source list for the internal contextual link-health
+   * evaluator: active, non-structural note identity/metadata plus the file
+   * path a production reader needs to load raw source bytes. Never exposes
+   * content, a database handle, or a mutation capability.
+   */
+  getContextualLinkDocuments(): Array<{ id: string; title: string; kind: NoteKind; status: NoteStatus; tags: string[]; path: string }> {
+    const rows = this.db.prepare(`
+      SELECT id, title, kind, status, tags, path FROM notes
+      WHERE status != 'archived' AND kind NOT IN ('index', 'log')
+      ORDER BY id ASC
+    `).all() as Array<{ id: string; title: string; kind: string; status: string; tags: string; path: string }>;
+    return rows.map(r => ({
+      id: r.id,
+      title: r.title,
+      kind: (r.kind || 'observation') as NoteKind,
+      status: r.status as NoteStatus,
+      tags: JSON.parse(r.tags) as string[],
+      path: r.path,
+    }));
+  }
+
   getUpgradeStatus(): { total: number; needsSummary: number; needsGuidance: number } {
     const row = this.db.prepare(`
       SELECT COUNT(*) as total,
@@ -2490,6 +3813,10 @@ export class NoteRepository {
   }
 
   updateSummaryGuidance(id: string, summary: string, guidance: string): boolean {
+    return this.withKnowledgeMutationLock(() => this.updateSummaryGuidanceUnlocked(id, summary, guidance));
+  }
+
+  private updateSummaryGuidanceUnlocked(id: string, summary: string, guidance: string): boolean {
     const note = this.getById(id);
     if (!note) return false;
 
@@ -2544,6 +3871,48 @@ export class NoteRepository {
       kind: (r.kind || 'observation') as NoteKind,
       tags: JSON.parse(r.tags as unknown as string),
     }));
+  }
+
+  /**
+   * Query-only snapshot for the internal vault-review core (src/review/).
+   * Returns every note, any status, ordered like `getAll` (updated_at DESC).
+   * When `visibility` is omitted this is unrestricted full-vault maintenance
+   * scope; when provided it delegates to the canonical `visibilityPredicate`
+   * (global/universal-client semantics; unclassified notes fail closed).
+   * No mutation, telemetry, or filesystem access.
+   */
+  getReviewNotes(visibility?: VisibilityOptions): NoteMetadata[] {
+    const scope = this.visibilityPredicate('notes', visibility);
+    const rows = this.db.prepare(`
+      SELECT * FROM notes WHERE 1=1${scope.sql}
+      ORDER BY updated_at DESC, id ASC
+    `).all(...scope.params) as NoteMetadata[];
+    return rows.map(r => ({
+      ...r,
+      kind: (r.kind || 'observation') as NoteKind,
+      tags: JSON.parse(r.tags as unknown as string),
+    }));
+  }
+
+  /**
+   * Batch backlink counts for the internal vault-review core: incoming links
+   * from non-archived source notes, keyed by target note id. When
+   * `visibility` is provided, source notes are additionally restricted to
+   * the canonical visibility predicate (scoped evaluation); omitted means
+   * unrestricted across projects (full-vault evaluation). A single
+   * aggregate query — not per-note lookups — so callers can batch across an
+   * entire snapshot.
+   */
+  getReviewBacklinkCounts(visibility?: VisibilityOptions): Map<string, number> {
+    const scope = this.visibilityPredicate('src', visibility);
+    const rows = this.db.prepare(`
+      SELECT l.target_id as target_id, COUNT(*) as cnt
+      FROM note_links l
+      JOIN notes src ON src.id = l.source_id
+      WHERE src.status != 'archived'${scope.sql}
+      GROUP BY l.target_id
+    `).all(...scope.params) as Array<{ target_id: string; cnt: number }>;
+    return new Map(rows.map(r => [r.target_id, r.cnt]));
   }
 
   getReviewQueue(
@@ -2671,7 +4040,8 @@ export class NoteRepository {
         tags: JSON.parse(r.tags as unknown as string),
       };
       
-      const baseTitle = this.normalizeTitle(note.title);
+      const baseTitle = normalizeComparableTitle(note.title);
+      if (!baseTitle) continue;
       if (!groups.has(baseTitle)) {
         groups.set(baseTitle, []);
       }
@@ -2688,16 +4058,13 @@ export class NoteRepository {
     return groups;
   }
 
-  private normalizeTitle(title: string): string {
-    return title
-      .toLowerCase()
-      .replace(/^(reference|action|decision|research):\s*/i, '')
-      .replace(/\.md$/i, '')
-      .replace(/[^a-z0-9]/g, '')
-      .substring(0, 50);
-  }
+
 
   clearAll(): void {
+    this.withKnowledgeMutationLock(() => this.clearAllUnlocked());
+  }
+
+  private clearAllUnlocked(): void {
     this.db.run('DELETE FROM note_links');
     this.db.run('DELETE FROM notes');
     this.db.run('DELETE FROM notes_fts');
@@ -2709,6 +4076,7 @@ export class NoteRepository {
     if (this._closed) return;
     this._closed = true;
     this.db.close();
+    this.detachCanonicalMetadataState();
   }
 
   // ---- Global scope helpers ----
@@ -2755,6 +4123,10 @@ export class NoteRepository {
   }
 
   addLocalToGlobalRelation(sourceId: string, globalId: string): void {
+    this.withKnowledgeMutationLock(() => this.addLocalToGlobalRelationUnlocked(sourceId, globalId));
+  }
+
+  private addLocalToGlobalRelationUnlocked(sourceId: string, globalId: string): void {
     const sourceNote = this.getById(sourceId);
     if (!sourceNote) throw new Error('Source note not found');
     const globalNote = this.getById(globalId);
@@ -2768,33 +4140,30 @@ export class NoteRepository {
     }
 
     const originalContent = fs.readFileSync(sourceNote.path, 'utf-8');
-    const globalRelativePath = path.relative(this.docsPath, globalNote.path).replace(/\.md$/, '');
-    if (originalContent.includes(`[[${globalRelativePath}|`) || originalContent.includes(`[[${globalNote.id}`)) return;
+    // Authored content, including any unmarked authored "## Related" section, is
+    // never edited. Only the trailing marked generated section is rewritten.
+    const authoredContent = stripGeneratedRelatedSection(originalContent);
+    const globalRelativePath = normalizeWikilinkPath(path.relative(this.docsPath, globalNote.path)).replace(/\.md$/, '');
+    const hasAuthoredRelation = parseAllWikiLinks(authoredContent)
+      .some(link => link.slug === globalRelativePath || link.slug === globalNote.id);
+    if (hasAuthoredRelation) return;
 
-    const globalLink = `- [[${globalRelativePath}|${globalNote.title}]]`;
-    const relatedHeading = /^## Related\s*$/m.exec(originalContent);
-    let updatedContent: string;
-    if (relatedHeading?.index !== undefined) {
-      const sectionStart = relatedHeading.index + relatedHeading[0].length;
-      const nextHeadingOffset = originalContent.slice(sectionStart).search(/\n## /);
-      const insertAt = nextHeadingOffset >= 0 ? sectionStart + nextHeadingOffset : originalContent.length;
-      const before = originalContent.slice(0, insertAt);
-      const after = originalContent.slice(insertAt);
-      updatedContent = `${before}${before.endsWith('\n') ? '' : '\n'}${globalLink}\n${after}`;
-    } else {
-      const separator = originalContent.endsWith('\n\n') ? '' : originalContent.endsWith('\n') ? '\n' : '\n\n';
-      updatedContent = `${originalContent}${separator}## Related\n\n${globalLink}\n`;
-    }
+    const existingRelated = this.getGeneratedRelatedIds(sourceId);
+    if (existingRelated.includes(globalNote.id)) return;
+    const links = [...existingRelated, globalNote.id].map(id => this.renderRelationLink(id));
+    const updatedContent = `${authoredContent}\n\n${renderGeneratedRelatedSection(links)}\n`;
 
     const updatedAt = Math.max(Date.now(), sourceNote.updated_at + 1);
     try {
       fs.writeFileSync(sourceNote.path, updatedContent, 'utf-8');
       this.db.prepare('UPDATE notes SET updated_at = ? WHERE id = ?').run(updatedAt, sourceId);
-      this.syncLinks(sourceId, updatedContent);
+      this.syncLinksUnlocked(sourceId, updatedContent);
+      this.updateCanonicalMetadataBaseline(sourceNote.path, updatedAt);
     } catch (error) {
       fs.writeFileSync(sourceNote.path, originalContent, 'utf-8');
       this.db.prepare('UPDATE notes SET updated_at = ? WHERE id = ?').run(sourceNote.updated_at, sourceId);
-      this.syncLinks(sourceId, originalContent);
+      this.syncLinksUnlocked(sourceId, originalContent);
+      this.updateCanonicalMetadataBaseline(sourceNote.path, sourceNote.updated_at);
       throw error;
     }
   }

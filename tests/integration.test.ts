@@ -194,6 +194,8 @@ describe('Knowledge Capture Integration Tests', () => {
       expect(source).not.toBeNull();
       const fileContent = fs.readFileSync(source!.path, 'utf-8');
       expect((fileContent.match(/^## Related$/gm) || []).length).toBe(1);
+      expect(fileContent.indexOf('## Guidance')).toBeLessThan(fileContent.indexOf('## Related'));
+      expect(fileContent.slice(fileContent.indexOf('## Related')).trimEnd().endsWith(']]')).toBe(true);
       expect(context.engine.getOutgoingLinks(sourceId!)).toHaveLength(1);
       expect(context.engine.getOutgoingLinks(sourceId!)[0].note.id).toBe(target.id);
     });
@@ -216,6 +218,24 @@ describe('Knowledge Capture Integration Tests', () => {
       expect(fileContent).toContain('## Related\n\n- [[');
       expect(fileContent).toContain('Rewrite Target');
       expect((fileContent.match(/^## Related$/gm) || []).length).toBe(1);
+    });
+
+    it('preserves a non-trailing marked Related section as authored content during rewrites', () => {
+      const content = `Opening\n\n## Related\n\n<!-- zk:related -->\n- [[2026081217215033|Authored placement]]\n\n## Details\n\nAfter related`;
+      const result = context.engine.store(content, {
+        title: 'Non-trailing marked related',
+        kind: 'observation',
+        status: 'fleeting',
+        guidance: 'Trailing managed guidance',
+      });
+
+      expect(context.engine.promoteToPermanent(result.id)).toBe(true);
+
+      const fileContent = fs.readFileSync(result.path, 'utf-8');
+      expect((fileContent.match(/<!-- zk:related -->/g) || []).length).toBe(1);
+      expect(fileContent.indexOf('## Related')).toBeLessThan(fileContent.indexOf('## Details'));
+      expect(fileContent.indexOf('## Details')).toBeLessThan(fileContent.indexOf('## Guidance'));
+      expect(fileContent).toContain('After related');
     });
 
     it('should not duplicate managed sections when user content is empty', () => {
@@ -318,6 +338,29 @@ Project operating manual.
       for (const r of results) {
         expect(r.status).toBe('fleeting');
       }
+    });
+
+    it('matches tags exactly when they contain LIKE metacharacters', () => {
+      context.engine.store('exact tag regression keyword', {
+        title: 'Exact Percent Tag', tags: ['topic:rate%'],
+      });
+      context.engine.store('exact tag regression keyword', {
+        title: 'Percent Prefix Tag', tags: ['topic:rate%extra'],
+      });
+      context.engine.store('exact tag regression keyword', {
+        title: 'Percent Wildcard Lookalike', tags: ['topic:rate-value'],
+      });
+      context.engine.store('exact tag regression keyword', {
+        title: 'Exact Underscore Tag', tags: ['topic:item_1'],
+      });
+      context.engine.store('exact tag regression keyword', {
+        title: 'Underscore Wildcard Lookalike', tags: ['topic:itemX1'],
+      });
+
+      expect(context.engine.search('exact tag regression', { tags: ['topic:rate%'] }).map(note => note.title))
+        .toEqual(['Exact Percent Tag']);
+      expect(context.engine.search('exact tag regression', { tags: ['topic:item_1'] }).map(note => note.title))
+        .toEqual(['Exact Underscore Tag']);
     });
   });
 
@@ -643,6 +686,30 @@ Project operating manual.
       // Verify notes are still accessible
       const statsAfter = context.engine.getStats();
       expect(statsAfter.total).toBe(2);
+    });
+
+    it('does not let stale semantic work overwrite a newer note source', async () => {
+      const stored = context.engine.store('Old semantic source', {
+        title: 'Semantic race', kind: 'observation', status: 'permanent', summary: 'Old summary',
+      });
+      let release!: () => void;
+      const delayed = new Promise<void>(resolve => { release = resolve; });
+      const staleWrite = (async () => {
+        await delayed;
+        return context.engine.withKnowledgeMutationLockAsync(async () =>
+          context.engine.persistSemanticMetadataIfCurrent(stored.id, {
+            title: 'Semantic race', summary: 'Old summary', content: 'Old semantic source',
+          }, 'old-hash', { values: [1, 0], model: 'old-model' }));
+      })();
+
+      context.engine.store('New semantic source', {
+        existingId: stored.id, title: 'Semantic race', kind: 'observation', status: 'permanent', summary: 'New summary',
+      });
+      release();
+
+      expect(await staleWrite).toBe(false);
+      expect(context.engine.getAllContentHashes()).not.toContainEqual({ id: stored.id, hash: 'old-hash' });
+      expect(context.engine.searchVector([1, 0]).map(note => note.id)).not.toContain(stored.id);
     });
 
     it('should leave changed note embeddings pending after rebuild', () => {

@@ -2,6 +2,8 @@
 
 Detailed descriptions and examples for each knowledge base note kind.
 
+Kind selection happens only after the precision gate passes: the candidate is novel, durable beyond the current task and transient state, materially changes future behavior, and belongs in the knowledge base rather than code, tests, Git, issues, OpenSpec, documentation, generated logs, or an adequate existing note. Progress, cleanup summaries, immediately resolved findings, and transient research do not become notes merely because a kind could describe them.
+
 ## personalization
 An enduring user preference or behavioral expectation. Default lifecycle: `living` and default status: `permanent`, so classify it narrowly.
 

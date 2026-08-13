@@ -22,8 +22,8 @@ function toLifecycle(lifecycle: string | undefined, fallback: Lifecycle): Lifecy
   if (lifecycle && VALID_LIFECYCLES.has(lifecycle)) return lifecycle as Lifecycle;
   return fallback;
 }
-import type { NoteRepository, NoteMetadata } from './storage/NoteRepository.js';
-import { extractWikiLinks, formatWikiLink } from './utils/wikilink.js';
+import type { KnowledgeMutationContext, NoteRepository, NoteMetadata, StoreResult } from './storage/NoteRepository.js';
+import { extractWikiLinks } from './utils/wikilink.js';
 import { renderNoteForSearch, renderNoteForAgent, computeStaleness } from './prompts.js';
 import { buildIndexContent, buildGlobalIndexContent, buildProjectsIndexContent, buildGeneralIndexContent, buildPreferencesIndexContent, buildGeneralKindIndexContent } from './storage/IndexBuilder.js';
 import { buildLogEntry, buildInitialLogContent, appendToLogContent, buildGlobalLogEntry, buildInitialGlobalLogContent, migrateGlobalLogContent } from './storage/LogAppender.js';
@@ -42,7 +42,10 @@ import {
 import { getPendingMigrations, getMigrationById } from './data-migrations.js';
 import { logToFile } from './logger.js';
 import { computeSimHash, isNearDuplicate } from './utils/simhash.js';
-import type { EmbeddingConfig } from './embeddings.js';
+import { evaluateScreeningCandidate, reviewedOperationToken, reviewedOperationTokens, reviewedUpdateCandidate, screeningEvidenceDigest, targetFirstComparator, type ScreeningCandidate } from './reviewed-storage.js';
+import { extractGeneratedRelatedIds, stripGeneratedRelatedSection } from './related-section.js';
+import { evaluateDuplicates } from './maintenance/duplicates.js';
+import type { EmbeddingConfig, EmbeddingResult } from './embeddings.js';
 import { generateEmbedding, generateEmbeddingBatch, buildEmbeddingText } from './embeddings.js';
 import { getLatestVersion, isNewerVersion } from './utils/version-check.js';
 import { getAgentDocsTargets } from './agent-docs-targets.js';
@@ -60,30 +63,34 @@ import { getTemplate, getExpectedCategories, matchCategories, extractHeaders, st
 import type { GitVersioning } from './git-versioning.js';
 import { parseKnowledgeApplicability } from './knowledge-scope.js';
 import { PUBLISHABLE_KINDS } from './tool-meta.js';
+import { buildReviewSnapshot } from './review/facts.js';
+import { createRepositoryReviewReader } from './review/reader.js';
+import { evaluateReview } from './review/registry.js';
+import { materializeGraphReview, type GraphDocument, type GraphReviewResult } from './review/graph.js';
+import type { EvaluationResult, Finding, FindingGroup, ReviewScope } from './review/types.js';
+import { createRepositoryContextualLinkReader } from './link-health/reader.js';
+import type { ContextualScanTotals } from './link-health/types.js';
 
 // ---- Constants ----
 
-/** Soft word-count guidelines per note kind (not hard limits). */
-export const KIND_WORD_GUIDELINES: Record<NoteKind, { target: number; warn: number }> = {
-  personalization: { target: 50, warn: 80 },
-  decision:        { target: 150, warn: 250 },
-  procedure:       { target: 150, warn: 250 },
-  reference:       { target: 120, warn: 200 },
-  observation:     { target: 100, warn: 200 },
-  resource:        { target: 50, warn: 100 },
-  domain:          { target: 500, warn: 1000 },
-  index:           { target: 500, warn: 2000 },
-  log:             { target: 500, warn: 5000 },
-};
+import { KIND_WORD_GUIDELINES, ABSOLUTE_WARN_THRESHOLD, atomicityWarnThreshold, TITLE_SOFT_WARN_WORDS, TITLE_HARD_LIMIT_WORDS, TITLE_HARD_LIMIT_CHARS } from './content-guidelines.js';
+export { KIND_WORD_GUIDELINES, ABSOLUTE_WARN_THRESHOLD, TITLE_SOFT_WARN_WORDS, TITLE_HARD_LIMIT_WORDS, TITLE_HARD_LIMIT_CHARS };
 
-/** Absolute word-count ceiling — warns regardless of kind. */
-export const ABSOLUTE_WARN_THRESHOLD = 300;
 const EMBEDDING_BACKFILL_BATCH_SIZE = 50;
 const EMBEDDING_FOREGROUND_TIMEOUT_MS = 10_000;
+const REVIEW_EVIDENCE_MAX_CHARS = 240;
 
-export const TITLE_SOFT_WARN_WORDS = 6;
-export const TITLE_HARD_LIMIT_WORDS = 10;
-export const TITLE_HARD_LIMIT_CHARS = 80;
+function normalizeAndTruncate(value: string | undefined, maxChars = REVIEW_EVIDENCE_MAX_CHARS): { value?: string; truncated: boolean } {
+  if (!value || maxChars <= 0) return { truncated: false };
+  const normalized = value.replace(/\s+/g, ' ').trim();
+  const points = Array.from(normalized);
+  if (points.length <= maxChars) return { value: normalized, truncated: false };
+  return { value: `${points.slice(0, maxChars - 1).join('').trimEnd()}…`, truncated: true };
+}
+
+function boundedReviewEvidence(value: string | undefined, maxChars = REVIEW_EVIDENCE_MAX_CHARS): string | undefined {
+  return normalizeAndTruncate(value, maxChars).value;
+}
 
 // ---- Helper functions ----
 
@@ -101,33 +108,13 @@ function titleWarning(title: string): { error: string } | { warning: string } | 
 
 function atomicityWarning(kind: NoteKind, wordCount: number): string | null {
   const guide = KIND_WORD_GUIDELINES[kind];
+  // The absolute-tier message only applies once the kind's own guideline is
+  // already exceeded, so large-document kinds are never told to split at 300.
+  if (wordCount <= atomicityWarnThreshold(kind)) return null;
   if (wordCount > ABSOLUTE_WARN_THRESHOLD) {
     return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider splitting into separate atomic notes — each note should capture one concept.`;
   }
-  if (wordCount > guide.warn) {
-    return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider whether it captures more than one concept.`;
-  }
-  return null;
-}
-
-function getRecommendation(
-  note: NoteMetadata,
-  daysOld: number,
-  promotionThreshold: number,
-  archiveAfterDays: number,
-): { action: 'promote' | 'archive' | 'review'; rationale: string } {
-  const accesses = note.access_count || 0;
-  const backlinks = note.backlinks_count || 0;
-  if (accesses >= promotionThreshold) {
-    return { action: 'promote', rationale: `Accessed ${accesses} times (threshold: ${promotionThreshold})` };
-  }
-  if (accesses === 0 && daysOld > archiveAfterDays && backlinks === 0) {
-    return { action: 'archive', rationale: `Zero accesses, ${daysOld} days old, no backlinks — likely stale` };
-  }
-  if (accesses === 0 && daysOld > archiveAfterDays) {
-    return { action: 'review', rationale: `Zero accesses but ${backlinks} backlink(s) — referenced by other notes` };
-  }
-  return { action: 'review', rationale: `${daysOld} days old, ${accesses} accesses — needs manual review` };
+  return `\n\n⚠ This note is ${wordCount} words (target for ${kind}: ~${guide.target}). Consider whether it captures more than one concept.`;
 }
 
 type BrokenLink = {
@@ -137,12 +124,12 @@ type BrokenLink = {
   line: number;
 };
 
-function filterFalsePositiveBrokenLinks(
-  broken: BrokenLink[],
+function filterFalsePositiveBrokenLinks<T extends BrokenLink>(
+  broken: readonly T[],
   vaultPath: string | undefined,
   isIndexedTarget: (target: string) => boolean = () => false,
-): BrokenLink[] {
-  if (!vaultPath) return broken;
+): T[] {
+  if (!vaultPath) return [...broken];
   const resolvedVault = path.resolve(vaultPath);
   const vaultPrefix = resolvedVault + path.sep;
   const insideVault = (candidate: string): boolean => {
@@ -162,6 +149,89 @@ function filterFalsePositiveBrokenLinks(
       && fs.existsSync(path.resolve(vaultPath, dirIndexPathRel));
     return !noteResolves && !dirResolves;
   });
+}
+
+const CONTEXTUAL_FAILURE_DISPLAY_CAP = 20;
+
+/**
+ * Runs one ephemeral contextual graph review: selects rules, reads active
+ * non-structural documents through the query-only production reader, and
+ * materializes only their shared fact dependency closure. No fact, edge,
+ * plan, resolution cache, or finding is persisted.
+ */
+function runContextualLinkScan(repo: NoteRepository, ruleIds: readonly string[]): { result: GraphReviewResult; elapsedMs: number } {
+  const reader = createRepositoryContextualLinkReader(repo);
+  const start = Date.now();
+  const result = materializeGraphReview(reader.listDocuments(), reader.resolveTarget, ruleIds);
+  const elapsedMs = Date.now() - start;
+  return { result, elapsedMs };
+}
+
+/** Aggregate-only log event: counts and duration, never note ids, titles, paths, content, or link targets. */
+function logContextualLinkScan(action: string, totals: ContextualScanTotals, elapsedMs: number, config?: AppConfig): void {
+  logToFile('INFO', 'Contextual link scan completed', {
+    action,
+    documentsParsed: totals.documentsParsed,
+    rawCandidates: totals.rawCandidates,
+    contextualLinks: totals.contextualLinks,
+    excludedCandidates: totals.excludedCandidates,
+    parseFailures: totals.parseFailures,
+    elapsedMs,
+  }, config);
+}
+
+function renderContextualScanSummary(totals: ContextualScanTotals, elapsedMs: number): string {
+  return `## Contextual Markdown Scan\n\n`
+    + `Documents: ${totals.documentsParsed} | Raw candidates: ${totals.rawCandidates} | Contextual links: ${totals.contextualLinks} | `
+    + `Excluded: ${totals.excludedCandidates} | Parse failures: ${totals.parseFailures} | Elapsed: ${elapsedMs}ms\n`;
+}
+
+function renderContextualFailures(failures: GraphReviewResult['failures']): string {
+  if (failures.length === 0) return '';
+  let output = `\n### Parse/Read Failures (${failures.length})\n\n`;
+  for (const failure of failures.slice(0, CONTEXTUAL_FAILURE_DISPLAY_CAP)) {
+    output += `- "${failure.title}" [${failure.id}]\n`;
+  }
+  if (failures.length > CONTEXTUAL_FAILURE_DISPLAY_CAP) {
+    output += `…and ${failures.length - CONTEXTUAL_FAILURE_DISPLAY_CAP} more\n`;
+  }
+  return output;
+}
+
+const INCOMPLETE_GRAPH_NOTICE = '\n⚠ Contextual graph incomplete — read/parse failures suppress unlinked findings.\n';
+
+/** Default per-category display bound applied after complete graph-rule evaluation. */
+const DEFAULT_CONTEXTUAL_DISPLAY_LIMIT = 20;
+
+/** Positive-integer `limit` overrides the default; anything else uses the default. */
+function contextualDisplayLimit(limit: number | undefined): number {
+  return typeof limit === 'number' && Number.isInteger(limit) && limit > 0 ? limit : DEFAULT_CONTEXTUAL_DISPLAY_LIMIT;
+}
+
+function graphGroup(graph: EvaluationResult, ruleId: string): FindingGroup {
+  const group = graph.groups.find(candidate => candidate.ruleId === ruleId);
+  if (!group) throw new Error(`Missing graph rule group ${ruleId}`);
+  return group;
+}
+
+function findingEvidence(finding: Finding, label: string): string {
+  const match = finding.evidence.find(entry => entry.label === label);
+  return match ? String(match.value) : '';
+}
+
+/** Renders `links.broken` findings in their existing item format with a display bound. */
+function renderContextualBrokenFindings(findings: readonly Finding[], cap: number): string {
+  let output = '';
+  for (const finding of findings.slice(0, cap)) {
+    const sourceTitle = findingEvidence(finding, 'sourceTitle');
+    const target = findingEvidence(finding, 'target');
+    const line = findingEvidence(finding, 'line');
+    output += `- "${sourceTitle}" [${finding.primary.id}] content:${line} → [[${target}]] (not found)\n`;
+  }
+  if (findings.length > cap) {
+    output += `(showing ${cap} of ${findings.length})\n`;
+  }
+  return output;
 }
 
 function removeEmptyDirsRecursive(dir: string, isRoot: boolean): number {
@@ -208,6 +278,12 @@ export interface StoreArgs {
   client?: string;
   related?: string[];
   model?: string;
+  dryRun?: boolean;
+  disposition?: 'create' | 'update' | 'skip';
+  noteId?: string;
+  expectedUpdatedAt?: number;
+  confirm?: boolean;
+  token?: string;
 }
 
 export interface MineCandidate {
@@ -221,11 +297,23 @@ export interface MineCandidate {
   source?: string;
 }
 
+export interface MineDisposition {
+  candidateKey: string;
+  action: 'store' | 'update' | 'skip';
+  noteId?: string;
+  expectedUpdatedAt?: number;
+  token?: string;
+  evidenceDigest?: string;
+}
+
 export interface MineArgs {
   candidates: MineCandidate[];
   project: string;
   client?: string;
   dry_run?: boolean;
+  dispositions?: MineDisposition[];
+  confirm?: boolean;
+  batchToken?: string;
   model?: string;
 }
 
@@ -239,6 +327,7 @@ export interface SearchArgs {
   tags?: string[];
   limit?: number;
   model?: string;
+  mode?: 'full' | 'compact';
 }
 
 export interface PublishGlobalCandidate {
@@ -276,6 +365,7 @@ export interface ContextArgs {
   model?: string;
   includePreferences?: boolean;
   client?: string;
+  preferenceOnly?: boolean;
 }
 
 export interface PreferenceCapsuleLine {
@@ -363,6 +453,7 @@ function formatTelemetryStats(repo: NoteRepository, days: number = 30): string {
   output += `  Most-stored kind: ${mostStored ? `${mostStored[0]} (${mostStored[1]})` : 'none (0)'}\n`;
   output += `  Most-used action: ${mostUsedAction ? `${mostUsedAction[0]} (${mostUsedAction[1]})` : 'none (0)'}\n`;
   output += `  Avg session duration: ${formatTelemetryNumber(avgDurationMin)} min\n`;
+  output += `  Contextual link scans: ${telemetry.contextualLinkScans.runs} (excluded ${telemetry.contextualLinkScans.excludedCandidates})\n`;
   return output;
 }
 
@@ -589,6 +680,7 @@ export async function handleHealth(args: HealthArgs, repo: NoteRepository, confi
     output += MODEL_HINT;
   }
 
+  scheduleTelemetryWrite('health', () => repo.recordToolInvocation('health', undefined, undefined, args.model));
   return output;
 }
 
@@ -680,6 +772,7 @@ export async function handleIngest(args: IngestArgs, repo?: NoteRepository): Pro
     output += MODEL_HINT;
   }
 
+  if (repo) scheduleTelemetryWrite('ingest', () => repo.recordToolInvocation('ingest', undefined, sections.length, args.model));
   return output;
 }
 
@@ -697,6 +790,7 @@ function describeAgentDocsStatus(status: ReturnType<typeof inspectAgentDocs>['st
 // ---- Navigation hooks ----
 
 const STRUCTURAL_KINDS = new Set(['index', 'log']);
+const CONTEXTUAL_LINK_ACTIONS = new Set(['unlinked', 'broken-links', 'link-health']);
 
 function extractProjectFromTags(tags: string[]): string | null {
   return extractProjectTag(tags);
@@ -1050,11 +1144,17 @@ async function persistSemanticMetadata(
   repo: NoteRepository,
   embeddingConfig?: EmbeddingConfig | null,
   backgroundAfterMs?: number,
+  existingPromise?: Promise<EmbeddingResult | null>,
 ): Promise<number[] | null> {
-  repo.updateContentHash(noteId, computeSimHash(note.summary || note.content || note.title));
+  // Semantic metadata writes queue behind any in-flight knowledge mutation instead
+  // of failing fast, so ordinary contention never discards a hash or embedding.
+  const hash = computeSimHash(note.summary || note.content || note.title);
+  await repo.withKnowledgeMutationLockAsync(async () => {
+    repo.persistSemanticMetadataIfCurrent(noteId, note, hash);
+  });
   if (!embeddingConfig) return null;
 
-  const embeddingPromise = generateEmbedding(buildEmbeddingText(note.title, note.summary, note.content), embeddingConfig);
+  const embeddingPromise = existingPromise ?? generateEmbedding(buildEmbeddingText(note.title, note.summary, note.content), embeddingConfig);
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const result = backgroundAfterMs === undefined
@@ -1064,12 +1164,23 @@ async function persistSemanticMetadata(
         new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), backgroundAfterMs); }),
       ]);
     if (result) {
-      repo.storeEmbedding(noteId, result.embedding, result.model);
-      return result.embedding;
+      const persisted = await repo.withKnowledgeMutationLockAsync(async () =>
+        repo.persistSemanticMetadataIfCurrent(noteId, note, hash, {
+          values: result.embedding,
+          model: result.model,
+        }));
+      return persisted ? result.embedding : null;
     }
     if (backgroundAfterMs !== undefined) {
-      void embeddingPromise.then(slowResult => {
-        if (slowResult) repo.storeEmbedding(noteId, slowResult.embedding, slowResult.model);
+      void embeddingPromise.then(async slowResult => {
+        if (slowResult) {
+          await repo.withKnowledgeMutationLockAsync(async () => {
+            repo.persistSemanticMetadataIfCurrent(noteId, note, hash, {
+              values: slowResult.embedding,
+              model: slowResult.model,
+            });
+          });
+        }
       }).catch(error => {
         logToFile('WARN', 'Background embedding generation failed', {
           noteId,
@@ -1088,11 +1199,20 @@ async function persistSemanticMetadata(
   return null;
 }
 
-export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null): Promise<string> {
+export function buildStoreEmbeddingText(title: string, summary: string, content: string): string {
+  return buildEmbeddingText(title, summary, stripGeneratedRelatedSection(content));
+}
+
+export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddingConfig?: EmbeddingConfig | null, config?: AppConfig, gitVersioning?: GitVersioning | null, lockedContext?: KnowledgeMutationContext, internal?: { embeddingPromise?: Promise<EmbeddingResult | null>; suppressTelemetry?: boolean }): Promise<string> {
   const project = validateCurrentProject(args.project);
   if (!project) {
     return 'Error: A valid project is required for routine knowledge storage.';
   }
+  const recordStoreOutcome = (outcome: 'preview' | 'collision-review' | 'create' | 'update' | 'skip' | 'stale' | 'reconciliation') => {
+    if (!internal?.suppressTelemetry) {
+      scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', `${args.kind}:${outcome}`, outcome === 'create' || outcome === 'update' ? 1 : 0, args.model));
+    }
+  };
   const suppliedTags = args.tags || [];
   const projectTags = suppliedTags.filter(tag => tag.startsWith('project:'));
   if (suppliedTags.includes('scope:global')) {
@@ -1102,22 +1222,45 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     return `Error: Tags must contain at most the current project tag project:${project}.`;
   }
 
-  const effectiveStatus = toNoteStatus(args.status, KIND_DEFAULT_STATUS[args.kind]);
+  // Updates are read first, so omitted optional metadata means "preserve" rather
+  // than silently applying create defaults. This read is query-only; the locked
+  // read below remains authoritative for optimistic concurrency.
+  const visibility = { project, client: args.client || undefined };
+  const preflightSnapshot = repo.getScreeningSnapshot(visibility);
+  const preflightScreeningNote = args.disposition === 'update' && args.noteId
+    ? preflightSnapshot.notes.find(note => note.id === args.noteId)
+    : undefined;
+  const preflightTarget = preflightScreeningNote
+    ? repo.getByIdVisible(preflightScreeningNote.id, visibility)
+    : null;
+  if (args.disposition === 'update' && !preflightTarget) {
+    return 'Error: Update target is not active and visible.';
+  }
+  const updateKind = preflightTarget ? preflightTarget.kind : args.kind;
+  const updateStatus = preflightTarget && args.status === undefined ? preflightTarget.status : undefined;
+  const updateLifecycle = preflightTarget && args.lifecycle === undefined ? preflightTarget.lifecycle : undefined;
+  const effectiveStatus = updateStatus || toNoteStatus(args.status, KIND_DEFAULT_STATUS[updateKind]);
   const lifecycleDefaults = config?.lifecycleDefaults;
   const kindDefault = (lifecycleDefaults?.defaultForKind?.[args.kind] as Lifecycle | undefined) || KIND_DEFAULT_LIFECYCLE[args.kind];
   const lifecycleExplicit = typeof args.lifecycle === 'string' && VALID_LIFECYCLES.has(args.lifecycle);
-  let effectiveLifecycle = toLifecycle(args.lifecycle, kindDefault);
-  if (!lifecycleExplicit && lifecycleDefaults?.detectSnapshotFromSlug !== false && /\d{4}-\d{2}-\d{2}/.test(args.title)) {
+  let effectiveLifecycle = updateLifecycle || toLifecycle(args.lifecycle, kindDefault);
+  if (!preflightTarget && !lifecycleExplicit && lifecycleDefaults?.detectSnapshotFromSlug !== false && /\d{4}-\d{2}-\d{2}/.test(args.title)) {
     effectiveLifecycle = 'snapshot';
   }
-  const tags = suppliedTags.filter(tag => !tag.startsWith('project:'));
-  tags.push(`project:${project}`);
+  const tags = preflightTarget && args.tags === undefined
+    ? [...preflightTarget.tags]
+    : suppliedTags.filter(tag => !tag.startsWith('project:'));
+  if (!tags.some(tag => tag === `project:${project}`)) tags.push(`project:${project}`);
+
+  if (preflightTarget && preflightTarget.kind !== args.kind) {
+    return 'Error: Reviewed update cannot change note kind.';
+  }
 
   if (STRUCTURAL_KINDS.has(args.kind)) {
     return `Error: ${args.kind} notes are auto-generated per project. Use knowledge-context to view them.`;
   }
 
-  if (args.kind === 'domain') {
+  if (args.kind === 'domain' && !preflightTarget) {
     if (!project) {
       return 'Error: Domain notes require a project parameter. A domain note is a project operating manual — it must be scoped to a specific project.';
     }
@@ -1128,26 +1271,28 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
   }
 
   // Client tag — explicit or auto-detected from content/guidance
-  const resolvedClient = args.client || detectClient(args.content, args.guidance);
-  if (resolvedClient) {
+  const resolvedClient = args.client || (preflightTarget
+    ? preflightTarget.tags.find(tag => tag.startsWith('client:'))?.slice(7)
+    : detectClient(args.content, args.guidance));
+  if (resolvedClient && !(preflightTarget && args.tags === undefined)) {
     const tag = clientTag(resolvedClient);
     if (!tags.includes(tag)) {
       tags.push(tag);
     }
   }
 
-  let content = args.content;
-  if (args.related && args.related.length > 0) {
-    const relatedNotes = args.related.map(id => repo.getByIdVisible(id, { project, client: resolvedClient || undefined }));
-    const hiddenIndex = relatedNotes.findIndex(note => note === null);
-    if (hiddenIndex >= 0) {
-      return `Error: Related note not found or not visible: ${args.related[hiddenIndex]}`;
-    }
-    const links = args.related.map((id, index) => {
-      const existing = relatedNotes[index];
-      return formatWikiLink({ id, display: existing?.title });
-    });
-    content += '\n\n## Related\n' + links.map(l => `- ${l}`).join('\n');
+  // Omitted `related` preserves only the marked system-generated relations of the
+  // stored target (or of the submitted content on create). Generic note links are
+  // never promoted into the managed Related section.
+  const explicitRelated = args.related !== undefined;
+  const effectiveRelated = [...new Set(args.related
+    ?? (preflightTarget
+      ? repo.getGeneratedRelatedIds(preflightTarget.id)
+      : extractGeneratedRelatedIds(args.content)))];
+  const content = stripGeneratedRelatedSection(args.content);
+  if (explicitRelated) {
+    const hiddenId = effectiveRelated.find(id => !repo.getByIdVisible(id, { project, client: resolvedClient || undefined }));
+    if (hiddenId) return `Error: Related note not found or not visible: ${hiddenId}`;
   }
 
   const titleCheck = titleWarning(args.title);
@@ -1155,26 +1300,223 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
     return titleCheck.error;
   }
 
-  const result = repo.store(content, {
+  const candidateEmbeddingPromise = internal?.embeddingPromise ?? (embeddingConfig
+    ? generateEmbedding(buildStoreEmbeddingText(args.title, args.summary, content), embeddingConfig)
+    : undefined);
+  let previewEmbedding: EmbeddingResult | null = null;
+  if (candidateEmbeddingPromise) {
+    let previewTimer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      previewEmbedding = await Promise.race([
+        candidateEmbeddingPromise.catch(error => {
+          logToFile('WARN', 'Preview embedding generation failed', { error: error instanceof Error ? error.message : String(error) }, config);
+          return null;
+        }),
+        new Promise<null>(resolve => { previewTimer = setTimeout(() => resolve(null), 500); }),
+      ]);
+    } finally {
+      if (previewTimer) clearTimeout(previewTimer);
+    }
+  }
+
+  const screeningCandidate: ScreeningCandidate = {
     title: args.title,
-    kind: args.kind,
+    content: args.content,
+    summary: args.summary,
+    guidance: args.guidance,
+    kind: updateKind,
     status: effectiveStatus,
     lifecycle: effectiveLifecycle,
     tags,
-    summary: args.summary,
-    guidance: args.guidance,
-  });
+    related: effectiveRelated,
+    embedding: previewEmbedding?.embedding,
+    embeddingModel: previewEmbedding?.model,
+  };
+  const reviewedVisibility = { project, client: resolvedClient || undefined };
+  const configVersion = 'reviewed-storage-v1';
+  const screen = (
+    dbSnapshot: ReturnType<NoteRepository['getScreeningSnapshot']>,
+    hydrate: (snapshot: ReturnType<NoteRepository['getScreeningSnapshot']>, noteIds: readonly string[]) => ReturnType<NoteRepository['getScreeningSnapshot']>,
+  ) => {
+    const dbEvaluation = evaluateScreeningCandidate(screeningCandidate, dbSnapshot);
+    const relevantIds = dbEvaluation.matches
+      .filter(match => match.highConfidence || (args.disposition === 'update' && match.id === args.noteId))
+      .map(match => match.id);
+    // Re-evaluate only when hashes were actually hydrated; otherwise the
+    // DB-only evaluation is already final.
+    const snapshot = relevantIds.length === 0 ? dbSnapshot : hydrate(dbSnapshot, relevantIds);
+    const evaluation = relevantIds.length === 0
+      ? dbEvaluation
+      : evaluateScreeningCandidate(screeningCandidate, snapshot);
+    const tokens = reviewedOperationTokens({
+      candidate: screeningCandidate,
+      evaluation,
+      snapshotVersion: snapshot.schemaVersion,
+      configVersion,
+      snapshotCanonicalDrift: snapshot.canonicalDrift,
+      targetId: preflightTarget?.id,
+      updateCandidate: (candidate, match) => {
+        const note = snapshot.notes.find(item => item.id === match.id);
+        return note ? reviewedUpdateCandidate(candidate, note, {
+          tags: args.tags === undefined,
+          related: false,
+        }) : candidate;
+      },
+    });
+    return { snapshot, evaluation, tokens };
+  };
+  // The preflight snapshot already reflects the reviewed visibility unless the
+  // resolved client differs from the supplied one, so it is reused for the
+  // initial evaluation. Only the locked re-evaluation refreshes the snapshot.
+  const initialSnapshot = reviewedVisibility.client === visibility.client
+    ? preflightSnapshot
+    : repo.getScreeningSnapshot(reviewedVisibility);
+  const initial = screen(initialSnapshot, (snapshot, noteIds) => repo.hydrateScreeningCanonicalHashes(snapshot, noteIds));
+  const collisions = initial.evaluation.matches.filter(match => match.highConfidence);
+  const previewResult = (review = initial) => {
+    const targetId = preflightTarget?.id;
+    const evidenceMatches = [...review.evaluation.matches].sort(targetFirstComparator(targetId));
+    return JSON.stringify({
+      mutated: false,
+      state: review.evaluation.matches.some(match => match.highConfidence) ? 'review-required' : 'preview',
+      evidence: { ...review.evaluation, digest: screeningEvidenceDigest(review.evaluation), matches: evidenceMatches.slice(0, 20) },
+      ...(review.tokens.createToken !== undefined ? { createToken: review.tokens.createToken } : {}),
+      updateTokens: review.tokens.updateTokens.slice(0, 20),
+      validDispositions: review.snapshot.canonicalDrift
+        ? ['skip']
+        : [...(review.tokens.createToken !== undefined ? ['create'] : []), ...(review.tokens.updateTokens.length > 0 ? ['update'] : []), 'skip'],
+    });
+  };
+  if (args.disposition === 'skip') {
+    recordStoreOutcome('skip');
+    return JSON.stringify({ mutated: false, state: 'skipped' });
+  }
+  if (args.dryRun || (collisions.length > 0 && !args.disposition)) {
+    recordStoreOutcome(collisions.length > 0 ? 'collision-review' : 'preview');
+    return previewResult();
+  }
+  if (args.disposition && args.disposition !== 'create' && args.disposition !== 'update') return 'Error: Invalid reviewed disposition.';
+  if (args.disposition === 'create' && (!args.confirm || !args.token)) return 'Error: Reviewed create requires confirm and token.';
+  if (args.disposition === 'update' && (!args.confirm || !args.token || !args.noteId || args.expectedUpdatedAt === undefined)) {
+    return 'Error: Reviewed update requires noteId, expectedUpdatedAt, confirm, and token.';
+  }
 
+  let result: StoreResult | null = null;
+  let lockedPreview: string | null = null;
+  const applyWithContext = (context: KnowledgeMutationContext): StoreResult | null => {
+      const currentSnapshot = context.getScreeningSnapshot(reviewedVisibility);
+      const currentReview = screen(currentSnapshot, (snapshot, noteIds) => context.hydrateScreeningCanonicalHashes(snapshot, noteIds));
+      const currentEvaluation = currentReview.evaluation;
+      const currentTargetFacts = args.noteId
+        ? currentReview.snapshot.notes.find(note => note.id === args.noteId)
+        : undefined;
+      if (currentSnapshot.canonicalDrift && !args.disposition) {
+        lockedPreview = previewResult(currentReview);
+        return null;
+      }
+      if (!args.disposition && currentEvaluation.matches.some(match => match.highConfidence)) {
+        lockedPreview = previewResult(currentReview);
+        return null;
+      }
+      const isCreate = args.disposition !== 'update';
+      if (isCreate) {
+        if (explicitRelated) {
+          const hiddenId = effectiveRelated.find(id => !context.getByIdVisible(id, reviewedVisibility));
+          if (hiddenId) throw new Error(`Related note not found or not visible: ${hiddenId}`);
+        }
+        if (args.kind === 'domain') {
+          const existingDomain = project ? context.getDomainNote(project) : null;
+          if (existingDomain) {
+            throw new Error(`A domain note already exists for project "${project}" [${existingDomain.id}]: "${existingDomain.title}". Update the existing note instead of creating a duplicate.`);
+          }
+        }
+      }
+      if (args.disposition === 'create') {
+        if (currentEvaluation.matches.some(match => match.highConfidence && match.canonicalFileHash === undefined)) {
+          throw new Error('Reviewed create evidence is unavailable; reconcile after canonical files are readable.');
+        }
+        if (currentSnapshot.canonicalDrift) throw new Error('Reviewed create token is stale because canonical files changed outside the index; reconcile or rebuild.');
+        const expected = reviewedOperationToken({ candidate: screeningCandidate, evaluation: currentEvaluation, operation: 'create', snapshotVersion: currentSnapshot.schemaVersion, configVersion });
+        if (args.token !== expected) throw new Error('Reviewed create token is stale or does not match this operation; reconcile with a fresh preview.');
+      }
+      let existingId: string | undefined;
+      if (args.disposition === 'update') {
+        if (currentSnapshot.canonicalDrift) throw new Error('Reviewed update token is stale because canonical files changed outside the index; reconcile or rebuild.');
+        if (!args.noteId) throw new Error('Reviewed update target is required.');
+        const target = context.getByIdVisible(args.noteId, reviewedVisibility);
+        if (!target) throw new Error('Update target is not active and visible.');
+        if (target.status === 'archived' || target.lifecycle === 'snapshot') throw new Error('Update target lifecycle is immutable.');
+        if (target.updated_at !== args.expectedUpdatedAt) throw new Error('Update target version is stale.');
+        const targetScope = parseKnowledgeApplicability(target.tags);
+        const candidateScope = parseKnowledgeApplicability(tags);
+        const protectedTags = (values: string[]) => values
+          .filter(tag => tag.startsWith('project:') || tag.startsWith('client:') || tag === 'scope:global')
+          .sort();
+        if (JSON.stringify(targetScope) !== JSON.stringify(candidateScope)
+          || JSON.stringify(protectedTags(target.tags)) !== JSON.stringify(protectedTags(tags))
+          || target.kind !== updateKind || target.status !== effectiveStatus || target.lifecycle !== effectiveLifecycle) {
+          throw new Error('Update cannot change kind, status, lifecycle, project, or client applicability.');
+        }
+        if (explicitRelated) {
+          for (const relatedId of effectiveRelated) {
+            if (!context.getByIdVisible(relatedId, reviewedVisibility)) throw new Error(`Related note ${relatedId} is not active and visible.`);
+          }
+        }
+        if (target.lifecycle === 'append-only') {
+          const oldContent = stripGeneratedRelatedSection(target.content);
+          const newContent = stripGeneratedRelatedSection(args.content);
+          const targetGeneratedRelated = [...new Set(repo.getGeneratedRelatedIds(target.id))].sort();
+          const sameMetadata = target.title === args.title && (target.summary || '') === args.summary && (target.guidance || '') === args.guidance
+            && JSON.stringify([...target.tags].sort()) === JSON.stringify([...tags].sort())
+            && JSON.stringify(targetGeneratedRelated) === JSON.stringify([...effectiveRelated].sort());
+          if (!sameMetadata || newContent.length <= oldContent.length || !newContent.startsWith(oldContent)) throw new Error('Append-only update must be an exact metadata-preserving content extension.');
+        }
+        if (!currentTargetFacts) throw new Error('Current reviewed update target is unavailable.');
+        if (!currentTargetFacts.canonicalFileHash) throw new Error('Update target canonical file is unavailable.');
+        const updateCandidate = reviewedUpdateCandidate(screeningCandidate, currentTargetFacts, {
+          tags: args.tags === undefined,
+          related: false,
+        });
+        const expected = reviewedOperationToken({ candidate: updateCandidate, evaluation: currentEvaluation, operation: 'update', target: { id: target.id, updatedAt: target.updated_at, canonicalFileHash: currentTargetFacts.canonicalFileHash }, snapshotVersion: currentSnapshot.schemaVersion, configVersion });
+        if (args.token !== expected) throw new Error('Reviewed update token is stale or bound to another target; reconcile with a fresh preview.');
+        existingId = target.id;
+      }
+      return context.store(content, {
+        title: args.title,
+        kind: updateKind,
+        status: effectiveStatus,
+        lifecycle: effectiveLifecycle,
+        tags,
+        summary: args.summary,
+        guidance: args.guidance,
+        existingId,
+        expectedCanonicalFileHash: existingId ? currentTargetFacts?.canonicalFileHash : undefined,
+        related: effectiveRelated,
+      });
+  };
+  try {
+    result = lockedContext
+      ? applyWithContext(lockedContext)
+      : await repo.withKnowledgeMutationLockAsync(async context => applyWithContext(context));
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    recordStoreOutcome(message.includes('stale') ? 'stale' : 'reconciliation');
+    return `Error: ${message}`;
+  }
+  if (!result) {
+    recordStoreOutcome(lockedPreview ? 'collision-review' : 'reconciliation');
+    return lockedPreview ?? 'Error: Reviewed store did not produce a result.';
+  }
 
-  scheduleTelemetryWrite('store', () => repo.recordToolInvocation('store', args.kind, 1, args.model));
+  recordStoreOutcome(result.action === 'updated' ? 'update' : 'create');
 
   // Race embedding generation against 500ms timeout for related notes search.
   // If timeout wins, the embedding still persists in the background (no data loss).
   const noteEmbedding = await persistSemanticMetadata(result.id, {
     title: args.title,
     summary: args.summary,
-    content: args.content,
-  }, repo, embeddingConfig, 500);
+    content,
+  }, repo, embeddingConfig, 500, candidateEmbeddingPromise);
 
   const relatedConfig = config?.store?.relatedNotes;
   const relatedEnabled = relatedConfig?.enabled !== false;
@@ -1282,10 +1624,11 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 
   const effectiveProject = project || extractProjectFromTags(tags);
   const changedPaths = [result.path];
+  const updated = result.action === 'updated';
   if (effectiveProject) {
-    changedPaths.push(...updateProjectNavigation(effectiveProject, `Created ${args.kind}: "${args.title}"`, repo, config));
+    changedPaths.push(...updateProjectNavigation(effectiveProject, `${updated ? 'Updated' : 'Created'} ${args.kind}: "${args.title}"`, repo, config));
   }
-  changedPaths.push(...updateGlobalNavigation(effectiveProject || null, `Stored ${args.kind}: "${args.title}"`, repo, config));
+  changedPaths.push(...updateGlobalNavigation(effectiveProject || null, `${updated ? 'Updated' : 'Stored'} ${args.kind}: "${args.title}"`, repo, config));
   if (gitVersioning) {
     gitVersioning.recordOp({
       op: result.action === 'updated' ? 'update' : 'store',
@@ -1299,15 +1642,25 @@ export async function handleStore(args: StoreArgs, repo: NoteRepository, embeddi
 }
 
 export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedding?: number[] | null, config?: AppConfig): string {
-  const requestedLimit = args.limit || 10;
+  if (args.mode === 'compact' && args.limit !== undefined
+    && (!Number.isInteger(args.limit) || args.limit < 1 || args.limit > 10)) {
+    return 'Error: compact search limit must be an integer from 1 to 10.';
+  }
+  const requestedLimit = args.mode === 'compact' ? (args.limit ?? 5) : (args.limit || 10);
   const excludeStructuralKinds = config?.search?.excludeLogFromSearch !== false && !STRUCTURAL_KINDS.has(args.kind as string);
   const project = validateCurrentProject(args.project);
   if (!project) return 'Error: A valid project is required for knowledge search.';
-  const searchLimit = excludeStructuralKinds ? Math.min(requestedLimit * 10, 100) : requestedLimit;
+  // Overfetch a bounded result window for filters applied after ranking. Compact
+  // availability is counted separately without hydrating the complete candidate set.
+  const searchLimit = excludeStructuralKinds || args.mode === 'compact'
+    ? Math.min(requestedLimit * 10, 100)
+    : requestedLimit;
   let results = repo.searchHybrid(args.query, queryEmbedding || null, {
     kind: args.kind,
     status: args.status ? toNoteStatus(args.status, 'fleeting') : undefined,
     tags: args.tags,
+    lifecycle: args.lifecycle,
+    excludeStructuralKinds,
     limit: searchLimit,
     visibility: { project, client: args.client },
   });
@@ -1348,7 +1701,21 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     }
   }
 
-  if (results.length > requestedLimit) {
+  const availableCount = args.mode === 'compact'
+    ? repo.countHybridMatches(args.query, Boolean(queryEmbedding), {
+      kind: args.kind,
+      status: requestedStatus,
+      tags: args.tags,
+      lifecycle: args.lifecycle,
+      excludeStructuralKinds,
+      excludeId: domainNote?.id,
+      visibility: { project, client: args.client },
+    }) + (domainNote ? 1 : 0)
+    : results.length + (domainNote ? 1 : 0);
+  if (args.mode === 'compact') {
+    const reservedResultLimit = Math.max(0, requestedLimit - (domainNote ? 1 : 0));
+    if (results.length > reservedResultLimit) results = results.slice(0, reservedResultLimit);
+  } else if (results.length > requestedLimit) {
     results = results.slice(0, requestedLimit);
   }
 
@@ -1358,10 +1725,16 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
   scheduleTelemetryWrite('search access update', () => repo.updateLastAccessed(accessedIds));
 
   if (results.length === 0 && !domainNote) {
+    // Compact callers parse JSON, so the empty result stays structured.
+    if (args.mode === 'compact') return compactSearchPayload([], availableCount, project, args, clientWarning);
     return 'No matching notes found. Try broader keywords or remove filters.' + clientWarning;
   }
 
   const totalCount = results.length + (domainNote ? 1 : 0);
+  if (args.mode === 'compact') {
+    return compactSearchPayload([...(domainNote ? [domainNote] : []), ...results], availableCount, project, args, clientWarning);
+  }
+
   let output = `Found ${totalCount} note(s):\n\n`;
 
   if (domainNote) {
@@ -1372,6 +1745,41 @@ export function handleSearch(args: SearchArgs, repo: NoteRepository, queryEmbedd
     output += renderNoteForSearch(note, project) + '\n';
   }
   return output + clientWarning;
+}
+
+/** Compact mode is machine-read, so warnings stay inside the JSON payload. */
+function compactSearchPayload(notes: NoteMetadata[], availableCount: number, project: string, args: SearchArgs, clientWarning: string): string {
+  const compactNotes = notes.map(note => ({
+    identity: { id: note.id, title: note.title },
+    scope: parseKnowledgeApplicability(note.tags),
+    kind: note.kind,
+    status: note.status,
+    lifecycle: note.lifecycle,
+    ...compactSearchField('summary', note.summary || note.title),
+    ...compactSearchField('guidance', note.guidance || ''),
+    get: {
+      tool: 'knowledge-get',
+      noteId: note.id,
+      project,
+      ...(args.client ? { client: args.client } : {}),
+    },
+  }));
+  return JSON.stringify({
+    mode: 'compact',
+    count: compactNotes.length,
+    availableCount,
+    truncated: compactNotes.length < availableCount,
+    results: compactNotes,
+    warnings: clientWarning ? [clientWarning.trim()] : [],
+  }, null, 2);
+}
+
+function compactSearchField(name: 'summary' | 'guidance', value: string): Record<string, string | boolean> {
+  const normalized = normalizeAndTruncate(value);
+  return {
+    [name]: normalized.value ?? '',
+    [`${name}Truncated`]: normalized.truncated,
+  };
 }
 
 async function backfillEmbeddings(
@@ -1400,39 +1808,6 @@ async function backfillEmbeddings(
   }
   logToFile('INFO', 'Embedding backfill completed', { requested: notesWithout.length, stored });
   return { requested: notesWithout.length, stored };
-}
-
-type PreferenceAuditSignal = { type: string; evidence: string[] };
-
-function collectRegexEvidence(text: string, pattern: RegExp): string[] {
-  return [...text.matchAll(pattern)]
-    .map(match => match[0].trim())
-    .filter((value, index, values) => value.length > 0 && values.indexOf(value) === index);
-}
-
-function detectPreferenceAuditSignals(note: NoteMetadata): PreferenceAuditSignal[] {
-  const text = [note.title, note.summary, note.content, note.guidance].filter(Boolean).join('\n');
-  const definitions: Array<{ type: string; pattern: RegExp }> = [
-    { type: 'temporary-wording', pattern: /\b(?:temporary|temporarily|for now|currently|this (?:session|task)|until (?:further notice|tomorrow|next week))\b/gi },
-    { type: 'exact-path', pattern: /(?<!\S)(?:[A-Za-z]:\\(?:[^\s<>:"|?*]+\\)*[^\s<>:"|?*]+|(?:~|\.{1,2})?\/(?:[\w.-]+\/)*[\w.-]+|\.[\w.-]+\/(?:[\w.-]+\/)*[\w.-]+)/gm },
-    { type: 'hex-color', pattern: /#[0-9a-f]{3}(?:[0-9a-f]{3})?(?:[0-9a-f]{2})?\b/gi },
-    { type: 'model-identifier', pattern: /\b(?:gpt-?[34](?:[.\w-]*)?|claude-(?:\d|opus|sonnet|haiku)[\w.-]*|gemini-[\w.-]+|llama-?\d[\w.-]*)\b/gi },
-    { type: 'model-routing', pattern: /\b(?:route|routing|fallback|default model|model selection)\b/gi },
-    { type: 'configuration-language', pattern: /\b(?:configure|configured|configuration|set|install|implement|implementation|enable|disable)\b/gi },
-  ];
-  const signals = definitions
-    .map(({ type, pattern }) => ({ type, evidence: collectRegexEvidence(text, pattern) }))
-    .filter(signal => signal.evidence.length > 0);
-
-  const tags = Array.isArray(note.tags) ? note.tags : [];
-  const hasApplicability = tags.some(tag => tag.startsWith('project:') || tag.startsWith('client:'));
-  if (!hasApplicability) {
-    const technologyEvidence = collectRegexEvidence(text, /\b(?:OpenCode|Claude Code|Cursor|Windsurf|Zed|VS Code|React|Next\.js|TypeScript|Python|Bun)\b/gi);
-    if (technologyEvidence.length > 0) {
-      signals.push({ type: 'missing-applicability', evidence: technologyEvidence });
-    }
-  }
-  return signals;
 }
 
 const PUBLISHABLE_KIND_SET = new Set<NoteKind>(PUBLISHABLE_KINDS);
@@ -1603,10 +1978,30 @@ function publicationValidation(source: NoteMetadata | null, candidate: PublishGl
   return { errors: [...new Set(errors)], duplicates, projectReferences, outboundLinks };
 }
 
-export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null): Promise<string> {
-  scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action, undefined, args.model));
-
+async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null, nowProvider: () => number = Date.now, suppressTelemetry = false): Promise<string> {
   switch (args.action) {
+    case 'project-authority-review': {
+      const project = validateCurrentProject(args.project);
+      if (!project) return 'Error: a valid project is required for project-authority-review action.';
+      const limit = Math.min(Math.max(args.limit ?? 50, 1), 100);
+      const now = nowProvider();
+      const notes = repo.getRecentNotes(Number.MAX_SAFE_INTEGER, { project })
+        .filter(note => {
+          const scope = parseKnowledgeApplicability(note.tags);
+          return scope.type === 'project-local' && scope.project === project && note.status !== 'archived' && !STRUCTURAL_KINDS.has(note.kind);
+        })
+        .sort((a, b) => a.id.localeCompare(b.id));
+      const findings = notes.slice(0, limit).map(note => ({
+        identity: { id: note.id, title: note.title },
+        kind: note.kind,
+        ...compactSearchField('summary', note.summary || ''),
+        status: note.status,
+        lifecycle: note.lifecycle,
+        scope: parseKnowledgeApplicability(note.tags),
+        ageDays: Math.max(0, Math.floor((now - note.updated_at) / 86_400_000)),
+      }));
+      return JSON.stringify({ action: 'project-authority-review', mutated: false, project, scanned: notes.length, returned: findings.length, truncated: findings.length < notes.length, findings }, null, 2);
+    }
     case 'scope-inventory': {
       const notes = repo.getAll(Number.MAX_SAFE_INTEGER)
         .filter(note => note.status !== 'archived' && !STRUCTURAL_KINDS.has(note.kind))
@@ -1665,55 +2060,72 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     }
     case 'publish-global': {
       if (!args.noteId) return 'Error: noteId is required for publish-global action.';
-      const source = repo.getById(args.noteId);
-      const evidence = publicationValidation(source, args.candidate, repo);
+      const previewSource = repo.getById(args.noteId);
+      const evidence = publicationValidation(previewSource, args.candidate, repo);
       const isPreview = args.dryRun !== false;
-      if (!source || !args.candidate) {
+      if (!previewSource || !args.candidate) {
         return JSON.stringify({ action: 'publish-global', mode: isPreview ? 'preview' : 'apply', valid: false, ...evidence }, null, 2);
       }
-      const token = publicationToken(source, args.candidate);
+      const candidate = args.candidate;
       const valid = evidence.errors.length === 0 && evidence.duplicates.length === 0;
       if (isPreview) {
-        const preview = { action: 'publish-global', mode: 'preview', valid, source: { id: source.id, updated_at: source.updated_at }, targetScope: 'global', targetTags: resolvedPublishTags(args.candidate), candidateHash: createHash('sha256').update(canonicalPublishCandidate(args.candidate)).digest('hex'), ...evidence };
+        const token = publicationToken(previewSource, candidate);
+        const preview = { action: 'publish-global', mode: 'preview', valid, source: { id: previewSource.id, updated_at: previewSource.updated_at }, targetScope: 'global', targetTags: resolvedPublishTags(candidate), candidateHash: createHash('sha256').update(canonicalPublishCandidate(candidate)).digest('hex'), ...evidence };
         return JSON.stringify(valid ? { ...preview, confirmationToken: token } : preview, null, 2);
       }
       if (!args.confirm) return 'Error: confirm=true is required to apply publish-global.';
       if (!args.token) return 'Error: confirmation token is required to apply publish-global.';
-      if (args.token !== token) return 'Error: confirmation token is stale or does not match the source and canonical candidate.';
-      if (!valid) {
-        return JSON.stringify({ action: 'publish-global', mode: 'apply', valid: false, ...evidence }, null, 2);
-      }
-
-      const candidateTags = resolvedPublishTags(args.candidate);
-      const derivative = repo.store(args.candidate.content.trim(), {
-        title: args.candidate.title.trim(),
-        kind: args.candidate.kind,
-        status: 'permanent',
-        lifecycle: KIND_DEFAULT_LIFECYCLE[args.candidate.kind],
-        tags: candidateTags,
-        summary: args.candidate.summary.trim(),
-        guidance: args.candidate.guidance.trim(),
+      const noteId = args.noteId;
+      const suppliedToken = args.token;
+      // One lease covers the fresh source lookup, revalidation, token check, the
+      // derivative write, the source relation edit, and rollback, so a concurrent
+      // mutation cannot invalidate the publication between validation and write.
+      // Embeddings, navigation, and git run afterwards without the lock.
+      const application = await repo.withKnowledgeMutationLockAsync(async (): Promise<{ error: string } | { source: NoteMetadata; derivative: StoreResult }> => {
+        const source = repo.getById(noteId);
+        const freshEvidence = publicationValidation(source, candidate, repo);
+        if (!source) {
+          return { error: JSON.stringify({ action: 'publish-global', mode: 'apply', valid: false, ...freshEvidence }, null, 2) };
+        }
+        if (suppliedToken !== publicationToken(source, candidate)) {
+          return { error: 'Error: confirmation token is stale or does not match the source and canonical candidate.' };
+        }
+        if (freshEvidence.errors.length > 0 || freshEvidence.duplicates.length > 0) {
+          return { error: JSON.stringify({ action: 'publish-global', mode: 'apply', valid: false, ...freshEvidence }, null, 2) };
+        }
+        const created = repo.store(candidate.content.trim(), {
+          title: candidate.title.trim(),
+          kind: candidate.kind,
+          status: 'permanent',
+          lifecycle: KIND_DEFAULT_LIFECYCLE[candidate.kind],
+          tags: resolvedPublishTags(candidate),
+          summary: candidate.summary.trim(),
+          guidance: candidate.guidance.trim(),
+        });
+        try {
+          repo.addLocalToGlobalRelation(source.id, created.id);
+        } catch (error) {
+          repo.remove(created.id);
+          return { error: `Error: Failed to link the local source to its global derivative; publication was rolled back (${error instanceof Error ? error.message : String(error)}).` };
+        }
+        return { source, derivative: created };
       });
-      try {
-        repo.addLocalToGlobalRelation(source.id, derivative.id);
-      } catch (error) {
-        repo.remove(derivative.id);
-        return `Error: Failed to link the local source to its global derivative; publication was rolled back (${error instanceof Error ? error.message : String(error)}).`;
-      }
+      if ('error' in application) return application.error;
+      const { source, derivative } = application;
       await persistSemanticMetadata(derivative.id, {
-        title: args.candidate.title.trim(),
-        summary: args.candidate.summary.trim(),
-        content: args.candidate.content.trim(),
+        title: candidate.title.trim(),
+        summary: candidate.summary.trim(),
+        content: candidate.content.trim(),
       }, repo, embeddingConfig, EMBEDDING_FOREGROUND_TIMEOUT_MS);
       const projectScope = parseKnowledgeApplicability(source.tags);
       const changedPaths = [source.path, derivative.path];
       if (projectScope.type === 'project-local') {
-        changedPaths.push(...updateProjectNavigation(projectScope.project, `Published global derivative "${args.candidate.title.trim()}" from "${source.title}"`, repo, config));
+        changedPaths.push(...updateProjectNavigation(projectScope.project, `Published global derivative "${candidate.title.trim()}" from "${source.title}"`, repo, config));
       }
-      changedPaths.push(...updateGlobalNavigation(null, `Published global note "${args.candidate.title.trim()}"`, repo, config, { appendLog: false }));
+      changedPaths.push(...updateGlobalNavigation(null, `Published global note "${candidate.title.trim()}"`, repo, config, { appendLog: false }));
       logToFile('INFO', 'Published global derivative', { sourceId: source.id, derivativeId: derivative.id });
       if (gitVersioning) {
-        await gitVersioning.recordImmediate({ op: 'publish-global', noteId: source.id, title: args.candidate.title.trim(), kind: args.candidate.kind, project: projectScope.type === 'project-local' ? projectScope.project : undefined }, changedPaths);
+        await gitVersioning.recordImmediate({ op: 'publish-global', noteId: source.id, title: candidate.title.trim(), kind: candidate.kind, project: projectScope.type === 'project-local' ? projectScope.project : undefined }, changedPaths);
       }
       return JSON.stringify({ action: 'publish-global', mode: 'apply', created: derivative.id, source: source.id, relation: `${source.id}->${derivative.id}` }, null, 2);
     }
@@ -1881,15 +2293,34 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const daysThreshold = args.days || config.lifecycle.reviewAfterDays;
       const limit = args.limit || 3;
       const archiveDays = Math.max(1, config.lifecycle.autoArchiveFleetingDays);
-      const staleCutoff = Date.now() - (archiveDays * 24 * 60 * 60 * 1000);
-      const queue = repo.getReviewQueue(args.filter, daysThreshold, limit, config.lifecycle.exemptKinds, staleCutoff);
-
-      // Compute stale notes early — needed for the early return check
-      const allNotes = repo.getAll(Number.MAX_SAFE_INTEGER);
-      const staleForArchive = allNotes
-        .filter(n => n.status === 'fleeting' && computeStaleness(n) >= archiveDays);
-
-      const hasCandidates = queue.fleeting.total > 0 || queue.permanent.total > 0;
+      const now = nowProvider();
+      const scope: ReviewScope = { kind: 'full' };
+      const snapshot = buildReviewSnapshot(createRepositoryReviewReader(repo), scope, now);
+      const factsById = new Map(snapshot.map(fact => [fact.note.id, fact] as const));
+      const lifecycleEvaluation = evaluateReview({
+        scope,
+        profile: 'lifecycle',
+        now,
+        policy: {
+          reviewAfterDays: daysThreshold,
+          archiveAfterDays: archiveDays,
+          promotionThreshold: config.lifecycle.promotionThreshold,
+          exemptKinds: config.lifecycle.exemptKinds,
+        },
+      }, snapshot);
+      const contentEvaluation = evaluateReview({ scope, profile: 'content', now }, snapshot);
+      const reviewDue = lifecycleEvaluation.groups.find(group => group.ruleId === 'lifecycle.review-due')?.findings ?? [];
+      const staleForArchive = lifecycleEvaluation.groups.find(group => group.ruleId === 'lifecycle.stale-fleeting')?.findings ?? [];
+      const fleetingAll = args.filter === 'permanent'
+        ? []
+        : reviewDue.filter(finding => factsById.get(finding.primary.id)?.note.status === 'fleeting');
+      const permanentAll = args.filter === 'fleeting'
+        ? []
+        : reviewDue.filter(finding => factsById.get(finding.primary.id)?.note.status === 'permanent');
+      const limitQueue = (findings: readonly Finding[]): readonly Finding[] => limit < 0 ? findings : findings.slice(0, limit);
+      const candidates = [...limitQueue(fleetingAll), ...limitQueue(permanentAll)];
+      const totalCandidates = fleetingAll.length + permanentAll.length;
+      const hasCandidates = totalCandidates > 0;
 
       if (!hasCandidates && staleForArchive.length === 0) {
         return 'No notes pending review. All notes are up to date!';
@@ -1898,65 +2329,61 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       let output = '';
 
       if (hasCandidates) {
-        const candidates = [...queue.fleeting.notes, ...queue.permanent.notes];
-        const candidateIds = new Set(candidates.map(n => n.id));
-        const totalCandidates = queue.fleeting.total + queue.permanent.total;
+        const candidateIds = new Set(candidates.map(finding => finding.primary.id));
         output += `## Review Candidates (${candidates.length} of ${totalCandidates})\n\n`;
 
         for (let i = 0; i < candidates.length; i++) {
-          const note = candidates[i];
-          const staleness = computeStaleness(note);
-          const accesses = note.access_count || 0;
-          const backlinks = note.backlinks_count || 0;
-          const wordCount = countWords(note.content);
-          const guide = KIND_WORD_GUIDELINES[note.kind as NoteKind];
-          const wordSignal = guide && wordCount > guide.warn
-            ? `${wordCount} (oversized, target: ~${guide.target})`
-            : `${wordCount}`;
-          const backlinkSignal = backlinks === 0 ? '0 (unlinked)' : `${backlinks}`;
-          const archiveSuggestionDays = Math.max(1, Math.floor(archiveDays / 2));
-        const rec = getRecommendation(note, staleness, config.lifecycle.promotionThreshold, archiveSuggestionDays);
+          const finding = candidates[i];
+          const fact = factsById.get(finding.primary.id);
+          if (!fact) continue;
+          const note = fact.note;
+          const guide = KIND_WORD_GUIDELINES[note.kind];
+          const wordSignal = guide && fact.contentWords > guide.warn
+            ? `${fact.contentWords} (oversized, target: ~${guide.target})`
+            : `${fact.contentWords}`;
+          const backlinkSignal = fact.backlinks === 0 ? '0 (unlinked)' : `${fact.backlinks}`;
+          const resolution = finding.resolutions?.[0];
 
           output += `### [${i + 1}] "${note.title}" (${note.id})\n`;
-          output += `kind: ${note.kind} | status: ${note.status} | staleness: ${staleness} days\n`;
-          output += `Accesses: ${accesses} | Backlinks: ${backlinkSignal} | Words: ${wordSignal}\n`;
-          output += `⮕ Suggested: ${rec.action.toUpperCase()} — ${rec.rationale}\n\n`;
+          output += `kind: ${note.kind} | status: ${note.status} | staleness: ${fact.staleDays} days\n`;
+          output += `Accesses: ${note.access_count} | Backlinks: ${backlinkSignal} | Words: ${wordSignal}\n`;
+          const hasSummary = Boolean(note.summary?.trim());
+          const hasGuidance = Boolean(note.guidance?.trim());
+          const fieldBudget = hasSummary && hasGuidance
+            ? Math.floor(REVIEW_EVIDENCE_MAX_CHARS / 2)
+            : REVIEW_EVIDENCE_MAX_CHARS;
+          const summary = boundedReviewEvidence(note.summary, fieldBudget);
+          const guidance = boundedReviewEvidence(note.guidance, fieldBudget);
+          if (summary) output += `Summary: ${summary}\n`;
+          if (guidance) output += `Guidance: ${guidance}\n`;
+          if (!summary && !guidance) {
+            output += `Evidence: ${boundedReviewEvidence(note.content) ?? '(no textual evidence)'}\n`;
+          }
+          if (resolution) output += `⮕ Suggested: ${resolution.label} — ${resolution.rationale}\n\n`;
         }
 
-        // Flag oversized notes that may need splitting (exclude already-shown candidates)
-        const oversized = allNotes
-          .filter(n => n.status !== 'archived')
-          .filter(n => !candidateIds.has(n.id))
-          .map(n => ({ ...n, wordCount: countWords(n.content) }))
-          .filter(n => {
-            const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
-            return guide ? n.wordCount > guide.warn : n.wordCount > ABSOLUTE_WARN_THRESHOLD;
-          })
-          .sort((a, b) => b.wordCount - a.wordCount);
-
+        const oversized = (contentEvaluation.groups.find(group => group.ruleId === 'content.oversized')?.findings ?? [])
+          .filter(finding => !candidateIds.has(finding.primary.id));
+        const displayedOversized = limitQueue(oversized);
         if (oversized.length > 0) {
-          output += `### Oversized Notes (${oversized.length} may need splitting)\n`;
-          for (const n of oversized) {
-            const guide = KIND_WORD_GUIDELINES[n.kind as NoteKind];
-            const target = guide ? guide.target : '?';
-            output += `- "${n.title}" (${n.kind}) — ${n.wordCount} words (target: ~${target}) [${n.id}]\n`;
+          output += `### Oversized Notes (showing ${displayedOversized.length} of ${oversized.length})\n`;
+          for (const finding of displayedOversized) {
+            const fact = factsById.get(finding.primary.id);
+            if (!fact) continue;
+            output += `- "${boundedReviewEvidence(fact.note.title)}" (${fact.note.kind}) — ${fact.contentWords} words (target: ~${fact.wordGuidance.target}) [${fact.note.id}] — Evidence: ${boundedReviewEvidence(fact.note.summary) ?? boundedReviewEvidence(fact.note.content) ?? '(no textual evidence)'}\n`;
           }
           output += '\n';
         }
 
-        const longTitles = allNotes
-          .filter(n => n.status !== 'archived' && !['index', 'log'].includes(n.kind))
-          .filter(n => {
-            const words = n.title.trim().split(/\s+/).filter(Boolean).length;
-            return words > TITLE_SOFT_WARN_WORDS;
-          })
-          .sort((a, b) => b.title.split(/\s+/).length - a.title.split(/\s+/).length);
-
+        const longTitles = (contentEvaluation.groups.find(group => group.ruleId === 'title.too-long')?.findings ?? [])
+          .filter(finding => !candidateIds.has(finding.primary.id));
+        const displayedLongTitles = limitQueue(longTitles);
         if (longTitles.length > 0) {
-          output += `### Long Titles (${longTitles.length} exceed ${TITLE_SOFT_WARN_WORDS}-word target)\n`;
-          for (const n of longTitles) {
-            const words = n.title.trim().split(/\s+/).filter(Boolean).length;
-            output += `- "${n.title}" (${n.kind}) — ${words} words [${n.id}]\n`;
+          output += `### Long Titles (showing ${displayedLongTitles.length} of ${longTitles.length}; exceed ${TITLE_SOFT_WARN_WORDS}-word target)\n`;
+          for (const finding of displayedLongTitles) {
+            const fact = factsById.get(finding.primary.id);
+            if (!fact) continue;
+            output += `- "${boundedReviewEvidence(fact.note.title)}" (${fact.note.kind}) — ${fact.titleWords} words [${fact.note.id}] — Evidence: ${boundedReviewEvidence(fact.note.summary) ?? boundedReviewEvidence(fact.note.content) ?? '(no textual evidence)'}\n`;
           }
           output += '\n';
         }
@@ -1968,113 +2395,77 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       }
 
       if (staleForArchive.length > 0) {
-        output += `### Stale Fleeting Notes (${staleForArchive.length} older than ${archiveDays} days)\n`;
+        const displayedStale = limitQueue(staleForArchive);
+        output += `### Stale Fleeting Notes (showing ${displayedStale.length} of ${staleForArchive.length}; older than ${archiveDays} days)\n`;
         output += 'These fleeting notes were never promoted. Consider archiving:\n\n';
-        for (const n of staleForArchive) {
-          output += `- "${n.title}" (${n.kind}) — ${computeStaleness(n)} days old [${n.id}]\n`;
+        for (const finding of displayedStale) {
+          const fact = factsById.get(finding.primary.id);
+          if (!fact) continue;
+          const evidence = boundedReviewEvidence(fact.note.summary)
+            ?? boundedReviewEvidence(fact.note.guidance)
+            ?? boundedReviewEvidence(fact.note.content)
+            ?? '(no textual evidence)';
+          output += `- "${fact.note.title}" (${fact.note.kind}) — ${fact.staleDays} days old [${fact.note.id}] — Evidence: ${evidence}\n`;
         }
         output += '\n';
       }
 
       output += '---\n';
       output += 'Actions: `knowledge-maintain promote/archive/delete` with noteId=<id>\n';
-
       return output;
     }
     case 'dedupe': {
-      const unhashed = repo.getNotesWithoutContentHash(500);
-      let backfilled = 0;
-      for (const note of unhashed) {
-        const hashContent = note.summary || note.content || note.title;
-        if (!hashContent) continue;
-        const hash = computeSimHash(hashContent);
-        repo.updateContentHash(note.id, hash);
-        backfilled++;
-      }
-      if (backfilled > 0) {
-        logToFile('INFO', 'Backfilled content hashes during dedupe', { count: backfilled });
-      }
-
-      const titleDuplicates = repo.findDuplicates();
-      const simhashDuplicates = repo.findSimHashDuplicates();
-
-      if (titleDuplicates.size === 0 && simhashDuplicates.size === 0) {
-        const backfillMsg = backfilled > 0 ? ` Backfilled ${backfilled} content hash${backfilled === 1 ? '' : 'es'}.` : '';
-        return `No duplicate notes found.${backfillMsg}`;
-      }
-
+      const audit = repo.getDuplicateAuditResult();
+      const evaluation = evaluateDuplicates(audit.notes, undefined, {
+        omissionReasons: audit.omissions,
+        uncertaintyReasons: audit.uncertaintyReasons,
+        indexedSnapshotUnsafe: audit.indexedSnapshotUnsafe,
+      });
+      const { coverage } = evaluation;
       let output = '## Duplicate Detection\n\n';
-      if (backfilled > 0) {
-        output += `*Backfilled ${backfilled} content hash${backfilled === 1 ? '' : 'es'} for SimHash comparison.*\n\n`;
+      output += `Coverage: eligible=${coverage.eligible} | hashed-at-start=${coverage.hashedAtStart} | computed-ephemerally=${coverage.computedEphemerally} | evaluated=${coverage.evaluated} | omitted=${coverage.omitted} | status=${coverage.complete ? 'complete' : 'incomplete'}\n`;
+      if (coverage.omitted > 0) output += `Omission reasons: ${JSON.stringify(coverage.omissionReasons)}\n`;
+      if (Object.keys(coverage.uncertaintyReasons).length > 0) output += `Uncertainty reasons: ${JSON.stringify(coverage.uncertaintyReasons)}\n`;
+      if (audit.indexedSnapshotUnsafe) output += 'Indexed canonical drift: detected; stale groups suppressed.\n';
+      output += `Groups: exact-title=${evaluation.titleGroups.length} | SimHash=${evaluation.simhashGroupTotal}${coverage.complete ? ' (complete totals)' : ' (incomplete totals)'}\n\n`;
+
+      if (evaluation.titleGroups.length === 0 && evaluation.simhashGroupTotal === 0) {
+        return coverage.complete
+          ? `${output}No duplicate notes found.`
+          : `${output}No trustworthy duplicate groups can be reported from this incomplete audit.`;
       }
 
-      if (titleDuplicates.size > 0) {
-        output += `### Title-Based Duplicates (${titleDuplicates.size} groups)\n\n`;
-
-        let groupNum = 1;
-        for (const [, notes] of titleDuplicates) {
-          output += `**Group ${groupNum}: "${notes[0].title}" (${notes.length} notes)**\n`;
-          notes.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
-
-          for (let i = 0; i < notes.length; i++) {
-            const note = notes[i];
-            const isPermanent = note.status === 'permanent';
-            const marker = isPermanent ? '⦸ (permanent - protected)' : (i === 0 ? '(keep)' : '(duplicate)');
-            output += `- ${note.id} | ${note.status} | ${note.access_count || 0} accesses | ${marker}\n`;
+      if (evaluation.titleGroups.length > 0) {
+        output += `### Title-Based Duplicates (${evaluation.titleGroups.length} groups)\n\n`;
+        for (const [index, group] of evaluation.titleGroups.slice(0, 10).entries()) {
+          output += `**Group ${index + 1}: normalized title "${group.normalizedTitle}" (${group.notes.length} notes)**\n`;
+          for (const note of group.notes) {
+            const protectedStatus = note.status === 'permanent' ? ' | ⦸ permanent - protected' : '';
+            output += `- ${note.id} | "${note.title}" | ${note.status}${protectedStatus}\n`;
           }
-
-          const archivable = notes.filter((n, i) => i > 0 && n.status !== 'permanent');
-          if (archivable.length > 0) {
-            output += `\n**Recommendation:** Archive ${archivable.map((n) => n.id).join(', ')}\n`;
-          } else {
-            output += '\n**Note:** All duplicates are permanent — manual review needed.\n';
-          }
-
           output += '\n';
-          groupNum++;
-
-          if (groupNum > 10) {
-            output += `... and ${titleDuplicates.size - 10} more groups.\n\n`;
-            break;
-          }
         }
+        if (evaluation.titleGroups.length > 10) output += `... and ${evaluation.titleGroups.length - 10} more groups.\n\n`;
       }
 
-      if (simhashDuplicates.size > 0) {
-        output += `### Content-Based Near-Duplicates (${simhashDuplicates.size} groups)\n\n`;
-
-        let groupNum = 1;
-        for (const [, notes] of simhashDuplicates) {
-          output += `**Group ${groupNum} (${notes.length} notes)**\n`;
-          notes.sort((a, b) => (b.access_count || 0) - (a.access_count || 0));
-
-          for (let i = 0; i < notes.length; i++) {
-            const note = notes[i];
-            const isPermanent = note.status === 'permanent';
-            const marker = isPermanent ? '⦸ (permanent - protected)' : (i === 0 ? '(keep)' : '(near-duplicate)');
-            output += `- ${note.id} | "${note.title}" | ${note.status} | ${marker}\n`;
+      if (evaluation.simhashGroupTotal > 0) {
+        output += `### Content-Based Near-Duplicates (${evaluation.simhashGroupTotal} groups; SimHash threshold ≤ ${evaluation.threshold})\n\n`;
+        for (const [index, group] of evaluation.simhashGroups.entries()) {
+          output += `**Group ${index + 1}: seed ${group.seedId} (${group.notes.length} notes)**\n`;
+          for (const note of group.notes) {
+            const evidence = group.evidence.find(item => item.noteId === note.id);
+            const distance = evidence ? ` | distance-from-seed=${evidence.distanceFromSeed}` : ' | seed';
+            const protectedStatus = note.status === 'permanent' ? ' | ⦸ permanent - protected' : '';
+            output += `- ${note.id} | "${note.title}" | ${note.status}${distance}${protectedStatus}\n`;
           }
-
-          const archivable = notes.filter((n, i) => i > 0 && n.status !== 'permanent');
-          if (archivable.length > 0) {
-            output += `\n**Recommendation:** Archive ${archivable.map((n) => n.id).join(', ')}\n`;
-          }
-
           output += '\n';
-          groupNum++;
-
-          if (groupNum > 10) {
-            output += `... and ${simhashDuplicates.size - 10} more groups.\n\n`;
-            break;
-          }
         }
+        if (evaluation.simhashGroupTotal > evaluation.simhashGroups.length) output += `... and ${evaluation.simhashGroupTotal - evaluation.simhashGroups.length} more groups.\n\n`;
       }
 
-      output += '## Next Steps:\n';
-      output += '[A] Archive specific duplicate (requires --noteId)\n';
-      output += '[B] View specific note details (use knowledge-search)\n';
-      output += '\n⚠ Permanent notes (⦸) are never auto-archived. Promote the best version before archiving others.\n';
-
+      output += 'Findings are similarity evidence for review, not confirmed semantic duplicates.\n';
+      output += 'Actions remain explicit: `knowledge-maintain archive/delete` with noteId=<id>.\n';
+      output += '⚠ Permanent notes (⦸) are never auto-archived.\n';
       return output;
     }
     case 'embed': {
@@ -2175,8 +2566,27 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       const notes = repo.getAll(Number.MAX_SAFE_INTEGER)
         .filter(note => note.kind === 'personalization' && note.status !== 'archived')
         .sort((a, b) => a.id.localeCompare(b.id));
+
+      const scope: ReviewScope = { kind: 'full' };
+      const now = nowProvider();
+      const snapshot = buildReviewSnapshot(createRepositoryReviewReader(repo), scope, now);
+      const evaluation = evaluateReview({ scope, profile: 'preference', now }, snapshot);
+      const findingsByNote = new Map<string, Finding[]>();
+      for (const group of evaluation.groups) {
+        for (const finding of group.findings) {
+          const bucket = findingsByNote.get(finding.primary.id) ?? [];
+          bucket.push(finding);
+          findingsByNote.set(finding.primary.id, bucket);
+        }
+      }
       const findings = notes
-        .map(note => ({ note, signals: detectPreferenceAuditSignals(note) }))
+        .map(note => ({
+          note,
+          signals: (findingsByNote.get(note.id) ?? []).map(finding => ({
+            type: finding.ruleId.replace(/^preference\./, ''),
+            evidence: finding.evidence.map(entry => String(entry.value)),
+          })),
+        }))
         .filter(finding => finding.signals.length > 0);
 
       let output = '## Preference Audit (Read-only)\n\n';
@@ -2272,15 +2682,53 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'unlinked': {
-      const unlinked = repo.getUnlinkedNotes();
-      if (unlinked.length === 0) {
-        return 'No unlinked notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
+      const { result, elapsedMs } = runContextualLinkScan(repo, ['links.unlinked']);
+      logContextualLinkScan('unlinked', result.totals, elapsedMs, config);
+      if (!suppressTelemetry) {
+        scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'unlinked', result.totals.excludedCandidates, args.model));
       }
 
-      // Group by project, then by kind
-      const byProject = new Map<string, NoteMetadata[]>();
-      for (const note of unlinked) {
-        const project = extractProjectFromTags(note.tags) || '(no project)';
+      let output = renderContextualScanSummary(result.totals, elapsedMs);
+      output += renderContextualFailures(result.failures);
+      if (result.incompleteGraph) {
+        output += INCOMPLETE_GRAPH_NOTICE;
+        return output;
+      }
+
+      const unlinkedGroup = graphGroup(result.review, 'links.unlinked');
+      const total = unlinkedGroup.total;
+      if (total === 0) {
+        output += '\nNo unlinked notes found. All non-archived notes have at least one incoming or outgoing wikilink.';
+        return output;
+      }
+
+      // Formal findings drive order, totals, and the display bound; the frozen
+      // graph facts carry the tags/kind/title needed for project grouping.
+      const unlinkedNotes: readonly GraphDocument[] = result.facts.contextualLinks?.documents ?? [];
+      const factsById = new Map(unlinkedNotes.map(note => [note.id, note]));
+
+      // Keep complete per-project counts for headings and the summary, but
+      // derive membership only from formal unlinked findings. The document
+      // index also contains linked notes used by the other graph rules.
+      const allByProject = new Map<string, number>();
+      for (const finding of unlinkedGroup.findings) {
+        const note = factsById.get(finding.primary.id);
+        if (!note) continue;
+        const project = extractProjectFromTags([...note.tags]) || '(no project)';
+        allByProject.set(project, (allByProject.get(project) ?? 0) + 1);
+      }
+
+      // Group the first N formal findings, rather than applying the cap
+      // after presentation sorting, so the displayed subset follows rule order.
+      const displayCap = contextualDisplayLimit(args.limit);
+      const displayedFindings = unlinkedGroup.findings.slice(0, displayCap);
+
+      // Group the selected findings by project, then by kind.
+      const byProject = new Map<string, GraphDocument[]>();
+      for (const finding of displayedFindings) {
+        const note = factsById.get(finding.primary.id);
+        if (!note) continue;
+        const project = extractProjectFromTags([...note.tags]) || '(no project)';
         let group = byProject.get(project);
         if (!group) {
           group = [];
@@ -2289,15 +2737,15 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         group.push(note);
       }
 
-      const projectCount = [...byProject.keys()].filter(k => k !== '(no project)').length;
-      const unscopedCount = byProject.get('(no project)')?.length ?? 0;
-      let output = `## Unlinked Notes (${unlinked.length})\n\n`;
+      const projectCount = [...allByProject.keys()].filter(k => k !== '(no project)').length;
+      const unscopedCount = allByProject.get('(no project)') ?? 0;
+      output += `\n## Unlinked Notes (${total})\n\n`;
+      output += 'Advisory: isolated notes are linking candidates, not confirmed defects — not every note needs a backlink.\n\n';
       const summaryParts: string[] = [];
-      if (projectCount > 0) summaryParts.push(`${unlinked.length - unscopedCount} in ${projectCount} project${projectCount > 1 ? 's' : ''}`);
+      if (projectCount > 0) summaryParts.push(`${total - unscopedCount} in ${projectCount} project${projectCount > 1 ? 's' : ''}`);
       if (unscopedCount > 0) summaryParts.push(`${unscopedCount} unscoped`);
       output += summaryParts.join(', ') + '\n\n';
 
-      const displayCap = 20;
       let displayed = 0;
 
       // Sort projects alphabetically, but put (no project) last
@@ -2310,10 +2758,10 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       for (const project of sortedProjects) {
         if (displayed >= displayCap) break;
         const notes = byProject.get(project) ?? [];
-        output += `### ${project} (${notes.length})\n`;
+        output += `### ${project} (${allByProject.get(project) ?? notes.length})\n`;
 
         // Group by kind within project
-        const byKind = new Map<string, NoteMetadata[]>();
+        const byKind = new Map<string, GraphDocument[]>();
         for (const note of notes) {
           let group = byKind.get(note.kind);
           if (!group) {
@@ -2335,8 +2783,8 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
         output += '\n';
       }
 
-      if (displayed < unlinked.length) {
-        output += `(showing ${displayed} of ${unlinked.length} — use \`knowledge-search\` to find specific notes)\n\n`;
+      if (displayed < total) {
+        output += `(showing ${displayed} of ${total} — use \`knowledge-search\` to find specific notes)\n\n`;
       }
 
       output += '## Next Steps\n';
@@ -2345,62 +2793,101 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       return output;
     }
     case 'broken-links': {
-      const broken = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
-      if (broken.length === 0) {
-        return 'No broken wikilinks found. All links resolve to existing notes.';
+      const { result, elapsedMs } = runContextualLinkScan(repo, ['links.broken']);
+      logContextualLinkScan('broken-links', result.totals, elapsedMs, config);
+      if (!suppressTelemetry) {
+        scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'broken-links', result.totals.excludedCandidates, args.model));
       }
 
-      let output = `## Broken Wikilinks (${broken.length})\n\n`;
-      output += 'Links pointing to non-existent notes:\n\n';
-      for (const { sourceId, sourceTitle, brokenTarget, line } of broken) {
-        output += `- "${sourceTitle}" [${sourceId}] content:${line} → [[${brokenTarget}]] (not found)\n`;
+      const brokenGroup = graphGroup(result.review, 'links.broken');
+
+      let output = renderContextualScanSummary(result.totals, elapsedMs);
+      output += renderContextualFailures(result.failures);
+
+      if (brokenGroup.total === 0) {
+        output += result.incompleteGraph
+          ? '\nNo broken wikilinks were confirmed in successfully parsed documents. Results are incomplete because some documents failed.'
+          : '\nNo broken wikilinks found. All links resolve to existing notes.';
+        return output;
       }
+
+      output += `\n## Broken Wikilinks (${brokenGroup.total})\n\n`;
+      output += 'Links pointing to non-existent notes:\n\n';
+      output += renderContextualBrokenFindings(brokenGroup.findings, contextualDisplayLimit(args.limit));
+      if (result.incompleteGraph) output += INCOMPLETE_GRAPH_NOTICE;
       output += '\n## Next Steps\n';
       output += '[A] Create the missing target notes\n';
       output += '[B] Update or remove the broken links\n';
       return output;
     }
     case 'link-health': {
-      const unlinked = repo.getUnlinkedNotes();
-      const broken = filterFalsePositiveBrokenLinks(repo.getBrokenLinks(), config?.vault);
-      const oneWay = repo.getOneWayLinks();
+      const { result, elapsedMs } = runContextualLinkScan(repo, ['links.broken', 'links.unlinked', 'links.reciprocal-missing']);
+      logContextualLinkScan('link-health', result.totals, elapsedMs, config);
+      if (!suppressTelemetry) {
+        scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', 'link-health', result.totals.excludedCandidates, args.model));
+      }
 
-      const total = unlinked.length + broken.length + oneWay.length;
+      const graph = result.review;
+      const unlinkedGroup = graphGroup(graph, 'links.unlinked');
+      const brokenGroup = graphGroup(graph, 'links.broken');
+      const reciprocalGroup = graphGroup(graph, 'links.reciprocal-missing');
+
+      let output = renderContextualScanSummary(result.totals, elapsedMs);
+      output += renderContextualFailures(result.failures);
+      if (result.incompleteGraph) {
+        output += INCOMPLETE_GRAPH_NOTICE;
+      }
+
+      const total = unlinkedGroup.total + brokenGroup.total + reciprocalGroup.total;
       if (total === 0) {
-        return 'Link health: all clear. No unlinked notes, broken links, or one-way links found.';
+        output += result.incompleteGraph
+          ? '\nNo broken or one-way links were confirmed. Unlinked evaluation was suppressed because the contextual graph is incomplete.'
+          : '\nLink health: all clear. No unlinked notes, broken links, or one-way links found.';
+        return output;
       }
 
-      let output = '## Link Health Report\n\n';
+      const displayCap = contextualDisplayLimit(args.limit);
+      const factsById = new Map((result.facts.contextualLinks?.documents ?? []).map(note => [note.id, note]));
+      output += '\n## Link Health Report\n\n';
 
-      if (unlinked.length > 0) {
-        output += `### Unlinked Notes (${unlinked.length})\n\n`;
-        output += 'Notes with no incoming or outgoing wikilinks:\n\n';
-        for (const note of unlinked) {
+      if (unlinkedGroup.total > 0) {
+        output += `### Unlinked Notes (${unlinkedGroup.total})\n\n`;
+        output += 'Advisory: notes with no incoming or outgoing wikilinks — linking candidates, not confirmed defects:\n\n';
+        let shown = 0;
+        for (const finding of unlinkedGroup.findings.slice(0, displayCap)) {
+          const note = factsById.get(finding.primary.id);
+          if (!note) continue;
           output += `- "${note.title}" [${note.id}] | ${note.kind} | ${note.status}\n`;
+          shown++;
         }
+        if (unlinkedGroup.total > shown) output += `(showing ${shown} of ${unlinkedGroup.total})\n`;
         output += '\n';
       }
 
-      if (broken.length > 0) {
-        output += `### Broken Wikilinks (${broken.length})\n\n`;
+      if (brokenGroup.total > 0) {
+        output += `### Broken Wikilinks (${brokenGroup.total})\n\n`;
         output += 'Links pointing to non-existent notes:\n\n';
-        for (const { sourceId, sourceTitle, brokenTarget, line } of broken) {
-          output += `- "${sourceTitle}" [${sourceId}] content:${line} → [[${brokenTarget}]] (not found)\n`;
-        }
+        output += renderContextualBrokenFindings(brokenGroup.findings, displayCap);
         output += '\n';
       }
 
-      if (oneWay.length > 0) {
-        output += `### One-Way Links (${oneWay.length})\n\n`;
-        output += 'A links to B but B does not link back to A:\n\n';
-        for (const { sourceId, sourceTitle, targetId, targetTitle } of oneWay) {
-          output += `- "${sourceTitle}" [${sourceId}] → "${targetTitle}" [${targetId}] (no reverse link)\n`;
+      if (reciprocalGroup.total > 0) {
+        output += `### One-Way Links (${reciprocalGroup.total})\n\n`;
+        output += 'Advisory: A links to B but B does not link back to A — reciprocity is a judgment call:\n\n';
+        let shown = 0;
+        for (const finding of reciprocalGroup.findings.slice(0, displayCap)) {
+          const sourceTitle = findingEvidence(finding, 'sourceTitle');
+          const targetTitle = findingEvidence(finding, 'targetTitle');
+          const targetId = finding.related?.[0]?.id ?? '';
+          output += `- "${sourceTitle}" [${finding.primary.id}] → "${targetTitle}" [${targetId}] (no reverse link)\n`;
+          shown++;
         }
+        if (reciprocalGroup.total > shown) output += `(showing ${shown} of ${reciprocalGroup.total})\n`;
         output += '\n';
       }
 
       output += '## Summary\n';
-      output += `Unlinked: ${unlinked.length} | Broken: ${broken.length} | One-way: ${oneWay.length}\n`;
+      output += `Unlinked: ${unlinkedGroup.total} | Broken: ${brokenGroup.total} | One-way: ${reciprocalGroup.total}\n`;
       return output;
     }
     case 'migrate-layout': {
@@ -2560,7 +3047,7 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
       for (const step of steps) {
         sections.push(`## ${stepNum}. ${step.label}\n`);
         try {
-          const result = await handleMaintain(step.stepArgs, repo, config, embeddingConfig, currentVersion, gitVersioning);
+          const result = await handleMaintainCore(step.stepArgs, repo, config, embeddingConfig, currentVersion, gitVersioning, nowProvider, true);
           sections.push(result);
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
@@ -2575,6 +3062,15 @@ export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, c
     default:
       return `Unknown action: ${args.action}`;
   }
+}
+
+export async function handleMaintain(args: MaintainArgs, repo: NoteRepository, config: AppConfig, embeddingConfig?: EmbeddingConfig | null, currentVersion?: string, gitVersioning?: GitVersioning | null, nowProvider: () => number = Date.now): Promise<string> {
+  const result = await handleMaintainCore(args, repo, config, embeddingConfig, currentVersion, gitVersioning, nowProvider);
+  const rejected = result.startsWith('Error:') || result.startsWith('Unknown action:') || result.startsWith('Failed:');
+  if (!rejected && !CONTEXTUAL_LINK_ACTIONS.has(args.action)) {
+    scheduleTelemetryWrite('maintain', () => repo.recordToolInvocation('maintain', args.action, undefined, args.model));
+  }
+  return result;
 }
 
 const CAPSULE_NOTE_LIMIT = 12;
@@ -2636,8 +3132,14 @@ export function buildPreferenceCapsule(
 export function handleContextResult(args: ContextArgs, repo: NoteRepository, config?: AppConfig): ContextResult {
   const project = validateCurrentProject(args.project);
   if (!project) return { text: 'Error: A valid project is required for knowledge context.' };
+  if (args.preferenceOnly) {
+    const preferenceCapsule = buildPreferenceCapsule(repo, { project, client: args.client });
+    scheduleTelemetryWrite('context', () => repo.recordToolInvocation('context', 'preference-only', preferenceCapsule.selected, args.model));
+    return { text: preferenceCapsule.text, preferenceCapsule };
+  }
   const logLimit = Math.max(1, args.logEntries ?? config?.navigation?.overviewLogEntryLimit ?? 10);
   const text = formatProjectOverview(project, logLimit, repo, args.client, args.model);
+  scheduleTelemetryWrite('context', () => repo.recordToolInvocation('context', undefined, undefined, args.model));
 
   return {
     text,
@@ -2655,16 +3157,21 @@ function formatProjectOverview(project: string, logLimit: number, repo: NoteRepo
   const visibility = { project, client };
   const domainCandidate = repo.getDomainNote(project);
   const domainNote = domainCandidate ? repo.getByIdVisible(domainCandidate.id, visibility) : null;
-  const projectNotes = repo.getRecentNotes(Number.MAX_SAFE_INTEGER, visibility);
+  const projectNotes = repo.getRecentNotes(Number.MAX_SAFE_INTEGER, visibility)
+    .filter(note => {
+      const scope = parseKnowledgeApplicability(note.tags);
+      return scope.type === 'project-local' && scope.project === project;
+    });
   // Project logs contain titles for every client-scoped event and cannot be
   // losslessly filtered because historical entries do not carry note IDs.
   const logNote = client ? null : repo.getLogNote(project);
 
   if (projectNotes.length === 0 && !domainNote && !logNote) {
-    return `No notes found for project "${project}". Store a project-scoped note first (include project parameter).`;
+    return `No notes found for project "${project}". Authority context is unavailable: no exactly matching project-scoped notes were found, and no other project's context was substituted.`;
   }
 
   let output = `## Project Overview: ${project}\n\n`;
+  output += `Authority scope: exactly project:${project}. This is retained agent memory, not current project truth; consult canonical project artifacts for authority. Other projects are excluded and are not substituted.\n\n`;
 
   // Domain note (operating manual)
   if (domainNote) {
@@ -2776,6 +3283,7 @@ export async function handleOpen(args: OpenArgs, config: AppConfig, repo?: NoteR
   if (error) {
     return `Failed to launch Obsidian: ${error}`;
   }
+  if (repo) scheduleTelemetryWrite('open', () => repo.recordToolInvocation('open'));
   return `${formatSuccessMessage(vaultPath, resolvedProject)}\nObsidian is a full-vault human browsing surface; project focus does not isolate other projects.`;
 }
 
@@ -2798,6 +3306,7 @@ export function handleGet(args: GetArgs, repo: NoteRepository): string {
   const note = repo.getByIdVisible(args.noteId, { project, client: args.client });
   if (!note) return `Note not found: ${args.noteId}`;
   scheduleTelemetryWrite('get access', () => repo.updateLastAccessed([note.id]));
+  scheduleTelemetryWrite('get', () => repo.recordToolInvocation('get', undefined, 1, args.model));
 
   return renderNoteForSearch(note, project);
 }
@@ -2828,12 +3337,13 @@ type MineClassification = 'STORE' | 'SKIP' | 'REVIEW';
 
 interface MineResult {
   index: number;
+  candidateKey?: string;
   candidate: MineCandidate;
   wordCount: number;
   hash: string;
   classification: MineClassification;
   rationale: string;
-  matches: Array<{ id: string; title: string; similarity?: number }>;
+  matches: Array<{ id: string; title: string; similarity?: number; expectedUpdatedAt: number }>;
   storedId?: string;
   error?: string;
 }
@@ -2896,19 +3406,34 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     return `Error: ${validationErrors.join('\n')}`;
   }
 
-  scheduleTelemetryWrite('mine', () => repo.recordToolInvocation('mine', undefined, args.candidates.length, args.model));
+  const recordMineOutcome = (outcome: 'preview' | 'plan' | 'migration' | 'applied' | 'stale' | 'reconciliation') => {
+    scheduleTelemetryWrite('mine', () => repo.recordToolInvocation('mine', outcome, args.candidates.length, args.model));
+  };
 
-
+  const canonicalCandidate = (candidate: MineCandidate) => ({
+    title: candidate.title,
+    content: candidate.content,
+    kind: candidate.kind,
+    summary: candidate.summary,
+    guidance: candidate.guidance,
+    project: candidate.project ?? null,
+    tags: candidate.tags === undefined ? null : [...new Set(candidate.tags)].sort(),
+    source: candidate.source ?? null,
+  });
+  const canonicalCandidates = args.candidates.map((candidate, index) => ({ index, candidate: canonicalCandidate(candidate) }));
+  const batchHash = createHash('sha256').update(JSON.stringify(canonicalCandidates)).digest('hex');
+  const candidateKeys = args.candidates.map((candidate, index) => createHash('sha256').update(`${batchHash}:${index}:${JSON.stringify(canonicalCandidate(candidate))}`).digest('hex'));
+  const dispositions = args.dispositions ?? [];
   const dryRun = args.dry_run ?? true;
   const embeddingTexts = args.candidates.map(candidate => buildEmbeddingText(candidate.title, candidate.summary, candidate.content));
-  let embeddings: Array<{ embedding: number[] } | null> = args.candidates.map(() => null);
+  let embeddings: Array<EmbeddingResult | null> = args.candidates.map(() => null);
   let embeddingsAvailable = false;
 
   if (embeddingConfig) {
     try {
       const batchTimeout = Math.max(60000, args.candidates.length * 2000);
       const batchResults = await generateEmbeddingBatch(embeddingTexts, embeddingConfig, batchTimeout);
-      embeddings = batchResults.map(result => result ? { embedding: result.embedding } : null);
+      embeddings = batchResults;
       embeddingsAvailable = embeddings.some(Boolean);
     } catch (error) {
       logToFile('WARN', 'Mining batch embedding failed', {
@@ -2930,6 +3455,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     if (priorDuplicateIndex >= 0) {
       results.push({
         index: i + 1,
+        candidateKey: candidateKeys[i],
         candidate,
         wordCount,
         hash,
@@ -2948,7 +3474,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     if (embedding) {
       const vectorMatches = repo.searchVector(embedding, { limit: 5, visibility: { project, client: args.client } });
       const best = vectorMatches[0];
-      matches = vectorMatches.map(note => ({ id: note.id, title: note.title, similarity: note.similarity }));
+      matches = vectorMatches.map(note => ({ id: note.id, title: note.title, similarity: note.similarity, expectedUpdatedAt: note.updated_at }));
 
       if (best && best.similarity >= 0.85) {
         classification = 'SKIP';
@@ -2962,49 +3488,181 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
       if (simHashMatches.length > 0) {
         classification = 'SKIP';
         rationale = 'Similar to existing note by SimHash';
-        matches = simHashMatches.slice(0, 5).map(note => ({ id: note.id, title: note.title }));
+        matches = simHashMatches.slice(0, 5).map(note => ({ id: note.id, title: note.title, expectedUpdatedAt: note.updated_at }));
       } else {
         const query = [candidate.title, candidate.summary].filter(Boolean).join(' ');
         const ftsMatches = query.trim() ? repo.search(query, { limit: 5, visibility: { project, client: args.client } }) : [];
         if (ftsMatches.length > 0) {
           classification = 'REVIEW';
           rationale = 'Keyword overlap found (FTS5 fallback)';
-          matches = ftsMatches.map(note => ({ id: note.id, title: note.title }));
+          matches = ftsMatches.map(note => ({ id: note.id, title: note.title, expectedUpdatedAt: note.updated_at }));
         }
       }
     }
 
-    results.push({ index: i + 1, candidate, wordCount, hash, classification, rationale, matches });
+    results.push({ index: i + 1, candidateKey: candidateKeys[i], candidate, wordCount, hash, classification, rationale, matches });
+  }
+
+  const knownKeys = new Set(candidateKeys);
+  if (new Set(dispositions.map(item => item.candidateKey)).size !== dispositions.length || dispositions.some(item => !knownKeys.has(item.candidateKey))) {
+    return 'Error: Disposition plan contains duplicate or unknown candidate keys; no candidates were mutated.';
+  }
+  const updateTargets = dispositions.filter(item => item.action === 'update').map(item => item.noteId);
+  if (new Set(updateTargets).size !== updateTargets.length) {
+    return 'Error: Disposition plan contains conflicting updates for one target; no candidates were mutated.';
+  }
+  if (args.dry_run === false && dispositions.length === 0) {
+    recordMineOutcome('migration');
+    return JSON.stringify({ mutated: false, state: 'migration-required', candidateKeys, message: 'dry_run=false now requires explicit dispositions and a confirmed batch token.' });
+  }
+
+  const storeArgsFor = (result: MineResult, disposition: MineDisposition): StoreArgs => {
+    let tags = result.candidate.tags ? [...result.candidate.tags] : undefined;
+    if (result.candidate.source) {
+      const sourceTag = `mined:${result.candidate.source}`;
+      if (tags) tags.push(sourceTag);
+      else if (disposition.action === 'update' && disposition.noteId) {
+        const target = repo.getByIdVisible(disposition.noteId, { project, client: args.client });
+        if (target) tags = [...target.tags, sourceTag];
+      } else {
+        tags = [sourceTag];
+      }
+    }
+    return {
+      title: result.candidate.title,
+      content: result.candidate.content,
+      kind: result.candidate.kind,
+      tags,
+      summary: result.candidate.summary,
+      guidance: result.candidate.guidance,
+      project,
+      client: args.client,
+      model: args.model,
+      disposition: disposition.action === 'store' ? 'create' : disposition.action,
+      noteId: disposition.noteId,
+      expectedUpdatedAt: disposition.expectedUpdatedAt,
+      dryRun: true,
+    };
+  };
+
+  const preparePlan = async (lockedContext?: KnowledgeMutationContext): Promise<{ plan?: MineDisposition[]; error?: string; batchToken?: string }> => {
+    const plan: MineDisposition[] = [];
+    for (const result of results) {
+      const disposition = dispositions.find(item => item.candidateKey === result.candidateKey);
+      if (!disposition) continue;
+      if (disposition.action === 'skip') {
+        plan.push({ candidateKey: disposition.candidateKey, action: 'skip' });
+        continue;
+      }
+      if (disposition.action === 'update' && (!disposition.noteId || disposition.expectedUpdatedAt === undefined)) {
+        return { error: `Update disposition for ${disposition.candidateKey} requires noteId and expectedUpdatedAt.` };
+      }
+      const preparedEmbedding = embeddings[result.index - 1];
+      const preview = await handleStore(storeArgsFor(result, disposition), repo, embeddingConfig, config, gitVersioning, lockedContext, {
+        embeddingPromise: Promise.resolve(preparedEmbedding),
+        suppressTelemetry: true,
+      });
+      let review: { evidence?: { digest?: string }; createToken?: string; updateTokens?: Array<{ id: string; expectedUpdatedAt: number; token: string }> };
+      try {
+        review = JSON.parse(preview) as typeof review;
+      } catch {
+        return { error: `Disposition for ${disposition.candidateKey} is invalid: ${preview}` };
+      }
+      const updateToken = disposition.action === 'update'
+        ? review.updateTokens?.find(item => item.id === disposition.noteId)
+        : undefined;
+      if (disposition.action === 'update' && updateToken?.expectedUpdatedAt !== disposition.expectedUpdatedAt) {
+        return { error: `Update disposition for ${disposition.candidateKey} has a stale expectedUpdatedAt.` };
+      }
+      const token = disposition.action === 'store' ? review.createToken : updateToken?.token;
+      if (!token) return { error: `Disposition for ${disposition.candidateKey} cannot be confirmed against the current visible snapshot: ${preview}` };
+      plan.push({
+        candidateKey: disposition.candidateKey,
+        action: disposition.action,
+        noteId: disposition.noteId,
+        expectedUpdatedAt: disposition.expectedUpdatedAt,
+        token,
+        evidenceDigest: review.evidence?.digest,
+      });
+    }
+    const batchToken = createHash('sha256').update(JSON.stringify({ batchHash, plan })).digest('hex');
+    return { plan, batchToken };
+  };
+
+  if (dispositions.length > 0 && dryRun) {
+    const prepared = await preparePlan();
+    if (prepared.error) return `Error: ${prepared.error} No candidates were mutated.`;
+    recordMineOutcome('plan');
+    return JSON.stringify({
+      mutated: false,
+      state: 'plan-ready',
+      batchToken: prepared.batchToken,
+      candidates: results.map(result => ({ candidateKey: result.candidateKey, classification: result.classification, matches: result.matches })),
+      plan: prepared.plan,
+    });
   }
 
   if (!dryRun) {
-    for (const result of results) {
-      if (result.classification === 'SKIP') continue;
-      const tags = [...(result.candidate.tags || [])];
-      if (result.candidate.source) tags.push(`mined:${result.candidate.source}`);
-      const candidateProject = project;
-      try {
-        const storeResult = await handleStore({
-          title: result.candidate.title,
-          content: result.candidate.content,
-          kind: result.candidate.kind,
-          tags,
-          summary: result.candidate.summary,
-          guidance: result.candidate.guidance,
-          project: candidateProject,
-          client: args.client,
-          model: args.model,
-        }, repo, embeddingConfig, config, gitVersioning);
-        const storedId = extractStoredId(storeResult);
-        if (storedId) {
-          result.storedId = storedId;
-        } else {
-          result.error = storeResult;
-        }
-      } catch (error) {
-        result.error = error instanceof Error ? error.message : String(error);
-      }
+    if (!args.confirm || !args.batchToken) {
+      recordMineOutcome('stale');
+      return JSON.stringify({ mutated: false, state: 'confirmation-required', message: 'Confirmation and the current batch token are required.' });
     }
+    const application = await repo.withKnowledgeMutationLockAsync(async lockedContext => {
+      const prepared = await preparePlan(lockedContext);
+      if (prepared.error) return { mutated: false, state: 'invalid-plan', message: prepared.error };
+      if (prepared.batchToken !== args.batchToken) {
+        return { mutated: false, state: 'stale-plan', message: 'The batch, dispositions, targets, or reviewed evidence changed.' };
+      }
+      const completed: Array<{ candidateKey: string; action: MineDisposition['action']; noteId?: string }> = [];
+      const plan = prepared.plan ?? [];
+      for (let index = 0; index < plan.length; index++) {
+        const disposition = plan[index];
+        const result = results.find(item => item.candidateKey === disposition.candidateKey);
+        if (!result) continue;
+        if (disposition.action === 'skip') {
+          completed.push({ candidateKey: disposition.candidateKey, action: 'skip' });
+          continue;
+        }
+        try {
+          const preparedEmbedding = embeddings[result.index - 1];
+          const mineStoreInternal = { embeddingPromise: Promise.resolve(preparedEmbedding), suppressTelemetry: true };
+          const freshPreviewText = await handleStore(storeArgsFor(result, disposition), repo, embeddingConfig, config, gitVersioning, lockedContext, mineStoreInternal);
+          const freshPreview = JSON.parse(freshPreviewText) as { createToken?: string; updateTokens?: Array<{ id: string; token: string }> };
+          const operationToken = disposition.action === 'store'
+            ? freshPreview.createToken
+            : freshPreview.updateTokens?.find(item => item.id === disposition.noteId)?.token;
+          if (!operationToken) throw new Error('Current reviewed operation token is unavailable.');
+          const storeResult = await handleStore({
+            ...storeArgsFor(result, disposition),
+            dryRun: false,
+            confirm: true,
+            token: operationToken,
+          }, repo, embeddingConfig, config, gitVersioning, lockedContext, mineStoreInternal);
+          const storedId = extractStoredId(storeResult);
+          if (!storedId) throw new Error(storeResult);
+          result.storedId = storedId;
+          completed.push({ candidateKey: disposition.candidateKey, action: disposition.action, noteId: storedId });
+        } catch (error) {
+          result.error = error instanceof Error ? error.message : String(error);
+          return {
+            mutated: completed.some(item => item.action !== 'skip'),
+            state: 'partial-failure',
+            completed,
+            failed: { candidateKey: disposition.candidateKey, action: disposition.action, error: result.error },
+            ambiguousRemainder: plan.slice(index + 1).map(item => item.candidateKey),
+            message: 'Completed operations were not rolled back. Reconcile vault state before retrying.',
+          };
+        }
+      }
+      return { mutated: completed.some(item => item.action !== 'skip'), state: 'applied', completed };
+    });
+    if (application.state !== 'applied') {
+      recordMineOutcome(application.state === 'stale-plan' ? 'stale' : 'reconciliation');
+      return JSON.stringify(application);
+    }
+    recordMineOutcome('applied');
+  } else if (dispositions.length === 0) {
+    recordMineOutcome('preview');
   }
 
   let output = `## Mining Candidates (${args.candidates.length})\n\n`;
@@ -3015,6 +3673,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
   for (const result of results) {
     const tags = result.candidate.tags?.length ? ` | Tags: ${result.candidate.tags.join(', ')}` : '';
     output += `### [${result.index}] "${result.candidate.title}" (${result.candidate.kind})\n`;
+    output += `Candidate key: ${result.candidateKey}\n`;
     output += `summary: ${result.candidate.summary}\n`;
     output += `Words: ${formatMineWordCount(result.candidate, result.wordCount)}${tags}\n`;
     const mineTitleCheck = titleWarning(result.candidate.title);
@@ -3026,7 +3685,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
     output += `⮕ ${result.classification} — ${result.rationale}\n`;
     for (const match of result.matches) {
       const similarity = match.similarity != null ? ` (${match.similarity.toFixed(2)})` : '';
-      output += `  ↳ [${match.id}] "${match.title}"${similarity}\n`;
+      output += `  ↳ [${match.id}] "${match.title}"${similarity} | expectedUpdatedAt: ${match.expectedUpdatedAt}\n`;
     }
     if (result.storedId) {
       output += `  ✅ Stored as ${result.storedId}\n`;
@@ -3043,7 +3702,7 @@ export async function handleMine(args: MineArgs, repo: NoteRepository, embedding
   output += '---\n';
   output += `Summary: ${storeCount} STORE, ${skipCount} SKIP, ${reviewCount} REVIEW`;
   if (dryRun) {
-    output += `\nTo store confirmed candidates: call again with project="${project}" and dry_run=false`;
+    output += '\nTo prepare a reviewed plan: call again with explicit candidate-keyed dispositions. Apply that returned plan with dry_run=false, confirm=true, and its batchToken.';
     if (reviewCount > 0) {
       output += `\n⚠ ${reviewCount} REVIEW candidate(s) have partial matches with existing notes — see matches listed above.`;
     }

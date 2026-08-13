@@ -70,7 +70,7 @@ Search combines SQLite FTS5 full-text indexing with local vector embeddings (Min
 
 ## Telemetry
 
-When enabled (`telemetry.enabled: true` and `telemetry.share: true`), open-zk-kb sends anonymous session analytics to [PostHog](https://posthog.com) (EU Cloud) — which client and models you use, vault size, and tool usage counts. No note content, search queries, file paths, names, or email addresses are collected. Runtime configuration defaults remain disabled; the interactive installer asks for consent with **Yes** preselected and enables sharing only after confirmation. Non-interactive and direct package installs remain disabled unless configured separately. Set `DO_NOT_TRACK=1` to unconditionally block sharing (local SQLite counters are unaffected), or set both flags to `false`. See [Telemetry](docs/telemetry.md) for the full event schema and details.
+When enabled (`telemetry.enabled: true` and `telemetry.share: true`), open-zk-kb sends one anonymous event for each completed session to [PostHog](https://posthog.com) (EU Cloud) on a later startup. It includes a canonical client, bounded model IDs, vault size, and counts for all ten tools—not note content, queries, paths, names, or email addresses. Runtime defaults are disabled; the interactive installer enables sharing only after affirmative consent, while unattended and direct package installs remain disabled unless configured separately. Set `DO_NOT_TRACK=1` to unconditionally block sharing (local SQLite counters are unaffected), or keep both flags `false`. See [Telemetry](docs/telemetry.md) for the full event schema and details.
 
 ## Documentation
 

@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
   createTestHarness,
   cleanupTestHarness,
 } from './harness.js';
 import type { TestContext } from './harness.js';
-import { handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
+import { buildStoreEmbeddingText, handleStore, handleSearch, handleMaintain } from '../src/tool-handlers.js';
 import { parseWikiLink } from '../src/utils/wikilink.js';
 
 describe('FTS5 Edge Cases', () => {
@@ -531,6 +533,32 @@ Legacy content`;
     expect(result.indexed).toBe(2);
     expect(result.errors).toBe(0);
   });
+
+  it('counts traversal failures and preserves the existing index instead of rebuilding partially', () => {
+    const first = ctx.engine.store('First content', { title: 'First', kind: 'reference' });
+    const second = ctx.engine.store('Second content', { title: 'Second', kind: 'reference' });
+    const unreadableDir = path.join(ctx.tempDir, 'unreadable-subtree');
+    fs.mkdirSync(unreadableDir);
+    const originalReaddirSync = fs.readdirSync;
+    const readdirSync = spyOn(fs, 'readdirSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === unreadableDir) throw new Error('mock unreadable subtree');
+      return originalReaddirSync(target, options as never) as never;
+    });
+
+    try {
+      const result = ctx.engine.rebuildFromFiles();
+      expect(result.errors).toBe(1);
+      expect(result.indexed).toBe(0);
+      expect(result.warnings.join('\n')).toContain('traversal incomplete');
+    } finally {
+      readdirSync.mockRestore();
+    }
+
+    // The known-good index and baseline trust survive an incomplete traversal.
+    expect(ctx.engine.getById(first.id)).not.toBeNull();
+    expect(ctx.engine.getById(second.id)).not.toBeNull();
+    expect(ctx.engine.getScreeningSnapshot({}).canonicalDrift).toBe(false);
+  });
 });
 
 describe('handleStore embedding handling', () => {
@@ -542,6 +570,16 @@ describe('handleStore embedding handling', () => {
 
   afterEach(() => {
     cleanupTestHarness(ctx);
+  });
+
+  it('builds embedding text without a marked trailing Related section', () => {
+    const embeddingText = buildStoreEmbeddingText(
+      'Authored title',
+      'Authored summary',
+      'Authored content\n\n## Related\n\n<!-- zk:related -->\n- [[2026010100000000]]',
+    );
+
+    expect(embeddingText).toBe('Authored title\n\nAuthored summary\n\nAuthored content');
   });
 
   it('should return successfully without embedding config', async () => {

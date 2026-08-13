@@ -78,6 +78,41 @@ export function getKindFolderNotePath(baseDir: string, kindOrDir: string): strin
 /** Directories to skip during recursive file scanning */
 const SKIP_DIRS = new Set(['.index', '.obsidian', '.trash', 'templates', '.templates', '.git', 'node_modules']);
 
+/**
+ * True for generated structural Markdown that legitimately carries no note
+ * identifier: `kind: index` frontmatter, the fixed `index`/`log`/`review`
+ * files, the global home note, and marked generated directory folder notes.
+ * Every consumer of the vault's canonical Markdown inventory must exclude
+ * exactly this set, so an unindexed authored note is never mistaken for
+ * scaffolding merely because its basename matches its directory.
+ */
+export function isGeneratedStructuralMarkdown(
+  docsPath: string,
+  filePath: string,
+  frontmatter: Record<string, unknown> = {},
+): boolean {
+  if (frontmatter.kind === 'index') return true;
+
+  const relative = path.relative(docsPath, filePath).replace(/\\/g, '/');
+  if (relative.startsWith('../') || path.isAbsolute(relative)) return false;
+  const segments = relative.split('/');
+  const basename = path.basename(filePath, '.md');
+
+  if (segments.length === 1) {
+    return basename === GLOBAL_HOME_NOTE_BASENAME || /^(index|log|review)$/i.test(basename);
+  }
+  if (segments.length === 3 && segments[0] === 'projects' && segments[2].toLowerCase() === 'log.md') return true;
+
+  // Legacy navigation scaffolds recognized by the navigation migration paths.
+  if (basename.toLowerCase() === 'index') {
+    if (relative === 'general/index.md' || relative === 'preferences/index.md') return true;
+    if (segments[0] === 'general' && segments.length === 3) return true;
+    if (segments[0] === 'projects' && (segments.length === 3 || segments.length === 4)) return true;
+  }
+
+  return basename === path.basename(path.dirname(filePath)) && frontmatter['BC-folder-note'] === true;
+}
+
 function sanitizeProjectSegment(project: string): string {
   const trimmed = project.trim();
   if (!trimmed || trimmed === '.' || trimmed === '..' || /[/\\]/.test(trimmed)) {
@@ -145,18 +180,39 @@ export function extractProjectFromTags(tags: string[]): string | null {
   return null;
 }
 
+export interface WalkMarkdownFilesOptions {
+  /** Called when a filesystem failure prevents traversal from being complete. */
+  onError?: (error: unknown, filePath: string) => void;
+}
+
 /**
  * Recursively collect all .md files from a directory tree.
  * Skips .index/, .obsidian/, templates/, .git/, node_modules/.
  */
-export function walkMarkdownFiles(dirPath: string): string[] {
+export function walkMarkdownFiles(dirPath: string, options: WalkMarkdownFilesOptions = {}): string[] {
   const results: string[] = [];
 
+  const activeDirectoryIdentities = new Set<string>();
+
   function walk(dir: string): void {
+    // statSync follows directory symlinks, so guard ancestor identities to avoid
+    // recursively following a link back into the directory currently being walked.
+    let directoryIdentity: string;
+    try {
+      directoryIdentity = fs.realpathSync(dir);
+    } catch (error) {
+      options.onError?.(error, dir);
+      return;
+    }
+    if (activeDirectoryIdentities.has(directoryIdentity)) return;
+    activeDirectoryIdentities.add(directoryIdentity);
+
     let entries: string[];
     try {
       entries = fs.readdirSync(dir);
-    } catch {
+    } catch (error) {
+      activeDirectoryIdentities.delete(directoryIdentity);
+      options.onError?.(error, dir);
       return; // Directory doesn't exist or not readable
     }
 
@@ -166,10 +222,11 @@ export function walkMarkdownFiles(dirPath: string): string[] {
       // Skip known non-note directories
       if (SKIP_DIRS.has(entry)) continue;
 
-      let stat;
+      let stat: fs.Stats;
       try {
         stat = fs.statSync(fullPath);
-      } catch {
+      } catch (error) {
+        options.onError?.(error, fullPath);
         continue; // Broken symlink or permission issue
       }
 
@@ -179,6 +236,8 @@ export function walkMarkdownFiles(dirPath: string): string[] {
         results.push(fullPath);
       }
     }
+
+    activeDirectoryIdentities.delete(directoryIdentity);
   }
 
   walk(dirPath);

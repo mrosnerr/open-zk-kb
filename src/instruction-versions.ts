@@ -4,9 +4,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { expandPath } from './utils/path.js';
 import { getAgentDocsVersion } from './agent-docs.js';
+import { getAgentDocsTargets } from './agent-docs-targets.js';
 import { getSkillVersion } from './setup.js';
-
-const xdgConfigHome = process.env.XDG_CONFIG_HOME || expandPath('~/.config');
 
 export interface InstalledClient {
   client: string;
@@ -16,39 +15,36 @@ export interface InstalledClient {
   path: string | null;
 }
 
-interface ClientInstructionConfig {
+export interface ClientInstructionConfig {
   client: string;
   name: string;
   skillPath?: string;
   agentDocsPath?: string;
 }
 
-const CLIENT_INSTRUCTION_CONFIGS: ClientInstructionConfig[] = [
-  {
-    client: 'claude-code',
-    name: 'Claude Code',
-    skillPath: path.join(expandPath('~/.claude'), 'skills', 'open-zk-kb'),
-  },
-  {
-    client: 'opencode',
-    name: 'OpenCode',
-    agentDocsPath: path.join(xdgConfigHome, 'opencode', 'AGENTS.md'),
-  },
-  {
-    client: 'windsurf',
-    name: 'Windsurf',
-    agentDocsPath: path.join(expandPath('~/.codeium'), 'windsurf', 'memories', 'global_rules.md'),
-  },
-];
+export function getClientInstructionConfigs(): ClientInstructionConfig[] {
+  return [
+    {
+      client: 'claude-code',
+      name: 'Claude Code',
+      skillPath: path.join(expandPath('~/.claude'), 'skills', 'open-zk-kb'),
+    },
+    ...getAgentDocsTargets().map(target => ({
+      client: target.client,
+      name: target.name,
+      agentDocsPath: target.filePath,
+    })),
+  ];
+}
 
 /**
  * Get all installed clients with their instruction versions.
  * Only returns clients that have instructions installed (skill or managed block).
  */
-export function getInstalledInstructionVersions(): InstalledClient[] {
+export function getInstalledInstructionVersions(configs: ClientInstructionConfig[] = getClientInstructionConfigs()): InstalledClient[] {
   const results: InstalledClient[] = [];
 
-  for (const config of CLIENT_INSTRUCTION_CONFIGS) {
+  for (const config of configs) {
     if (config.skillPath) {
       const version = getSkillVersion(config.skillPath);
       if (version !== null || fs.existsSync(config.skillPath)) {

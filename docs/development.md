@@ -24,6 +24,14 @@ bun test          # Verify everything works
 - TypeScript strict mode is enforced — the build IS the type check
 
 ## Development Loop
+
+### Keep durable knowledge separate
+
+Use the authoritative destination before the knowledge base. OpenSpec owns requirements, plans, and acceptance criteria; docs own user-facing explanation and contributor guidance; code and tests own implementation and executable behavior; Git owns commits, diffs, branches, and review history; issues own work tracking, discussion, and collaboration status. The durable KB owns reusable guidance that is not authoritative in those systems.
+
+Automatic Pi context is the managed knowledge policy plus at most 12 applicable permanent preferences within an 800-token estimate (`ceil(UTF-16 code units / 4)`), not compact project orientation. An empty capsule means no applicable retained preference, not that project policy is absent. Start task retrieval with compact search: 5 evidence cards by default, at most 10, with summary and guidance fields capped at 240 Unicode code points. Judge relevance, then retrieve at most one exact named note when evidence remains insufficient. Request overview mode separately only when orientation is actually needed. Do not inject project-management records or uncertain history into the KB.
+
+Use the read-only `project-authority-review` maintenance action for factual candidate evidence (50 by default, bounded to 1–100); it never chooses a destination, mutates notes, or writes an external system. For rehoming, **keep** a correctly placed note; **distill** durable content from a mixed note; or **copy/distill** it into the destination-specific record using normal editor, test, Git, issue, OpenSpec, or docs tools. **Verify** the destination, then archive the source. Follow **preserve → copy/distill → verify → archive**. Archive is not deletion; deletion requires a separate explicit action. If verification cannot happen, defer. Mixed notes get partial extraction, never silent loss of unrelated content.
 ```
 Edit src/ → bun run build → bun test → verify manually if needed
 ```
