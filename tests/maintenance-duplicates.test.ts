@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -86,6 +86,7 @@ describe('duplicate audit evaluation', () => {
       evaluated: 502,
       omitted: 0,
       omissionReasons: {},
+      uncertaintyReasons: {},
       complete: true,
     });
     expect(first.titleGroups.some(group => group.notes.map(item => item.id).join(',') === `${notes[500].id},${notes[501].id}`)).toBe(true);
@@ -167,6 +168,46 @@ describe('duplicate audit repository adapter', () => {
     expect(output).not.toContain(indexed.path);
     expect(fs.readFileSync(indexed.path, 'utf8')).toBe(editedSource);
     expect(ctx.engine.getDuplicateAuditSnapshot()).toEqual(before);
+  });
+
+  it('reports traversal uncertainty without inventing an omitted candidate', async () => {
+    ctx.engine.store('indexed duplicate audit control', {
+      title: 'Indexed control', kind: 'reference', status: 'fleeting',
+    });
+    const unreadableDir = path.join(ctx.tempDir, 'unreadable-subtree');
+    fs.mkdirSync(unreadableDir);
+    const originalReaddirSync = fs.readdirSync;
+    const readdirSync = spyOn(fs, 'readdirSync').mockImplementation((target, options) => {
+      if (path.resolve(String(target)) === unreadableDir) throw new Error('mock unreadable subtree');
+      return originalReaddirSync(target, options as never) as never;
+    });
+
+    try {
+      const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+      expect(output).toContain('Coverage: eligible=1 | hashed-at-start=0 | computed-ephemerally=1 | evaluated=1 | omitted=0 | status=incomplete');
+      expect(output).toContain('Uncertainty reasons: {"traversal-incomplete":1}');
+      expect(output).not.toContain('Omission reasons');
+    } finally {
+      readdirSync.mockRestore();
+    }
+  });
+
+  it('counts symlink aliases to one unindexed eligible Markdown as one omission', async () => {
+    ctx.engine.store('indexed duplicate audit control', {
+      title: 'Indexed control', kind: 'reference', status: 'fleeting',
+    });
+    const sourcePath = path.join(ctx.tempDir, 'external-source.md');
+    const aliasPath = path.join(ctx.tempDir, 'external-alias.md');
+    fs.writeFileSync(sourcePath, '---\nid: "2099010101010199"\ntitle: Unindexed alias control\nkind: reference\nstatus: fleeting\n---\n');
+    try {
+      fs.symlinkSync(sourcePath, aliasPath);
+    } catch {
+      return;
+    }
+
+    const output = await handleMaintain({ action: 'dedupe', dryRun: true }, ctx.engine, ctx.config);
+    expect(output).toContain('Coverage: eligible=2 | hashed-at-start=0 | computed-ephemerally=1 | evaluated=1 | omitted=1 | status=incomplete');
+    expect(output).toContain('Omission reasons: {"unindexed":1}');
   });
 
   it('reports added unindexed canonical Markdown as incomplete without mutating evidence', async () => {

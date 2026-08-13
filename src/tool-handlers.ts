@@ -2418,12 +2418,14 @@ async function handleMaintainCore(args: MaintainArgs, repo: NoteRepository, conf
       const audit = repo.getDuplicateAuditResult();
       const evaluation = evaluateDuplicates(audit.notes, undefined, {
         omissionReasons: audit.omissions,
+        uncertaintyReasons: audit.uncertaintyReasons,
         indexedSnapshotUnsafe: audit.indexedSnapshotUnsafe,
       });
       const { coverage } = evaluation;
       let output = '## Duplicate Detection\n\n';
       output += `Coverage: eligible=${coverage.eligible} | hashed-at-start=${coverage.hashedAtStart} | computed-ephemerally=${coverage.computedEphemerally} | evaluated=${coverage.evaluated} | omitted=${coverage.omitted} | status=${coverage.complete ? 'complete' : 'incomplete'}\n`;
       if (coverage.omitted > 0) output += `Omission reasons: ${JSON.stringify(coverage.omissionReasons)}\n`;
+      if (Object.keys(coverage.uncertaintyReasons).length > 0) output += `Uncertainty reasons: ${JSON.stringify(coverage.uncertaintyReasons)}\n`;
       if (audit.indexedSnapshotUnsafe) output += 'Indexed canonical drift: detected; stale groups suppressed.\n';
       output += `Groups: exact-title=${evaluation.titleGroups.length} | SimHash=${evaluation.simhashGroupTotal}${coverage.complete ? ' (complete totals)' : ' (incomplete totals)'}\n\n`;
 

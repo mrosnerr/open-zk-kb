@@ -18,6 +18,8 @@ export interface SimHashGroup {
 
 export interface DuplicateIncompletenessEvidence {
   readonly omissionReasons: Readonly<Record<string, number>>;
+  /** Inventory conditions that make completeness unknowable without identifying an omitted candidate. */
+  readonly uncertaintyReasons?: Readonly<Record<string, number>>;
   /** Indexed rows may no longer represent their canonical Markdown. */
   readonly indexedSnapshotUnsafe?: boolean;
 }
@@ -30,6 +32,7 @@ export interface DuplicateEvaluation {
     readonly evaluated: number;
     readonly omitted: number;
     readonly omissionReasons: Readonly<Record<string, number>>;
+    readonly uncertaintyReasons: Readonly<Record<string, number>>;
     readonly complete: boolean;
   };
   readonly titleGroups: readonly { normalizedTitle: string; notes: readonly NoteMetadata[] }[];
@@ -111,6 +114,8 @@ export function evaluateDuplicates(
   const hashedAtStart = snapshot.filter(item => item.hashSource === 'stored').length;
   const omissionReasons = incompleteness?.omissionReasons ?? {};
   const omitted = Object.values(omissionReasons).reduce((total, count) => total + count, 0);
+  const uncertaintyReasons = incompleteness?.uncertaintyReasons ?? {};
+  const uncertain = Object.values(uncertaintyReasons).some(count => count > 0);
   const indexedSnapshotUnsafe = incompleteness?.indexedSnapshotUnsafe === true;
   return {
     coverage: {
@@ -120,7 +125,8 @@ export function evaluateDuplicates(
       evaluated: snapshot.length,
       omitted,
       omissionReasons,
-      complete: omitted === 0 && !indexedSnapshotUnsafe,
+      uncertaintyReasons,
+      complete: omitted === 0 && !uncertain && !indexedSnapshotUnsafe,
     },
     titleGroups: indexedSnapshotUnsafe ? [] : titleGroups,
     simhashGroupTotal: indexedSnapshotUnsafe ? 0 : simhashGroupTotal,

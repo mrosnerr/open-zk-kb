@@ -336,6 +336,7 @@ export interface DuplicateAuditSnapshot {
   readonly notes: Array<NoteMetadata & { content_hash?: string | null }>;
   readonly indexedSnapshotUnsafe: boolean;
   readonly omissions: Readonly<Record<string, number>>;
+  readonly uncertaintyReasons: Readonly<Record<string, number>>;
 }
 
 type CanonicalMetadataBaseline = { metadata: string | undefined; indexedVersion: number };
@@ -679,7 +680,27 @@ export class NoteRepository {
       }
     }
 
+    const reasonPriority: Readonly<Record<UnindexedCanonicalReason, number>> = {
+      'unindexed': 0,
+      'metadata-drift': 1,
+      'unreadable': 2,
+      'traversal-incomplete': 3,
+    };
+    const candidatesByIdentity = new Map<string, typeof candidates[number]>();
     for (const candidate of candidates) {
+      const existing = candidatesByIdentity.get(candidate.identity);
+      if (!existing) {
+        candidatesByIdentity.set(candidate.identity, candidate);
+        continue;
+      }
+      candidatesByIdentity.set(candidate.identity, {
+        identity: candidate.identity,
+        reason: reasonPriority[candidate.reason] > reasonPriority[existing.reason] ? candidate.reason : existing.reason,
+        dedupeEligible: existing.dedupeEligible || candidate.dedupeEligible,
+      });
+    }
+
+    for (const candidate of candidatesByIdentity.values()) {
       const digest = createHash('sha256').update(candidate.identity).digest('hex');
       const baseId = `__graph-evidence-${digest}`;
       let id = baseId;
@@ -2032,7 +2053,8 @@ export class NoteRepository {
       if (!entry.dedupeEligible) continue;
       omissions[entry.reason] = (omissions[entry.reason] ?? 0) + 1;
     }
-    if (inventory.traversalIncomplete) omissions['traversal-incomplete'] = 1;
+    const uncertaintyReasons: Record<string, number> = {};
+    if (inventory.traversalIncomplete) uncertaintyReasons['traversal-incomplete'] = 1;
 
     const initializedPath = path.join(this.docsPath, '.index', 'canonical-baselines', '.initialized');
     let indexedSnapshotUnsafe = this.baselineState?.baselineUnavailable === true || !fs.existsSync(initializedPath);
@@ -2096,6 +2118,7 @@ export class NoteRepository {
       })),
       indexedSnapshotUnsafe,
       omissions,
+      uncertaintyReasons,
     };
   }
 
