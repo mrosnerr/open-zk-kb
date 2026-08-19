@@ -892,7 +892,10 @@ describe('reviewed knowledge-store handler', () => {
       expect(updateCtx.engine.getScreeningSnapshot({ project: 'race' }).canonicalDrift).toBe(false);
       const updateResults = await runRace(updateCtx, 'update', target.id, targetMetadata.updated_at);
       expect(updateResults.filter(result => result.includes('Updated reference'))).toHaveLength(1);
-      expect(updateResults.filter(result => result.includes('version is stale'))).toHaveLength(1);
+      // The losing process can observe either the advanced target version or
+      // fail-closed canonical drift while the winning process commits. Both are
+      // valid stale outcomes; neither permits a second update.
+      expect(updateResults.filter(result => result.includes('stale'))).toHaveLength(1);
     } finally {
       cleanupTestHarness(updateCtx);
     }
