@@ -1,5 +1,79 @@
+diff --git a/dist/transformers.node.mjs b/dist/transformers.node.mjs
+index bacb354fe1b898d4c535a39f5ef1ba5c6a463d75..c9146b75c2711b4455a996bc3ac948b0f1e4905e 100644
+--- a/dist/transformers.node.mjs
++++ b/dist/transformers.node.mjs
+@@ -7542,7 +7542,7 @@ var uint16_to_float32 = /* @__PURE__ */ (function() {
+ })();
+ 
+ // src/backends/onnx.js
+-import * as ONNX_NODE from "onnxruntime-node";
++const ONNX_NODE = undefined;
+ 
+ // ../../node_modules/.pnpm/onnxruntime-web@1.26.0-dev.20260416-b7804b056c/node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs
+ var ort_webgpu_bundle_min_exports = {};
+@@ -11551,23 +11551,9 @@ var ORT_SYMBOL = /* @__PURE__ */ Symbol.for("onnxruntime");
+ if (ORT_SYMBOL in globalThis) {
+   ONNX = globalThis[ORT_SYMBOL];
+ } else if (apis.IS_NODE_ENV) {
+-  ONNX = ONNX_NODE;
+-  switch (process.platform) {
+-    case "win32":
+-      supportedDevices.push("dml");
+-      break;
+-    case "linux":
+-      if (process.arch === "x64") {
+-        supportedDevices.push("cuda");
+-      }
+-      break;
+-    case "darwin":
+-      supportedDevices.push("coreml");
+-      break;
+-  }
+-  supportedDevices.push("webgpu");
+-  supportedDevices.push("cpu");
+-  defaultDevices = ["cpu"];
++  ONNX = ort_webgpu_bundle_min_exports;
++  supportedDevices.push("wasm");
++  defaultDevices = ["wasm"];
+ } else {
+   ONNX = ort_webgpu_bundle_min_exports;
+   if (apis.IS_WEBNN_AVAILABLE) {
+@@ -17738,7 +17724,7 @@ var CohereAsrProcessor = class extends Processor {
+ };
+ 
+ // src/utils/image.js
+-import sharp from "sharp";
++const sharp = undefined;
+ var createCanvasFunction;
+ var ImageDataClass;
+ var loadImageFunction;
+@@ -17763,7 +17749,9 @@ if (apis.IS_WEB_ENV) {
+     return newImage;
+   };
+ } else {
+-  throw new Error("Unable to load image processing library.");
++  loadImageFunction = async () => {
++    throw new Error("Image processing is unavailable in this build.");
++  };
+ }
+ var RESAMPLING_MAPPING = {
+   0: "nearest",
+@@ -22328,11 +22316,11 @@ function getExternalDataChunkNames(fullName, numChunks) {
+ async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
+   const baseName = `${fileName}${suffix}.onnx`;
+   const fullPath = `${options.subfolder ?? ""}/${baseName}`;
+-  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, apis.IS_NODE_ENV);
++  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, false);
+ }
+ async function getModelDataFiles(pretrained_model_name_or_path, fileName, suffix, options, use_external_data_format, session_options = {}) {
+   const baseName = `${fileName}${suffix}.onnx`;
+-  const return_path = apis.IS_NODE_ENV;
++  const return_path = false;
+   let externalDataPromises = [];
+   const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
+   if (num_chunks > 0) {
 diff --git a/src/backends/onnx.js b/src/backends/onnx.js
-index 13b1a74..6bd95ef 100644
+index 13b1a748272d03aa062950ff585c1a2277ba96c9..6bd95ef235d32d6d44776b116880bc758c4ce6d2 100644
 --- a/src/backends/onnx.js
 +++ b/src/backends/onnx.js
 @@ -20,7 +20,7 @@ import { env, apis, LogLevel } from '../env.js';
@@ -50,7 +124,7 @@ index 13b1a74..6bd95ef 100644
      ONNX = ONNX_WEB;
  
 diff --git a/src/utils/image.js b/src/utils/image.js
-index d7d8c7f..7a75d16 100644
+index d7d8c7fcd8f70fb76eafe2d38cb52ad58a4e42c4..7a75d165c6bfa7173f367bca8802266b67a2eb59 100644
 --- a/src/utils/image.js
 +++ b/src/utils/image.js
 @@ -14,7 +14,7 @@ import { Tensor } from './tensor.js';
@@ -74,7 +148,7 @@ index d7d8c7f..7a75d16 100644
  
  // Defined here: https://github.com/python-pillow/Pillow/blob/a405e8406b83f8bfb8916e93971edc7407b8b1ff/src/libImaging/Imaging.h#L262-L268
 diff --git a/src/utils/model-loader.js b/src/utils/model-loader.js
-index 599aefe..43234b6 100644
+index 599aefe9dc975c8c6a4a3c64ffd7d7e177e17509..43234b61864d9074a936db0965a9d71b8059f4c1 100644
 --- a/src/utils/model-loader.js
 +++ b/src/utils/model-loader.js
 @@ -45,7 +45,7 @@ export async function getCoreModelFile(pretrained_model_name_or_path, fileName,
@@ -95,77 +169,3 @@ index 599aefe..43234b6 100644
  
      /** @type {Promise<string|{path: string, data: Uint8Array}>[]} */
      let externalDataPromises = [];
-diff --git a/dist/transformers.node.mjs b/dist/transformers.node.mjs
-index 7257f56..bb198e9 100644
---- a/dist/transformers.node.mjs
-+++ b/dist/transformers.node.mjs
-@@ -7542,7 +7542,7 @@ var uint16_to_float32 = /* @__PURE__ */ (function() {
- })();
- 
- // src/backends/onnx.js
--import * as ONNX_NODE from "onnxruntime-node";
-+const ONNX_NODE = undefined;
- 
- // ../../node_modules/.pnpm/onnxruntime-web@1.25.0-dev.20260327-722743c0e2/node_modules/onnxruntime-web/dist/ort.webgpu.bundle.min.mjs
- var ort_webgpu_bundle_min_exports = {};
-@@ -11557,23 +11557,9 @@ var ORT_SYMBOL = /* @__PURE__ */ Symbol.for("onnxruntime");
- if (ORT_SYMBOL in globalThis) {
-   ONNX = globalThis[ORT_SYMBOL];
- } else if (apis.IS_NODE_ENV) {
--  ONNX = ONNX_NODE;
--  switch (process.platform) {
--    case "win32":
--      supportedDevices.push("dml");
--      break;
--    case "linux":
--      if (process.arch === "x64") {
--        supportedDevices.push("cuda");
--      }
--      break;
--    case "darwin":
--      supportedDevices.push("coreml");
--      break;
--  }
--  supportedDevices.push("webgpu");
--  supportedDevices.push("cpu");
--  defaultDevices = ["cpu"];
-+  ONNX = ort_webgpu_bundle_min_exports;
-+  supportedDevices.push("wasm");
-+  defaultDevices = ["wasm"];
- } else {
-   ONNX = ort_webgpu_bundle_min_exports;
-   if (apis.IS_WEBNN_AVAILABLE) {
-@@ -17726,7 +17712,7 @@ var CohereAsrProcessor = class extends Processor {
- };
- 
- // src/utils/image.js
--import sharp from "sharp";
-+const sharp = undefined;
- var createCanvasFunction;
- var ImageDataClass;
- var loadImageFunction;
-@@ -17751,7 +17737,9 @@ if (apis.IS_WEB_ENV) {
-     return newImage;
-   };
- } else {
--  throw new Error("Unable to load image processing library.");
-+  loadImageFunction = async () => {
-+    throw new Error("Image processing is unavailable in this build.");
-+  };
- }
- var RESAMPLING_MAPPING = {
-   0: "nearest",
-@@ -22394,11 +22382,11 @@ function getExternalDataChunkNames(fullName, numChunks) {
- async function getCoreModelFile(pretrained_model_name_or_path, fileName, options, suffix) {
-   const baseName = `${fileName}${suffix}.onnx`;
-   const fullPath = `${options.subfolder ?? ""}/${baseName}`;
--  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, apis.IS_NODE_ENV);
-+  return await getModelFile(pretrained_model_name_or_path, fullPath, true, options, false);
- }
- async function getModelDataFiles(pretrained_model_name_or_path, fileName, suffix, options, use_external_data_format, session_options = {}) {
-   const baseName = `${fileName}${suffix}.onnx`;
--  const return_path = apis.IS_NODE_ENV;
-+  const return_path = false;
-   let externalDataPromises = [];
-   const num_chunks = resolveExternalDataFormat(use_external_data_format, baseName, fileName);
-   if (num_chunks > 0) {

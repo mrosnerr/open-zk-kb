@@ -12,7 +12,7 @@ When sharing is enabled, each completed session is reported as one `session` eve
   "properties": {
     "client": "claude-code",
     "client_version": "1.0.27",
-    "version": "1.4.3",
+    "version": "1.4.4",
     "os_platform": "darwin",
     "vault_size": 42,
     "duration_ms": 300000,
@@ -30,7 +30,7 @@ When sharing is enabled, each completed session is reported as one `session` eve
     "models": ["claude"],
     "session_id": "550e8400-e29b-41d4-a716-446655440000",
     "$lib": "open-zk-kb",
-    "$lib_version": "1.4.3",
+    "$lib_version": "1.4.4",
     "$lib_env": "production",
     "$geoip_disable": true
   }

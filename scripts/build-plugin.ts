@@ -15,12 +15,20 @@ const TARGETS = [
 ];
 
 const ROOT = path.resolve(import.meta.dir, '..');
+const PACKAGE_JSON = path.join(ROOT, 'package.json');
+const PROJECT_PACKAGE = JSON.parse(fs.readFileSync(PACKAGE_JSON, 'utf-8'));
+const TRANSFORMERS_PACKAGE = `@huggingface/transformers@${PROJECT_PACKAGE.dependencies['@huggingface/transformers']}`;
+const transformersPatchPath = PROJECT_PACKAGE.patchedDependencies?.[TRANSFORMERS_PACKAGE];
+if (typeof transformersPatchPath !== 'string') {
+  throw new Error(`Missing patchedDependencies entry for ${TRANSFORMERS_PACKAGE}`);
+}
+
 const PLUGIN_DIR = path.join(ROOT, 'plugin');
 const PLUGIN_BIN = path.join(PLUGIN_DIR, 'bin');
 const PLUGIN_SKILLS = path.join(PLUGIN_DIR, 'skills', 'open-zk-kb');
 const SOURCE_SKILLS = path.join(ROOT, 'skill-templates', 'open-zk-kb');
 const ENTRYPOINT = path.join(ROOT, 'src', 'mcp-server.ts');
-const TRANSFORMERS_PATCH = path.join(ROOT, 'patches', '@huggingface+transformers.patch');
+const TRANSFORMERS_PATCH = path.resolve(ROOT, transformersPatchPath);
 const TRANSFORMERS_ONNX = path.join(ROOT, 'node_modules', '@huggingface', 'transformers', 'src', 'backends', 'onnx.js');
 const TRANSFORMERS_IMAGE = path.join(ROOT, 'node_modules', '@huggingface', 'transformers', 'src', 'utils', 'image.js');
 const TRANSFORMERS_MODEL_LOADER = path.join(ROOT, 'node_modules', '@huggingface', 'transformers', 'src', 'utils', 'model-loader.js');
@@ -101,8 +109,7 @@ function applyTransformersPatch(): boolean {
 
 async function main() {
   // Get version from package.json
-  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf-8'));
-  const version = pkg.version;
+  const version = PROJECT_PACKAGE.version;
   const semverRe = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
   if (typeof version !== 'string' || !semverRe.test(version)) {
     console.error(`Invalid or missing version in package.json: ${version}`);

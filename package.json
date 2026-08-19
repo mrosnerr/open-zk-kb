@@ -1,6 +1,6 @@
 {
   "name": "open-zk-kb",
-  "version": "1.4.3",
+  "version": "1.4.4",
   "mcpName": "io.github.mrosnerr/open-zk-kb",
   "description": "Persistent memory for agents. Corrections stick, context compounds, every session starts smarter.",
   "type": "module",
@@ -82,7 +82,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
-    "@huggingface/transformers": "4.0.1",
+    "@huggingface/transformers": "4.2.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.12",
@@ -95,9 +95,9 @@
     "yaml": "^2.3.4"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^0.80.10",
-    "@earendil-works/pi-coding-agent": "^0.80.10",
-    "@earendil-works/pi-tui": "^0.80.10",
+    "@earendil-works/pi-ai": "^0.84.2",
+    "@earendil-works/pi-coding-agent": "^0.84.2",
+    "@earendil-works/pi-tui": "^0.84.2",
     "@eslint/js": "^10.0.1",
     "@types/turndown": "^5.0.6",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
@@ -168,6 +168,10 @@
   },
   "license": "MIT",
   "patchedDependencies": {
-    "@huggingface/transformers@4.0.1": "patches/@huggingface+transformers@4.0.1.patch"
+    "@huggingface/transformers@4.2.0": "patches/@huggingface%2Ftransformers@4.2.0.patch"
+  },
+  "overrides": {
+    "adm-zip": "0.6.0",
+    "sharp": "0.35.3"
   }
 }

@@ -1,6 +1,6 @@
 ---
 name: open-zk-kb
-version: 1.4.3
+version: 1.4.4
 description: >
   This skill should be used when the user asks to "store a note", "save this
   to the knowledge base", "remember this", "search my notes", "what do I know
