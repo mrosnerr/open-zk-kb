@@ -785,14 +785,14 @@ describe('reviewed knowledge-store handler', () => {
 
   it('serializes independent process create and update races', async () => {
     const fixture = path.resolve(import.meta.dir, 'fixtures/reviewed-store-race.ts');
-    const runRace = async (mode: 'create' | 'update', targetId?: string, expectedUpdatedAt?: number) => {
-      const barrier = path.join(ctx.tempDir, `${mode}-barrier`);
+    const runRace = async (raceCtx: TestContext, mode: 'create' | 'update', targetId?: string, expectedUpdatedAt?: number) => {
+      const barrier = path.join(raceCtx.tempDir, `${mode}-barrier`);
       const lanes = ['a', 'b'];
       // Invoke the current Bun binary directly on the absolute fixture path so
       // the child launch does not depend on PATH resolution or `bun run`
       // wrapper behaviour, which differ between local and CI coverage runs.
       const command = (lane: string) => [
-        process.execPath, fixture, ctx.tempDir, mode, lane, barrier, targetId ?? '', expectedUpdatedAt?.toString() ?? '',
+        process.execPath, fixture, raceCtx.tempDir, mode, lane, barrier, targetId ?? '', expectedUpdatedAt?.toString() ?? '',
       ];
       expect(path.isAbsolute(process.execPath)).toBe(true);
       expect(fs.existsSync(process.execPath)).toBe(true);
@@ -876,16 +876,26 @@ describe('reviewed knowledge-store handler', () => {
       return results;
     };
 
-    const createResults = await runRace('create');
+    const createResults = await runRace(ctx, 'create');
     expect(createResults.filter(result => result.includes('Stored reference'))).toHaveLength(1);
     expect(createResults.filter(result => result.includes('token is stale'))).toHaveLength(1);
     expect(ctx.engine.getScreeningSnapshot({ project: 'race' }).notes.filter(note => note.title === 'Cross Process Candidate')).toHaveLength(1);
 
-    const target = ctx.engine.store('initial target', { title: 'Cross Process Target', kind: 'reference', status: 'fleeting', lifecycle: 'living', tags: ['project:race'], summary: 'Initial target.', guidance: 'Use initial target.' });
-    const targetMetadata = getNote(ctx, target.id);
-    const updateResults = await runRace('update', target.id, targetMetadata.updated_at);
-    expect(updateResults.filter(result => result.includes('Updated reference'))).toHaveLength(1);
-    expect(updateResults.filter(result => result.includes('version is stale'))).toHaveLength(1);
+    // Use a fresh vault for the update race. Reusing the create-race vault makes
+    // the update fixture depend on canonical-baseline state written by the first
+    // pair of child processes, which is unrelated to update serialization and can
+    // transiently force both update previews into fail-closed mode.
+    const updateCtx = createTestHarness({ telemetryEnabled: false });
+    try {
+      const target = updateCtx.engine.store('initial target', { title: 'Cross Process Target', kind: 'reference', status: 'fleeting', lifecycle: 'living', tags: ['project:race'], summary: 'Initial target.', guidance: 'Use initial target.' });
+      const targetMetadata = getNote(updateCtx, target.id);
+      expect(updateCtx.engine.getScreeningSnapshot({ project: 'race' }).canonicalDrift).toBe(false);
+      const updateResults = await runRace(updateCtx, 'update', target.id, targetMetadata.updated_at);
+      expect(updateResults.filter(result => result.includes('Updated reference'))).toHaveLength(1);
+      expect(updateResults.filter(result => result.includes('version is stale'))).toHaveLength(1);
+    } finally {
+      cleanupTestHarness(updateCtx);
+    }
   });
 
   it('withholds and rejects create after a low-confidence canonical note changes outside the index', async () => {
