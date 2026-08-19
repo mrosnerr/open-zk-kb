@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.4
+
+- Update Transformers.js to 4.2.0 (#224)
+- Update Pi packages to 0.84.2 (#223)
+- Bump actions/checkout from 7.0.0 to 7.0.1 (#208)
+
 ## 1.4.3
 
 ### Added
