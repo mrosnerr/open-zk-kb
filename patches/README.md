@@ -2,7 +2,7 @@
 
 Bun applies these patches during `bun install`; the mapping is declared in `package.json` under `patchedDependencies`.
 
-## `@huggingface+transformers@4.0.1.patch`
+## `@huggingface%2Ftransformers@4.2.0.patch`
 
 `@huggingface/transformers` ships with hard dependencies on native Node.js C++ addons that don't work under Bun. This patch swaps them for portable alternatives:
 

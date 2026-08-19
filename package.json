@@ -82,7 +82,7 @@
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",
-    "@huggingface/transformers": "4.0.1",
+    "@huggingface/transformers": "4.2.0",
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.12",
@@ -168,6 +168,6 @@
   },
   "license": "MIT",
   "patchedDependencies": {
-    "@huggingface/transformers@4.0.1": "patches/@huggingface+transformers@4.0.1.patch"
+    "@huggingface/transformers@4.2.0": "patches/@huggingface%2Ftransformers@4.2.0.patch"
   }
 }
