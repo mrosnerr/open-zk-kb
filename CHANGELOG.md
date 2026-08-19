@@ -2,6 +2,7 @@
 
 ## 1.4.4
 
+- Resolve transitive dependency advisories with a clean lockfile refresh and targeted `adm-zip` and `sharp` overrides, based on the security investigation by [@guresicpark](https://github.com/guresicpark)
 - Update Transformers.js to 4.2.0 (#224)
 - Update Pi packages to 0.84.2 (#223)
 - Bump actions/checkout from 7.0.0 to 7.0.1 (#208)

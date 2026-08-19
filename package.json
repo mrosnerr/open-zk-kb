@@ -169,5 +169,9 @@
   "license": "MIT",
   "patchedDependencies": {
     "@huggingface/transformers@4.2.0": "patches/@huggingface%2Ftransformers@4.2.0.patch"
+  },
+  "overrides": {
+    "adm-zip": "0.6.0",
+    "sharp": "0.35.3"
   }
 }
