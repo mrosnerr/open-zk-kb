@@ -86,7 +86,7 @@
     "@modelcontextprotocol/sdk": "^1.26.0",
     "@mozilla/readability": "^0.6.0",
     "linkedom": "^0.18.12",
-    "onnxruntime-web": "1.27.0",
+    "onnxruntime-web": "1.29.0",
     "picocolors": "^1.1.1",
     "remark-frontmatter": "^5.0.0",
     "remark-parse": "^11.0.0",
